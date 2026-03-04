@@ -4,6 +4,13 @@
  * Express server for managing models, users, and usage statistics
  */
 
+// Force noproxy: 모든 LLM 호출이 프록시를 우회하도록 환경변수 제거
+// Docker Compose에서 빌드용으로 주입된 프록시 설정이 런타임 fetch()에 영향을 주지 않도록 함
+delete process.env['HTTP_PROXY'];
+delete process.env['HTTPS_PROXY'];
+delete process.env['http_proxy'];
+delete process.env['https_proxy'];
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -24,6 +31,7 @@ import { holidaysRoutes } from './routes/holidays.routes.js';
 import { llmTestRoutes } from './routes/llm-test.routes.js';
 import { startLLMTestScheduler, stopLLMTestScheduler } from './services/llm-test.service.js';
 import { errorTelemetryRoutes } from './routes/error-telemetry.routes.js';
+import { firebaseAuthRoutes } from './routes/firebase-auth.routes.js';
 import { startErrorCleanupScheduler } from './services/error-cleanup.service.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
@@ -68,6 +76,7 @@ app.get('/health', (_req, res) => {
 
 // API Routes
 app.use('/auth', authRoutes);
+app.use('/auth', firebaseAuthRoutes);  // 모바일 앱(에이아이) Firebase 인증
 app.use('/services', serviceRoutes);
 app.use('/models', modelsRoutes);
 app.use('/usage', usageRoutes);
