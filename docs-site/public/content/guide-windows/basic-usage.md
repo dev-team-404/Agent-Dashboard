@@ -2,7 +2,7 @@
 
 ## 인터페이스 소개
 
-Nexus Coder for Windows는 **채팅형 GUI**를 제공합니다.
+Nexus Bot는 **채팅형 GUI**를 제공합니다.
 
 | 영역 | 설명 |
 |------|------|

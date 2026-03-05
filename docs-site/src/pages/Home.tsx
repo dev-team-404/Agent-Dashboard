@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Terminal, Sparkles, Zap, Globe, FileText, GitBranch } from 'lucide-react';
+import { ArrowRight, Terminal, Sparkles, Zap, Globe, FileText, GitBranch, Monitor } from 'lucide-react';
 import { services } from '../data/services';
 
 function HeroSection() {
@@ -36,13 +36,22 @@ function HeroSection() {
           브라우저 자동화, 오피스 자동화까지 — 올인원 코딩 에이전트.
         </p>
 
-        {/* CTA buttons */}
+        {/* CTA buttons — 2 products */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20 animate-fade-up" style={{ animationDelay: '0.3s' }}>
           <Link
             to="/nexus-coder"
-            className="group px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-brand-500 to-brand-600 rounded-xl hover:shadow-2xl hover:shadow-brand-500/25 transition-all hover:-translate-y-0.5 flex items-center gap-2"
+            className="group px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-brand-500 to-brand-600 rounded-xl hover:shadow-2xl hover:shadow-brand-500/25 transition-all hover:-translate-y-0.5 flex items-center gap-3"
           >
-            시작하기
+            <Terminal className="w-5 h-5" />
+            Nexus Coder 시작하기
+            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Link>
+          <Link
+            to="/nexus-bot"
+            className="group px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-500 rounded-xl hover:shadow-2xl hover:shadow-violet-500/25 transition-all hover:-translate-y-0.5 flex items-center gap-3"
+          >
+            <Monitor className="w-5 h-5" />
+            Nexus Bot 시작하기
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
@@ -215,12 +224,13 @@ function CTASection() {
             to="/guide/getting-started"
             className="group px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-brand-500 to-brand-600 rounded-xl hover:shadow-2xl hover:shadow-brand-500/25 transition-all hover:-translate-y-0.5 flex items-center gap-2"
           >
-            CLI 시작하기 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            Nexus Coder 시작하기 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
           <Link
             to="/guide-windows/getting-started"
-            className="px-8 py-4 text-base font-semibold text-gray-300 glass rounded-xl hover:bg-white/10 transition-all">
-            Windows 다운로드
+            className="group px-8 py-4 text-base font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-500 rounded-xl hover:shadow-2xl hover:shadow-violet-500/25 transition-all hover:-translate-y-0.5 flex items-center gap-2"
+          >
+            Nexus Bot 시작하기 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
       </div>

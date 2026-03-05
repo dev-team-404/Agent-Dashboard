@@ -76,7 +76,7 @@ export default function App() {
 
         {/* Service pages */}
         <Route path="/nexus-coder" element={<><ServicePage /><Footer /></>} />
-        <Route path="/nexus-coder-windows" element={<><ServicePage /><Footer /></>} />
+        <Route path="/nexus-bot" element={<><ServicePage /><Footer /></>} />
         <Route path="/once" element={<><ServicePage /><Footer /></>} />
         <Route path="/free" element={<><ServicePage /><Footer /></>} />
 
@@ -89,10 +89,10 @@ export default function App() {
         <Route path="/guide/compact" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/compact" />} />
         <Route path="/guide/wsl-setup" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/wsl-setup" />} />
 
-        {/* Windows Guide docs */}
-        <Route path="/guide-windows/getting-started" element={<DocRoute sectionTitle="Windows 가이드" path="/guide-windows/getting-started" />} />
-        <Route path="/guide-windows/basic-usage" element={<DocRoute sectionTitle="Windows 가이드" path="/guide-windows/basic-usage" />} />
-        <Route path="/guide-windows/faq" element={<DocRoute sectionTitle="Windows 가이드" path="/guide-windows/faq" />} />
+        {/* Nexus Bot Guide docs */}
+        <Route path="/guide-windows/getting-started" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/getting-started" />} />
+        <Route path="/guide-windows/basic-usage" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/basic-usage" />} />
+        <Route path="/guide-windows/faq" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/faq" />} />
 
         {/* ONCE docs */}
         <Route path="/once/guide/getting-started" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/guide/getting-started" />} />
