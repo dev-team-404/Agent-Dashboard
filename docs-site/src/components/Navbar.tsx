@@ -26,7 +26,8 @@ export default function Navbar() {
               서비스 <ChevronDown className={`w-3.5 h-3.5 transition-transform ${servicesOpen ? 'rotate-180' : ''}`} />
             </button>
             {servicesOpen && (
-              <div className="absolute top-full left-0 mt-1 w-72 p-2 rounded-xl bg-surface-light/95 backdrop-blur-xl border border-white/10 shadow-2xl">
+              <div className="absolute top-full left-0 pt-2 w-72">
+              <div className="p-2 rounded-xl bg-surface-light/95 backdrop-blur-xl border border-white/10 shadow-2xl">
                 {services.map((s) => (
                   <Link
                     key={s.id}
@@ -41,6 +42,7 @@ export default function Navbar() {
                     </div>
                   </Link>
                 ))}
+              </div>
               </div>
             )}
           </div>
