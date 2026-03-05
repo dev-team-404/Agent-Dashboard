@@ -46,9 +46,6 @@ export default function Navbar() {
               </div>
             )}
           </div>
-          <Link to="/demos" className={`px-4 py-2 text-sm rounded-lg transition-all ${location.pathname === '/demos' ? 'text-white bg-white/10' : 'text-gray-300 hover:text-white hover:bg-white/5'}`}>
-            데모
-          </Link>
           <a href="/feedback" className="px-4 py-2 text-sm text-gray-300 hover:text-white rounded-lg hover:bg-white/5 transition-all">
             피드백
           </a>
@@ -81,9 +78,6 @@ export default function Navbar() {
               <span className="text-sm font-medium">{s.name}</span>
             </Link>
           ))}
-          <Link to="/demos" onClick={() => setOpen(false)} className="block px-4 py-3 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-white/5">
-            데모
-          </Link>
           <a href={services[0].downloadUrl} className="block mt-3 px-4 py-3 text-sm font-medium text-center text-white bg-gradient-to-r from-brand-500 to-brand-600 rounded-lg">
             다운로드 v5.0.2
           </a>

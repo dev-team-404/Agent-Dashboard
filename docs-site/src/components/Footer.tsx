@@ -37,7 +37,6 @@ export default function Footer() {
             <ul className="space-y-2.5">
               <li><Link to="/guide/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">CLI 시작하기</Link></li>
               <li><Link to="/guide-windows/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Windows 시작하기</Link></li>
-              <li><Link to="/demos" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">데모</Link></li>
               <li><a href="/feedback" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">피드백</a></li>
             </ul>
           </div>

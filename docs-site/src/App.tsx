@@ -5,7 +5,6 @@ import Footer from './components/Footer';
 import DocLayout from './components/DocLayout';
 import Home from './pages/Home';
 import ServicePage from './pages/ServicePage';
-import DemosIndex from './pages/DemosIndex';
 import { services } from './data/services';
 
 function ScrollToTop() {
@@ -62,21 +61,7 @@ function DocRoute({ sectionTitle, path }: { sectionTitle: string; path: string }
     sidebarItems = services[3].guides;
   }
 
-  // For demo pages
-  if (path.startsWith('/demos/')) {
-    const demoItems = [
-      { path: '/demos/understanding-codebase', label: '코드베이스 분석' },
-      { path: '/demos/vibe-coding-react', label: 'React 앱 개발' },
-      { path: '/demos/vibe-coding-streamlit', label: 'Streamlit 앱 개발' },
-      { path: '/demos/office-automation', label: 'Office 자동화' },
-      { path: '/demos/git-automation', label: 'Git 자동화' },
-    ];
-    sidebarItems = demoItems;
-  }
-
-  const contentPath = path.startsWith('/demos/')
-    ? `demos/${path.split('/').pop()}.md`
-    : guideContentPath(path);
+  const contentPath = guideContentPath(path);
 
   return <DocLayout title={sectionTitle} sidebarItems={sidebarItems} contentPath={contentPath} />;
 }
@@ -94,9 +79,6 @@ export default function App() {
         <Route path="/nexus-coder-windows" element={<><ServicePage /><Footer /></>} />
         <Route path="/once" element={<><ServicePage /><Footer /></>} />
         <Route path="/free" element={<><ServicePage /><Footer /></>} />
-
-        {/* Demos */}
-        <Route path="/demos" element={<><DemosIndex /><Footer /></>} />
 
         {/* CLI Guide docs */}
         <Route path="/guide/getting-started" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/getting-started" />} />
@@ -125,13 +107,6 @@ export default function App() {
         <Route path="/free/guide/reports" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/reports" />} />
         <Route path="/free/guide/admin" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/admin" />} />
         <Route path="/free/faq" element={<DocRoute sectionTitle="FREE 가이드" path="/free/faq" />} />
-
-        {/* Demo detail pages */}
-        <Route path="/demos/understanding-codebase" element={<DocRoute sectionTitle="데모" path="/demos/understanding-codebase" />} />
-        <Route path="/demos/vibe-coding-react" element={<DocRoute sectionTitle="데모" path="/demos/vibe-coding-react" />} />
-        <Route path="/demos/vibe-coding-streamlit" element={<DocRoute sectionTitle="데모" path="/demos/vibe-coding-streamlit" />} />
-        <Route path="/demos/office-automation" element={<DocRoute sectionTitle="데모" path="/demos/office-automation" />} />
-        <Route path="/demos/git-automation" element={<DocRoute sectionTitle="데모" path="/demos/git-automation" />} />
 
         {/* Fallback */}
         <Route path="*" element={

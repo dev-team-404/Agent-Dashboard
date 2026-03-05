@@ -113,11 +113,3 @@ export const services: ServiceInfo[] = [
     ],
   },
 ];
-
-export const demos = [
-  { id: 'understanding-codebase', title: '코드베이스 분석', description: '프로젝트 구조와 의존성을 AI가 분석합니다.', icon: '🔍' },
-  { id: 'vibe-coding-react', title: 'React 앱 개발', description: '자연어로 React 컴포넌트를 생성합니다.', icon: '⚛️' },
-  { id: 'vibe-coding-streamlit', title: 'Streamlit 앱 개발', description: '대화로 데이터 시각화 앱을 만듭니다.', icon: '📊' },
-  { id: 'office-automation', title: 'Office 자동화', description: 'Word, Excel, PowerPoint를 AI로 제어합니다.', icon: '📄' },
-  { id: 'git-automation', title: 'Git 자동화', description: '커밋, 브랜치, PR을 자동으로 관리합니다.', icon: '🔀' },
-];

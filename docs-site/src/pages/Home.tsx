@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Terminal, Sparkles, Zap, Globe, FileText, GitBranch } from 'lucide-react';
-import { services, demos } from '../data/services';
+import { services } from '../data/services';
 
 function HeroSection() {
   return (
@@ -44,13 +44,6 @@ function HeroSection() {
           >
             시작하기
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-          </Link>
-          <Link
-            to="/demos"
-            className="px-8 py-4 text-base font-semibold text-gray-300 glass rounded-xl hover:bg-white/10 transition-all flex items-center gap-2"
-          >
-            <Sparkles className="w-4 h-4" />
-            데모 보기
           </Link>
         </div>
 
@@ -203,35 +196,6 @@ function ServicesSection() {
   );
 }
 
-function DemosSection() {
-  return (
-    <section className="bg-gray-50 py-24">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-12">
-          <p className="text-sm font-semibold text-brand-500 uppercase tracking-wider mb-3">Demos</p>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight">실전 활용 사례</h2>
-        </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {demos.map((d) => (
-            <Link key={d.id} to={`/demos/${d.id}`} className="group p-5 rounded-xl bg-white border border-gray-100 hover:shadow-lg hover:border-brand-200 transition-all">
-              <span className="text-2xl">{d.icon}</span>
-              <h3 className="text-base font-semibold text-gray-900 mt-3 group-hover:text-brand-600 transition-colors">{d.title}</h3>
-              <p className="text-sm text-gray-500 mt-1">{d.description}</p>
-            </Link>
-          ))}
-        </div>
-
-        <div className="text-center mt-8">
-          <Link to="/demos" className="inline-flex items-center gap-2 text-sm font-medium text-brand-500 hover:text-brand-600 transition-colors">
-            모든 데모 보기 <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function CTASection() {
   return (
     <section className="relative bg-surface py-24 overflow-hidden">
@@ -271,7 +235,6 @@ export default function Home() {
       <StatsSection />
       <FeaturesSection />
       <ServicesSection />
-      <DemosSection />
       <CTASection />
     </>
   );
