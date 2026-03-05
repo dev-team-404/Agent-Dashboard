@@ -28,8 +28,6 @@
 
 | 주소 | 용도 |
 |------|------|
-| `10.229.95.228` | API 서버 |
-| `10.229.95.220` | API 서버 |
 | `a2g.samsungds.net` | A2G 서비스 (LLM, 업데이트) |
 | `genai.samsungds.net` | GenAI SSO 인증 |
 
@@ -37,7 +35,7 @@
 
 ```powershell
 # PowerShell (현재 사용자에 영구 설정)
-[Environment]::SetEnvironmentVariable("NO_PROXY", "10.229.95.228,10.229.95.220,a2g.samsungds.net,genai.samsungds.net", "User")
+[Environment]::SetEnvironmentVariable("NO_PROXY", "a2g.samsungds.net,genai.samsungds.net", "User")
 ```
 
 설정 후 앱을 재시작하세요.

@@ -55,11 +55,11 @@ Windows 환경변수에 다음 NO_PROXY 설정이 필요할 수 있습니다:
 
 | 변수 | 값 |
 |------|-----|
-| `NO_PROXY` | `10.229.95.228,10.229.95.220,a2g.samsungds.net,genai.samsungds.net` |
+| `NO_PROXY` | `a2g.samsungds.net,genai.samsungds.net` |
 
 또는 PowerShell에서:
 ```powershell
-[Environment]::SetEnvironmentVariable("NO_PROXY", "10.229.95.228,10.229.95.220,a2g.samsungds.net,genai.samsungds.net", "User")
+[Environment]::SetEnvironmentVariable("NO_PROXY", "a2g.samsungds.net,genai.samsungds.net", "User")
 ```
 :::
 

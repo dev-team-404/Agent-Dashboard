@@ -13,8 +13,8 @@ Nexus Coder가 정상적으로 동작하려면 다음 주소들에 대한 **NO_P
 
 ```bash
 # .bashrc 또는 .zshrc에 추가
-export NO_PROXY="10.229.95.228,10.229.95.220,a2g.samsungds.net,genai.samsungds.net,$NO_PROXY"
-export no_proxy="10.229.95.228,10.229.95.220,a2g.samsungds.net,genai.samsungds.net,$no_proxy"
+export NO_PROXY="a2g.samsungds.net,genai.samsungds.net,$NO_PROXY"
+export no_proxy="a2g.samsungds.net,genai.samsungds.net,$no_proxy"
 
 # 즉시 적용
 source ~/.bashrc   # 또는 source ~/.zshrc
@@ -22,8 +22,6 @@ source ~/.bashrc   # 또는 source ~/.zshrc
 
 | 주소 | 용도 |
 |------|------|
-| `10.229.95.228` | API 서버 |
-| `10.229.95.220` | API 서버 |
 | `a2g.samsungds.net` | A2G 서비스 |
 | `genai.samsungds.net` | GenAI 서비스 |
 
