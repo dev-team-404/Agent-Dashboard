@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Users, Activity, Zap, Building2, TrendingUp, ArrowRight, Server,
-  Plus, X, Clock, Trash2, BarChart3, Globe, Layers,
+  Plus, X, Clock, Trash2, BarChart3, Globe, Layers, Settings, Eye,
+  ChevronRight, Edit2, ExternalLink,
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -119,7 +120,6 @@ function useAnimatedCounter(target: number, duration = 1200) {
     const animate = (now: number) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
-      // easeOutExpo
       const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
       setValue(Math.round(from + (target - from) * eased));
       if (progress < 1) {
@@ -133,7 +133,7 @@ function useAnimatedCounter(target: number, duration = 1200) {
   return value;
 }
 
-// ── Stat Card with Animated Counter ──
+// ── Stat Card ──
 function StatCard({
   label, value, icon: Icon, gradient, description, highlight, delay,
 }: {
@@ -147,7 +147,7 @@ function StatCard({
 }) {
   const animatedValue = useAnimatedCounter(value);
 
-  const formatNumber = (num: number): string => {
+  const formatNum = (num: number): string => {
     if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
@@ -159,18 +159,14 @@ function StatCard({
       className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
       style={{ animationDelay: `${delay}ms` }}
     >
-      {/* Gradient accent bar at top */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
-
-      {/* Glass shimmer on hover */}
       <div className="absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
       <div className="relative p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <p className="text-sm font-medium text-gray-500">{label}</p>
             <p className={`text-3xl font-bold tracking-tight ${highlight ? 'text-orange-600' : 'text-gray-900'}`}>
-              {formatNumber(animatedValue)}
+              {formatNum(animatedValue)}
             </p>
             <p className="text-xs text-gray-400">{description}</p>
           </div>
@@ -183,7 +179,7 @@ function StatCard({
   );
 }
 
-// ── Sparkline mini-chart for service cards ──
+// ── Sparkline ──
 function Sparkline({ data, color }: { data: number[]; color: string }) {
   if (data.length < 2) return null;
   const max = Math.max(...data, 1);
@@ -213,7 +209,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-// ── Chart Tab Section ──
+// ── Chart Tabs ──
 type ChartTab = 'service' | 'dept-users' | 'dept-requests' | 'dept-tokens' | 'latency';
 
 // ── Color palette ──
@@ -223,7 +219,11 @@ const CHART_COLORS = [
   '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
+// ── Main page tabs ──
+type MainTab = 'services' | 'dashboard';
+
 export default function MainDashboard({ adminRole }: MainDashboardProps) {
+  const [mainTab, setMainTab] = useState<MainTab>('services');
   const [services, setServices] = useState<Service[]>([]);
   const [globalOverview, setGlobalOverview] = useState<GlobalOverviewService[]>([]);
   const [globalTotals, setGlobalTotals] = useState<GlobalTotals | null>(null);
@@ -245,6 +245,9 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<Service | null>(null);
+  const [editForm, setEditForm] = useState({ displayName: '', description: '', enabled: true, type: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -337,6 +340,37 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     }
   };
 
+  const openEditModal = (service: Service) => {
+    setEditTarget(service);
+    setEditForm({
+      displayName: service.displayName,
+      description: service.description || '',
+      enabled: service.enabled,
+      type: (service.type || 'STANDARD') as 'STANDARD' | 'BACKGROUND',
+    });
+  };
+
+  const handleEditService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editTarget) return;
+    setSaving(true);
+    try {
+      await serviceApi.update(editTarget.id, {
+        displayName: editForm.displayName,
+        description: editForm.description || undefined,
+        enabled: editForm.enabled,
+        type: editForm.type,
+      });
+      setEditTarget(null);
+      loadData();
+      window.dispatchEvent(new CustomEvent('services-updated'));
+    } catch {
+      alert('서비스 수정에 실패했습니다.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const formatNumber = useCallback((num: number): string => {
     if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -348,11 +382,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const mergedServiceStats = services.map((service) => {
     const stats = globalOverview.find((s) => s.serviceId === service.id);
     return {
+      ...service,
       serviceId: service.id,
       serviceName: service.name,
       serviceDisplayName: service.displayName,
-      type: service.type || 'STANDARD',
-      iconUrl: service.iconUrl,
       totalUsers: stats?.totalUsers || 0,
       todayActiveUsers: stats?.todayActiveUsers || 0,
       avgDailyActiveUsers: stats?.avgDailyActiveUsers || 0,
@@ -373,7 +406,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const uniqueDates = [...new Set(serviceDaily.map(d => d.date))].sort();
   const uniqueServices = [...new Set(serviceDaily.map(d => d.serviceName))];
 
-  // Recharts: transform service daily data to row-based format
   const serviceRechartsData = uniqueDates.map(date => {
     const row: Record<string, string | number> = { date: date.slice(5) };
     uniqueServices.forEach(svc => {
@@ -383,25 +415,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     return row;
   });
 
-  // Dept daily token data for recharts
-  const deptTokenRechartsData = deptDailyData.map(d => ({
-    ...d,
-    date: (d.date as string).slice(5),
-  }));
+  const deptTokenRechartsData = deptDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptUsersRechartsData = deptUsersDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptServiceRechartsData = deptServiceRequestsData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
 
-  // Dept users daily data for recharts
-  const deptUsersRechartsData = deptUsersDailyData.map(d => ({
-    ...d,
-    date: (d.date as string).slice(5),
-  }));
-
-  // Dept+service requests daily data
-  const deptServiceRechartsData = deptServiceRequestsData.map(d => ({
-    ...d,
-    date: (d.date as string).slice(5),
-  }));
-
-  // Latency history for recharts
   const latencyKeys = Object.keys(latencyHistory);
   const latencyRechartsData = latencyKeys.length > 0
     ? (latencyHistory[latencyKeys[0]] || []).map((point, idx) => {
@@ -429,48 +446,29 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   if (loading) {
     return (
       <div className="space-y-6 animate-fade-in">
-        {/* Skeleton stat cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-5">
-              <div className="animate-pulse space-y-3">
-                <div className="h-3 bg-gray-200 rounded w-20" />
-                <div className="h-8 bg-gray-200 rounded w-16" />
-                <div className="h-2 bg-gray-100 rounded w-24" />
+        <div className="flex gap-2">
+          <div className="h-11 w-28 bg-gray-200 rounded-xl animate-pulse" />
+          <div className="h-11 w-36 bg-gray-100 rounded-xl animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="rounded-2xl bg-white border border-gray-100 p-6">
+              <div className="animate-pulse space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gray-200 rounded-xl" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-5 bg-gray-200 rounded w-32" />
+                    <div className="h-3 bg-gray-100 rounded w-20" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[...Array(3)].map((_, j) => (
+                    <div key={j} className="h-16 bg-gray-50 rounded-xl" />
+                  ))}
+                </div>
               </div>
             </div>
           ))}
-        </div>
-        {/* Skeleton service cards */}
-        <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-200 rounded w-40" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="rounded-xl border border-gray-100 p-4 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gray-200 rounded-lg" />
-                    <div className="space-y-1.5">
-                      <div className="h-4 bg-gray-200 rounded w-24" />
-                      <div className="h-3 bg-gray-100 rounded w-16" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[...Array(3)].map((_, j) => (
-                      <div key={j} className="h-12 bg-gray-100 rounded-lg" />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        {/* Skeleton chart area */}
-        <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 bg-gray-200 rounded w-48" />
-            <div className="h-72 bg-gray-100 rounded-xl" />
-          </div>
         </div>
       </div>
     );
@@ -494,22 +492,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
               <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                formatter={(value: number) => [formatNumber(value), undefined]}
-              />
+              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
               <Legend />
               {uniqueServices.map((svc, i) => (
-                <Area
-                  key={svc}
-                  type="monotone"
-                  dataKey={svc}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  fill={`url(#grad-${i})`}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
+                <Area key={svc} type="monotone" dataKey={svc} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={`url(#grad-${i})`} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
               ))}
             </AreaChart>
           </ResponsiveContainer>
@@ -525,33 +511,13 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
               <YAxis yAxisId="left" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                formatter={(value: number, name: string) => [formatNumber(value) + '명', name]}
-              />
+              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [formatNumber(value) + '명', name]} />
               <Legend />
               {deptUsersBUs.map((bu, i) => (
-                <RechartsLine
-                  key={`${bu}_cumulative`}
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey={`${bu}_cumulative`}
-                  name={`${bu} (누적)`}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                />
+                <RechartsLine key={`${bu}_cumulative`} yAxisId="left" type="monotone" dataKey={`${bu}_cumulative`} name={`${bu} (누적)`} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
               ))}
               {deptUsersBUs.map((bu, i) => (
-                <Bar
-                  key={`${bu}_active`}
-                  yAxisId="right"
-                  dataKey={`${bu}_active`}
-                  name={`${bu} (활성)`}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  fillOpacity={0.4}
-                  radius={[2, 2, 0, 0]}
-                />
+                <Bar key={`${bu}_active`} yAxisId="right" dataKey={`${bu}_active`} name={`${bu} (활성)`} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.4} radius={[2, 2, 0, 0]} />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
@@ -566,21 +532,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
               <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                formatter={(value: number) => [formatNumber(value), undefined]}
-              />
+              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
               <Legend />
               {deptServiceCombos.map((combo, i) => (
-                <RechartsLine
-                  key={combo}
-                  type="monotone"
-                  dataKey={combo}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 3 }}
-                />
+                <RechartsLine key={combo} type="monotone" dataKey={combo} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
               ))}
             </LineChart>
           </ResponsiveContainer>
@@ -603,21 +558,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
               <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                formatter={(value: number) => [formatNumber(value), undefined]}
-              />
+              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
               <Legend />
               {deptBusinessUnits.map((bu, i) => (
-                <Area
-                  key={bu}
-                  type="monotone"
-                  dataKey={bu}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  fill={`url(#dept-grad-${i})`}
-                  strokeWidth={2}
-                  dot={false}
-                />
+                <Area key={bu} type="monotone" dataKey={bu} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={`url(#dept-grad-${i})`} strokeWidth={2} dot={false} />
               ))}
             </AreaChart>
           </ResponsiveContainer>
@@ -628,7 +572,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
       case 'latency':
         return latencyRechartsData.length > 0 ? (
           <>
-            {/* Current latency summary cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               {latencyStats.slice(0, 4).map((stat) => (
                 <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-100">
@@ -648,26 +591,11 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               <LineChart data={latencyRechartsData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
-                <YAxis
-                  tick={{ fontSize: 12 }}
-                  stroke="#9ca3af"
-                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`}
-                />
-                <Tooltip
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                  formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]}
-                />
+                <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]} />
                 <Legend />
                 {latencyKeys.map((key, i) => (
-                  <RechartsLine
-                    key={key}
-                    type="monotone"
-                    dataKey={key}
-                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 3 }}
-                  />
+                  <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -681,7 +609,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     }
   };
 
-  // ── Chart tabs config ──
   const chartTabs: { key: ChartTab; label: string; icon: React.ElementType }[] = [
     { key: 'service', label: '서비스별 요청', icon: BarChart3 },
     { key: 'dept-users', label: '사업부 사용자', icon: Users },
@@ -691,161 +618,143 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   ];
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      {/* ════════ Hero Stats Section ════════ */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
-        <StatCard
-          label="전체 사용자"
-          value={totalUsers}
-          icon={Users}
-          gradient="bg-gradient-to-r from-blue-500 to-blue-600"
-          description="모든 서비스 합계"
-          delay={0}
-        />
-        <StatCard
-          label="오늘 DAU"
-          value={todayActive}
-          icon={Activity}
-          gradient="bg-gradient-to-r from-emerald-500 to-teal-500"
-          description="실시간 활성 사용자"
-          delay={80}
-        />
-        <StatCard
-          label="영업일 평균 DAU"
-          value={Math.round(avgDailyActiveExcluding)}
-          icon={Activity}
-          gradient="bg-gradient-to-r from-orange-500 to-amber-500"
-          description="최근 30일, 주말/휴일 제외"
-          highlight
-          delay={160}
-        />
-        <StatCard
-          label="총 토큰 사용"
-          value={totalTokens}
-          icon={TrendingUp}
-          gradient="bg-gradient-to-r from-violet-500 to-purple-500"
-          description="누적 합계"
-          delay={240}
-        />
-        <StatCard
-          label="총 API 요청"
-          value={totalRequests}
-          icon={Zap}
-          gradient="bg-gradient-to-r from-amber-500 to-yellow-500"
-          description="누적 합계"
-          delay={320}
-        />
+    <div className="space-y-6 animate-fade-in">
+      {/* ════════ Top-Level Tabs ════════ */}
+      <div className="flex items-center justify-between">
+        <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+          <button
+            onClick={() => setMainTab('services')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              mainTab === 'services'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Server className="w-4 h-4" />
+            서비스
+            <span className={`ml-1 px-1.5 py-0.5 text-xs rounded-full ${
+              mainTab === 'services' ? 'bg-samsung-blue text-white' : 'bg-gray-200 text-gray-500'
+            }`}>
+              {services.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setMainTab('dashboard')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              mainTab === 'dashboard'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            통합 대시보드
+          </button>
+        </div>
+
+        {mainTab === 'services' && (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white text-sm font-semibold rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
+          >
+            <Plus className="w-4 h-4" />
+            새 서비스 등록
+          </button>
+        )}
       </div>
 
-      {/* ════════ Real-time Active Users Indicator ════════ */}
-      {todayActive > 0 && (
-        <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-          </span>
-          <span className="text-sm font-medium text-emerald-700">
-            현재 <span className="font-bold text-emerald-800">{todayActive}명</span>이 오늘 서비스를 사용했습니다
-          </span>
-          <span className="text-xs text-emerald-500 ml-auto">실시간</span>
-        </div>
-      )}
-
-      {/* ════════ Service Cards Section ════════ */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-samsung-blue to-blue-600 shadow-lg">
-              <Globe className="w-4 h-4 text-white" />
+      {/* ════════ TAB: 서비스 ════════ */}
+      {mainTab === 'services' && (
+        <div className="space-y-6">
+          {/* Service summary bar */}
+          <div className="flex items-center gap-6 px-5 py-3 bg-white/70 backdrop-blur-xl rounded-xl border border-white/20 shadow-card">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-sm text-gray-600">
+                활성 <span className="font-bold text-gray-900">{services.filter(s => s.enabled).length}</span>
+              </span>
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">서비스별 현황</h2>
-              <p className="text-xs text-gray-500">{services.length}개 서비스 운영 중</p>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-gray-300" />
+              <span className="text-sm text-gray-600">
+                비활성 <span className="font-bold text-gray-900">{services.filter(s => !s.enabled).length}</span>
+              </span>
             </div>
+            <div className="h-4 w-px bg-gray-200" />
+            <span className="text-sm text-gray-500">
+              오늘 활성 사용자 <span className="font-bold text-samsung-blue">{todayActive}명</span>
+            </span>
+            <span className="text-sm text-gray-500">
+              총 요청 <span className="font-bold text-samsung-blue">{formatNumber(totalRequests)}</span>
+            </span>
           </div>
-          {adminRole === 'SUPER_ADMIN' && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-samsung-blue to-blue-600 text-white text-sm font-medium rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
-            >
-              <Plus className="w-4 h-4" />
-              서비스 추가
-            </button>
-          )}
-        </div>
 
-        <div className="p-6">
+          {/* Service Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {mergedServiceStats.map((service, idx) => (
-              <Link
+              <div
                 key={service.serviceId}
-                to={`/service/${service.serviceId}`}
-                className={`group relative overflow-hidden rounded-xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${
-                  service.hasData
-                    ? 'border-gray-100 bg-white'
-                    : 'border-dashed border-gray-200 bg-gray-50/30'
+                className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 bg-white ${
+                  service.enabled
+                    ? service.hasData ? 'border-gray-100' : 'border-dashed border-gray-200'
+                    : 'border-gray-200 opacity-60'
                 }`}
-                style={{ animationDelay: `${idx * 60}ms` }}
+                style={{ animationDelay: `${idx * 50}ms` }}
               >
-                {/* Top accent */}
-                <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${
-                  service.hasData
-                    ? 'from-samsung-blue to-blue-400 opacity-100'
-                    : 'from-gray-300 to-gray-200 opacity-50'
+                {/* Status indicator */}
+                <div className={`absolute top-0 left-0 right-0 h-1 ${
+                  service.enabled
+                    ? service.todayActiveUsers > 0
+                      ? 'bg-gradient-to-r from-green-400 to-emerald-500'
+                      : 'bg-gradient-to-r from-samsung-blue to-blue-400'
+                    : 'bg-gray-300'
                 }`} />
 
+                {/* Card content */}
                 <div className="p-5">
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
+                  {/* Header with actions */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3 min-w-0">
                       {service.iconUrl ? (
-                        <img
-                          src={service.iconUrl}
-                          alt={service.serviceDisplayName}
-                          className="w-10 h-10 rounded-xl shadow-sm"
-                        />
+                        <img src={service.iconUrl} alt={service.serviceDisplayName} className="w-12 h-12 rounded-xl shadow-sm flex-shrink-0" />
                       ) : (
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
-                          service.hasData
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0 ${
+                          service.enabled
                             ? 'bg-gradient-to-br from-samsung-blue to-blue-600'
                             : 'bg-gray-300'
                         }`}>
-                          <Server className="w-5 h-5 text-white" />
+                          <Server className="w-6 h-6 text-white" />
                         </div>
                       )}
-                      <div>
-                        <h3 className="font-semibold text-gray-900 group-hover:text-samsung-blue transition-colors">
-                          {service.serviceDisplayName}
-                        </h3>
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-gray-900 text-lg truncate">{service.serviceDisplayName}</h3>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-xs text-gray-500">{service.serviceName}</p>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full ${
+                          <code className="text-xs text-gray-400 font-mono">{service.serviceName}</code>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${
                             service.type === 'BACKGROUND'
                               ? 'bg-purple-50 text-purple-600'
                               : 'bg-blue-50 text-blue-600'
                           }`}>
-                            {service.type === 'BACKGROUND' ? 'BACKGROUND' : 'STANDARD'}
+                            {service.type === 'BACKGROUND' ? 'BG' : 'STD'}
                           </span>
+                          {!service.enabled && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-gray-100 text-gray-500">
+                              OFF
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {adminRole === 'SUPER_ADMIN' && (
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDeleteError(null);
-                            setDeleteTarget({ id: service.serviceId, name: service.serviceDisplayName });
-                          }}
-                          className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                          title="서비스 삭제"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      <ArrowRight className="w-5 h-5 text-gray-300 group-hover:text-samsung-blue group-hover:translate-x-0.5 transition-all" />
-                    </div>
+
+                    {/* Live indicator */}
+                    {service.todayActiveUsers > 0 && (
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 rounded-full flex-shrink-0">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                        </span>
+                        <span className="text-xs font-semibold text-green-700">{service.todayActiveUsers}</span>
+                      </div>
+                    )}
                   </div>
 
                   {service.hasData ? (
@@ -853,65 +762,312 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                       {/* Sparkline */}
                       {serviceSparklines[service.serviceName]?.some(v => v > 0) && (
                         <div className="mb-3 flex justify-center">
-                          <Sparkline
-                            data={serviceSparklines[service.serviceName]}
-                            color="#5BA4D9"
-                          />
+                          <Sparkline data={serviceSparklines[service.serviceName]} color="#5BA4D9" />
                         </div>
                       )}
 
-                      {/* Stats grid */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="text-center p-2.5 bg-gray-50/80 rounded-lg">
+                      {/* Stats */}
+                      <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="text-center p-2.5 bg-gray-50 rounded-xl">
                           <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalUsers)}</p>
                           <p className="text-[11px] text-gray-500">사용자</p>
                         </div>
-                        <div className={`text-center p-2.5 rounded-lg ${
-                          service.todayActiveUsers > 0 ? 'bg-emerald-50' : 'bg-gray-50/80'
-                        }`}>
-                          <p className={`text-lg font-bold ${
-                            service.todayActiveUsers > 0 ? 'text-emerald-600' : 'text-gray-900'
-                          }`}>
-                            {formatNumber(service.todayActiveUsers)}
-                          </p>
-                          <p className="text-[11px] text-gray-500">오늘 DAU</p>
-                        </div>
-                        <div className="text-center p-2.5 bg-gray-50/80 rounded-lg">
+                        <div className="text-center p-2.5 bg-gray-50 rounded-xl">
                           <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalRequests)}</p>
                           <p className="text-[11px] text-gray-500">요청</p>
+                        </div>
+                        <div className="text-center p-2.5 bg-gray-50 rounded-xl">
+                          <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalTokens)}</p>
+                          <p className="text-[11px] text-gray-500">토큰</p>
                         </div>
                       </div>
                     </>
                   ) : (
-                    <div className="text-center py-4 text-sm text-gray-400">
-                      <p>아직 요청이 없습니다</p>
-                      <p className="text-xs mt-1 text-gray-300">X-Service-Id 헤더를 포함하여 요청하세요</p>
+                    <div className="text-center py-6 mb-4">
+                      <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-2">
+                        <Eye className="w-5 h-5 text-gray-300" />
+                      </div>
+                      <p className="text-sm text-gray-400">아직 요청이 없습니다</p>
+                      <p className="text-xs text-gray-300 mt-1">x-service-id: {service.serviceName}</p>
                     </div>
                   )}
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                    <Link
+                      to={`/service/${service.serviceId}`}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-samsung-blue bg-samsung-blue/5 hover:bg-samsung-blue/10 rounded-lg transition-colors"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      대시보드
+                    </Link>
+                    <Link
+                      to={`/service/${service.serviceId}/users`}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      사용자
+                    </Link>
+                    <button
+                      onClick={() => openEditModal(service)}
+                      className="p-2 text-gray-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-lg transition-colors"
+                      title="서비스 수정"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    {adminRole === 'SUPER_ADMIN' && (
+                      <button
+                        onClick={() => { setDeleteError(null); setDeleteTarget({ id: service.serviceId, name: service.serviceDisplayName }); }}
+                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="서비스 삭제"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </Link>
+              </div>
             ))}
 
+            {/* Empty state / Add card */}
             {services.length === 0 && (
-              <div className="col-span-full text-center py-12 text-gray-500">
-                등록된 서비스가 없습니다.
-                {adminRole === 'SUPER_ADMIN' && (
-                  <button onClick={() => setShowCreateModal(true)} className="ml-2 text-samsung-blue hover:underline font-medium">
-                    서비스 추가하기
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="col-span-full flex flex-col items-center justify-center py-16 rounded-2xl border-2 border-dashed border-gray-200 hover:border-samsung-blue hover:bg-samsung-blue/5 transition-all duration-300 group"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 group-hover:bg-samsung-blue/10 flex items-center justify-center mb-4 transition-colors">
+                  <Plus className="w-8 h-8 text-gray-400 group-hover:text-samsung-blue transition-colors" />
+                </div>
+                <p className="text-lg font-semibold text-gray-500 group-hover:text-samsung-blue transition-colors">첫 번째 서비스를 등록하세요</p>
+                <p className="text-sm text-gray-400 mt-1">서비스를 등록하면 LLM 프록시 API를 사용할 수 있습니다</p>
+              </button>
             )}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* ════════ TAB: 통합 대시보드 ════════ */}
+      {mainTab === 'dashboard' && (
+        <div className="space-y-8">
+          {/* Hero Stats */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
+            <StatCard label="전체 사용자" value={totalUsers} icon={Users} gradient="bg-gradient-to-r from-blue-500 to-blue-600" description="모든 서비스 합계" delay={0} />
+            <StatCard label="오늘 DAU" value={todayActive} icon={Activity} gradient="bg-gradient-to-r from-emerald-500 to-teal-500" description="실시간 활성 사용자" delay={80} />
+            <StatCard label="영업일 평균 DAU" value={Math.round(avgDailyActiveExcluding)} icon={Activity} gradient="bg-gradient-to-r from-orange-500 to-amber-500" description="최근 30일, 주말/휴일 제외" highlight delay={160} />
+            <StatCard label="총 토큰 사용" value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description="누적 합계" delay={240} />
+            <StatCard label="총 API 요청" value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description="누적 합계" delay={320} />
+          </div>
+
+          {/* Real-time indicator */}
+          {todayActive > 0 && (
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+              </span>
+              <span className="text-sm font-medium text-emerald-700">
+                현재 <span className="font-bold text-emerald-800">{todayActive}명</span>이 오늘 서비스를 사용했습니다
+              </span>
+              <span className="text-xs text-emerald-500 ml-auto">실시간</span>
+            </div>
+          )}
+
+          {/* Charts Section with Tabs */}
+          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+            <div className="px-6 pt-5 pb-0">
+              <h2 className="text-lg font-bold text-gray-900 mb-4">상세 분석</h2>
+              <div className="flex gap-1 overflow-x-auto pb-0 -mb-px scrollbar-hide">
+                {chartTabs.map(({ key, label, icon: TabIcon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setActiveTab(key)}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl border border-b-0 whitespace-nowrap transition-all ${
+                      activeTab === key
+                        ? 'bg-white text-samsung-blue border-gray-200 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700 border-transparent hover:bg-gray-50'
+                    }`}
+                  >
+                    <TabIcon className="w-4 h-4" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-100">
+              {renderChartContent()}
+            </div>
+
+            {/* Data tables */}
+            {activeTab === 'dept-users' && deptUsersBUs.length > 0 && (
+              <div className="px-6 pb-6">
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deptUsersBUs.map((bu, index) => {
+                        const lastData = deptUsersDailyData[deptUsersDailyData.length - 1];
+                        const cumulative = lastData ? (lastData[`${bu}_cumulative`] as number) || 0 : 0;
+                        const activeSum = deptUsersDailyData.reduce((sum, d) => sum + ((d[`${bu}_active`] as number) || 0), 0);
+                        const avgActive = deptUsersDailyData.length > 0 ? activeSum / deptUsersDailyData.length : 0;
+                        return (
+                          <tr key={bu} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                            <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
+                            <td className="text-right py-3 px-4 text-gray-700">{formatNumber(cumulative)}</td>
+                            <td className="text-right py-3 px-4 text-gray-700">{avgActive.toFixed(1)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'dept-requests' && deptServiceCombos.length > 0 && (
+              <div className="px-6 pb-6">
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 요청수</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deptServiceCombos.map((combo, index) => {
+                        const [bu, svc] = combo.split('/');
+                        const total = deptServiceRequestsData.reduce((sum, d) => sum + ((d[combo] as number) || 0), 0);
+                        return (
+                          <tr key={combo} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                            <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
+                            <td className="py-3 px-4 text-gray-700">{svc}</td>
+                            <td className="text-right py-3 px-4 text-gray-700">{formatNumber(total)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'latency' && latencyStats.length > 0 && (
+              <div className="px-6 pb-6">
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">10분</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">30분</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">1시간</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">24시간</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">요청수</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {latencyStats.map((stat, index) => (
+                        <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                          <td className="py-3 px-4 font-medium text-gray-900">{stat.serviceName} / {stat.modelName}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{formatNumber(stat.count24h)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Weekly Business DAU */}
+          <WeeklyBusinessDAUChart />
+
+          {/* Department Token Table */}
+          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/80">
+              <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
+                <Building2 className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">사업부별 상세 통계</h2>
+                <p className="text-xs text-gray-500">최근 30일 기준</p>
+              </div>
+            </div>
+            <div className="p-6">
+              {deptStats.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
+                        <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 토큰</th>
+                        <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">모델별 토큰</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deptStats.slice(0, 15).map((dept, index) => (
+                        <tr key={dept.deptname} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                          <td className="py-3 px-4 font-medium text-gray-900">{dept.deptname}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.cumulativeUsers)}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{dept.avgDailyActiveUsers.toFixed(1)}</td>
+                          <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.totalTokens)}</td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap gap-1">
+                              {(dept.tokensByModel || []).slice(0, 3).map((model) => (
+                                <span key={model.modelName} className="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full">
+                                  {model.modelName.length > 12 ? model.modelName.slice(0, 12) + '...' : model.modelName}: {formatNumber(model.tokens)}
+                                </span>
+                              ))}
+                              {(dept.tokensByModel || []).length > 3 && (
+                                <span className="text-xs text-gray-400">+{dept.tokensByModel.length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {deptStats.length > 15 && (
+                    <p className="text-center text-sm text-gray-400 py-3 border-t border-gray-50">
+                      {deptStats.length - 15}개 사업부 더 있음
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-400">
+                  사업부별 통계 데이터가 없습니다.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ════════ Service Creation Modal ════════ */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h3 className="text-lg font-bold text-gray-900">새 서비스 등록</h3>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-samsung-blue to-blue-600 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900">새 서비스 등록</h3>
+              </div>
               <button onClick={() => setShowCreateModal(false)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
               </button>
@@ -929,7 +1085,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
                   required
                 />
-                <p className="mt-1 text-xs text-gray-400">X-Service-Id 헤더에 사용할 ID</p>
+                <p className="mt-1 text-xs text-gray-400">x-service-id 헤더에 사용할 ID</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -955,25 +1111,36 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  서비스 타입 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={newService.serviceType}
-                  onChange={(e) => setNewService({ ...newService, serviceType: e.target.value as 'STANDARD' | 'BACKGROUND' })}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all bg-white"
-                >
-                  <option value="STANDARD">STANDARD</option>
-                  <option value="BACKGROUND">BACKGROUND</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-400">STANDARD: 사용자 대면 서비스 / BACKGROUND: 백그라운드 서비스</p>
+                <label className="block text-sm font-medium text-gray-700 mb-2">서비스 타입</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setNewService({ ...newService, serviceType: 'STANDARD' })}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      newService.serviceType === 'STANDARD'
+                        ? 'border-samsung-blue bg-samsung-blue/5'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">STANDARD</p>
+                    <p className="text-xs text-gray-500 mt-0.5">사용자 대면 서비스</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewService({ ...newService, serviceType: 'BACKGROUND' })}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      newService.serviceType === 'BACKGROUND'
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">BACKGROUND</p>
+                    <p className="text-xs text-gray-500 mt-0.5">배치/자동화 서비스</p>
+                  </button>
+                </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-                >
+                <button type="button" onClick={() => setShowCreateModal(false)} className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium">
                   취소
                 </button>
                 <button
@@ -981,7 +1148,94 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   disabled={creating || !newService.name || !newService.displayName}
                   className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 font-medium"
                 >
-                  {creating ? '생성 중...' : '생성'}
+                  {creating ? '생성 중...' : '등록'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ Service Edit Modal ════════ */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-samsung-blue to-blue-600 flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">서비스 수정</h3>
+                  <p className="text-xs text-gray-500">{editTarget.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setEditTarget(null)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEditService} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">표시 이름</label>
+                <input
+                  type="text"
+                  value={editForm.displayName}
+                  onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all resize-none"
+                  rows={3}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">서비스 타입</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditForm({ ...editForm, type: 'STANDARD' })}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      editForm.type === 'STANDARD' ? 'border-samsung-blue bg-samsung-blue/5' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">STANDARD</p>
+                    <p className="text-xs text-gray-500 mt-0.5">사용자 대면</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditForm({ ...editForm, type: 'BACKGROUND' })}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      editForm.type === 'BACKGROUND' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">BACKGROUND</p>
+                    <p className="text-xs text-gray-500 mt-0.5">배치/자동화</p>
+                  </button>
+                </div>
+              </div>
+              <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                <div className="relative">
+                  <input type="checkbox" checked={editForm.enabled} onChange={(e) => setEditForm({ ...editForm, enabled: e.target.checked })} className="sr-only peer" />
+                  <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500" />
+                </div>
+                <span className="text-sm text-gray-700 font-medium">서비스 활성화</span>
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditTarget(null)} className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium">
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 font-medium"
+                >
+                  {saving ? '저장 중...' : '저장'}
                 </button>
               </div>
             </form>
@@ -1013,20 +1267,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(null)}
-                  disabled={deleting}
-                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium"
-                >
+                <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium">
                   취소
                 </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteService}
-                  disabled={deleting}
-                  className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 font-medium"
-                >
+                <button type="button" onClick={handleDeleteService} disabled={deleting} className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 font-medium">
                   {deleting ? '삭제 중...' : '삭제'}
                 </button>
               </div>
@@ -1034,205 +1278,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           </div>
         </div>
       )}
-
-      {/* ════════ Charts Section with Tabs ════════ */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
-        <div className="px-6 pt-5 pb-0">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">상세 분석</h2>
-          {/* Tab navigation */}
-          <div className="flex gap-1 overflow-x-auto pb-0 -mb-px scrollbar-hide">
-            {chartTabs.map(({ key, label, icon: TabIcon }) => (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl border border-b-0 whitespace-nowrap transition-all ${
-                  activeTab === key
-                    ? 'bg-white text-samsung-blue border-gray-200 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 border-transparent hover:bg-gray-50'
-                }`}
-              >
-                <TabIcon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-6 border-t border-gray-100">
-          {renderChartContent()}
-        </div>
-
-        {/* ── Data tables below charts ── */}
-        {activeTab === 'dept-users' && deptUsersBUs.length > 0 && (
-          <div className="px-6 pb-6">
-            <div className="overflow-x-auto rounded-xl border border-gray-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deptUsersBUs.map((bu, index) => {
-                    const lastData = deptUsersDailyData[deptUsersDailyData.length - 1];
-                    const cumulative = lastData ? (lastData[`${bu}_cumulative`] as number) || 0 : 0;
-                    const activeSum = deptUsersDailyData.reduce((sum, d) => sum + ((d[`${bu}_active`] as number) || 0), 0);
-                    const avgActive = deptUsersDailyData.length > 0 ? activeSum / deptUsersDailyData.length : 0;
-                    return (
-                      <tr key={bu} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                        <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
-                        <td className="text-right py-3 px-4 text-gray-700">{formatNumber(cumulative)}</td>
-                        <td className="text-right py-3 px-4 text-gray-700">{avgActive.toFixed(1)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'dept-requests' && deptServiceCombos.length > 0 && (
-          <div className="px-6 pb-6">
-            <div className="overflow-x-auto rounded-xl border border-gray-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 요청수</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deptServiceCombos.map((combo, index) => {
-                    const [bu, svc] = combo.split('/');
-                    const total = deptServiceRequestsData.reduce((sum, d) => sum + ((d[combo] as number) || 0), 0);
-                    return (
-                      <tr key={combo} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                        <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
-                        <td className="py-3 px-4 text-gray-700">{svc}</td>
-                        <td className="text-right py-3 px-4 text-gray-700">{formatNumber(total)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'latency' && latencyStats.length > 0 && (
-          <div className="px-6 pb-6">
-            <div className="overflow-x-auto rounded-xl border border-gray-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">10분 평균</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">30분 평균</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">1시간 평균</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">24시간 평균</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">요청수 (24h)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latencyStats.map((stat, index) => (
-                    <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                      <td className="py-3 px-4 font-medium text-gray-900">{stat.serviceName} / {stat.modelName}</td>
-                      <td className="text-right py-3 px-4 text-gray-700">
-                        {stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}
-                        {stat.count10m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count10m})</span>}
-                      </td>
-                      <td className="text-right py-3 px-4 text-gray-700">
-                        {stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}
-                        {stat.count30m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count30m})</span>}
-                      </td>
-                      <td className="text-right py-3 px-4 text-gray-700">
-                        {stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}
-                        {stat.count1h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count1h})</span>}
-                      </td>
-                      <td className="text-right py-3 px-4 text-gray-700">
-                        {stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}
-                        {stat.count24h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count24h})</span>}
-                      </td>
-                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(stat.count24h)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ════════ Weekly Business DAU Chart ════════ */}
-      <WeeklyBusinessDAUChart />
-
-      {/* ════════ Department Token Table ════════ */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/80">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
-            <Building2 className="w-4 h-4 text-white" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">사업부별 상세 통계</h2>
-            <p className="text-xs text-gray-500">최근 30일 기준</p>
-          </div>
-        </div>
-        <div className="p-6">
-          {deptStats.length > 0 ? (
-            <div className="overflow-x-auto rounded-xl border border-gray-100">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
-                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 토큰</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">모델별 토큰</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deptStats.slice(0, 15).map((dept, index) => (
-                    <tr key={dept.deptname} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                      <td className="py-3 px-4 font-medium text-gray-900">{dept.deptname}</td>
-                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.cumulativeUsers)}</td>
-                      <td className="text-right py-3 px-4 text-gray-700">{dept.avgDailyActiveUsers.toFixed(1)}</td>
-                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.totalTokens)}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {(dept.tokensByModel || []).slice(0, 3).map((model) => (
-                            <span
-                              key={model.modelName}
-                              className="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full"
-                            >
-                              {model.modelName.length > 12 ? model.modelName.slice(0, 12) + '...' : model.modelName}: {formatNumber(model.tokens)}
-                            </span>
-                          ))}
-                          {(dept.tokensByModel || []).length > 3 && (
-                            <span className="text-xs text-gray-400">+{dept.tokensByModel.length - 3}</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {deptStats.length > 15 && (
-                <p className="text-center text-sm text-gray-400 py-3 border-t border-gray-50">
-                  {deptStats.length - 15}개 사업부 더 있음
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-400">
-              사업부별 통계 데이터가 없습니다.
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
