@@ -652,7 +652,9 @@ export const swaggerSpec = {
 /**
  * Swagger UI HTML (CDN 기반)
  */
-export function getSwaggerUiHtml(specUrl: string): string {
+export function getSwaggerUiHtml(): string {
+  // spec을 HTML에 인라인 — 별도 fetch 불필요 (HTTP 환경 호환)
+  const specJson = JSON.stringify(swaggerSpec);
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -674,7 +676,7 @@ export function getSwaggerUiHtml(specUrl: string): string {
   <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
   <script>
     SwaggerUIBundle({
-      url: '${specUrl}',
+      spec: ${specJson},
       dom_id: '#swagger-ui',
       deepLinking: true,
       presets: [

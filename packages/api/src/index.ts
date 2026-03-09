@@ -90,26 +90,10 @@ app.use('/api/public/stats', publicStatsRoutes);
 app.get('/api-docs', (_req, res) => {
   res.json(swaggerSpec);
 });
-app.get('/api-docs/ui',
-  helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
-        connectSrc: ["'self'", "https://unpkg.com"],
-        imgSrc: ["'self'", "data:", "https:"],
-      },
-    },
-    crossOriginOpenerPolicy: false,
-    originAgentCluster: false,
-  }),
-  (_req, res) => {
-    res.setHeader('Content-Type', 'text/html');
-    // nginx가 /api/ prefix를 strip하므로, 브라우저에서는 /api/api-docs로 접근해야 함
-    res.send(getSwaggerUiHtml('/api/api-docs'));
-  },
-);
+app.get('/api-docs/ui', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html');
+  res.send(getSwaggerUiHtml());
+});
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
