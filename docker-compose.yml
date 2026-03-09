@@ -1,7 +1,5 @@
-version: '3.8'
-
 # ============================================
-# Agent Dashboard - Docker Compose (v2)
+# Agent 사용량 집계 시스템 - Docker Compose
 # ============================================
 
 x-timezone: &timezone
@@ -21,20 +19,20 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: axportal-db
+    container_name: agent-stats-db
     restart: unless-stopped
     command: postgres -c max_connections=1000 -c shared_buffers=512MB -c work_mem=8MB -c effective_cache_size=1536MB
     environment:
       <<: *timezone
-      POSTGRES_DB: ${POSTGRES_DB:-nexuscoder}
-      POSTGRES_USER: ${POSTGRES_USER:-nexuscoder}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexuscoder123}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_stats}
+      POSTGRES_USER: ${POSTGRES_USER:-agent_stats}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agent_stats_2026!}
     volumes:
-      - axportal_postgres_data:/var/lib/postgresql/data
+      - agent_stats_postgres_data:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-8091}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexuscoder} -d ${POSTGRES_DB:-nexuscoder}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_stats} -d ${POSTGRES_DB:-agent_stats}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,13 +40,13 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: axportal-redis
+    container_name: agent-stats-redis
     restart: unless-stopped
     environment:
       <<: *timezone
     command: redis-server --appendonly yes --maxclients 10000
     volumes:
-      - axportal_redis_data:/data
+      - agent_stats_redis_data:/data
     ports:
       - "${REDIS_PORT:-8092}:6379"
     healthcheck:
@@ -64,12 +62,12 @@ services:
       dockerfile: Dockerfile
       args:
         <<: *proxy-env
-    container_name: axportal-api
+    container_name: agent-stats-api
     restart: unless-stopped
     environment:
       <<: *proxy-env
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-nexuscoder}:${POSTGRES_PASSWORD:-nexuscoder123}@postgres:5432/${POSTGRES_DB:-nexuscoder}?connection_limit=200&pool_timeout=30
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=200&pool_timeout=30
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
       SSO_CERT_PATH: /app/cert/cert.cer
@@ -92,7 +90,7 @@ services:
       dockerfile: Dockerfile
       args:
         <<: *proxy-env
-    container_name: axportal-frontend
+    container_name: agent-stats-frontend
     restart: unless-stopped
     environment:
       <<: *proxy-env
@@ -105,7 +103,7 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: axportal-proxy
+    container_name: agent-stats-proxy
     restart: unless-stopped
     environment:
       <<: *timezone
@@ -119,5 +117,5 @@ services:
       - dashboard
 
 volumes:
-  axportal_postgres_data:
-  axportal_redis_data:
+  agent_stats_postgres_data:
+  agent_stats_redis_data:

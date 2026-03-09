@@ -54,7 +54,7 @@ ab               # 3자 미만
 
 ```bash
 # 일반 서비스 API 호출
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: hong.gildong" \
@@ -72,7 +72,7 @@ curl -X POST https://<api-url>/v1/chat/completions \
 
 ```bash
 # Background 서비스 API 호출
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: batch-pipeline" \
   -H "x-dept-name: SW혁신팀(S.LSI)" \
@@ -99,7 +99,7 @@ curl -X POST https://<api-url>/v1/chat/completions \
 먼저 등록한 서비스에서 사용 가능한 모델을 확인합니다.
 
 ```bash
-curl -X GET https://<api-url>/v1/models \
+curl -X GET https://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: hong.gildong" \
   -H "x-dept-name: SW혁신팀(S.LSI)"
@@ -108,7 +108,7 @@ curl -X GET https://<api-url>/v1/models \
 ### 첫 번째 API 호출
 
 ```bash
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: hong.gildong" \

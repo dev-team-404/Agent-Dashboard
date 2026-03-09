@@ -72,7 +72,7 @@ function useAnimatedCounter(target: number, duration = 1000) {
 }
 
 // ── Donut Ring Chart for Token Breakdown ──
-const TOKEN_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4'];
+const TOKEN_COLORS = ['#4A90D9', '#8B5CF6', '#10B981'];
 
 function TokenDonutChart({
   inputTokens,
@@ -91,7 +91,7 @@ function TokenDonutChart({
 
   if (total === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-pastel-400 text-sm font-medium">
         토큰 데이터가 없습니다
       </div>
     );
@@ -189,11 +189,11 @@ function MetricCard({
       <div className="relative p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-500">{label}</p>
-            <p className={`text-3xl font-bold tracking-tight ${highlight ? 'text-orange-600' : 'text-gray-900'}`}>
+            <p className="text-sm font-medium text-pastel-500">{label}</p>
+            <p className={`text-3xl font-bold tracking-tight ${highlight ? 'text-orange-600' : 'text-pastel-800'}`}>
               {formatNumber(animatedValue)}{suffix && <span className="text-lg ml-0.5">{suffix}</span>}
             </p>
-            <p className="text-xs text-gray-400">{description}</p>
+            <p className="text-xs text-pastel-400">{description}</p>
           </div>
           <div className={`p-3 rounded-xl ${gradient} shadow-lg`}>
             <Icon className="w-5 h-5 text-white" />
@@ -337,23 +337,24 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
     <div className="space-y-6 animate-fade-in">
       {/* ════════ Service Info Header ════════ */}
       {serviceInfo && (
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-samsung-blue via-blue-500 to-blue-600 p-6 text-white shadow-lg">
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-samsung-blue via-accent-indigo to-accent-violet p-8 text-white shadow-elevated">
           {/* Background decoration */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-32 translate-x-32" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24" />
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/[0.06] rounded-full -translate-y-32 translate-x-32 blur-2xl" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/[0.04] rounded-full translate-y-24 -translate-x-24 blur-xl" />
+          <div className="absolute right-1/4 bottom-0 w-32 h-32 bg-accent-violet/20 rounded-full blur-2xl" />
 
           <div className="relative flex items-start justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-white/15 backdrop-blur-sm rounded-xl">
+              <div className="p-3.5 bg-white/10 backdrop-blur-sm rounded-2xl ring-1 ring-white/20">
                 <Server className="w-7 h-7" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">{serviceInfo.displayName}</h1>
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">{serviceInfo.displayName}</h1>
                 {serviceInfo.description && (
-                  <p className="text-blue-100 mt-1 text-sm">{serviceInfo.description}</p>
+                  <p className="text-white/60 mt-1.5 text-sm font-medium">{serviceInfo.description}</p>
                 )}
-                <div className="flex items-center gap-2 mt-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/15 backdrop-blur-sm rounded-lg text-xs font-medium">
+                <div className="flex items-center gap-2 mt-3">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full ring-1 ring-white/10 text-xs font-medium text-white/80">
                     <Hash className="w-3 h-3" />
                     {serviceInfo.name}
                   </span>
@@ -363,7 +364,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
             {adminRole === 'SUPER_ADMIN' && (
               <button
                 onClick={() => { setResetResult(null); setShowResetModal(true); }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white text-sm rounded-xl transition-all hover:shadow-lg font-medium"
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white text-sm rounded-2xl transition-all hover:shadow-lg font-medium ring-1 ring-white/10"
               >
                 <RotateCcw className="w-4 h-4" />
                 기록 초기화
@@ -375,39 +376,44 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
 
       {/* ════════ Data Reset Modal ════════ */}
       {showResetModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h3 className="text-lg font-bold text-gray-900">기록 초기화</h3>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={() => { if (!resetting) setShowResetModal(false); }}>
+          <div className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-100/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center ring-1 ring-red-100/50">
+                  <RotateCcw className="w-5 h-5 text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold text-pastel-800">기록 초기화</h3>
+              </div>
               <button
                 onClick={() => { if (!resetting) setShowResetModal(false); }}
-                className={`p-1.5 rounded-lg transition-colors ${resetting ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                className={`p-2 rounded-xl transition-colors ${resetting ? 'text-pastel-200 cursor-not-allowed' : 'text-pastel-400 hover:text-pastel-600 hover:bg-pastel-50'}`}
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold text-gray-900">{serviceInfo?.displayName}</span>의 모든 사용 기록을 초기화하시겠습니까?
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-pastel-600 leading-relaxed">
+                <span className="font-semibold text-pastel-800">{serviceInfo?.displayName}</span>의 모든 사용 기록을 초기화하시겠습니까?
               </p>
-              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
-                <p className="text-sm text-amber-700">
+              <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl">
+                <p className="text-sm text-amber-700 leading-relaxed">
                   사용 기록, 일일 통계, 평가, 사용자 연결이 모두 삭제됩니다. 모델 설정은 유지됩니다.
                 </p>
               </div>
               {resetResult && (
-                <div className={`p-3.5 rounded-xl border ${resetResult.startsWith('삭제 완료') ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                  <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-green-600' : 'text-red-600'}`}>
+                <div className={`p-4 rounded-2xl border ${resetResult.startsWith('삭제 완료') ? 'bg-emerald-50 border-emerald-200/60' : 'bg-rose-50 border-rose-200/60'}`}>
+                  <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {resetResult}
                   </p>
                 </div>
               )}
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowResetModal(false)}
                   disabled={resetting}
-                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium"
+                  className="px-5 py-2.5 text-pastel-600 bg-pastel-50 rounded-2xl hover:bg-pastel-100 transition-colors disabled:opacity-50 font-semibold text-sm"
                 >
                   {resetResult?.startsWith('삭제 완료') ? '닫기' : '취소'}
                 </button>
@@ -416,7 +422,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                     type="button"
                     onClick={handleResetData}
                     disabled={resetting}
-                    className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 font-medium"
+                    className="px-5 py-2.5 bg-red-500 text-white rounded-2xl hover:bg-red-600 transition-colors disabled:opacity-50 font-semibold text-sm"
                   >
                     {resetting ? '초기화 중...' : '초기화'}
                   </button>
@@ -487,14 +493,14 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       )}
 
       {/* ════════ Token Donut Chart ════════ */}
-      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/80">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
+      <div className="bg-white rounded-2xl border border-gray-100/80 shadow-card overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/60">
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-accent-violet to-accent-indigo shadow-lg">
             <Hash className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">오늘의 토큰 사용량</h2>
-            <p className="text-xs text-gray-500">입력/출력 토큰 비율</p>
+            <h2 className="text-lg font-bold text-pastel-800">오늘의 토큰 사용량</h2>
+            <p className="text-xs text-pastel-400 font-medium">입력/출력 토큰 비율</p>
           </div>
         </div>
         <div className="p-6">

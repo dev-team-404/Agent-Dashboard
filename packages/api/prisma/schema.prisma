@@ -88,10 +88,18 @@ model UserService {
 // LLM 모델 설정 (서비스와 독립)
 // ============================================
 enum LlmVisibility {
-  PUBLIC         // 전체공개
-  BUSINESS_UNIT  // 특정 사업부 공개
-  TEAM           // 특정 팀 공개
-  ADMIN_ONLY     // admin/super admin만
+  PUBLIC            // 전체공개
+  BUSINESS_UNIT     // 특정 사업부 공개
+  TEAM              // 특정 팀 공개
+  ADMIN_ONLY        // 모든 관리자 (admin + super admin)
+  SUPER_ADMIN_ONLY  // 슈퍼 관리자만
+}
+
+enum ModelType {
+  CHAT       // 채팅 완성 모델
+  IMAGE      // 이미지 생성 모델
+  EMBEDDING  // 임베딩 모델
+  RERANKING  // 리랭킹 모델
 }
 
 model Model {
@@ -106,8 +114,13 @@ model Model {
   createdAt   DateTime @default(now())
   createdBy   String?                          // FK to Admin.id
 
-  // LLM 호출 시 추가 헤더 (JSON object)
+  // LLM 호출 시 추가 헤더/바디 (JSON object)
   extraHeaders Json? @map("extra_headers")
+  extraBody    Json? @map("extra_body")
+
+  // 모델 타입
+  type          ModelType @default(CHAT) @map("model_type")
+  imageProvider String?  @map("image_provider")  // IMAGE 타입: OPENAI, COMFYUI 등
 
   // Vision Language Model 지원 여부
   supportsVision Boolean @default(false) @map("supports_vision")
@@ -141,6 +154,7 @@ model SubModel {
   endpointUrl String   @map("endpoint_url")
   apiKey      String?  @map("api_key")
   extraHeaders Json?   @map("extra_headers")
+  extraBody    Json?   @map("extra_body")
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")

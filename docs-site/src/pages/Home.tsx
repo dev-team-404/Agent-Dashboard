@@ -193,7 +193,7 @@ function QuickStartSection() {
               <span className="text-xs text-gray-500 ml-2 font-mono">API 호출 예시</span>
             </div>
             <div className="p-6 font-mono text-sm leading-7">
-              <div className="text-gray-500">$ curl -X POST /v1/chat/completions \</div>
+              <div className="text-gray-500">$ curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \</div>
               <div className="text-brand-400 ml-4">-H "x-service-id: my-service" \</div>
               <div className="text-brand-400 ml-4">-H "x-user-id: hong.gildong" \</div>
               <div className="text-brand-400 ml-4">-H "x-dept-name: SW혁신팀(S.LSI)" \</div>

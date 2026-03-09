@@ -33,7 +33,11 @@ modelsRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async (
 
     const filtered = isSuper
       ? models  // Super Admin은 모든 모델 보임
-      : models.filter(m => isModelVisibleTo(m, userDept, userBU, true));
+      : models.filter(m => {
+          // SUPER_ADMIN_ONLY models are only visible to super admins
+          if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
+          return isModelVisibleTo(m, userDept, userBU, true);
+        });
 
     res.json({ models: filtered });
   } catch (error) {
@@ -57,6 +61,11 @@ modelsRoutes.get('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
 
     // 권한 확인
     if (req.adminRole !== 'SUPER_ADMIN') {
+      // SUPER_ADMIN_ONLY models are only visible to super admins
+      if (model.visibility === 'SUPER_ADMIN_ONLY') {
+        res.status(403).json({ error: 'No access to this model' });
+        return;
+      }
       const userDept = req.adminDept || req.user?.deptname || '';
       const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
       if (!isModelVisibleTo(model, userDept, userBU, true)) {
@@ -79,7 +88,8 @@ modelsRoutes.get('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
 modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
-            extraHeaders, supportsVision, visibility, visibilityScope, sortOrder } = req.body;
+            extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
+            type, imageProvider } = req.body;
 
     if (!name || !displayName || !endpointUrl) {
       res.status(400).json({ error: 'name, displayName, and endpointUrl are required' });
@@ -105,10 +115,13 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
         maxTokens: maxTokens || 128000,
         enabled: enabled !== false,
         extraHeaders: extraHeaders || null,
+        extraBody: extraBody || null,
         supportsVision: supportsVision || false,
         visibility: visibility || 'PUBLIC',
         visibilityScope: visibilityScope || [],
         sortOrder: sortOrder || 0,
+        type: type || 'CHAT',
+        imageProvider: imageProvider || null,
         createdBy: req.adminId || null,
         createdByDept: deptname,
         createdByBusinessUnit: businessUnit,
@@ -152,7 +165,8 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
     }
 
     const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
-            extraHeaders, supportsVision, visibility, visibilityScope, sortOrder } = req.body;
+            extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
+            type, imageProvider } = req.body;
 
     // 이름 변경 시 중복 체크
     if (name && name !== model.name) {
@@ -173,10 +187,13 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
         ...(maxTokens !== undefined && { maxTokens }),
         ...(enabled !== undefined && { enabled }),
         ...(extraHeaders !== undefined && { extraHeaders }),
+        ...(extraBody !== undefined && { extraBody }),
         ...(supportsVision !== undefined && { supportsVision }),
         ...(visibility !== undefined && { visibility }),
         ...(visibilityScope !== undefined && { visibilityScope }),
         ...(sortOrder !== undefined && { sortOrder }),
+        ...(type !== undefined && { type }),
+        ...(imageProvider !== undefined && { imageProvider }),
       },
     });
 

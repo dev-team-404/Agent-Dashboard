@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Users, LogOut, Menu, X, ChevronRight, ChevronDown, Shield, BookOpen, BarChart3, Home, Layers, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store } from 'lucide-react';
+import { Users, LogOut, Menu, X, ChevronRight, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -58,7 +58,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     return localStorage.getItem('sidebar_collapsed') === 'true';
   });
   const [services, setServices] = useState<Service[]>([]);
-  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (isAdmin) {
@@ -76,12 +75,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     return () => window.removeEventListener('services-updated', handleServiceUpdate);
   }, [isAdmin]);
 
-  useEffect(() => {
-    if (serviceId) {
-      setExpandedServices(prev => new Set([...prev, serviceId]));
-    }
-  }, [serviceId]);
-
   const loadServices = async () => {
     try {
       const res = await serviceApi.list();
@@ -89,15 +82,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     } catch (error) {
       console.error('Failed to load services:', error);
     }
-  };
-
-  const toggleService = (id: string) => {
-    setExpandedServices(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   };
 
   const toggleCollapse = () => {
@@ -120,7 +104,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
       return `${service?.displayName || ''} 대시보드`;
     }
-    return 'AX Portal';
+    return 'Agent Stats';
   };
 
   const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
@@ -168,11 +152,13 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
         {/* Logo */}
         <div className={`flex items-center justify-between px-4 py-5 border-b border-pastel-100 sticky top-0 bg-white z-10 ${sidebarCollapsed ? 'px-3' : 'px-6'}`}>
           <Link to={isAdmin ? '/' : '/services'} className="flex items-center gap-3" onClick={() => setSidebarOpen(false)}>
-            <img src="/logo.png" alt="AX Portal" className="w-10 h-10 rounded-xl flex-shrink-0" />
+            <img src="/logo.png" alt="Agent Stats" className="w-10 h-10 rounded-xl flex-shrink-0" />
             {!sidebarCollapsed && (
-              <div>
-                <h1 className="font-bold text-lg tracking-tight text-pastel-800">AX Portal</h1>
-                <p className="text-[10px] text-pastel-500 uppercase tracking-wider">Multi-Service</p>
+              <div className="min-w-0">
+                <h1 className="font-bold text-[15px] leading-tight tracking-tight text-pastel-800">
+                  <span className="text-samsung-blue">Agent</span> Stats
+                </h1>
+                <p className="text-[10px] text-pastel-400 tracking-wide mt-0.5">사용량 집계 시스템</p>
               </div>
             )}
           </Link>
@@ -205,94 +191,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
             </div>
           )}
 
-          {/* Admin 섹션: 서비스별 메뉴 */}
-          {isAdmin && services.length > 0 && (
-            <div className="mb-4">
-              {!sidebarCollapsed && (
-                <p className="px-4 mb-2 text-xs font-semibold text-pastel-500 uppercase tracking-wider">
-                  서비스
-                </p>
-              )}
-              {services.map((service) => {
-                const isExpanded = expandedServices.has(service.id);
-                const isServiceActive = location.pathname.startsWith(`/service/${service.id}`);
-                const servicePaths = [
-                  { path: `/service/${service.id}`, label: '대시보드', icon: LayoutDashboard },
-                  { path: `/service/${service.id}/users`, label: '사용자', icon: Users },
-                ];
-
-                if (sidebarCollapsed) {
-                  return (
-                    <Link
-                      key={service.id}
-                      to={`/service/${service.id}`}
-                      title={service.displayName}
-                      onClick={() => setSidebarOpen(false)}
-                      className={`flex items-center justify-center py-3 rounded-xl mb-1 transition-all duration-200 group ${
-                        isServiceActive
-                          ? 'bg-pastel-100 text-pastel-700'
-                          : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
-                      }`}
-                    >
-                      {service.iconUrl ? (
-                        <img src={service.iconUrl} alt={service.displayName} className="w-5 h-5 rounded" />
-                      ) : (
-                        <Layers className={`w-5 h-5 ${isServiceActive ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
-                      )}
-                    </Link>
-                  );
-                }
-
-                return (
-                  <div key={service.id} className="mb-1">
-                    <button
-                      onClick={() => toggleService(service.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                        isServiceActive
-                          ? 'bg-pastel-100 text-pastel-700'
-                          : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
-                      }`}
-                    >
-                      {service.iconUrl ? (
-                        <img src={service.iconUrl} alt={service.displayName} className="w-5 h-5 rounded" />
-                      ) : (
-                        <Layers className={`w-5 h-5 ${isServiceActive ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
-                      )}
-                      <span className="font-medium flex-1 text-left">{service.displayName}</span>
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-pastel-400" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-pastel-400" />
-                      )}
-                    </button>
-                    {isExpanded && (
-                      <div className="ml-4 mt-1 border-l-2 border-pastel-100 pl-2">
-                        {servicePaths.map(({ path, label, icon: Icon }) => {
-                          const isActive = location.pathname === path;
-                          return (
-                            <Link
-                              key={path}
-                              to={path}
-                              onClick={() => setSidebarOpen(false)}
-                              className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-0.5 transition-all duration-200 group ${
-                                isActive
-                                  ? 'bg-samsung-blue/10 text-samsung-blue'
-                                  : 'text-pastel-500 hover:bg-pastel-50 hover:text-pastel-700'
-                              }`}
-                            >
-                              <Icon className={`w-4 h-4 ${isActive ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-500'}`} />
-                              <span className="text-sm">{label}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           {/* 일반 섹션 */}
           <div className="mb-4">
             {!sidebarCollapsed && (
@@ -313,7 +211,9 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               </p>
             )}
             <a
-              href="/docs/"
+              href={import.meta.env.VITE_DOCS_URL || '/docs/'}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={() => setSidebarOpen(false)}
               title={sidebarCollapsed ? '문서' : undefined}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700 ${sidebarCollapsed ? 'justify-center px-0' : ''}`}

@@ -11,7 +11,7 @@ export const api = axios.create({
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('nexus_token');
+  const token = localStorage.getItem('agent_stats_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -23,7 +23,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('nexus_token');
+      localStorage.removeItem('agent_stats_token');
       window.location.href = '/';
     }
     return Promise.reject(error);
@@ -74,8 +74,22 @@ export const modelsApi = {
   deleteSubModel: (modelId: string, subModelId: string) =>
     api.delete(`/admin/models/${modelId}/sub-models/${subModelId}`),
   // 엔드포인트 테스트
-  testEndpoint: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
+  testEndpoint: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string>; extraBody?: Record<string, unknown> }) =>
     api.post('/admin/models/test', data),
+  testVision: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
+    api.post('/admin/models/test-vl', data),
+  testImage: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string>; extraBody?: Record<string, unknown>; imageProvider?: string }) =>
+    api.post('/admin/models/test-image', data),
+  testEmbedding: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
+    api.post('/admin/models/test-embedding', data),
+  testRerank: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
+    api.post('/admin/models/test-rerank', data),
+};
+
+// Scope options API (for visibility dropdowns)
+export const scopeApi = {
+  businessUnits: () => api.get('/admin/scope/business-units'),
+  departments: () => api.get('/admin/scope/departments'),
 };
 
 export const usersApi = {
@@ -174,19 +188,23 @@ interface CreateModelData {
   endpointUrl: string;
   apiKey?: string;
   extraHeaders?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
   maxTokens?: number;
   enabled?: boolean;
   supportsVision?: boolean;
-  visibility?: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+  type?: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING';
+  imageProvider?: string;
+  visibility?: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
   visibilityScope?: string[];
   sortOrder?: number;
 }
 
 interface CreateSubModelData {
-  modelName?: string;  // 엔드포인트별 모델명 (생략 시 parent.name 사용)
+  modelName?: string;
   endpointUrl: string;
   apiKey?: string;
   extraHeaders?: Record<string, string>;
+  extraBody?: Record<string, unknown>;
   enabled?: boolean;
   sortOrder?: number;
 }

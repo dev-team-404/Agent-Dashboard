@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Edit2, Trash2, Check, X, Layers, ChevronDown, ChevronRight,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
-  Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles
+  Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
+  ShieldCheck, Image, MessageSquare
 } from 'lucide-react';
-import { modelsApi } from '../services/api';
+import { modelsApi, scopeApi } from '../services/api';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -26,10 +27,13 @@ interface Model {
   endpointUrl: string;
   apiKey: string | null;
   extraHeaders: Record<string, string> | null;
+  extraBody: Record<string, unknown> | null;
   maxTokens: number;
   enabled: boolean;
   supportsVision: boolean;
-  visibility: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+  type: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING';
+  imageProvider: string | null;
+  visibility: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
   visibilityScope: string[];
   sortOrder: number;
   createdBy: string | null;
@@ -50,17 +54,38 @@ interface HealthCheckResult {
   totalLatencyMs: number;
 }
 
+interface TestEndpointResult {
+  chatCompletion: boolean;
+  toolCallA: boolean;
+  toolCallB: boolean;
+  toolCallC: boolean;
+  toolCallD: boolean;
+  allPassed: boolean;
+}
+
+interface TestVisionResult {
+  visionDescribe: boolean;
+  visionJudge: boolean;
+  passed: boolean;
+}
+
+interface TestImageResult {
+  imageGen: boolean;
+  passed: boolean;
+}
+
 interface ModelsProps {
   adminRole?: AdminRole;
 }
 
-type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
 
 const VISIBILITY_CONFIG: Record<VisibilityType, { label: string; icon: typeof Globe; color: string; bg: string; desc: string }> = {
   PUBLIC: { label: '전체 공개', icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: '모든 서비스에서 사용 가능' },
   BUSINESS_UNIT: { label: '사업부', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '동일 사업부 서비스만 사용 가능' },
   TEAM: { label: '팀 전용', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '동일 부서 서비스만 사용 가능' },
-  ADMIN_ONLY: { label: '관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: '관리자만 접근 가능' },
+  ADMIN_ONLY: { label: '모든 관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: 'Admin + Super Admin 접근 가능' },
+  SUPER_ADMIN_ONLY: { label: '슈퍼 관리자만', icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: 'Super Admin만 접근 가능' },
 };
 
 const emptyForm = {
@@ -69,14 +94,123 @@ const emptyForm = {
   endpointUrl: '',
   apiKey: '',
   extraHeaders: '',
+  extraBody: '',
   maxTokens: 128000,
   enabled: true,
   supportsVision: false,
+  type: 'CHAT' as 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING',
+  imageProvider: '' as string,
   visibility: 'PUBLIC' as VisibilityType,
-  visibilityScope: '',
+  visibilityScope: [] as string[],
   sortOrder: 0,
 };
 
+/* ──────────────────────────────────────────────
+   Multi-Select Dropdown Component
+   ────────────────────────────────────────────── */
+function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+  loading,
+  placeholder,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  loading: boolean;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (val: string) => {
+    if (selected.includes(val)) onChange(selected.filter(v => v !== val));
+    else onChange([...selected, val]);
+  };
+
+  return (
+    <div className="mt-3" ref={ref}>
+      <label className="block text-xs font-medium text-pastel-600 mb-1">{label}</label>
+
+      {/* Selected pills */}
+      <div
+        className="min-h-[42px] w-full px-3 py-2 border border-pastel-200 rounded-ios text-sm bg-white cursor-pointer
+                   focus-within:ring-2 focus-within:ring-samsung-blue/20 focus-within:border-samsung-blue transition-all
+                   flex flex-wrap items-center gap-1.5"
+        onClick={() => setOpen(!open)}
+      >
+        {selected.length === 0 && (
+          <span className="text-pastel-400 text-sm">{placeholder}</span>
+        )}
+        {selected.map(item => (
+          <span
+            key={item}
+            className="inline-flex items-center gap-1 px-2 py-0.5 bg-samsung-blue/10 text-samsung-blue text-xs font-medium rounded-full"
+          >
+            {item}
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); toggle(item); }}
+              className="hover:text-red-500 transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div className="relative z-30">
+          <div className="absolute top-1 left-0 right-0 bg-white border border-pastel-200 rounded-ios shadow-card max-h-48 overflow-y-auto animate-slide-down">
+            {loading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-4 h-4 animate-spin text-samsung-blue" />
+                <span className="ml-2 text-xs text-pastel-500">로딩 중...</span>
+              </div>
+            ) : options.length === 0 ? (
+              <p className="text-xs text-pastel-400 py-3 text-center">항목이 없습니다</p>
+            ) : (
+              options.map(opt => {
+                const checked = selected.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => toggle(opt)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors
+                      ${checked ? 'bg-samsung-blue/5 text-samsung-blue' : 'hover:bg-pastel-50 text-pastel-700'}`}
+                  >
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
+                      ${checked ? 'border-samsung-blue bg-samsung-blue' : 'border-pastel-300'}`}>
+                      {checked && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                    {opt}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────
+   Main Component
+   ────────────────────────────────────────────── */
 export default function Models({ adminRole }: ModelsProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,6 +231,22 @@ export default function Models({ adminRole }: ModelsProps) {
   // Health check state
   const [healthChecks, setHealthChecks] = useState<Record<string, HealthCheckResult | 'loading'>>({});
 
+  // Test states (in-form)
+  const [testRunning, setTestRunning] = useState(false);
+  const [testResult, setTestResult] = useState<TestEndpointResult | null>(null);
+  const [visionTestRunning, setVisionTestRunning] = useState(false);
+  const [visionTestResult, setVisionTestResult] = useState<TestVisionResult | null>(null);
+  const [imageTestRunning, setImageTestRunning] = useState(false);
+  const [imageTestResult, setImageTestResult] = useState<TestImageResult | null>(null);
+  const [embeddingTestRunning, setEmbeddingTestRunning] = useState(false);
+  const [embeddingTestResult, setEmbeddingTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
+  const [rerankTestRunning, setRerankTestRunning] = useState(false);
+  const [rerankTestResult, setRerankTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
+
+  // Scope options for multi-select
+  const [scopeOptions, setScopeOptions] = useState<string[]>([]);
+  const [scopeLoading, setScopeLoading] = useState(false);
+
   // SubModel state
   const [subModelForm, setSubModelForm] = useState<{
     modelId: string;
@@ -108,13 +258,32 @@ export default function Models({ adminRole }: ModelsProps) {
     enabled: boolean;
   } | null>(null);
 
-  // Auto-refresh every 30s (± jitter to prevent thundering herd)
+  // Auto-refresh every 30s (with jitter)
   useEffect(() => {
     loadModels();
-    const jitter = Math.floor(Math.random() * 10000); // 0~10s jitter
+    const jitter = Math.floor(Math.random() * 10000);
     const interval = setInterval(loadModels, 30000 + jitter);
     return () => clearInterval(interval);
   }, []);
+
+  // Load scope options when visibility changes
+  useEffect(() => {
+    if (form.visibility === 'BUSINESS_UNIT') {
+      setScopeLoading(true);
+      scopeApi.businessUnits()
+        .then(res => setScopeOptions(res.data.businessUnits || []))
+        .catch(() => setScopeOptions([]))
+        .finally(() => setScopeLoading(false));
+    } else if (form.visibility === 'TEAM') {
+      setScopeLoading(true);
+      scopeApi.departments()
+        .then(res => setScopeOptions(res.data.departments || []))
+        .catch(() => setScopeOptions([]))
+        .finally(() => setScopeLoading(false));
+    } else {
+      setScopeOptions([]);
+    }
+  }, [form.visibility]);
 
   const loadModels = useCallback(async () => {
     try {
@@ -127,10 +296,19 @@ export default function Models({ adminRole }: ModelsProps) {
     }
   }, []);
 
+  const resetTestStates = () => {
+    setTestResult(null);
+    setVisionTestResult(null);
+    setImageTestResult(null);
+    setEmbeddingTestResult(null);
+    setRerankTestResult(null);
+  };
+
   const openCreateModal = () => {
     setEditingModel(null);
     setForm(emptyForm);
     setFormError('');
+    resetTestStates();
     setShowModal(true);
   };
 
@@ -142,15 +320,140 @@ export default function Models({ adminRole }: ModelsProps) {
       endpointUrl: model.endpointUrl,
       apiKey: model.apiKey || '',
       extraHeaders: model.extraHeaders ? JSON.stringify(model.extraHeaders, null, 2) : '',
+      extraBody: model.extraBody ? JSON.stringify(model.extraBody, null, 2) : '',
       maxTokens: model.maxTokens,
       enabled: model.enabled,
       supportsVision: model.supportsVision,
+      type: model.type || 'CHAT',
+      imageProvider: model.imageProvider || '',
       visibility: model.visibility,
-      visibilityScope: model.visibilityScope?.join(', ') || '',
+      visibilityScope: model.visibilityScope || [],
       sortOrder: model.sortOrder,
     });
     setFormError('');
+    resetTestStates();
     setShowModal(true);
+  };
+
+  const buildTestPayload = () => {
+    let extraHeaders: Record<string, string> | undefined;
+    if (form.extraHeaders.trim()) {
+      try { extraHeaders = JSON.parse(form.extraHeaders); } catch { /* ignore */ }
+    }
+    let extraBody: Record<string, unknown> | undefined;
+    if (form.extraBody.trim()) {
+      try { extraBody = JSON.parse(form.extraBody); } catch { /* ignore */ }
+    }
+    return {
+      endpointUrl: form.endpointUrl,
+      modelName: form.name,
+      apiKey: form.apiKey || undefined,
+      extraHeaders,
+      extraBody,
+      imageProvider: form.imageProvider || undefined,
+    };
+  };
+
+  const runFormTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setTestRunning(true);
+    setTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testEndpoint(buildTestPayload());
+      setTestResult(res.data);
+    } catch (error: any) {
+      setTestResult({
+        chatCompletion: false,
+        toolCallA: false,
+        toolCallB: false,
+        toolCallC: false,
+        toolCallD: false,
+        allPassed: false,
+      });
+      setFormError(error.response?.data?.error || '테스트 실행에 실패했습니다.');
+    } finally {
+      setTestRunning(false);
+    }
+  };
+
+  const runVisionTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setVisionTestRunning(true);
+    setVisionTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testVision(buildTestPayload());
+      setVisionTestResult(res.data);
+    } catch (error: any) {
+      setVisionTestResult({ visionDescribe: false, visionJudge: false, passed: false });
+      setFormError(error.response?.data?.error || 'Vision 테스트 실행에 실패했습니다.');
+    } finally {
+      setVisionTestRunning(false);
+    }
+  };
+
+  const runImageTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setImageTestRunning(true);
+    setImageTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testImage(buildTestPayload());
+      setImageTestResult(res.data);
+    } catch (error: any) {
+      setImageTestResult({ imageGen: false, passed: false });
+      setFormError(error.response?.data?.error || '이미지 생성 테스트 실행에 실패했습니다.');
+    } finally {
+      setImageTestRunning(false);
+    }
+  };
+
+  const runEmbeddingTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setEmbeddingTestRunning(true);
+    setEmbeddingTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testEmbedding(buildTestPayload());
+      setEmbeddingTestResult({ passed: res.data.passed, message: res.data.embedding?.message });
+    } catch (error: any) {
+      setEmbeddingTestResult({ passed: false, message: error.response?.data?.error || '임베딩 테스트 실패' });
+      setFormError(error.response?.data?.error || '임베딩 테스트 실행에 실패했습니다.');
+    } finally {
+      setEmbeddingTestRunning(false);
+    }
+  };
+
+  const runRerankTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setRerankTestRunning(true);
+    setRerankTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testRerank(buildTestPayload());
+      setRerankTestResult({ passed: res.data.passed, message: res.data.rerank?.message });
+    } catch (error: any) {
+      setRerankTestResult({ passed: false, message: error.response?.data?.error || '리랭킹 테스트 실패' });
+      setFormError(error.response?.data?.error || '리랭킹 테스트 실행에 실패했습니다.');
+    } finally {
+      setRerankTestRunning(false);
+    }
   };
 
   const handleSave = async () => {
@@ -159,32 +462,107 @@ export default function Models({ adminRole }: ModelsProps) {
       return;
     }
 
+    // Parse extra headers
+    let extraHeaders: Record<string, string> | undefined;
+    if (form.extraHeaders.trim()) {
+      try {
+        extraHeaders = JSON.parse(form.extraHeaders);
+      } catch {
+        setFormError('Extra Headers는 유효한 JSON이어야 합니다.');
+        return;
+      }
+    }
+
+    // Parse extra body
+    let extraBody: Record<string, unknown> | undefined;
+    if (form.extraBody.trim()) {
+      try {
+        extraBody = JSON.parse(form.extraBody);
+      } catch {
+        setFormError('Extra Body는 유효한 JSON이어야 합니다.');
+        return;
+      }
+    }
+
+    // CHAT type: require tool call test (at least 2 passed)
+    if (form.type === 'CHAT') {
+      if (!testResult) {
+        setFormError('CHAT 모델은 저장 전에 Tool Call 테스트를 실행해야 합니다. "테스트 실행" 버튼을 클릭하세요.');
+        return;
+      }
+      const toolCallsPassed = [testResult.toolCallA, testResult.toolCallB, testResult.toolCallC, testResult.toolCallD].filter(Boolean).length;
+      if (toolCallsPassed < 2) {
+        setFormError('최소 2개 이상의 Tool Call 테스트를 통과해야 합니다.');
+        return;
+      }
+
+      // Vision test required if supportsVision is checked
+      if (form.supportsVision) {
+        if (!visionTestResult) {
+          setFormError('Vision 모델은 저장 전에 Vision 테스트를 실행해야 합니다. "Vision 테스트" 버튼을 클릭하세요.');
+          return;
+        }
+        if (!visionTestResult.passed) {
+          setFormError('Vision 인식 테스트를 통과해야 Vision 모델로 등록할 수 있습니다.');
+          return;
+        }
+      }
+    }
+
+    // IMAGE type: require image gen test
+    if (form.type === 'IMAGE') {
+      if (!imageTestResult) {
+        setFormError('IMAGE 모델은 저장 전에 이미지 생성 테스트를 실행해야 합니다. "이미지 생성 테스트" 버튼을 클릭하세요.');
+        return;
+      }
+      if (!imageTestResult.passed) {
+        setFormError('이미지 생성 테스트를 통과해야 IMAGE 모델로 등록할 수 있습니다.');
+        return;
+      }
+    }
+
+    // EMBEDDING type: require embedding test
+    if (form.type === 'EMBEDDING') {
+      if (!embeddingTestResult) {
+        setFormError('EMBEDDING 모델은 저장 전에 임베딩 테스트를 실행해야 합니다.');
+        return;
+      }
+      if (!embeddingTestResult.passed) {
+        setFormError('임베딩 테스트를 통과해야 EMBEDDING 모델로 등록할 수 있습니다.');
+        return;
+      }
+    }
+
+    // RERANKING type: require rerank test
+    if (form.type === 'RERANKING') {
+      if (!rerankTestResult) {
+        setFormError('RERANKING 모델은 저장 전에 리랭킹 테스트를 실행해야 합니다.');
+        return;
+      }
+      if (!rerankTestResult.passed) {
+        setFormError('리랭킹 테스트를 통과해야 RERANKING 모델로 등록할 수 있습니다.');
+        return;
+      }
+    }
+
     setSaving(true);
     setFormError('');
 
     try {
-      let extraHeaders: Record<string, string> | undefined;
-      if (form.extraHeaders.trim()) {
-        try {
-          extraHeaders = JSON.parse(form.extraHeaders);
-        } catch {
-          setFormError('Extra Headers는 유효한 JSON이어야 합니다.');
-          setSaving(false);
-          return;
-        }
-      }
-
       const data = {
         name: form.name,
         displayName: form.displayName,
         endpointUrl: form.endpointUrl,
         apiKey: form.apiKey || undefined,
         extraHeaders,
+        extraBody,
         maxTokens: form.maxTokens,
         enabled: form.enabled,
-        supportsVision: form.supportsVision,
+        supportsVision: form.type === 'CHAT' ? form.supportsVision : false,
+        type: form.type,
+        imageProvider: form.type === 'IMAGE' ? (form.imageProvider || undefined) : undefined,
         visibility: form.visibility,
-        visibilityScope: form.visibilityScope ? form.visibilityScope.split(',').map(s => s.trim()).filter(Boolean) : [],
+        visibilityScope: form.visibilityScope.length > 0 ? form.visibilityScope : [],
         sortOrder: form.sortOrder,
       };
 
@@ -230,6 +608,7 @@ export default function Models({ adminRole }: ModelsProps) {
         modelName: model.name,
         apiKey: model.apiKey || undefined,
         extraHeaders: model.extraHeaders || undefined,
+        extraBody: model.extraBody || undefined,
       });
       setHealthChecks(prev => ({ ...prev, [model.id]: res.data }));
     } catch (error: any) {
@@ -311,11 +690,11 @@ export default function Models({ adminRole }: ModelsProps) {
     }
   };
 
-  // Admin can modify? (Super Admin: always, Admin: only non-super-admin-created models)
+  // Admin can modify?
   const canModify = (model: Model) => {
     if (adminRole === 'SUPER_ADMIN') return true;
     if (model.createdBySuperAdmin) return false;
-    return true; // API will enforce dept check
+    return true;
   };
 
   // Filters
@@ -328,7 +707,7 @@ export default function Models({ adminRole }: ModelsProps) {
   });
 
   const getVisibilityBadge = (visibility: VisibilityType) => {
-    const config = VISIBILITY_CONFIG[visibility];
+    const config = VISIBILITY_CONFIG[visibility] || VISIBILITY_CONFIG.PUBLIC;
     const Icon = config.icon;
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border ${config.bg} ${config.color}`}>
@@ -337,6 +716,10 @@ export default function Models({ adminRole }: ModelsProps) {
       </span>
     );
   };
+
+  // Tool call count helper
+  const getToolCallPassCount = (result: TestEndpointResult) =>
+    [result.toolCallA, result.toolCallB, result.toolCallC, result.toolCallD].filter(Boolean).length;
 
   if (loading) {
     return (
@@ -434,7 +817,11 @@ export default function Models({ adminRole }: ModelsProps) {
                     <div className={`w-11 h-11 rounded-ios flex items-center justify-center flex-shrink-0 ${
                       model.enabled ? 'bg-samsung-blue/10' : 'bg-gray-100'
                     }`}>
-                      <Cpu className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
+                      {(model.type === 'IMAGE') ? (
+                        <Image className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
+                      ) : (
+                        <Cpu className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
+                      )}
                     </div>
 
                     {/* Model Info */}
@@ -448,7 +835,12 @@ export default function Models({ adminRole }: ModelsProps) {
                             비활성
                           </span>
                         )}
-                        {model.supportsVision && (
+                        {model.type === 'IMAGE' && (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-pink-50 text-pink-600 rounded-full border border-pink-200">
+                            <Image className="w-2.5 h-2.5 inline mr-0.5" />IMAGE
+                          </span>
+                        )}
+                        {model.supportsVision && model.type !== 'IMAGE' && (
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-violet-50 text-violet-600 rounded-full border border-violet-200">
                             <Eye className="w-2.5 h-2.5 inline mr-0.5" />Vision
                           </span>
@@ -462,6 +854,9 @@ export default function Models({ adminRole }: ModelsProps) {
                       <div className="flex items-center gap-3 mt-1 text-xs text-pastel-500 flex-wrap">
                         <code className="px-1.5 py-0.5 bg-pastel-50 rounded text-[11px] font-mono">{model.name}</code>
                         {getVisibilityBadge(model.visibility)}
+                        {model.imageProvider && (
+                          <span className="px-1.5 py-0.5 bg-pink-50 text-pink-600 rounded text-[11px] font-mono">{model.imageProvider}</span>
+                        )}
                         {model.createdByDept && (
                           <span className="hidden sm:inline">{model.createdByDept}</span>
                         )}
@@ -636,7 +1031,7 @@ export default function Models({ adminRole }: ModelsProps) {
                           />
                           <input
                             type="text"
-                            placeholder="엔드포인트 URL *"
+                            placeholder="엔드포인트 URL (/v1 까지) *"
                             value={subModelForm.endpointUrl}
                             onChange={e => setSubModelForm({ ...subModelForm, endpointUrl: e.target.value })}
                             className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
@@ -682,7 +1077,9 @@ export default function Models({ adminRole }: ModelsProps) {
         </div>
       )}
 
-      {/* Create/Edit Modal */}
+      {/* ═══════════════════════════════════════════════
+          Create / Edit Modal
+          ═══════════════════════════════════════════════ */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white rounded-ios-xl shadow-modal w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
@@ -713,6 +1110,63 @@ export default function Models({ adminRole }: ModelsProps) {
               )}
 
               <div className="space-y-4">
+                {/* ── Model Type Selection ── */}
+                <div>
+                  <label className="block text-sm font-medium text-pastel-700 mb-2">모델 타입</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      { value: 'CHAT' as const, label: '채팅', desc: 'LLM 채팅 모델', icon: MessageSquare },
+                      { value: 'IMAGE' as const, label: '이미지 생성', desc: '이미지 생성 모델', icon: Image },
+                      { value: 'EMBEDDING' as const, label: '임베딩', desc: '텍스트 임베딩 모델', icon: Layers },
+                      { value: 'RERANKING' as const, label: '리랭킹', desc: '문서 리랭킹 모델', icon: Sparkles },
+                    ]).map(opt => {
+                      const isSelected = form.type === opt.value;
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setForm({ ...form, type: opt.value, supportsVision: opt.value === 'IMAGE' ? false : form.supportsVision });
+                            resetTestStates();
+                          }}
+                          className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all duration-200
+                            ${isSelected
+                              ? 'border-samsung-blue bg-samsung-blue/5 shadow-card'
+                              : 'border-pastel-100 hover:border-pastel-300 bg-white'}`}
+                        >
+                          <div className={`w-10 h-10 rounded-ios flex items-center justify-center
+                            ${isSelected ? 'bg-samsung-blue/10' : 'bg-pastel-50'}`}>
+                            <Icon className={`w-5 h-5 ${isSelected ? 'text-samsung-blue' : 'text-pastel-400'}`} />
+                          </div>
+                          <div className="text-left">
+                            <p className={`text-sm font-semibold ${isSelected ? 'text-samsung-blue' : 'text-pastel-700'}`}>{opt.label}</p>
+                            <p className="text-xs text-pastel-400">{opt.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Image Provider (only for IMAGE type) */}
+                {form.type === 'IMAGE' && (
+                  <div className="animate-slide-down">
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">이미지 Provider</label>
+                    <select
+                      value={form.imageProvider}
+                      onChange={e => setForm({ ...form, imageProvider: e.target.value })}
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm bg-white
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                    >
+                      <option value="">선택하세요</option>
+                      <option value="OPENAI">OPENAI</option>
+                      <option value="COMFYUI">COMFYUI</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* ── Name / Display Name ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-pastel-700 mb-1.5">모델 ID *</label>
@@ -740,18 +1194,21 @@ export default function Models({ adminRole }: ModelsProps) {
                   </div>
                 </div>
 
+                {/* ── Endpoint URL ── */}
                 <div>
-                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">엔드포인트 URL *</label>
+                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">엔드포인트 URL * <span className="text-pastel-400 font-normal">(/v1 까지만 입력)</span></label>
                   <input
                     type="text"
                     value={form.endpointUrl}
                     onChange={e => setForm({ ...form, endpointUrl: e.target.value })}
-                    placeholder="https://api.example.com/v1/chat/completions"
+                    placeholder="https://api.example.com/v1"
                     className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm font-mono
                                focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
                   />
+                  <p className="mt-1 text-xs text-pastel-400">/chat/completions, /embeddings, /rerank, /images/generations 경로는 프록시가 자동으로 분기합니다</p>
                 </div>
 
+                {/* ── API Key / Max Tokens ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-pastel-700 mb-1.5">API Key</label>
@@ -776,6 +1233,7 @@ export default function Models({ adminRole }: ModelsProps) {
                   </div>
                 </div>
 
+                {/* ── Extra Headers (JSON) ── */}
                 <div>
                   <label className="block text-sm font-medium text-pastel-700 mb-1.5">Extra Headers (JSON)</label>
                   <textarea
@@ -787,12 +1245,25 @@ export default function Models({ adminRole }: ModelsProps) {
                                focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all resize-none"
                   />
                 </div>
+
+                {/* ── Extra Body (JSON) ── */}
+                <div>
+                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">Extra Body (JSON)</label>
+                  <textarea
+                    value={form.extraBody}
+                    onChange={e => setForm({ ...form, extraBody: e.target.value })}
+                    placeholder='{"key": "value"}'
+                    rows={2}
+                    className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm font-mono
+                               focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all resize-none"
+                  />
+                </div>
               </div>
 
-              {/* Visibility */}
+              {/* ── Visibility ── */}
               <div>
                 <label className="block text-sm font-medium text-pastel-700 mb-2">접근 범위</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {(Object.keys(VISIBILITY_CONFIG) as VisibilityType[]).map(v => {
                     const cfg = VISIBILITY_CONFIG[v];
                     const Icon = cfg.icon;
@@ -801,14 +1272,14 @@ export default function Models({ adminRole }: ModelsProps) {
                       <button
                         key={v}
                         type="button"
-                        onClick={() => setForm({ ...form, visibility: v })}
+                        onClick={() => setForm({ ...form, visibility: v, visibilityScope: [] })}
                         className={`flex flex-col items-center gap-1.5 p-3 rounded-ios border-2 transition-all duration-200
                           ${isSelected
                             ? 'border-samsung-blue bg-samsung-blue/5'
                             : 'border-pastel-100 hover:border-pastel-300 bg-white'}`}
                       >
                         <Icon className={`w-5 h-5 ${isSelected ? 'text-samsung-blue' : 'text-pastel-400'}`} />
-                        <span className={`text-xs font-medium ${isSelected ? 'text-samsung-blue' : 'text-pastel-600'}`}>
+                        <span className={`text-xs font-medium text-center leading-tight ${isSelected ? 'text-samsung-blue' : 'text-pastel-600'}`}>
                           {cfg.label}
                         </span>
                       </button>
@@ -819,22 +1290,30 @@ export default function Models({ adminRole }: ModelsProps) {
                   {VISIBILITY_CONFIG[form.visibility].desc}
                 </p>
 
-                {(form.visibility === 'BUSINESS_UNIT' || form.visibility === 'TEAM') && (
-                  <div className="mt-3">
-                    <label className="block text-xs font-medium text-pastel-600 mb-1">범위 (쉼표 구분)</label>
-                    <input
-                      type="text"
-                      value={form.visibilityScope}
-                      onChange={e => setForm({ ...form, visibilityScope: e.target.value })}
-                      placeholder={form.visibility === 'BUSINESS_UNIT' ? 'S.LSI, MX' : 'SW혁신팀, AI개발팀'}
-                      className="w-full px-3 py-2 border border-pastel-200 rounded-ios text-sm
-                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 transition-all"
-                    />
-                  </div>
+                {/* Multi-select for BUSINESS_UNIT or TEAM */}
+                {form.visibility === 'BUSINESS_UNIT' && (
+                  <MultiSelectDropdown
+                    label="사업부 선택"
+                    options={scopeOptions}
+                    selected={form.visibilityScope}
+                    onChange={next => setForm({ ...form, visibilityScope: next })}
+                    loading={scopeLoading}
+                    placeholder="사업부를 선택하세요"
+                  />
+                )}
+                {form.visibility === 'TEAM' && (
+                  <MultiSelectDropdown
+                    label="부서 선택"
+                    options={scopeOptions}
+                    selected={form.visibilityScope}
+                    onChange={next => setForm({ ...form, visibilityScope: next })}
+                    loading={scopeLoading}
+                    placeholder="부서를 선택하세요"
+                  />
                 )}
               </div>
 
-              {/* Options */}
+              {/* ── Options (toggles) ── */}
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-3 p-3 bg-pastel-50 rounded-ios cursor-pointer hover:bg-pastel-100 transition-colors">
                   <div className="relative">
@@ -851,20 +1330,26 @@ export default function Models({ adminRole }: ModelsProps) {
                   <span className="text-sm text-pastel-700">활성화</span>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 bg-pastel-50 rounded-ios cursor-pointer hover:bg-pastel-100 transition-colors">
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      checked={form.supportsVision}
-                      onChange={e => setForm({ ...form, supportsVision: e.target.checked })}
-                      className="sr-only peer"
-                    />
-                    <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full
-                                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
-                                    after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500" />
-                  </div>
-                  <span className="text-sm text-pastel-700">Vision 지원</span>
-                </label>
+                {/* Vision toggle — hidden for IMAGE type */}
+                {form.type === 'CHAT' && (
+                  <label className="flex items-center gap-3 p-3 bg-pastel-50 rounded-ios cursor-pointer hover:bg-pastel-100 transition-colors">
+                    <div className="relative">
+                      <input
+                        type="checkbox"
+                        checked={form.supportsVision}
+                        onChange={e => {
+                          setForm({ ...form, supportsVision: e.target.checked });
+                          if (!e.target.checked) setVisionTestResult(null);
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full
+                                      after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
+                                      after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500" />
+                    </div>
+                    <span className="text-sm text-pastel-700">Vision 지원</span>
+                  </label>
+                )}
 
                 <div className="flex items-center gap-2 p-3 bg-pastel-50 rounded-ios">
                   <label className="text-sm text-pastel-700">정렬 순서</label>
@@ -877,8 +1362,284 @@ export default function Models({ adminRole }: ModelsProps) {
                   />
                 </div>
               </div>
+
+              {/* ═══════════════════════════════════════
+                  Test Section (CHAT)
+                  ═══════════════════════════════════════ */}
+              {form.type === 'CHAT' && (
+                <div className="space-y-4">
+                  <div className="border-t border-pastel-100 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                        <Play className="w-4 h-4" />
+                        Tool Call 테스트
+                        <span className="text-xs font-normal text-pastel-400">(최소 2개 통과 필요)</span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={runFormTest}
+                        disabled={testRunning || !form.endpointUrl || !form.name}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
+                                   bg-gradient-to-r from-samsung-blue to-accent-indigo
+                                   hover:shadow-ios transition-all duration-200
+                                   disabled:opacity-50 disabled:cursor-not-allowed
+                                   transform active:scale-[0.97]"
+                      >
+                        {testRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                        테스트 실행
+                      </button>
+                    </div>
+
+                    {testResult && (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 animate-slide-down">
+                        {/* Chat Completion */}
+                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                          testResult.chatCompletion
+                            ? 'bg-green-50 border-green-200'
+                            : 'bg-red-50 border-red-200'
+                        }`}>
+                          {testResult.chatCompletion
+                            ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                            : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                          <p className={`text-xs font-medium ${testResult.chatCompletion ? 'text-green-700' : 'text-red-700'}`}>Chat</p>
+                        </div>
+                        {/* Tool A */}
+                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                          testResult.toolCallA ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                        }`}>
+                          {testResult.toolCallA
+                            ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                            : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                          <p className={`text-xs font-medium ${testResult.toolCallA ? 'text-green-700' : 'text-red-700'}`}>Tool A</p>
+                        </div>
+                        {/* Tool B */}
+                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                          testResult.toolCallB ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                        }`}>
+                          {testResult.toolCallB
+                            ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                            : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                          <p className={`text-xs font-medium ${testResult.toolCallB ? 'text-green-700' : 'text-red-700'}`}>Tool B</p>
+                        </div>
+                        {/* Tool C */}
+                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                          testResult.toolCallC ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                        }`}>
+                          {testResult.toolCallC
+                            ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                            : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                          <p className={`text-xs font-medium ${testResult.toolCallC ? 'text-green-700' : 'text-red-700'}`}>Tool C</p>
+                        </div>
+                        {/* Tool D */}
+                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                          testResult.toolCallD ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                        }`}>
+                          {testResult.toolCallD
+                            ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                            : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                          <p className={`text-xs font-medium ${testResult.toolCallD ? 'text-green-700' : 'text-red-700'}`}>Tool D</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {testResult && (
+                      <div className={`mt-2 px-3 py-2 rounded-ios text-xs font-medium animate-slide-down ${
+                        getToolCallPassCount(testResult) >= 2
+                          ? 'bg-green-50 text-green-700 border border-green-200'
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}>
+                        Tool Call 통과: {getToolCallPassCount(testResult)} / 4
+                        {getToolCallPassCount(testResult) >= 2 ? ' — 통과' : ' — 최소 2개 이상 통과 필요'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Vision Test */}
+                  {form.supportsVision && (
+                    <div className="border-t border-pastel-100 pt-4 animate-slide-down">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                          <Eye className="w-4 h-4" />
+                          Vision 테스트
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={runVisionTest}
+                          disabled={visionTestRunning || !form.endpointUrl || !form.name}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
+                                     bg-gradient-to-r from-samsung-blue to-accent-indigo
+                                     hover:shadow-ios transition-all duration-200
+                                     disabled:opacity-50 disabled:cursor-not-allowed
+                                     transform active:scale-[0.97]"
+                        >
+                          {visionTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
+                          Vision 테스트
+                        </button>
+                      </div>
+
+                      {visionTestResult && (
+                        <div className="space-y-2 animate-slide-down">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className={`p-3 rounded-2xl border text-center ${
+                              visionTestResult.visionDescribe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                            }`}>
+                              {visionTestResult.visionDescribe
+                                ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                                : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                              <p className={`text-xs font-medium ${visionTestResult.visionDescribe ? 'text-green-700' : 'text-red-700'}`}>
+                                Vision Describe
+                              </p>
+                            </div>
+                            <div className={`p-3 rounded-2xl border text-center ${
+                              visionTestResult.visionJudge ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                            }`}>
+                              {visionTestResult.visionJudge
+                                ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                                : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                              <p className={`text-xs font-medium ${visionTestResult.visionJudge ? 'text-green-700' : 'text-red-700'}`}>
+                                Vision Judge
+                              </p>
+                            </div>
+                          </div>
+                          <div className={`px-3 py-2 rounded-ios text-xs font-medium ${
+                            visionTestResult.passed
+                              ? 'bg-green-50 text-green-700 border border-green-200'
+                              : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}>
+                            {visionTestResult.passed ? 'Vision 테스트 통과' : 'Vision 인식 테스트를 통과해야 Vision 모델로 등록할 수 있습니다'}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════
+                  Test Section (IMAGE)
+                  ═══════════════════════════════════════ */}
+              {form.type === 'IMAGE' && (
+                <div className="border-t border-pastel-100 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                      <Image className="w-4 h-4" />
+                      이미지 생성 테스트
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={runImageTest}
+                      disabled={imageTestRunning || !form.endpointUrl || !form.name}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
+                                 bg-gradient-to-r from-samsung-blue to-accent-indigo
+                                 hover:shadow-ios transition-all duration-200
+                                 disabled:opacity-50 disabled:cursor-not-allowed
+                                 transform active:scale-[0.97]"
+                    >
+                      {imageTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
+                      이미지 생성 테스트
+                    </button>
+                  </div>
+
+                  {imageTestResult && (
+                    <div className="space-y-2 animate-slide-down">
+                      <div className={`p-3 rounded-2xl border text-center ${
+                        imageTestResult.imageGen ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                      }`}>
+                        {imageTestResult.imageGen
+                          ? <CheckCircle className="w-5 h-5 text-green-500 mx-auto mb-1" />
+                          : <XCircle className="w-5 h-5 text-red-500 mx-auto mb-1" />}
+                        <p className={`text-xs font-medium ${imageTestResult.imageGen ? 'text-green-700' : 'text-red-700'}`}>
+                          Image Generation
+                        </p>
+                      </div>
+                      <div className={`px-3 py-2 rounded-ios text-xs font-medium ${
+                        imageTestResult.passed
+                          ? 'bg-green-50 text-green-700 border border-green-200'
+                          : 'bg-red-50 text-red-700 border border-red-200'
+                      }`}>
+                        {imageTestResult.passed ? '이미지 생성 테스트 통과' : '이미지 생성 테스트를 통과해야 IMAGE 모델로 등록할 수 있습니다'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Embedding Test (EMBEDDING type) ── */}
+              {form.type === 'EMBEDDING' && (
+                <div className="border-t border-pastel-100 pt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-samsung-blue" />
+                      임베딩 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={runEmbeddingTest}
+                      disabled={embeddingTestRunning || !form.endpointUrl || !form.name}
+                      className="px-4 py-2 rounded-ios text-xs font-medium bg-samsung-blue text-white
+                                 hover:bg-samsung-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                                 flex items-center gap-1.5"
+                    >
+                      {embeddingTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
+                      임베딩 테스트
+                    </button>
+                  </div>
+                  {embeddingTestResult && (
+                    <div className="space-y-2">
+                      <div className={`flex items-center gap-2 p-2 rounded-ios border ${
+                        embeddingTestResult.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                      }`}>
+                        {embeddingTestResult.passed
+                          ? <CheckCircle className="w-4 h-4 text-green-600" />
+                          : <XCircle className="w-4 h-4 text-red-600" />}
+                        <p className={`text-xs font-medium ${embeddingTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
+                          {embeddingTestResult.message || (embeddingTestResult.passed ? '임베딩 테스트 통과' : '임베딩 테스트 실패')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Rerank Test (RERANKING type) ── */}
+              {form.type === 'RERANKING' && (
+                <div className="border-t border-pastel-100 pt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-samsung-blue" />
+                      리랭킹 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={runRerankTest}
+                      disabled={rerankTestRunning || !form.endpointUrl || !form.name}
+                      className="px-4 py-2 rounded-ios text-xs font-medium bg-samsung-blue text-white
+                                 hover:bg-samsung-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                                 flex items-center gap-1.5"
+                    >
+                      {rerankTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      리랭킹 테스트
+                    </button>
+                  </div>
+                  {rerankTestResult && (
+                    <div className="space-y-2">
+                      <div className={`flex items-center gap-2 p-2 rounded-ios border ${
+                        rerankTestResult.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                      }`}>
+                        {rerankTestResult.passed
+                          ? <CheckCircle className="w-4 h-4 text-green-600" />
+                          : <XCircle className="w-4 h-4 text-red-600" />}
+                        <p className={`text-xs font-medium ${rerankTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
+                          {rerankTestResult.message || (rerankTestResult.passed ? '리랭킹 테스트 통과' : '리랭킹 테스트 실패')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
+            {/* ── Modal Footer ── */}
             <div className="sticky bottom-0 bg-white/95 backdrop-blur-[20px] border-t border-pastel-100 px-6 py-4 rounded-b-ios-xl">
               <div className="flex justify-end gap-3">
                 <button

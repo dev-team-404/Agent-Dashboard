@@ -219,6 +219,8 @@ export function isModelVisibleTo(
       return model.visibilityScope.includes(userDept);
     case 'ADMIN_ONLY':
       return isAdmin;
+    case 'SUPER_ADMIN_ONLY':
+      return false; // Only super admins can see; handled separately before calling this
     default:
       return false;
   }

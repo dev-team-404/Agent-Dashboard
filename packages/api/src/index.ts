@@ -26,6 +26,8 @@ import { myUsageRoutes } from './routes/my-usage.routes.js';
 import { ratingRoutes } from './routes/rating.routes.js';
 import { serviceRoutes } from './routes/service.routes.js';
 import { holidaysRoutes } from './routes/holidays.routes.js';
+import { publicStatsRoutes } from './routes/public-stats.routes.js';
+import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
 import 'dotenv/config';
@@ -73,6 +75,30 @@ app.use('/holidays', holidaysRoutes);
 
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
+
+// Public Stats API (인증 불필요)
+app.use('/api/public/stats', publicStatsRoutes);
+
+// Swagger / OpenAPI documentation
+app.get('/api-docs', (_req, res) => {
+  res.json(swaggerSpec);
+});
+app.get('/api-docs/ui',
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+  }),
+  (_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(getSwaggerUiHtml('/api-docs'));
+  },
+);
 
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

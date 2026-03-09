@@ -47,7 +47,7 @@ x-dept-name: <부서명>
 ### curl
 
 ```bash
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: hong.gildong" \
@@ -75,7 +75,7 @@ curl -X POST https://<api-url>/v1/chat/completions \
 import requests
 
 response = requests.post(
-    "https://<api-url>/v1/chat/completions",
+    "https://a2g.samsungds.net:8090/v1/chat/completions",
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-service",
@@ -145,7 +145,7 @@ print(result["choices"][0]["message"]["content"])
 ### 스트리밍 요청
 
 ```bash
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: hong.gildong" \
@@ -181,7 +181,7 @@ data: [DONE]
 import requests
 
 response = requests.post(
-    "https://<api-url>/v1/chat/completions",
+    "https://a2g.samsungds.net:8090/v1/chat/completions",
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-service",
@@ -212,7 +212,7 @@ for line in response.iter_lines():
 ### JavaScript 스트리밍 예시
 
 ```javascript
-const response = await fetch('https://<api-url>/v1/chat/completions', {
+const response = await fetch('https://a2g.samsungds.net:8090/v1/chat/completions', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -251,7 +251,7 @@ while (true) {
 이전 대화 내용을 `messages` 배열에 포함하여 멀티턴 대화를 구현할 수 있습니다.
 
 ```bash
-curl -X POST https://<api-url>/v1/chat/completions \
+curl -X POST https://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: hong.gildong" \

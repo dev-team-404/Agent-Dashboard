@@ -72,13 +72,53 @@ interface HealthCheckResult {
 /**
  * endpointUrl에서 chat completions URL 구성
  */
-function buildHealthCheckUrl(endpointUrl: string): string {
+/**
+ * endpointUrl → /chat/completions URL
+ */
+function buildChatCompletionsUrl(endpointUrl: string): string {
   let url = endpointUrl.trim().replace(/\/+$/, '');
   if (url.endsWith('/chat/completions')) return url;
   if (url.endsWith('/completions')) return url.replace(/\/completions$/, '/chat/completions');
   if (url.endsWith('/v1')) return `${url}/chat/completions`;
   return `${url}/chat/completions`;
 }
+
+/**
+ * endpointUrl → /embeddings URL
+ */
+function buildEmbeddingsUrl(endpointUrl: string): string {
+  let url = endpointUrl.trim().replace(/\/+$/, '');
+  if (url.endsWith('/embeddings')) return url;
+  if (url.endsWith('/v1')) return `${url}/embeddings`;
+  // Strip known suffixes
+  url = url.replace(/\/(chat\/completions|rerank|images\/generations)$/, '');
+  return `${url}/embeddings`;
+}
+
+/**
+ * endpointUrl → /rerank URL
+ */
+function buildRerankUrl(endpointUrl: string): string {
+  let url = endpointUrl.trim().replace(/\/+$/, '');
+  if (url.endsWith('/rerank')) return url;
+  if (url.endsWith('/v1')) return `${url}/rerank`;
+  url = url.replace(/\/(chat\/completions|embeddings|images\/generations)$/, '');
+  return `${url}/rerank`;
+}
+
+/**
+ * endpointUrl → /images/generations URL
+ */
+function buildImagesGenerationsUrl(endpointUrl: string): string {
+  let url = endpointUrl.trim().replace(/\/+$/, '');
+  if (url.endsWith('/images/generations')) return url;
+  if (url.endsWith('/v1')) return `${url}/images/generations`;
+  url = url.replace(/\/(chat\/completions|embeddings|rerank)$/, '');
+  return `${url}/images/generations`;
+}
+
+// backward compat alias
+const buildHealthCheckUrl = buildChatCompletionsUrl;
 
 /**
  * fetch 요청 with timeout
@@ -330,11 +370,14 @@ const modelSchema = z.object({
   endpointUrl: z.string().url(),
   apiKey: z.string().optional(),
   extraHeaders: z.record(z.string()).optional(),
+  extraBody: z.any().optional(),
   maxTokens: z.number().int().min(1).max(1000000).default(128000),
   enabled: z.boolean().default(true),
   supportsVision: z.boolean().default(false),
-  visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY']).default('PUBLIC'),
+  visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY']).default('PUBLIC'),
   visibilityScope: z.array(z.string()).default([]),
+  type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING']).optional(),
+  imageProvider: z.string().optional(),
 });
 
 /**
@@ -364,14 +407,16 @@ adminRoutes.get('/models', async (req: AuthenticatedRequest, res) => {
     // For non-super admins, filter by visibility
     let filteredModels = models;
     if (!req.isSuperAdmin) {
-      filteredModels = models.filter((m) =>
-        isModelVisibleTo(
+      filteredModels = models.filter((m) => {
+        // SUPER_ADMIN_ONLY models are only visible to super admins
+        if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
+        return isModelVisibleTo(
           { visibility: m.visibility, visibilityScope: m.visibilityScope },
           req.adminDept || '',
           req.adminBusinessUnit || '',
           true
-        )
-      );
+        );
+      });
     }
 
     // Mask API keys (parent and subModels)
@@ -862,6 +907,7 @@ adminRoutes.delete('/models/:modelId/sub-models/:subModelId', async (req: Authen
 /**
  * POST /admin/models/test
  * 모델 엔드포인트 테스트 (저장 전 독립 테스트용)
+ * chatCompletion + 4개 toolCall 시나리오 (A/B/C/D)
  * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
  */
 adminRoutes.post('/models/test', async (req: AuthenticatedRequest, res) => {
@@ -880,13 +926,612 @@ adminRoutes.post('/models/test', async (req: AuthenticatedRequest, res) => {
     }
 
     const { endpointUrl, modelName, apiKey, extraHeaders } = validation.data;
-    const healthResult = await checkModelEndpointHealth(endpointUrl, modelName, apiKey, extraHeaders);
-    console.log(`[Test] Model "${modelName}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+    const totalStart = Date.now();
+    const url = buildHealthCheckUrl(endpointUrl);
 
-    res.json({ healthCheck: healthResult });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    if (extraHeaders) {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+          headers[key] = value;
+        }
+      }
+    }
+
+    // Tool definition for tool call tests
+    const weatherTool = {
+      type: 'function' as const,
+      function: {
+        name: 'get_weather',
+        description: 'Get the current weather in a location',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string', description: 'City name' },
+            unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+          },
+          required: ['location'],
+        },
+      },
+    };
+
+    const toolCallPrompt = "What's the weather in Seoul?";
+
+    // Helper: run a single tool call test scenario
+    async function runToolCallTest(
+      label: string,
+      opts: { temperature?: number; tool_choice: string | { type: string; function: { name: string } } }
+    ): Promise<{ passed: boolean; status?: number; message: string; latencyMs: number }> {
+      const startTime = Date.now();
+      const requestBody: Record<string, unknown> = {
+        model: modelName,
+        messages: [{ role: 'user', content: toolCallPrompt }],
+        tools: [weatherTool],
+        tool_choice: opts.tool_choice,
+      };
+      if (opts.temperature !== undefined) {
+        requestBody.temperature = opts.temperature;
+      }
+
+      try {
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          const result = { passed: false, status: response.status, message: `${label} failed with status ${response.status}`, latencyMs };
+          logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+          return result;
+        }
+
+        let data: any;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          const result = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+          logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+          return result;
+        }
+
+        // Validate tool_calls
+        const toolCalls = data.choices?.[0]?.message?.tool_calls;
+        if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
+          const result = { passed: false, status: response.status, message: 'No tool_calls in response', latencyMs };
+          logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+          return result;
+        }
+
+        // Validate each tool call has function.name and function.arguments (valid JSON)
+        for (const tc of toolCalls) {
+          if (!tc.function?.name) {
+            const result = { passed: false, status: response.status, message: 'tool_call missing function.name', latencyMs };
+            logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+            return result;
+          }
+          if (!tc.function?.arguments) {
+            const result = { passed: false, status: response.status, message: 'tool_call missing function.arguments', latencyMs };
+            logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+            return result;
+          }
+          try {
+            JSON.parse(tc.function.arguments);
+          } catch {
+            const result = { passed: false, status: response.status, message: `tool_call arguments is not valid JSON: ${tc.function.arguments}`, latencyMs };
+            logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+            return result;
+          }
+        }
+
+        const toolName = toolCalls[0]?.function?.name || 'unknown';
+        const result = { passed: true, status: response.status, message: `OK: called "${toolName}"`, latencyMs };
+        logHealthCheckDetail(label, modelName, url, requestBody, result, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+        return result;
+      } catch (error) {
+        const latencyMs = Date.now() - startTime;
+        const errMsg = error instanceof Error
+          ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+          : 'Unknown error';
+        const result = { passed: false, message: errMsg, latencyMs };
+        logHealthCheckDetail(label, modelName, url, requestBody, result, errMsg);
+        return result;
+      }
+    }
+
+    // 1. Chat Completion test
+    const chatResult = await testChatCompletion(url, modelName, headers);
+    console.log(`[Test] Chat Completion: ${chatResult.passed ? 'PASS' : 'FAIL'} (${chatResult.latencyMs}ms) ${chatResult.message}`);
+
+    // 2. Tool Call tests (A/B/C/D) - run even if chat fails (for diagnostic info)
+    const [toolCallA, toolCallB, toolCallC, toolCallD] = await Promise.all([
+      runToolCallTest('toolCallA', { temperature: 0, tool_choice: 'required' }),
+      runToolCallTest('toolCallB', { temperature: 0, tool_choice: 'auto' }),
+      runToolCallTest('toolCallC', { tool_choice: 'required' }),
+      runToolCallTest('toolCallD', { tool_choice: 'auto' }),
+    ]);
+
+    console.log(`[Test] toolCallA: ${toolCallA.passed ? 'PASS' : 'FAIL'} (${toolCallA.latencyMs}ms)`);
+    console.log(`[Test] toolCallB: ${toolCallB.passed ? 'PASS' : 'FAIL'} (${toolCallB.latencyMs}ms)`);
+    console.log(`[Test] toolCallC: ${toolCallC.passed ? 'PASS' : 'FAIL'} (${toolCallC.latencyMs}ms)`);
+    console.log(`[Test] toolCallD: ${toolCallD.passed ? 'PASS' : 'FAIL'} (${toolCallD.latencyMs}ms)`);
+
+    const toolCallPassCount = [toolCallA, toolCallB, toolCallC, toolCallD].filter(r => r.passed).length;
+    const allPassed = chatResult.passed && toolCallPassCount >= 2;
+
+    const totalLatencyMs = Date.now() - totalStart;
+    res.json({
+      healthCheck: {
+        healthy: allPassed,
+        checks: {
+          chatCompletion: chatResult,
+          toolCallA,
+          toolCallB,
+          toolCallC,
+          toolCallD,
+        },
+        toolCallPassCount,
+        allPassed,
+        message: allPassed
+          ? 'All checks passed'
+          : chatResult.passed
+            ? `Tool call: ${toolCallPassCount}/4 passed (need 2+)`
+            : `Chat completion failed: ${chatResult.message}`,
+        totalLatencyMs,
+      },
+    });
   } catch (error) {
     console.error('Model test error:', error);
     res.status(500).json({ error: 'Failed to test model' });
+  }
+});
+
+/**
+ * POST /admin/models/test-vl
+ * Vision Language Model 테스트
+ * Step 1 (visionDescribe): 테스트 이미지를 보내고 설명 요청
+ * Step 2 (visionJudge): 설명이 이미지 내용을 정확히 묘사하는지 판정
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-vl', async (req: AuthenticatedRequest, res) => {
+  try {
+    const testSchema = z.object({
+      endpointUrl: z.string().url(),
+      modelName: z.string().min(1),
+      apiKey: z.string().optional(),
+      extraHeaders: z.record(z.string()).optional(),
+    });
+
+    const validation = testSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const { endpointUrl, modelName, apiKey, extraHeaders } = validation.data;
+    const url = buildHealthCheckUrl(endpointUrl);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    if (extraHeaders) {
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+          headers[key] = value;
+        }
+      }
+    }
+
+    // 1x1 red pixel PNG base64
+    const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+
+    // Step 1: visionDescribe - ask the model to describe the test image
+    let visionDescribe: { passed: boolean; status?: number; message: string; latencyMs: number };
+    let description = '';
+
+    const describeStart = Date.now();
+    const describeBody = {
+      model: modelName,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Describe this image in detail.' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+        ],
+      }],
+      temperature: 0,
+    };
+
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(describeBody),
+      }, HEALTH_CHECK_TIMEOUT_MS);
+
+      const latencyMs = Date.now() - describeStart;
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        visionDescribe = { passed: false, status: response.status, message: `Vision describe failed with status ${response.status}`, latencyMs };
+        logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+      } else {
+        let data: any;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          visionDescribe = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+          logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+        }
+
+        if (!visionDescribe!) {
+          const content = data?.choices?.[0]?.message?.content;
+          if (content && typeof content === 'string' && content.length > 0) {
+            description = content;
+            visionDescribe = { passed: true, status: response.status, message: `OK: "${content.slice(0, 200)}"`, latencyMs };
+            logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+          } else {
+            visionDescribe = { passed: false, status: response.status, message: 'No content in response', latencyMs };
+            logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+          }
+        }
+      }
+    } catch (error) {
+      const latencyMs = Date.now() - describeStart;
+      const errMsg = error instanceof Error
+        ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+        : 'Unknown error';
+      visionDescribe = { passed: false, message: errMsg, latencyMs };
+      logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, errMsg);
+    }
+
+    // Step 2: visionJudge - ask if description accurately describes the image
+    let visionJudge: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+    if (!visionDescribe!.passed || !description) {
+      visionJudge = { passed: false, message: 'Skipped (vision describe failed)', latencyMs: 0 };
+    } else {
+      const judgeStart = Date.now();
+      const judgeBody = {
+        model: modelName,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+              {
+                type: 'text',
+                text: `Here is a description of the image above: "${description}"\n\nDoes this description accurately describe the image content? Does it mention any visual element (color, shape, size, pixel, etc.)? Answer with "YES" or "NO" and briefly explain.`,
+              },
+            ],
+          },
+        ],
+        temperature: 0,
+      };
+
+      try {
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(judgeBody),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+
+        const latencyMs = Date.now() - judgeStart;
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          visionJudge = { passed: false, status: response.status, message: `Vision judge failed with status ${response.status}`, latencyMs };
+          logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, responseText);
+        } else {
+          let data: any;
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            visionJudge = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+            logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, responseText);
+          }
+
+          if (!visionJudge!) {
+            const content = data?.choices?.[0]?.message?.content || '';
+            // Check if the judge response mentions any visual element
+            const mentionsVisual = /yes|color|red|pixel|image|square|small|dot|point/i.test(content);
+            if (mentionsVisual) {
+              visionJudge = { passed: true, status: response.status, message: `OK: "${content.slice(0, 200)}"`, latencyMs };
+            } else {
+              visionJudge = { passed: false, status: response.status, message: `Description did not mention visual elements: "${content.slice(0, 200)}"`, latencyMs };
+            }
+            logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge!, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+          }
+        }
+      } catch (error) {
+        const latencyMs = Date.now() - judgeStart;
+        const errMsg = error instanceof Error
+          ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+          : 'Unknown error';
+        visionJudge = { passed: false, message: errMsg, latencyMs };
+        logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, errMsg);
+      }
+    }
+
+    const passed = visionDescribe!.passed && visionJudge!.passed;
+    console.log(`[Test-VL] Model "${modelName}" -> visionDescribe: ${visionDescribe!.passed ? 'PASS' : 'FAIL'}, visionJudge: ${visionJudge!.passed ? 'PASS' : 'FAIL'}, overall: ${passed ? 'PASS' : 'FAIL'}`);
+
+    res.json({
+      visionDescribe: visionDescribe!,
+      visionJudge: visionJudge!,
+      passed,
+    });
+  } catch (error) {
+    console.error('Model test-vl error:', error);
+    res.status(500).json({ error: 'Failed to test vision model' });
+  }
+});
+
+/**
+ * POST /admin/models/test-image
+ * 이미지 생성 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders?, extraBody?, imageProvider? }
+ */
+adminRoutes.post('/models/test-image', async (req: AuthenticatedRequest, res) => {
+  try {
+    const testSchema = z.object({
+      endpointUrl: z.string().url(),
+      modelName: z.string().min(1),
+      apiKey: z.string().optional(),
+      extraHeaders: z.record(z.string()).optional(),
+      extraBody: z.any().optional(),
+      imageProvider: z.string().optional(),
+    });
+
+    const validation = testSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, extraBody, imageProvider } = validation.data;
+
+    // Build URL - append /images/generations
+    const url = buildImagesGenerationsUrl(endpointUrl);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    if (extraHdrs) {
+      for (const [key, value] of Object.entries(extraHdrs)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+          headers[key] = value;
+        }
+      }
+    }
+
+    let imageGen: { passed: boolean; status?: number; message: string; latencyMs: number };
+    const startTime = Date.now();
+
+    // OpenAI-style image generation request
+    const requestBody: Record<string, unknown> = {
+      model: modelName,
+      prompt: 'A simple red circle on white background',
+      n: 1,
+      size: '256x256',
+      ...(extraBody && typeof extraBody === 'object' ? extraBody : {}),
+    };
+
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      }, HEALTH_CHECK_TIMEOUT_MS);
+
+      const latencyMs = Date.now() - startTime;
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        imageGen = { passed: false, status: response.status, message: `Image generation failed with status ${response.status}`, latencyMs };
+        logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+      } else {
+        let data: any;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          imageGen = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+          logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+        }
+
+        if (!imageGen!) {
+          // Check for image data in response (OpenAI format: data[0].url or data[0].b64_json)
+          const imageData = data?.data?.[0];
+          if (imageData && (imageData.url || imageData.b64_json)) {
+            imageGen = { passed: true, status: response.status, message: `OK: image generated successfully`, latencyMs };
+          } else {
+            imageGen = { passed: false, status: response.status, message: 'No image data in response (expected data[0].url or data[0].b64_json)', latencyMs };
+          }
+          logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen!, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+        }
+      }
+    } catch (error) {
+      const latencyMs = Date.now() - startTime;
+      const errMsg = error instanceof Error
+        ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+        : 'Unknown error';
+      imageGen = { passed: false, message: errMsg, latencyMs };
+      logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, errMsg);
+    }
+
+    console.log(`[Test-Image] Model "${modelName}" (provider: ${imageProvider || 'default'}) -> ${imageGen!.passed ? 'PASS' : 'FAIL'} (${imageGen!.latencyMs}ms)`);
+
+    res.json({
+      imageGen: imageGen!,
+      passed: imageGen!.passed,
+    });
+  } catch (error) {
+    console.error('Model test-image error:', error);
+    res.status(500).json({ error: 'Failed to test image model' });
+  }
+});
+
+/**
+ * POST /admin/models/test-embedding
+ * 임베딩 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-embedding', async (req: AuthenticatedRequest, res) => {
+  try {
+    const testSchema = z.object({
+      endpointUrl: z.string().url(),
+      modelName: z.string().min(1),
+      apiKey: z.string().optional(),
+      extraHeaders: z.record(z.string()).optional(),
+    });
+
+    const validation = testSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs } = validation.data;
+    const url = buildEmbeddingsUrl(endpointUrl);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    if (extraHdrs) {
+      for (const [key, value] of Object.entries(extraHdrs)) {
+        const lk = key.toLowerCase();
+        if (lk !== 'content-type' && lk !== 'authorization') headers[key] = value;
+      }
+    }
+
+    const startTime = Date.now();
+    const requestBody = { model: modelName, input: 'Hello world, this is a test embedding request.' };
+
+    let embedding: { passed: boolean; status?: number; message: string; latencyMs: number; dimensions?: number };
+
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST', headers, body: JSON.stringify(requestBody),
+      }, HEALTH_CHECK_TIMEOUT_MS);
+
+      const latencyMs = Date.now() - startTime;
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        embedding = { passed: false, status: response.status, message: `Embedding request failed (${response.status})`, latencyMs };
+      } else {
+        try {
+          const data = JSON.parse(responseText);
+          const vec = data?.data?.[0]?.embedding;
+          if (Array.isArray(vec) && vec.length > 0) {
+            embedding = { passed: true, status: response.status, message: `OK: ${vec.length}-dim embedding`, latencyMs, dimensions: vec.length };
+          } else {
+            embedding = { passed: false, status: response.status, message: 'No embedding vector in response (expected data[0].embedding)', latencyMs };
+          }
+        } catch {
+          embedding = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+        }
+      }
+    } catch (err: any) {
+      embedding = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+    }
+
+    console.log(`[Test-Embedding] Model "${modelName}" -> ${embedding.passed ? 'PASS' : 'FAIL'} (${embedding.latencyMs}ms)`);
+    res.json({ embedding, passed: embedding.passed });
+  } catch (error) {
+    console.error('Model test-embedding error:', error);
+    res.status(500).json({ error: 'Failed to test embedding model' });
+  }
+});
+
+/**
+ * POST /admin/models/test-rerank
+ * 리랭킹 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-rerank', async (req: AuthenticatedRequest, res) => {
+  try {
+    const testSchema = z.object({
+      endpointUrl: z.string().url(),
+      modelName: z.string().min(1),
+      apiKey: z.string().optional(),
+      extraHeaders: z.record(z.string()).optional(),
+    });
+
+    const validation = testSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs } = validation.data;
+    const url = buildRerankUrl(endpointUrl);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    if (extraHdrs) {
+      for (const [key, value] of Object.entries(extraHdrs)) {
+        const lk = key.toLowerCase();
+        if (lk !== 'content-type' && lk !== 'authorization') headers[key] = value;
+      }
+    }
+
+    const startTime = Date.now();
+    const requestBody = {
+      model: modelName,
+      query: 'What is machine learning?',
+      documents: [
+        'Machine learning is a subset of artificial intelligence.',
+        'The weather today is sunny and warm.',
+        'Deep learning uses neural networks with many layers.',
+      ],
+    };
+
+    let rerank: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+    try {
+      const response = await fetchWithTimeout(url, {
+        method: 'POST', headers, body: JSON.stringify(requestBody),
+      }, HEALTH_CHECK_TIMEOUT_MS);
+
+      const latencyMs = Date.now() - startTime;
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        rerank = { passed: false, status: response.status, message: `Rerank request failed (${response.status})`, latencyMs };
+      } else {
+        try {
+          const data = JSON.parse(responseText);
+          // Jina/vLLM rerank format: { results: [{ index, relevance_score }] }
+          const results = data?.results || data?.data;
+          if (Array.isArray(results) && results.length > 0 && results[0].relevance_score !== undefined) {
+            rerank = { passed: true, status: response.status, message: `OK: ${results.length} results reranked`, latencyMs };
+          } else {
+            rerank = { passed: false, status: response.status, message: 'No rerank results in response (expected results[].relevance_score)', latencyMs };
+          }
+        } catch {
+          rerank = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+        }
+      }
+    } catch (err: any) {
+      rerank = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+    }
+
+    console.log(`[Test-Rerank] Model "${modelName}" -> ${rerank.passed ? 'PASS' : 'FAIL'} (${rerank.latencyMs}ms)`);
+    res.json({ rerank, passed: rerank.passed });
+  } catch (error) {
+    console.error('Model test-rerank error:', error);
+    res.status(500).json({ error: 'Failed to test rerank model' });
   }
 });
 
@@ -3292,5 +3937,54 @@ adminRoutes.get('/business-units', async (_req: AuthenticatedRequest, res) => {
   } catch (error) {
     console.error('Get business units error:', error);
     res.status(500).json({ error: 'Failed to get business units' });
+  }
+});
+
+// ==================== Scope Endpoints ====================
+
+/**
+ * GET /admin/scope/business-units
+ * Get distinct business units for visibility scope selection
+ */
+adminRoutes.get('/scope/business-units', async (_req: AuthenticatedRequest, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { businessUnit: true },
+      distinct: ['businessUnit'],
+      where: {
+        AND: [
+          { businessUnit: { not: null } },
+          { businessUnit: { not: '' } },
+        ],
+      },
+      orderBy: { businessUnit: 'asc' },
+    });
+    const businessUnits = users.map(u => u.businessUnit).filter(Boolean) as string[];
+    res.json({ businessUnits });
+  } catch (error) {
+    console.error('Failed to get business units:', error);
+    res.status(500).json({ error: 'Failed to get business units' });
+  }
+});
+
+/**
+ * GET /admin/scope/departments
+ * Get distinct departments for visibility scope selection
+ */
+adminRoutes.get('/scope/departments', async (_req: AuthenticatedRequest, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: { deptname: true },
+      distinct: ['deptname'],
+      where: {
+        deptname: { not: '' },
+      },
+      orderBy: { deptname: 'asc' },
+    });
+    const departments = users.map(u => u.deptname).filter(Boolean);
+    res.json({ departments });
+  } catch (error) {
+    console.error('Failed to get departments:', error);
+    res.status(500).json({ error: 'Failed to get departments' });
   }
 });

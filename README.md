@@ -98,9 +98,9 @@ curl http://localhost:8090/v1/chat/completions \
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PROXY_PORT` | Nginx 프록시 포트 | 8090 |
-| `POSTGRES_DB` | DB 이름 | nexuscoder |
-| `POSTGRES_USER` | DB 유저 | nexuscoder |
-| `POSTGRES_PASSWORD` | DB 비밀번호 | nexuscoder123 |
+| `POSTGRES_DB` | DB 이름 | agent_stats |
+| `POSTGRES_USER` | DB 유저 | agent_stats |
+| `POSTGRES_PASSWORD` | DB 비밀번호 | agent_stats_2026! |
 | `JWT_SECRET` | JWT 서명 키 | (필수 변경) |
 | `DEVELOPERS` | Super Admin 목록 | syngha.han,young87.kim,byeongju.lee |
 

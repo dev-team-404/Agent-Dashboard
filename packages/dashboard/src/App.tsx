@@ -56,7 +56,7 @@ function App() {
 
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem('nexus_token');
+      const token = localStorage.getItem('agent_stats_token');
       if (!token) {
         setLoading(false);
         return;
@@ -67,21 +67,21 @@ function App() {
       setIsAdmin(response.data.isAdmin);
       setAdminRole(response.data.adminRole);
     } catch {
-      localStorage.removeItem('nexus_token');
+      localStorage.removeItem('agent_stats_token');
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogin = (userData: User, token: string, admin: boolean, role: string | null) => {
-    localStorage.setItem('nexus_token', token);
+    localStorage.setItem('agent_stats_token', token);
     setUser(userData);
     setIsAdmin(admin);
     setAdminRole(role as AdminRole);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('nexus_token');
+    localStorage.removeItem('agent_stats_token');
     setUser(null);
     setIsAdmin(false);
     setAdminRole(null);

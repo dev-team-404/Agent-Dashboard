@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, Sun, Building2, Tag, X, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, Sun, Building2, Tag, X, Upload, CalendarDays, AlertCircle } from 'lucide-react';
 import { holidaysApi, Holiday, CreateHolidayData } from '../services/api';
 
 // 한국 공휴일 프리셋 (2024-2027)
@@ -284,17 +284,22 @@ export default function Holidays() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-pastel-800">휴일 관리</h1>
-          <p className="text-pastel-600 mt-1">주말 및 휴일을 관리하여 일 평균 활성 사용자 통계에 반영합니다.</p>
+      <div className="flex items-center justify-between animate-stagger-1">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-2xl flex items-center justify-center shadow-depth">
+            <CalendarDays className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">휴일 관리</h1>
+            <p className="text-pastel-500 text-sm mt-0.5">주말 및 휴일을 관리하여 일 평균 활성 사용자 통계에 반영합니다.</p>
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setShowBulkModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-pastel-100 text-pastel-700 rounded-lg hover:bg-pastel-200 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200/80 text-pastel-700 rounded-2xl shadow-depth hover:shadow-card-hover hover:border-gray-300 transition-all duration-200 font-medium text-sm"
           >
             <Upload className="w-4 h-4" />
             프리셋 가져오기
@@ -304,7 +309,7 @@ export default function Holidays() {
               setNewHoliday({ date: '', name: '', type: 'NATIONAL' });
               setShowAddModal(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-samsung-blue text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white rounded-2xl shadow-depth hover:shadow-card-hover transition-all duration-200 font-medium text-sm hover:brightness-110"
           >
             <Plus className="w-4 h-4" />
             휴일 추가
@@ -312,33 +317,41 @@ export default function Holidays() {
         </div>
       </div>
 
-      {/* Error message */}
+      {/* Error notification */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700">
+        <div className="flex items-center justify-between px-5 py-4 bg-rose-50 border border-rose-200 rounded-2xl animate-slide-down">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-rose-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <AlertCircle className="w-4 h-4 text-rose-500" />
+            </div>
+            <span className="text-sm font-medium text-rose-700">{error}</span>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Calendar */}
-      <div className="bg-white rounded-2xl shadow-sm border border-pastel-100 overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-card border border-gray-100/80 overflow-hidden animate-stagger-2">
         {/* Calendar Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-pastel-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100/80">
           <button
             onClick={handlePrevMonth}
-            className="p-2 hover:bg-pastel-100 rounded-lg transition-colors"
+            className="p-2.5 hover:bg-pastel-50 rounded-xl transition-all duration-200 active:scale-95"
             title="이전 달"
           >
-            <ChevronLeft className="w-5 h-5 text-pastel-600" />
+            <ChevronLeft className="w-5 h-5 text-pastel-500" />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {/* Year Dropdown */}
             <select
               value={currentYear}
               onChange={(e) => setCurrentYear(parseInt(e.target.value))}
-              className="px-3 py-2 text-lg font-semibold text-pastel-800 bg-pastel-50 border border-pastel-200 rounded-lg cursor-pointer hover:bg-pastel-100 focus:outline-none focus:ring-2 focus:ring-samsung-blue"
+              className="px-4 py-2.5 text-lg font-semibold text-pastel-800 bg-pastel-50/80 border border-pastel-200/60 rounded-xl cursor-pointer hover:bg-pastel-100 hover:border-pastel-300 focus:outline-none focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all duration-200 appearance-none"
             >
               {Array.from({ length: 10 }, (_, i) => today.getFullYear() - 3 + i).map((year) => (
                 <option key={year} value={year}>{year}년</option>
@@ -348,7 +361,7 @@ export default function Holidays() {
             <select
               value={currentMonth}
               onChange={(e) => setCurrentMonth(parseInt(e.target.value))}
-              className="px-3 py-2 text-lg font-semibold text-pastel-800 bg-pastel-50 border border-pastel-200 rounded-lg cursor-pointer hover:bg-pastel-100 focus:outline-none focus:ring-2 focus:ring-samsung-blue"
+              className="px-4 py-2.5 text-lg font-semibold text-pastel-800 bg-pastel-50/80 border border-pastel-200/60 rounded-xl cursor-pointer hover:bg-pastel-100 hover:border-pastel-300 focus:outline-none focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all duration-200 appearance-none"
             >
               {MONTHS.map((month, idx) => (
                 <option key={idx} value={idx}>{month}</option>
@@ -358,17 +371,17 @@ export default function Holidays() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleNextMonth}
-              className="p-2 hover:bg-pastel-100 rounded-lg transition-colors"
+              className="p-2.5 hover:bg-pastel-50 rounded-xl transition-all duration-200 active:scale-95"
               title="다음 달"
             >
-              <ChevronRight className="w-5 h-5 text-pastel-600" />
+              <ChevronRight className="w-5 h-5 text-pastel-500" />
             </button>
             <button
               onClick={() => {
                 setCurrentYear(today.getFullYear());
                 setCurrentMonth(today.getMonth());
               }}
-              className="px-3 py-2 text-sm font-medium text-samsung-blue bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+              className="px-4 py-2.5 text-sm font-semibold text-samsung-blue bg-samsung-blue/[0.06] border border-samsung-blue/20 rounded-xl hover:bg-samsung-blue/[0.1] hover:border-samsung-blue/30 transition-all duration-200"
             >
               오늘
             </button>
@@ -376,12 +389,12 @@ export default function Holidays() {
         </div>
 
         {/* Weekday headers */}
-        <div className="grid grid-cols-7 border-b border-pastel-100">
+        <div className="grid grid-cols-7 border-b border-gray-100/80 bg-pastel-50/40">
           {WEEKDAYS.map((day, idx) => (
             <div
               key={day}
-              className={`py-3 text-center text-sm font-medium ${
-                idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-pastel-600'
+              className={`py-3 text-center text-xs font-semibold uppercase tracking-wider ${
+                idx === 0 ? 'text-red-500' : idx === 6 ? 'text-blue-500' : 'text-pastel-400'
               }`}
             >
               {day}
@@ -392,7 +405,11 @@ export default function Holidays() {
         {/* Calendar Grid */}
         {loading ? (
           <div className="h-96 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin" />
+            <div className="relative">
+              <div className="w-10 h-10 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
+              <div className="absolute inset-0 w-10 h-10 border-[3px] border-transparent border-t-accent-indigo/40 rounded-full animate-spin animate-pulse-soft" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+              <div className="absolute -inset-2 w-14 h-14 rounded-full bg-samsung-blue/10 animate-ping" style={{ animationDuration: '2s' }} />
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-7">
@@ -406,17 +423,17 @@ export default function Holidays() {
                 <div
                   key={idx}
                   onClick={() => isCurrentMonth && handleDateClick(dateStr)}
-                  className={`min-h-[120px] p-2 border-b border-r border-pastel-100 cursor-pointer transition-colors ${
-                    isCurrentMonth ? 'bg-white hover:bg-pastel-50' : 'bg-pastel-50/50'
-                  } ${idx % 7 === 6 ? 'border-r-0' : ''}`}
+                  className={`min-h-[100px] p-2 border-b border-r border-gray-100/60 cursor-pointer transition-all duration-150 ${
+                    isCurrentMonth ? 'bg-white hover:bg-samsung-blue/[0.02]' : 'bg-pastel-50/30'
+                  } ${idx % 7 === 6 ? 'border-r-0' : ''} ${todayClass ? 'ring-1 ring-inset ring-samsung-blue/20 bg-samsung-blue/[0.015]' : ''}`}
                 >
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-1.5">
                     <span
-                      className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full ${
+                      className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
                         todayClass
-                          ? 'bg-samsung-blue text-white'
+                          ? 'bg-gradient-to-br from-samsung-blue to-accent-indigo text-white shadow-sm'
                           : !isCurrentMonth
-                          ? 'text-pastel-400'
+                          ? 'text-pastel-300'
                           : dayOfWeek === 0 || dayHolidays.some(h => h.type === 'NATIONAL')
                           ? 'text-red-500'
                           : dayOfWeek === 6
@@ -428,10 +445,10 @@ export default function Holidays() {
                     </span>
                     <div className="flex items-center gap-1">
                       {todayClass && (
-                        <span className="text-[10px] text-samsung-blue font-medium">오늘</span>
+                        <span className="text-[10px] text-samsung-blue font-semibold tracking-wide">오늘</span>
                       )}
                       {weekend && isCurrentMonth && (
-                        <span className="text-[10px] text-pastel-400">주말</span>
+                        <span className="text-[10px] text-pastel-300 font-medium">주말</span>
                       )}
                     </div>
                   </div>
@@ -439,23 +456,23 @@ export default function Holidays() {
                     {dayHolidays.slice(0, 3).map((h) => (
                       <div
                         key={h.id}
-                        className={`group flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${
+                        className={`group flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium ${
                           TYPE_COLORS[h.type].bg
-                        } ${TYPE_COLORS[h.type].text}`}
+                        } ${TYPE_COLORS[h.type].text} transition-all duration-150`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         {TYPE_ICONS[h.type]}
                         <span className="truncate flex-1">{h.name}</span>
                         <button
                           onClick={() => handleDeleteHoliday(h.id)}
-                          className="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 hover:text-red-600 transition-all duration-150 -mr-0.5"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
                     {dayHolidays.length > 3 && (
-                      <div className="text-xs text-pastel-500 pl-1">
+                      <div className="text-[11px] text-pastel-400 pl-2 font-medium">
                         +{dayHolidays.length - 3} more
                       </div>
                     )}
@@ -468,54 +485,65 @@ export default function Holidays() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-6 text-sm text-pastel-600">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-red-100 border border-red-200" />
-          <span>공휴일</span>
+      <div className="flex items-center gap-2 flex-wrap animate-stagger-3">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+          <span className="font-medium">공휴일</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200" />
-          <span>회사 휴일</span>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+          <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+          <span className="font-medium">회사 휴일</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-purple-100 border border-purple-200" />
-          <span>사용자 정의</span>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+          <div className="w-2.5 h-2.5 rounded-full bg-purple-400" />
+          <span className="font-medium">사용자 정의</span>
         </div>
-        <div className="flex items-center gap-2 ml-4">
-          <span className="text-red-500">일</span>
-          <span className="text-blue-500">토</span>
-          <span className="text-pastel-400">= 주말 (자동 제외)</span>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-400 ml-1">
+          <span className="text-red-500 font-semibold">일</span>
+          <span className="text-blue-500 font-semibold">토</span>
+          <span>= 주말 (자동 제외)</span>
         </div>
       </div>
 
       {/* Holiday List */}
-      <div className="bg-white rounded-2xl shadow-sm border border-pastel-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-pastel-100">
-          <h3 className="font-semibold text-pastel-800">{currentYear}년 휴일 목록 ({holidays.length}개)</h3>
+      <div className="bg-white rounded-3xl shadow-card border border-gray-100/80 overflow-hidden animate-stagger-4">
+        <div className="px-6 py-5 border-b border-gray-100/80">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-br from-samsung-blue/10 to-accent-indigo/10 rounded-xl flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-samsung-blue" />
+              </div>
+              <h3 className="font-semibold text-pastel-800 text-base">{currentYear}년 휴일 목록</h3>
+            </div>
+            <span className="text-sm font-medium text-pastel-400 bg-pastel-50 px-3 py-1 rounded-xl">{holidays.length}개</span>
+          </div>
         </div>
-        <div className="divide-y divide-pastel-100 max-h-[400px] overflow-y-auto">
+        <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
           {holidays.length === 0 ? (
-            <div className="px-6 py-8 text-center text-pastel-500">
-              등록된 휴일이 없습니다.
+            <div className="px-6 py-12 text-center">
+              <div className="w-12 h-12 bg-pastel-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <CalendarDays className="w-6 h-6 text-pastel-300" />
+              </div>
+              <p className="text-pastel-400 font-medium">등록된 휴일이 없습니다.</p>
             </div>
           ) : (
             holidays.map((h) => (
-              <div key={h.id} className="flex items-center justify-between px-6 py-3 hover:bg-pastel-50">
+              <div key={h.id} className="flex items-center justify-between px-6 py-3.5 hover:bg-pastel-50/50 transition-colors duration-150 group">
                 <div className="flex items-center gap-4">
-                  <div className="text-sm text-pastel-600 w-24">
+                  <div className="text-sm text-pastel-400 w-24 font-mono tracking-tight">
                     {h.date.split('T')[0]}
                   </div>
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
                     TYPE_COLORS[h.type].bg
                   } ${TYPE_COLORS[h.type].text}`}>
                     {TYPE_ICONS[h.type]}
                     {TYPE_LABELS[h.type]}
                   </span>
-                  <span className="font-medium text-pastel-800">{h.name}</span>
+                  <span className="font-medium text-pastel-700">{h.name}</span>
                 </div>
                 <button
                   onClick={() => handleDeleteHoliday(h.id)}
-                  className="p-2 text-pastel-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  className="p-2 text-pastel-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all duration-200 opacity-0 group-hover:opacity-100"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -527,40 +555,54 @@ export default function Holidays() {
 
       {/* Add Holiday Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowAddModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-pastel-100">
-              <h3 className="text-lg font-semibold text-pastel-800">휴일 추가</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-pastel-400 hover:text-pastel-600">
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-xl flex items-center justify-center">
+                  <Plus className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-lg font-semibold text-pastel-800">휴일 추가</h3>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="p-2 text-pastel-300 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium text-pastel-700 mb-1">날짜</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">날짜</label>
                 <input
                   type="date"
                   value={newHoliday.date}
                   onChange={(e) => setNewHoliday({ ...newHoliday, date: e.target.value })}
-                  className="w-full px-4 py-2 border border-pastel-200 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-pastel-700 mb-1">휴일 이름</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">휴일 이름</label>
                 <input
                   type="text"
                   value={newHoliday.name}
                   onChange={(e) => setNewHoliday({ ...newHoliday, name: e.target.value })}
                   placeholder="예: 설날, 추석"
-                  className="w-full px-4 py-2 border border-pastel-200 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-pastel-700 mb-1">유형</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">유형</label>
                 <select
                   value={newHoliday.type}
                   onChange={(e) => setNewHoliday({ ...newHoliday, type: e.target.value as HolidayType })}
-                  className="w-full px-4 py-2 border border-pastel-200 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 appearance-none cursor-pointer"
                 >
                   <option value="NATIONAL">공휴일</option>
                   <option value="COMPANY">회사 휴일</option>
@@ -568,16 +610,16 @@ export default function Holidays() {
                 </select>
               </div>
             </div>
-            <div className="flex justify-end gap-2 px-6 py-4 border-t border-pastel-100">
+            <div className="flex justify-end gap-3 px-6 py-5 border-t border-gray-100/80 bg-pastel-50/30">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 text-pastel-600 hover:bg-pastel-100 rounded-lg transition-colors"
+                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-2xl transition-all duration-200"
               >
                 취소
               </button>
               <button
                 onClick={handleAddHoliday}
-                className="px-4 py-2 bg-samsung-blue text-white rounded-lg hover:bg-blue-600 transition-colors"
+                className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white font-medium rounded-2xl shadow-depth hover:shadow-card-hover transition-all duration-200 hover:brightness-110"
               >
                 추가
               </button>
@@ -588,16 +630,30 @@ export default function Holidays() {
 
       {/* Bulk Import Modal */}
       {showBulkModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowBulkModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-pastel-100">
-              <h3 className="text-lg font-semibold text-pastel-800">공휴일 프리셋 가져오기</h3>
-              <button onClick={() => setShowBulkModal(false)} className="text-pastel-400 hover:text-pastel-600">
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"
+          onClick={() => setShowBulkModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-xl flex items-center justify-center">
+                  <Upload className="w-4 h-4 text-white" />
+                </div>
+                <h3 className="text-lg font-semibold text-pastel-800">공휴일 프리셋 가져오기</h3>
+              </div>
+              <button
+                onClick={() => setShowBulkModal(false)}
+                className="p-2 text-pastel-300 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-6">
-              <p className="text-pastel-600 mb-4">
+              <p className="text-pastel-500 text-sm mb-5 leading-relaxed">
                 한국 공휴일 프리셋을 선택하여 일괄 추가합니다. 이미 등록된 날짜는 건너뜁니다.
               </p>
               <div className="grid grid-cols-2 gap-3">
@@ -605,21 +661,21 @@ export default function Holidays() {
                   <button
                     key={year}
                     onClick={() => handleBulkImport(parseInt(year))}
-                    className="flex items-center justify-center gap-2 px-4 py-3 border border-pastel-200 rounded-lg hover:bg-pastel-50 hover:border-samsung-blue transition-colors"
+                    className="group flex items-center justify-center gap-2.5 px-4 py-4 bg-white border border-gray-200/80 rounded-2xl hover:border-samsung-blue hover:shadow-depth hover:bg-samsung-blue/[0.02] transition-all duration-200 active:scale-[0.98]"
                   >
-                    <Calendar className="w-4 h-4 text-samsung-blue" />
-                    <span className="font-medium">{year}년</span>
-                    <span className="text-xs text-pastel-500">
+                    <Calendar className="w-4 h-4 text-pastel-400 group-hover:text-samsung-blue transition-colors duration-200" />
+                    <span className="font-semibold text-pastel-700 group-hover:text-samsung-blue transition-colors duration-200">{year}년</span>
+                    <span className="text-xs text-pastel-400 font-medium bg-pastel-50 px-2 py-0.5 rounded-lg">
                       ({KOREAN_HOLIDAYS_PRESET[parseInt(year)]?.length}개)
                     </span>
                   </button>
                 ))}
               </div>
             </div>
-            <div className="flex justify-end px-6 py-4 border-t border-pastel-100">
+            <div className="flex justify-end px-6 py-5 border-t border-gray-100/80 bg-pastel-50/30">
               <button
                 onClick={() => setShowBulkModal(false)}
-                className="px-4 py-2 text-pastel-600 hover:bg-pastel-100 rounded-lg transition-colors"
+                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-2xl transition-all duration-200"
               >
                 닫기
               </button>

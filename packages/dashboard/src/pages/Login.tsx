@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LogIn, AlertCircle, Shield, Cpu, ArrowRight } from 'lucide-react';
+import { LogIn, AlertCircle, ArrowRight, Cpu, Shield, BarChart3, Zap } from 'lucide-react';
 import { authApi } from '../services/api';
 
 interface User {
@@ -34,10 +34,7 @@ export default function Login({ onLogin }: LoginProps) {
     try {
       const decodedData = decodeURIComponent(dataString);
       const ssoData = JSON.parse(decodedData);
-
-      if (!ssoData.loginid || !ssoData.username) {
-        throw new Error('Invalid SSO data');
-      }
+      if (!ssoData.loginid || !ssoData.username) throw new Error('Invalid SSO data');
 
       const jsonData = JSON.stringify({
         loginid: ssoData.loginid,
@@ -46,15 +43,11 @@ export default function Login({ onLogin }: LoginProps) {
         timestamp: Date.now(),
       });
       const ssoToken = btoa(unescape(encodeURIComponent(jsonData)));
-
       const response = await authApi.login(`sso.${ssoToken}`);
       const { user, sessionToken, isAdmin, adminRole, isSuperAdmin } = response.data;
-
       window.history.replaceState({}, document.title, window.location.pathname);
-
       const resolvedRole: 'SUPER_ADMIN' | 'ADMIN' | null =
         adminRole ?? (isSuperAdmin ? 'SUPER_ADMIN' : isAdmin ? 'ADMIN' : null);
-
       onLogin(user, sessionToken, isAdmin, resolvedRole);
     } catch (err) {
       console.error('SSO callback error:', err);
@@ -76,100 +69,115 @@ export default function Login({ onLogin }: LoginProps) {
 
   if (processingCallback) {
     return (
-      <div className="min-h-screen bg-[#F5F5F7] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-pastel-50 flex items-center justify-center p-4">
         <div className="text-center animate-fade-in">
-          <div className="w-16 h-16 border-[3px] border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-6 text-lg font-medium text-gray-800">인증 처리 중</p>
-          <p className="mt-1 text-sm text-gray-500">잠시만 기다려주세요</p>
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full bg-samsung-blue/10 animate-ping" />
+            <div className="relative w-20 h-20 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
+          </div>
+          <p className="text-lg font-semibold text-pastel-800">인증 처리 중</p>
+          <p className="mt-1.5 text-sm text-pastel-500">잠시만 기다려주세요</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7] flex flex-col">
-      {/* Top accent bar */}
-      <div className="h-1 bg-gradient-to-r from-samsung-blue via-pastel-300 to-samsung-blue-dark" />
+    <div className="min-h-screen bg-pastel-50 flex flex-col relative overflow-hidden">
+      {/* Background mesh gradient */}
+      <div className="absolute inset-0 bg-mesh-1 pointer-events-none" />
 
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="w-full max-w-[420px] animate-slide-up">
+      {/* Decorative orbs */}
+      <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-samsung-blue/[0.03] rounded-full blur-3xl animate-float pointer-events-none" />
+      <div className="absolute bottom-[-15%] left-[-10%] w-[500px] h-[500px] bg-accent-indigo/[0.03] rounded-full blur-3xl animate-float pointer-events-none" style={{ animationDelay: '-3s' }} />
+
+      {/* Top accent */}
+      <div className="h-[3px] bg-gradient-to-r from-samsung-blue via-accent-indigo to-accent-violet" />
+
+      <div className="flex-1 flex items-center justify-center p-4 relative z-10">
+        <div className="w-full max-w-[440px]">
           {/* Logo Section */}
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-[22px] mb-5 shadow-ios-lg overflow-hidden">
-              <img src="/logo.png" alt="AX Portal" className="w-16 h-16 object-contain" />
+          <div className="text-center mb-10 animate-fade-in">
+            <div className="inline-flex items-center justify-center w-[88px] h-[88px] bg-white rounded-3xl mb-6 shadow-elevated overflow-hidden ring-1 ring-black/[0.03]">
+              <img src="/logo.png" alt="Agent Stats" className="w-16 h-16 object-contain" />
             </div>
-            <h1 className="text-[28px] font-bold text-gray-900 tracking-tight leading-tight">
-              AX Portal
+            <h1 className="text-[32px] font-extrabold text-pastel-800 tracking-tight leading-none">
+              <span className="text-samsung-blue">Agent</span> Stats
             </h1>
-            <p className="text-gray-500 mt-1.5 text-[15px]">LLM Gateway & Analytics</p>
+            <p className="text-pastel-400 text-sm mt-1">사용량 집계 시스템</p>
+            <p className="text-pastel-500 mt-2 text-[15px] font-medium">
+              AI-Powered LLM Gateway & Analytics
+            </p>
           </div>
 
           {/* Login Card */}
-          <div className="bg-white rounded-ios-xl shadow-ios-lg p-8">
-            {error && (
-              <div className="mb-5 p-3.5 bg-red-50 border border-red-100 rounded-ios flex items-start gap-2.5 animate-scale-in">
-                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-[13px] text-red-600 leading-relaxed">{error}</p>
-              </div>
-            )}
-
-            <button
-              onClick={handleSSOLogin}
-              disabled={loading}
-              className="w-full py-3.5 px-5 bg-samsung-blue text-white font-semibold rounded-ios-lg
-                         hover:bg-samsung-blue-dark
-                         focus:outline-none focus:ring-4 focus:ring-samsung-blue/20
-                         disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-all duration-200 ease-ios
-                         transform active:scale-[0.98]
-                         flex items-center justify-center gap-2.5 text-[15px]
-                         shadow-lg shadow-samsung-blue/25"
-            >
-              {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  SSO 페이지로 이동 중...
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-[18px] h-[18px]" />
-                  SSO로 로그인
-                  <ArrowRight className="w-4 h-4 ml-auto opacity-60" />
-                </>
+          <div className="animate-slide-up">
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-glass border border-white/60 p-8 ring-1 ring-black/[0.02]">
+              {error && (
+                <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3 animate-scale-in">
+                  <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-rose-600 leading-relaxed">{error}</p>
+                </div>
               )}
-            </button>
 
-            {/* Features */}
-            <div className="mt-7 pt-6 border-t border-gray-100">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center">
-                  <div className="w-10 h-10 rounded-ios bg-blue-50 flex items-center justify-center mx-auto mb-2">
-                    <Cpu className="w-5 h-5 text-samsung-blue" />
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium">LLM 관리</p>
-                </div>
-                <div className="text-center">
-                  <div className="w-10 h-10 rounded-ios bg-purple-50 flex items-center justify-center mx-auto mb-2">
-                    <Shield className="w-5 h-5 text-purple-500" />
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium">3-Tier 권한</p>
-                </div>
-                <div className="text-center">
-                  <div className="w-10 h-10 rounded-ios bg-green-50 flex items-center justify-center mx-auto mb-2">
-                    <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </div>
-                  <p className="text-[11px] text-gray-500 font-medium">실시간 통계</p>
+              <button
+                onClick={handleSSOLogin}
+                disabled={loading}
+                className="w-full group relative py-4 px-6 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white font-semibold rounded-2xl
+                           hover:shadow-glow-blue
+                           focus:outline-none focus:ring-4 focus:ring-samsung-blue/20
+                           disabled:opacity-50 disabled:cursor-not-allowed
+                           transition-all duration-300 ease-ios-spring
+                           transform active:scale-[0.98]
+                           flex items-center justify-center gap-3 text-[15px] overflow-hidden"
+              >
+                {/* Button shimmer effect */}
+                <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>SSO 페이지로 이동 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-5 h-5" />
+                    <span>SSO로 로그인</span>
+                    <ArrowRight className="w-4 h-4 ml-auto opacity-60 group-hover:translate-x-1 transition-transform" />
+                  </>
+                )}
+              </button>
+
+              {/* Feature cards */}
+              <div className="mt-8 pt-7 border-t border-gray-100/80">
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { icon: Cpu, label: 'LLM 게이트웨이', desc: '멀티모델 프록시', color: 'text-samsung-blue', bg: 'bg-blue-50' },
+                    { icon: Shield, label: '3-Tier 권한', desc: '세분화된 접근제어', color: 'text-accent-indigo', bg: 'bg-indigo-50' },
+                    { icon: BarChart3, label: '실시간 통계', desc: '토큰 사용량 분석', color: 'text-accent-emerald', bg: 'bg-emerald-50' },
+                    { icon: Zap, label: '멀티 서비스', desc: '서비스별 독립 관리', color: 'text-accent-amber', bg: 'bg-amber-50' },
+                  ].map(({ icon: Icon, label, desc, color, bg }, i) => (
+                    <div
+                      key={label}
+                      className="group p-3.5 rounded-2xl border border-gray-100/60 hover:border-gray-200/80 hover:bg-gray-50/50 transition-all duration-300 cursor-default"
+                      style={{ animationDelay: `${i * 0.05 + 0.2}s` }}
+                    >
+                      <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center mb-2.5`}>
+                        <Icon className={`w-[18px] h-[18px] ${color}`} />
+                      </div>
+                      <p className="text-[13px] font-semibold text-pastel-800 leading-tight">{label}</p>
+                      <p className="text-[11px] text-pastel-500 mt-0.5">{desc}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="text-center mt-8 space-y-1">
-            <p className="text-[12px] text-gray-400">Samsung DS 계정으로 로그인됩니다</p>
-            <p className="text-[11px] text-gray-400">&copy; 2026 AX Portal</p>
+          <div className="text-center mt-8 space-y-1.5 animate-fade-in" style={{ animationDelay: '0.3s' }}>
+            <p className="text-[12px] text-pastel-400 font-medium">Samsung DS 계정으로 로그인됩니다</p>
+            <p className="text-[11px] text-pastel-300">&copy; 2026 Agent Stats &middot; All rights reserved</p>
           </div>
         </div>
       </div>

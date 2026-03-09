@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Calendar, Zap, Clock } from 'lucide-react';
+import { BarChart3, TrendingUp, Calendar, Zap, Clock, Activity } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Legend, PieChart, Pie, Cell
@@ -44,7 +44,7 @@ interface ServiceInfo {
   displayName: string;
 }
 
-const COLORS = ['#5BA4D9', '#7DD3FC', '#3D8BC4', '#BAE6FD', '#2980B9', '#1E6091'];
+const COLORS = ['#4A90D9', '#6366F1', '#8B5CF6', '#10B981', '#F59E0B', '#F43F5E'];
 
 export default function MyUsage() {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
@@ -83,7 +83,6 @@ export default function MyUsage() {
         myUsageApi.byModel(days, serviceId),
         myUsageApi.recent(20, 0, serviceId),
       ]);
-
       setSummary(summaryRes.data);
       setDailyStats(dailyRes.data.stats);
       setModelUsage(modelRes.data.usage);
@@ -109,52 +108,60 @@ export default function MyUsage() {
   const formatDateTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleString('ko-KR', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="text-center">
+          <div className="relative w-14 h-14 mx-auto mb-4">
+            <div className="absolute inset-0 rounded-full bg-samsung-blue/10 animate-ping" />
+            <div className="relative w-14 h-14 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-pastel-500">데이터 불러오는 중...</p>
+        </div>
       </div>
     );
   }
 
+  const summaryCards = summary ? [
+    { label: '오늘', icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, color: 'from-samsung-blue to-blue-600', iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },
+    { label: '이번 주', icon: Calendar, tokens: summary.week.totalTokens, requests: summary.week.requests, color: 'from-accent-indigo to-indigo-600', iconBg: 'bg-indigo-50', iconColor: 'text-accent-indigo' },
+    { label: '이번 달', icon: TrendingUp, tokens: summary.month.totalTokens, requests: summary.month.requests, color: 'from-accent-violet to-purple-600', iconBg: 'bg-violet-50', iconColor: 'text-accent-violet' },
+  ] : [];
+
   return (
-    <div className="space-y-6">
-      {/* Period Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold text-pastel-800">내 사용량</h1>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-extrabold text-pastel-800 tracking-tight">내 사용량</h1>
+          <p className="text-sm text-pastel-500 mt-1">나의 LLM API 사용 현황을 확인하세요</p>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Service Selector */}
           {services.length > 0 && (
             <select
               value={selectedServiceId}
               onChange={(e) => setSelectedServiceId(e.target.value)}
-              className="px-3 py-2 border border-pastel-200 rounded-lg text-sm focus:ring-2 focus:ring-samsung-blue focus:border-transparent bg-white"
+              className="px-4 py-2.5 border border-gray-200/60 rounded-xl text-sm focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/40 bg-white shadow-depth font-medium text-pastel-700 transition-all"
             >
               <option value="">전체 서비스</option>
               {services.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.displayName}
-                </option>
+                <option key={service.id} value={service.id}>{service.displayName}</option>
               ))}
             </select>
           )}
-          {/* Period Buttons */}
-          <div className="flex gap-2">
+          <div className="flex bg-white border border-gray-200/60 rounded-xl shadow-depth overflow-hidden">
             {[7, 14, 30].map((d) => (
               <button
                 key={d}
                 onClick={() => setDays(d)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`px-4 py-2.5 text-sm font-semibold transition-all ${
                   days === d
                     ? 'bg-samsung-blue text-white shadow-sm'
-                    : 'bg-white text-pastel-600 hover:bg-pastel-50 border border-pastel-200'
+                    : 'text-pastel-600 hover:bg-pastel-50'
                 }`}
               >
                 {d}일
@@ -166,96 +173,61 @@ export default function MyUsage() {
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-pastel-100 rounded-lg">
-                <Zap className="w-5 h-5 text-samsung-blue" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {summaryCards.map(({ label, icon: Icon, tokens, requests, iconBg, iconColor }, i) => (
+            <div key={label} className={`metric-card animate-stagger-${i + 1}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className={`w-11 h-11 rounded-xl ${iconBg} flex items-center justify-center ring-1 ring-black/[0.02]`}>
+                  <Icon className={`w-5 h-5 ${iconColor}`} />
+                </div>
+                <span className="text-xs font-semibold text-pastel-400 uppercase tracking-wider">{label}</span>
               </div>
-              <span className="text-sm font-medium text-pastel-600">오늘</span>
-            </div>
-            <p className="text-2xl font-bold text-pastel-800">{formatNumber(summary.today.totalTokens)}</p>
-            <p className="text-sm text-pastel-500 mt-1">{summary.today.requests} 요청</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-pastel-100 rounded-lg">
-                <Calendar className="w-5 h-5 text-samsung-blue" />
+              <p className="text-3xl font-extrabold text-pastel-800 tracking-tight">{formatNumber(tokens)}</p>
+              <div className="flex items-center gap-1.5 mt-2">
+                <Activity className="w-3.5 h-3.5 text-pastel-400" />
+                <p className="text-sm text-pastel-500 font-medium">{requests.toLocaleString()} 요청</p>
               </div>
-              <span className="text-sm font-medium text-pastel-600">이번 주</span>
             </div>
-            <p className="text-2xl font-bold text-pastel-800">{formatNumber(summary.week.totalTokens)}</p>
-            <p className="text-sm text-pastel-500 mt-1">{summary.week.requests} 요청</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-pastel-100 rounded-lg">
-                <TrendingUp className="w-5 h-5 text-samsung-blue" />
-              </div>
-              <span className="text-sm font-medium text-pastel-600">이번 달</span>
-            </div>
-            <p className="text-2xl font-bold text-pastel-800">{formatNumber(summary.month.totalTokens)}</p>
-            <p className="text-sm text-pastel-500 mt-1">{summary.month.requests} 요청</p>
-          </div>
+          ))}
         </div>
       )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Daily Usage Chart */}
-        <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart3 className="w-5 h-5 text-samsung-blue" />
-            <h2 className="font-semibold text-pastel-800">일별 사용량</h2>
+        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-4">
+          <div className="flex items-center gap-2.5 mb-6">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+              <BarChart3 className="w-[18px] h-[18px] text-samsung-blue" />
+            </div>
+            <h2 className="font-bold text-pastel-800 text-[15px]">일별 토큰 사용량</h2>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={dailyStats}>
                 <defs>
-                  <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#5BA4D9" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#5BA4D9" stopOpacity={0}/>
+                  <linearGradient id="colorTokensMyUsage" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4A90D9" stopOpacity={0.2}/>
+                    <stop offset="100%" stopColor="#4A90D9" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E0F2FE" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={formatDate}
-                  stroke="#6B7B8C"
-                  fontSize={12}
-                />
-                <YAxis
-                  tickFormatter={formatNumber}
-                  stroke="#6B7B8C"
-                  fontSize={12}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                <XAxis dataKey="date" tickFormatter={formatDate} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis tickFormatter={formatNumber} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #E0F2FE',
-                    borderRadius: '8px',
-                  }}
+                  contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '16px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }}
                   formatter={(value: number) => [formatNumber(value), '토큰']}
                   labelFormatter={(label) => `날짜: ${label}`}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="totalTokens"
-                  stroke="#5BA4D9"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorTokens)"
-                />
+                <Area type="monotone" dataKey="totalTokens" stroke="#4A90D9" strokeWidth={2.5} fillOpacity={1} fill="url(#colorTokensMyUsage)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Model Usage Pie Chart */}
-        <div className="bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-          <h2 className="font-semibold text-pastel-800 mb-4">모델별 사용량</h2>
+        {/* Model Usage Pie */}
+        <div className="bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-5">
+          <h2 className="font-bold text-pastel-800 text-[15px] mb-6">모델별 사용량</h2>
           {modelUsage.length > 0 ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -266,7 +238,10 @@ export default function MyUsage() {
                     nameKey="modelName"
                     cx="50%"
                     cy="50%"
-                    outerRadius={80}
+                    outerRadius={85}
+                    innerRadius={50}
+                    strokeWidth={2}
+                    stroke="#fff"
                     label={({ modelName, percent }) =>
                       `${modelName.slice(0, 10)}${modelName.length > 10 ? '..' : ''} ${(percent * 100).toFixed(0)}%`
                     }
@@ -276,106 +251,82 @@ export default function MyUsage() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    formatter={(value: number) => formatNumber(value)}
-                  />
+                  <Tooltip formatter={(value: number) => formatNumber(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="h-72 flex items-center justify-center text-pastel-500">
-              사용 데이터가 없습니다
+            <div className="h-72 flex items-center justify-center">
+              <div className="text-center">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-pastel-100 flex items-center justify-center">
+                  <BarChart3 className="w-6 h-6 text-pastel-400" />
+                </div>
+                <p className="text-sm text-pastel-500 font-medium">사용 데이터가 없습니다</p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
       {/* Daily Requests Bar Chart */}
-      <div className="bg-white rounded-xl p-5 border border-pastel-100 shadow-sm">
-        <h2 className="font-semibold text-pastel-800 mb-4">일별 요청 수 및 토큰</h2>
+      <div className="bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-6">
+        <h2 className="font-bold text-pastel-800 text-[15px] mb-6">일별 요청 수 및 토큰</h2>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={dailyStats}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E0F2FE" />
-              <XAxis
-                dataKey="date"
-                tickFormatter={formatDate}
-                stroke="#6B7B8C"
-                fontSize={12}
-              />
-              <YAxis yAxisId="left" stroke="#5BA4D9" fontSize={12} />
-              <YAxis yAxisId="right" orientation="right" stroke="#7DD3FC" fontSize={12} tickFormatter={formatNumber} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #E0F2FE',
-                  borderRadius: '8px',
-                }}
-              />
-              <Legend />
-              <Bar yAxisId="left" dataKey="requests" fill="#5BA4D9" name="요청 수" radius={[4, 4, 0, 0]} />
-              <Bar yAxisId="right" dataKey="inputTokens" fill="#7DD3FC" name="입력 토큰" radius={[4, 4, 0, 0]} />
-              <Bar yAxisId="right" dataKey="outputTokens" fill="#BAE6FD" name="출력 토큰" radius={[4, 4, 0, 0]} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+              <XAxis dataKey="date" tickFormatter={formatDate} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis yAxisId="left" stroke="#4A90D9" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis yAxisId="right" orientation="right" stroke="#6366F1" fontSize={12} tickFormatter={formatNumber} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '16px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }} />
+              <Legend wrapperStyle={{ fontSize: '12px' }} />
+              <Bar yAxisId="left" dataKey="requests" fill="#4A90D9" name="요청 수" radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="right" dataKey="inputTokens" fill="#6366F1" name="입력 토큰" radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="right" dataKey="outputTokens" fill="#8B5CF6" name="출력 토큰" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       {/* Recent Usage Table */}
-      <div className="bg-white rounded-xl border border-pastel-100 shadow-sm overflow-hidden">
-        <div className="p-5 border-b border-pastel-100">
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-samsung-blue" />
-            <h2 className="font-semibold text-pastel-800">최근 사용 기록</h2>
+      <div className="bg-white rounded-2xl border border-gray-100/80 shadow-depth overflow-hidden">
+        <div className="p-6 border-b border-gray-100/80">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Clock className="w-[18px] h-[18px] text-samsung-blue" />
+            </div>
+            <h2 className="font-bold text-pastel-800 text-[15px]">최근 사용 기록</h2>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-pastel-50">
-              <tr>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                  시간
-                </th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                  모델
-                </th>
-                <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                  입력 토큰
-                </th>
-                <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                  출력 토큰
-                </th>
-                <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                  총 토큰
-                </th>
+            <thead>
+              <tr className="bg-pastel-50/50">
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">시간</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">출력</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-pastel-100">
+            <tbody className="divide-y divide-gray-100/60">
               {recentLogs.length > 0 ? (
                 recentLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-pastel-50/50 transition-colors">
-                    <td className="px-5 py-4 text-sm text-pastel-600">
-                      {formatDateTime(log.timestamp)}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-pastel-100 text-pastel-700">
+                  <tr key={log.id} className="hover:bg-pastel-50/30 transition-colors">
+                    <td className="px-6 py-4 text-sm text-pastel-600">{formatDateTime(log.timestamp)}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold bg-pastel-100/60 text-pastel-700">
                         {log.modelName}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-sm text-right text-pastel-600">
-                      {formatNumber(log.inputTokens)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-right text-pastel-600">
-                      {formatNumber(log.outputTokens)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-right font-medium text-pastel-800">
-                      {formatNumber(log.totalTokens)}
-                    </td>
+                    <td className="px-6 py-4 text-sm text-right text-pastel-600 tabular-nums">{formatNumber(log.inputTokens)}</td>
+                    <td className="px-6 py-4 text-sm text-right text-pastel-600 tabular-nums">{formatNumber(log.outputTokens)}</td>
+                    <td className="px-6 py-4 text-sm text-right font-bold text-pastel-800 tabular-nums">{formatNumber(log.totalTokens)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-pastel-500">
+                  <td colSpan={5} className="px-6 py-12 text-center text-pastel-500 text-sm font-medium">
                     사용 기록이 없습니다
                   </td>
                 </tr>
@@ -385,51 +336,36 @@ export default function MyUsage() {
         </div>
       </div>
 
-      {/* Model Usage Table */}
+      {/* Model Usage Detail Table */}
       {modelUsage.length > 0 && (
-        <div className="bg-white rounded-xl border border-pastel-100 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-pastel-100">
-            <h2 className="font-semibold text-pastel-800">모델별 상세 사용량</h2>
+        <div className="bg-white rounded-2xl border border-gray-100/80 shadow-depth overflow-hidden">
+          <div className="p-6 border-b border-gray-100/80">
+            <h2 className="font-bold text-pastel-800 text-[15px]">모델별 상세 사용량</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-pastel-50">
-                <tr>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                    모델
-                  </th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                    요청 수
-                  </th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                    입력 토큰
-                  </th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                    출력 토큰
-                  </th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-pastel-600 uppercase tracking-wider">
-                    총 토큰
-                  </th>
+              <thead>
+                <tr className="bg-pastel-50/50">
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">요청</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">출력</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-pastel-100">
-                {modelUsage.map((model) => (
-                  <tr key={model.modelId} className="hover:bg-pastel-50/50 transition-colors">
-                    <td className="px-5 py-4 font-medium text-pastel-800">
-                      {model.modelName}
+              <tbody className="divide-y divide-gray-100/60">
+                {modelUsage.map((model, i) => (
+                  <tr key={model.modelId} className="hover:bg-pastel-50/30 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                        <span className="font-semibold text-pastel-800 text-sm">{model.modelName}</span>
+                      </div>
                     </td>
-                    <td className="px-5 py-4 text-sm text-right text-pastel-600">
-                      {model.requests.toLocaleString()}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-right text-pastel-600">
-                      {formatNumber(model.inputTokens)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-right text-pastel-600">
-                      {formatNumber(model.outputTokens)}
-                    </td>
-                    <td className="px-5 py-4 text-sm text-right font-medium text-pastel-800">
-                      {formatNumber(model.totalTokens)}
-                    </td>
+                    <td className="px-6 py-4 text-sm text-right text-pastel-600 tabular-nums">{model.requests.toLocaleString()}</td>
+                    <td className="px-6 py-4 text-sm text-right text-pastel-600 tabular-nums">{formatNumber(model.inputTokens)}</td>
+                    <td className="px-6 py-4 text-sm text-right text-pastel-600 tabular-nums">{formatNumber(model.outputTokens)}</td>
+                    <td className="px-6 py-4 text-sm text-right font-bold text-pastel-800 tabular-nums">{formatNumber(model.totalTokens)}</td>
                   </tr>
                 ))}
               </tbody>
