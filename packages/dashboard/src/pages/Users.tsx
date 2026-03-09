@@ -119,6 +119,9 @@ export default function Users({ serviceId }: UsersProps) {
           rlMap[rl.userId] = rl;
         }
         setRateLimits(rlMap);
+      } else {
+        setServiceInfo(null);
+        setRateLimits({});
       }
     } catch (error) {
       console.error('Failed to load users:', error);

@@ -1163,6 +1163,15 @@ adminRoutes.get('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) 
       return;
     }
 
+    // Dept-scoped admin check
+    if (!req.isSuperAdmin && req.adminBusinessUnit) {
+      const user = await prisma.user.findUnique({ where: { id }, select: { businessUnit: true } });
+      if (user && user.businessUnit !== req.adminBusinessUnit) {
+        res.status(403).json({ error: 'No access to this user' });
+        return;
+      }
+    }
+
     const rateLimit = await prisma.userRateLimit.findUnique({
       where: { userId_serviceId: { userId: id, serviceId } },
     });
@@ -1211,7 +1220,7 @@ adminRoutes.put('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) 
     const { id } = req.params;
     const { serviceId, maxTokens, window: windowType, enabled } = req.body;
 
-    if (!serviceId || !maxTokens || !windowType) {
+    if (!serviceId || maxTokens === undefined || maxTokens === null || !windowType) {
       res.status(400).json({ error: 'serviceId, maxTokens, and window are required' });
       return;
     }
@@ -1221,7 +1230,7 @@ adminRoutes.put('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) 
       return;
     }
 
-    if (maxTokens < 1) {
+    if (typeof maxTokens !== 'number' || maxTokens < 1) {
       res.status(400).json({ error: 'maxTokens must be at least 1' });
       return;
     }
@@ -1278,6 +1287,19 @@ adminRoutes.delete('/users/:id/rate-limit', async (req: AuthenticatedRequest, re
     if (!serviceId) {
       res.status(400).json({ error: 'serviceId is required' });
       return;
+    }
+
+    // Dept-scoped admin check
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (!req.isSuperAdmin && req.adminBusinessUnit) {
+      if (user.businessUnit !== req.adminBusinessUnit) {
+        res.status(403).json({ error: 'No access to this user' });
+        return;
+      }
     }
 
     const existing = await prisma.userRateLimit.findUnique({

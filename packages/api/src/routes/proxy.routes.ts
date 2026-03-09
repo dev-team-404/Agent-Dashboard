@@ -339,6 +339,20 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
         const usedTokens = usage._sum.totalTokens || 0;
         if (usedTokens >= rateLimit.maxTokens) {
+          // 가장 오래된 로그가 윈도우에서 빠지는 시점 계산
+          const oldestLog = await prisma.usageLog.findFirst({
+            where: {
+              userId: user.id,
+              serviceId: proxyReq.serviceId,
+              timestamp: { gte: windowStart },
+            },
+            orderBy: { timestamp: 'asc' },
+            select: { timestamp: true },
+          });
+          const retryAfterSec = oldestLog
+            ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
+            : Math.ceil(windowMs / 1000);
+
           const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
           res.status(429).json({
             error: 'Rate limit exceeded',
@@ -346,7 +360,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
             limit: rateLimit.maxTokens,
             used: usedTokens,
             window: rateLimit.window,
-            retryAfter: Math.ceil((windowStart.getTime() + windowMs - Date.now()) / 1000),
+            retryAfter: retryAfterSec,
           });
           return;
         }

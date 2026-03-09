@@ -197,6 +197,7 @@ model UsageLog {
   @@index([timestamp])
   @@index([serviceId])
   @@index([deptname])
+  @@index([userId, serviceId, timestamp])  // rate limit aggregate 최적화
   @@map("usage_logs")
 }
 
