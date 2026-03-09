@@ -20,7 +20,49 @@ import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '
 
 export const proxyRoutes = Router();
 
-// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용
+// 이미지 파일 서빙 — 인증 불필요 (UUID 파일명으로 보안)
+proxyRoutes.get('/images/files/:fileName', async (req: Request, res: Response) => {
+  try {
+    const { fileName } = req.params;
+
+    if (!fileName || fileName.includes('..') || fileName.includes('/')) {
+      res.status(400).json({ error: 'Invalid file name' });
+      return;
+    }
+
+    const record = await prisma.generatedImage.findUnique({
+      where: { fileName },
+      select: { mimeType: true, expiresAt: true },
+    });
+
+    if (!record) {
+      res.status(404).json({ error: 'Image not found' });
+      return;
+    }
+
+    if (record.expiresAt < new Date()) {
+      res.status(410).json({ error: 'Image has expired' });
+      return;
+    }
+
+    const filePath = path.resolve(IMAGE_STORAGE_PATH, fileName);
+    res.setHeader('Content-Type', record.mimeType);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(filePath, (err) => {
+      if (err && !res.headersSent) {
+        console.error(`[ImageServe] Failed to send file ${fileName}:`, err);
+        res.status(404).json({ error: 'Image file not found on disk' });
+      }
+    });
+  } catch (error) {
+    console.error('Image file serve error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to serve image' });
+    }
+  }
+});
+
+// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙 제외)
 proxyRoutes.use(validateProxyHeaders as any);
 
 // ============================================
@@ -107,6 +149,64 @@ async function getOrCreateUser(proxyReq: ProxyAuthRequest) {
   });
 
   return user;
+}
+
+/**
+ * Rate limit 체크 (user가 있는 경우만)
+ * @returns 429 응답 객체 or null (통과)
+ */
+async function checkRateLimit(
+  user: { id: string } | null,
+  serviceId: string,
+): Promise<{ status: 429; body: Record<string, unknown> } | null> {
+  if (!user) return null;
+
+  const rateLimit = await prisma.userRateLimit.findUnique({
+    where: { userId_serviceId: { userId: user.id, serviceId } },
+  });
+
+  if (!rateLimit || !rateLimit.enabled) return null;
+
+  const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const windowStart = new Date(Date.now() - windowMs);
+
+  const usage = await prisma.usageLog.aggregate({
+    where: {
+      userId: user.id,
+      serviceId,
+      timestamp: { gte: windowStart },
+    },
+    _sum: { totalTokens: true },
+  });
+
+  const usedTokens = usage._sum.totalTokens || 0;
+  if (usedTokens < rateLimit.maxTokens) return null;
+
+  const oldestLog = await prisma.usageLog.findFirst({
+    where: {
+      userId: user.id,
+      serviceId,
+      timestamp: { gte: windowStart },
+    },
+    orderBy: { timestamp: 'asc' },
+    select: { timestamp: true },
+  });
+  const retryAfterSec = oldestLog
+    ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
+    : Math.ceil(windowMs / 1000);
+
+  const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
+  return {
+    status: 429,
+    body: {
+      error: 'Rate limit exceeded',
+      message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
+      limit: rateLimit.maxTokens,
+      used: usedTokens,
+      window: rateLimit.window,
+      retryAfter: retryAfterSec,
+    },
+  };
 }
 
 /**
@@ -210,7 +310,7 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get models error:', error);
-    res.status(500).json({ error: 'Failed to get models' });
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to get models' });
   }
 });
 
@@ -258,7 +358,7 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get model error:', error);
-    res.status(500).json({ error: 'Failed to get model' });
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to get model' });
   }
 });
 
@@ -301,53 +401,11 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     // 사용자 upsert (background가 아닌 경우)
     const user = await getOrCreateUser(proxyReq);
 
-    // Rate limit 체크 (user가 있는 경우만)
-    if (user) {
-      const rateLimit = await prisma.userRateLimit.findUnique({
-        where: { userId_serviceId: { userId: user.id, serviceId: proxyReq.serviceId } },
-      });
-
-      if (rateLimit && rateLimit.enabled) {
-        const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-        const windowStart = new Date(Date.now() - windowMs);
-
-        const usage = await prisma.usageLog.aggregate({
-          where: {
-            userId: user.id,
-            serviceId: proxyReq.serviceId,
-            timestamp: { gte: windowStart },
-          },
-          _sum: { totalTokens: true },
-        });
-
-        const usedTokens = usage._sum.totalTokens || 0;
-        if (usedTokens >= rateLimit.maxTokens) {
-          // 가장 오래된 로그가 윈도우에서 빠지는 시점 계산
-          const oldestLog = await prisma.usageLog.findFirst({
-            where: {
-              userId: user.id,
-              serviceId: proxyReq.serviceId,
-              timestamp: { gte: windowStart },
-            },
-            orderBy: { timestamp: 'asc' },
-            select: { timestamp: true },
-          });
-          const retryAfterSec = oldestLog
-            ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
-            : Math.ceil(windowMs / 1000);
-
-          const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
-          res.status(429).json({
-            error: 'Rate limit exceeded',
-            message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
-            limit: rateLimit.maxTokens,
-            used: usedTokens,
-            window: rateLimit.window,
-            retryAfter: retryAfterSec,
-          });
-          return;
-        }
-      }
+    // Rate limit 체크
+    const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+    if (rateLimitResult) {
+      res.status(rateLimitResult.status).json(rateLimitResult.body);
+      return;
     }
 
     // 라운드로빈 + Failover
@@ -412,7 +470,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Chat completion proxy error:', error);
-    res.status(500).json({ error: 'Failed to process chat completion' });
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to process chat completion' });
   }
 });
 
@@ -777,6 +835,13 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     // 사용자 upsert
     const user = await getOrCreateUser(proxyReq);
 
+    // Rate limit 체크
+    const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+    if (rateLimitResult) {
+      res.status(rateLimitResult.status).json(rateLimitResult.body);
+      return;
+    }
+
     // 라운드로빈 + Failover
     const endpoints = await getModelEndpoints(model.id, {
       endpointUrl: model.endpointUrl,
@@ -955,6 +1020,13 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     // 사용자 upsert
     const user = await getOrCreateUser(proxyReq);
 
+    // Rate limit 체크
+    const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+    if (rateLimitResult) {
+      res.status(rateLimitResult.status).json(rateLimitResult.body);
+      return;
+    }
+
     // 라운드로빈 + Failover
     const endpoints = await getModelEndpoints(model.id, {
       endpointUrl: model.endpointUrl,
@@ -1122,6 +1194,13 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
     // 사용자 upsert
     const user = await getOrCreateUser(proxyReq);
 
+    // Rate limit 체크
+    const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+    if (rateLimitResult) {
+      res.status(rateLimitResult.status).json(rateLimitResult.body);
+      return;
+    }
+
     // 저장 디렉토리 확인
     ensureStorageDir();
 
@@ -1219,51 +1298,6 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
   }
 });
 
-// ============================================
-// GET /v1/images/files/:fileName
-// ============================================
-
-proxyRoutes.get('/images/files/:fileName', async (req: Request, res: Response) => {
-  try {
-    const { fileName } = req.params;
-
-    if (!fileName || fileName.includes('..') || fileName.includes('/')) {
-      res.status(400).json({ error: 'Invalid file name' });
-      return;
-    }
-
-    const record = await prisma.generatedImage.findUnique({
-      where: { fileName },
-      select: { mimeType: true, expiresAt: true },
-    });
-
-    if (!record) {
-      res.status(404).json({ error: 'Image not found' });
-      return;
-    }
-
-    if (record.expiresAt < new Date()) {
-      res.status(410).json({ error: 'Image has expired' });
-      return;
-    }
-
-    const filePath = path.resolve(IMAGE_STORAGE_PATH, fileName);
-    res.setHeader('Content-Type', record.mimeType);
-    res.setHeader('Cache-Control', 'private, max-age=86400');
-    res.sendFile(filePath, (err) => {
-      if (err && !res.headersSent) {
-        console.error(`[ImageServe] Failed to send file ${fileName}:`, err);
-        res.status(404).json({ error: 'Image file not found on disk' });
-      }
-    });
-  } catch (error) {
-    console.error('Image file serve error:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to serve image' });
-    }
-  }
-});
-
 // Legacy completions
 proxyRoutes.post('/completions', async (_req: Request, res: Response) => {
   res.status(501).json({ error: 'Legacy completions endpoint not implemented. Use /v1/chat/completions instead.' });
@@ -1275,6 +1309,7 @@ proxyRoutes.get('/health', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
   } catch (error) {
-    res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
+    console.error('Health check error:', error);
+    if (!res.headersSent) res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
   }
 });
