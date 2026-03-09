@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronRight, Menu, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { guideSections } from '../data/guides';
+import { getContent } from '../data/content';
 
 interface SidebarItem {
   path: string;
@@ -18,33 +19,27 @@ interface DocLayoutProps {
 }
 
 export default function DocLayout({ title, sidebarItems, contentPath }: DocLayoutProps) {
-  const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
 
+  const content = useMemo(() => {
+    const raw = getContent(contentPath);
+    // Strip frontmatter
+    const cleaned = raw.replace(/^---[\s\S]*?---\n*/m, '');
+    // Convert ::: tip/warning/danger blocks to blockquotes
+    return cleaned
+      .replace(/::: (tip|warning|danger|info)(.*)\n([\s\S]*?):::/g, (_m, type, tipTitle, body) => {
+        const icons: Record<string, string> = { tip: '💡', warning: '⚠️', danger: '🚨', info: 'ℹ️' };
+        const icon = icons[type] || 'ℹ️';
+        const heading = (tipTitle || '').trim();
+        const lines = body.trim().split('\n').map((l: string) => `> ${l}`).join('\n');
+        return heading
+          ? `> ${icon} **${heading}**\n>\n${lines}\n`
+          : `> ${icon}\n>\n${lines}\n`;
+      });
+  }, [contentPath]);
+
   useEffect(() => {
-    setLoading(true);
-    fetch(`/docs/content/${contentPath}`)
-      .then((r) => r.ok ? r.text() : '# 페이지를 찾을 수 없습니다')
-      .then((text) => {
-        // Strip frontmatter
-        const cleaned = text.replace(/^---[\s\S]*?---\n*/m, '');
-        // Convert ::: tip/warning/danger blocks to blockquotes
-        const processed = cleaned
-          .replace(/::: (tip|warning|danger|info)(.*)\n([\s\S]*?):::/g, (_m, type, title, body) => {
-            const icons: Record<string, string> = { tip: '💡', warning: '⚠️', danger: '🚨', info: 'ℹ️' };
-            const icon = icons[type] || 'ℹ️';
-            const heading = (title || '').trim();
-            const lines = body.trim().split('\n').map((l: string) => `> ${l}`).join('\n');
-            return heading
-              ? `> ${icon} **${heading}**\n>\n${lines}\n`
-              : `> ${icon}\n>\n${lines}\n`;
-          });
-        setContent(processed);
-        setLoading(false);
-      })
-      .catch(() => { setContent('# 로딩 실패'); setLoading(false); });
     window.scrollTo(0, 0);
   }, [contentPath]);
 
@@ -107,17 +102,11 @@ export default function DocLayout({ title, sidebarItems, contentPath }: DocLayou
 
         {/* Content */}
         <main className="flex-1 min-w-0 px-6 lg:px-12 py-10 lg:ml-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : (
-            <article className="prose max-w-3xl">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
-                {content}
-              </ReactMarkdown>
-            </article>
-          )}
+          <article className="prose max-w-3xl">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+              {content}
+            </ReactMarkdown>
+          </article>
         </main>
       </div>
     </div>
