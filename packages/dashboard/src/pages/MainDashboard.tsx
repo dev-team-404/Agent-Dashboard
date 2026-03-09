@@ -829,19 +829,19 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
               </div>
             ))}
 
-            {/* Empty state / Add card */}
-            {services.length === 0 && (
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="col-span-full flex flex-col items-center justify-center py-16 rounded-2xl border-2 border-dashed border-gray-200 hover:border-samsung-blue hover:bg-samsung-blue/5 transition-all duration-300 group"
-              >
-                <div className="w-16 h-16 rounded-2xl bg-gray-100 group-hover:bg-samsung-blue/10 flex items-center justify-center mb-4 transition-colors">
-                  <Plus className="w-8 h-8 text-gray-400 group-hover:text-samsung-blue transition-colors" />
-                </div>
-                <p className="text-lg font-semibold text-gray-500 group-hover:text-samsung-blue transition-colors">첫 번째 서비스를 등록하세요</p>
-                <p className="text-sm text-gray-400 mt-1">서비스를 등록하면 LLM 프록시 API를 사용할 수 있습니다</p>
-              </button>
-            )}
+            {/* Add service card — same size as service cards */}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 hover:border-samsung-blue hover:bg-samsung-blue/5 transition-all duration-300 group min-h-[240px]"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 group-hover:bg-samsung-blue/10 flex items-center justify-center mb-3 transition-colors">
+                <Plus className="w-7 h-7 text-gray-400 group-hover:text-samsung-blue transition-colors" />
+              </div>
+              <p className="text-base font-semibold text-gray-500 group-hover:text-samsung-blue transition-colors">
+                {services.length === 0 ? '첫 번째 서비스 등록' : '새 서비스 등록'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">x-service-id 기반 LLM 프록시</p>
+            </button>
           </div>
         </div>
       )}

@@ -1147,6 +1147,159 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
   }
 });
 
+// ==================== Rate Limit Management ====================
+
+/**
+ * GET /admin/users/:id/rate-limit?serviceId=
+ * 사용자의 서비스별 rate limit 조회
+ */
+adminRoutes.get('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const serviceId = req.query['serviceId'] as string | undefined;
+
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId is required' });
+      return;
+    }
+
+    const rateLimit = await prisma.userRateLimit.findUnique({
+      where: { userId_serviceId: { userId: id, serviceId } },
+    });
+
+    res.json({ rateLimit: rateLimit || null });
+  } catch (error) {
+    console.error('Get rate limit error:', error);
+    res.status(500).json({ error: 'Failed to get rate limit' });
+  }
+});
+
+/**
+ * GET /admin/rate-limits?serviceId=
+ * 서비스의 전체 rate limit 목록 조회
+ */
+adminRoutes.get('/rate-limits', async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.query['serviceId'] as string;
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId is required' });
+      return;
+    }
+
+    const rateLimits = await prisma.userRateLimit.findMany({
+      where: { serviceId },
+      include: {
+        user: { select: { id: true, loginid: true, username: true, deptname: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ rateLimits });
+  } catch (error) {
+    console.error('Get rate limits error:', error);
+    res.status(500).json({ error: 'Failed to get rate limits' });
+  }
+});
+
+/**
+ * PUT /admin/users/:id/rate-limit
+ * 사용자의 서비스별 rate limit 설정/수정
+ * Body: { serviceId, maxTokens, window: 'FIVE_HOURS' | 'DAY', enabled? }
+ */
+adminRoutes.put('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { serviceId, maxTokens, window: windowType, enabled } = req.body;
+
+    if (!serviceId || !maxTokens || !windowType) {
+      res.status(400).json({ error: 'serviceId, maxTokens, and window are required' });
+      return;
+    }
+
+    if (!['FIVE_HOURS', 'DAY'].includes(windowType)) {
+      res.status(400).json({ error: 'window must be FIVE_HOURS or DAY' });
+      return;
+    }
+
+    if (maxTokens < 1) {
+      res.status(400).json({ error: 'maxTokens must be at least 1' });
+      return;
+    }
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    // Dept-scoped admin check
+    if (!req.isSuperAdmin && req.adminBusinessUnit) {
+      if (user.businessUnit !== req.adminBusinessUnit) {
+        res.status(403).json({ error: 'No access to this user' });
+        return;
+      }
+    }
+
+    const rateLimit = await prisma.userRateLimit.upsert({
+      where: { userId_serviceId: { userId: id, serviceId } },
+      update: {
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+      create: {
+        userId: id,
+        serviceId,
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+    });
+
+    res.json({ rateLimit, message: 'Rate limit updated' });
+  } catch (error) {
+    console.error('Set rate limit error:', error);
+    res.status(500).json({ error: 'Failed to set rate limit' });
+  }
+});
+
+/**
+ * DELETE /admin/users/:id/rate-limit?serviceId=
+ * 사용자의 서비스별 rate limit 삭제 (무제한으로 복원)
+ */
+adminRoutes.delete('/users/:id/rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const serviceId = req.query['serviceId'] as string || req.body?.serviceId;
+
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId is required' });
+      return;
+    }
+
+    const existing = await prisma.userRateLimit.findUnique({
+      where: { userId_serviceId: { userId: id, serviceId } },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: 'Rate limit not found' });
+      return;
+    }
+
+    await prisma.userRateLimit.delete({
+      where: { userId_serviceId: { userId: id, serviceId } },
+    });
+
+    res.json({ success: true, message: 'Rate limit removed (unlimited)' });
+  } catch (error) {
+    console.error('Delete rate limit error:', error);
+    res.status(500).json({ error: 'Failed to delete rate limit' });
+  }
+});
+
 // ==================== Statistics (서비스별 필터링 지원) ====================
 
 /**

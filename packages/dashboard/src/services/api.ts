@@ -87,6 +87,18 @@ export const usersApi = {
     api.post(`/admin/users/${id}/promote`, { role, serviceId }),
   demote: (id: string, serviceId?: string) =>
     api.delete(`/admin/users/${id}/demote`, { data: { serviceId } }),
+  // Rate limit
+  getRateLimit: (userId: string, serviceId: string) =>
+    api.get(`/admin/users/${userId}/rate-limit`, { params: { serviceId } }),
+  setRateLimit: (userId: string, data: { serviceId: string; maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled?: boolean }) =>
+    api.put(`/admin/users/${userId}/rate-limit`, data),
+  deleteRateLimit: (userId: string, serviceId: string) =>
+    api.delete(`/admin/users/${userId}/rate-limit`, { params: { serviceId } }),
+};
+
+export const rateLimitApi = {
+  listByService: (serviceId: string) =>
+    api.get('/admin/rate-limits', { params: { serviceId } }),
 };
 
 export const statsApi = {

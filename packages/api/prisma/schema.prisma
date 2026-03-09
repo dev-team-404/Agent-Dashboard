@@ -36,6 +36,7 @@ model Service {
   dailyUsageStats DailyUsageStat[]
   ratingFeedbacks RatingFeedback[]
   userServices    UserService[]
+  rateLimits      UserRateLimit[]
 
   @@map("services")
 }
@@ -56,6 +57,7 @@ model User {
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
   userServices    UserService[]
+  rateLimits      UserRateLimit[]
 
   @@map("users")
 }
@@ -244,6 +246,34 @@ model Holiday {
 
   @@index([date])
   @@map("holidays")
+}
+
+// ============================================
+// 사용자별 토큰 Rate Limit
+// ============================================
+enum RateLimitWindow {
+  FIVE_HOURS  // 5시간 윈도우
+  DAY         // 24시간 윈도우
+}
+
+model UserRateLimit {
+  id         String          @id @default(uuid())
+  userId     String          @map("user_id")
+  serviceId  String          @map("service_id")
+  maxTokens  Int             @map("max_tokens")       // 윈도우 내 최대 토큰
+  window     RateLimitWindow @default(DAY)
+  enabled    Boolean         @default(true)
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+  createdBy  String?         @map("created_by")       // 설정한 admin loginid
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, serviceId])
+  @@index([userId])
+  @@index([serviceId])
+  @@map("user_rate_limits")
 }
 
 // ============================================

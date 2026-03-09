@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck } from 'lucide-react';
-import { usersApi, serviceApi } from '../services/api';
+import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck, Gauge, X, Infinity } from 'lucide-react';
+import { usersApi, serviceApi, rateLimitApi } from '../services/api';
 
 /**
  * URL 인코딩된 사용자 이름을 디코딩
@@ -46,6 +46,14 @@ interface ServiceInfo {
   displayName: string;
 }
 
+interface RateLimitData {
+  userId: string;
+  serviceId: string;
+  maxTokens: number;
+  window: 'FIVE_HOURS' | 'DAY';
+  enabled: boolean;
+}
+
 interface UsersProps {
   serviceId?: string;
 }
@@ -62,6 +70,16 @@ export default function Users({ serviceId }: UsersProps) {
   });
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Rate limit state
+  const [rateLimits, setRateLimits] = useState<Record<string, RateLimitData>>({});
+  const [rateLimitTarget, setRateLimitTarget] = useState<UserData | null>(null);
+  const [rateLimitForm, setRateLimitForm] = useState({
+    maxTokens: 1000000,
+    window: 'DAY' as 'FIVE_HOURS' | 'DAY',
+    enabled: true,
+  });
+  const [savingRateLimit, setSavingRateLimit] = useState(false);
 
   useEffect(() => {
     loadData(1);
@@ -88,10 +106,19 @@ export default function Users({ serviceId }: UsersProps) {
       );
       setAdminStatuses(statuses);
 
-      // Load service info if serviceId is provided
+      // Load service info and rate limits if serviceId is provided
       if (serviceId) {
-        const serviceRes = await serviceApi.get(serviceId);
+        const [serviceRes, rateLimitRes] = await Promise.all([
+          serviceApi.get(serviceId),
+          rateLimitApi.listByService(serviceId).catch(() => ({ data: { rateLimits: [] } })),
+        ]);
         setServiceInfo(serviceRes.data.service);
+
+        const rlMap: Record<string, RateLimitData> = {};
+        for (const rl of rateLimitRes.data.rateLimits) {
+          rlMap[rl.userId] = rl;
+        }
+        setRateLimits(rlMap);
       }
     } catch (error) {
       console.error('Failed to load users:', error);
@@ -147,6 +174,59 @@ export default function Users({ serviceId }: UsersProps) {
         사용자
       </span>
     );
+  };
+
+  const openRateLimitModal = (user: UserData) => {
+    const existing = rateLimits[user.id];
+    if (existing) {
+      setRateLimitForm({
+        maxTokens: existing.maxTokens,
+        window: existing.window,
+        enabled: existing.enabled,
+      });
+    } else {
+      setRateLimitForm({ maxTokens: 1000000, window: 'DAY', enabled: true });
+    }
+    setRateLimitTarget(user);
+  };
+
+  const handleSaveRateLimit = async () => {
+    if (!rateLimitTarget || !serviceId) return;
+    setSavingRateLimit(true);
+    try {
+      await usersApi.setRateLimit(rateLimitTarget.id, {
+        serviceId,
+        maxTokens: rateLimitForm.maxTokens,
+        window: rateLimitForm.window,
+        enabled: rateLimitForm.enabled,
+      });
+      setRateLimitTarget(null);
+      loadData(pagination.page);
+    } catch {
+      alert('Rate limit 설정에 실패했습니다.');
+    } finally {
+      setSavingRateLimit(false);
+    }
+  };
+
+  const handleDeleteRateLimit = async () => {
+    if (!rateLimitTarget || !serviceId) return;
+    setSavingRateLimit(true);
+    try {
+      await usersApi.deleteRateLimit(rateLimitTarget.id, serviceId);
+      setRateLimitTarget(null);
+      loadData(pagination.page);
+    } catch {
+      alert('Rate limit 삭제에 실패했습니다.');
+    } finally {
+      setSavingRateLimit(false);
+    }
+  };
+
+  const formatTokens = (n: number) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+    return n.toLocaleString();
   };
 
   if (loading && users.length === 0) {
@@ -209,6 +289,11 @@ export default function Users({ serviceId }: UsersProps) {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   요청 수
                 </th>
+                {serviceId && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Rate Limit
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -240,12 +325,33 @@ export default function Users({ serviceId }: UsersProps) {
                     <td className="px-6 py-4">
                       <p className="text-sm text-gray-600">{user._count.usageLogs.toLocaleString()}</p>
                     </td>
+                    {serviceId && (
+                      <td className="px-6 py-4">
+                        {rateLimits[user.id] ? (
+                          <button
+                            onClick={() => openRateLimitModal(user)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                          >
+                            <Gauge className="w-3 h-3" />
+                            {formatTokens(rateLimits[user.id].maxTokens)} / {rateLimits[user.id].window === 'FIVE_HOURS' ? '5h' : 'day'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => openRateLimitModal(user)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                          >
+                            <Infinity className="w-3 h-3" />
+                            무제한
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={serviceId ? 6 : 5} className="px-6 py-12 text-center text-gray-500">
                     {searchQuery ? '검색 결과가 없습니다.' : '사용자가 없습니다.'}
                   </td>
                 </tr>
@@ -283,6 +389,114 @@ export default function Users({ serviceId }: UsersProps) {
           </div>
         )}
       </div>
+
+      {/* Rate Limit Modal */}
+      {rateLimitTarget && serviceId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Token Rate Limit</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {decodeUsername(rateLimitTarget.username)} ({rateLimitTarget.loginid})
+                </p>
+              </div>
+              <button onClick={() => setRateLimitTarget(null)} className="p-2 hover:bg-gray-100 rounded-lg">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Window selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">윈도우</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['FIVE_HOURS', 'DAY'] as const).map((w) => (
+                    <button
+                      key={w}
+                      onClick={() => setRateLimitForm(f => ({ ...f, window: w }))}
+                      className={`py-2.5 px-4 rounded-xl text-sm font-medium border-2 transition-all ${
+                        rateLimitForm.window === w
+                          ? 'border-samsung-blue bg-samsung-blue/5 text-samsung-blue'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {w === 'FIVE_HOURS' ? '5시간' : '24시간 (1일)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Max tokens */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  최대 토큰 수
+                </label>
+                <input
+                  type="number"
+                  value={rateLimitForm.maxTokens}
+                  onChange={(e) => setRateLimitForm(f => ({ ...f, maxTokens: parseInt(e.target.value) || 0 }))}
+                  min={1}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  placeholder="예: 1000000"
+                />
+                <div className="flex gap-2 mt-2">
+                  {[100000, 500000, 1000000, 5000000].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setRateLimitForm(f => ({ ...f, maxTokens: v }))}
+                      className="px-2.5 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors"
+                    >
+                      {formatTokens(v)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enabled toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">활성화</span>
+                <button
+                  onClick={() => setRateLimitForm(f => ({ ...f, enabled: !f.enabled }))}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${
+                    rateLimitForm.enabled ? 'bg-samsung-blue' : 'bg-gray-300'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    rateLimitForm.enabled ? 'translate-x-5' : ''
+                  }`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-6 border-t bg-gray-50 rounded-b-2xl">
+              {rateLimits[rateLimitTarget.id] && (
+                <button
+                  onClick={handleDeleteRateLimit}
+                  disabled={savingRateLimit}
+                  className="px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  제한 해제
+                </button>
+              )}
+              <div className="flex-1" />
+              <button
+                onClick={() => setRateLimitTarget(null)}
+                className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSaveRateLimit}
+                disabled={savingRateLimit || rateLimitForm.maxTokens < 1}
+                className="px-6 py-2.5 text-sm font-medium bg-samsung-blue text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {savingRateLimit ? '저장 중...' : '저장'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

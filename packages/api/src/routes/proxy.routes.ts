@@ -318,6 +318,41 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     // 사용자 upsert (background가 아닌 경우)
     const user = await getOrCreateUser(proxyReq);
 
+    // Rate limit 체크 (user가 있는 경우만)
+    if (user) {
+      const rateLimit = await prisma.userRateLimit.findUnique({
+        where: { userId_serviceId: { userId: user.id, serviceId: proxyReq.serviceId } },
+      });
+
+      if (rateLimit && rateLimit.enabled) {
+        const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+        const windowStart = new Date(Date.now() - windowMs);
+
+        const usage = await prisma.usageLog.aggregate({
+          where: {
+            userId: user.id,
+            serviceId: proxyReq.serviceId,
+            timestamp: { gte: windowStart },
+          },
+          _sum: { totalTokens: true },
+        });
+
+        const usedTokens = usage._sum.totalTokens || 0;
+        if (usedTokens >= rateLimit.maxTokens) {
+          const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
+          res.status(429).json({
+            error: 'Rate limit exceeded',
+            message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
+            limit: rateLimit.maxTokens,
+            used: usedTokens,
+            window: rateLimit.window,
+            retryAfter: Math.ceil((windowStart.getTime() + windowMs - Date.now()) / 1000),
+          });
+          return;
+        }
+      }
+    }
+
     // 라운드로빈 + Failover
     const endpoints = await getModelEndpoints(model.id, {
       endpointUrl: model.endpointUrl,
