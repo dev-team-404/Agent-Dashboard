@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Users, Activity, Zap, Building2, TrendingUp, ArrowRight, Server,
-  Plus, X, Clock, Trash2, BarChart3, Globe, Layers, Settings, Eye,
-  ChevronRight, Edit2, ExternalLink,
+  Users, Activity, Zap, Building2, TrendingUp, Server,
+  Plus, X, Clock, Trash2, BarChart3, Layers, Settings, Eye,
+  Edit2,
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
