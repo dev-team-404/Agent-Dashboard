@@ -403,7 +403,12 @@ export default function Models({ adminRole }: ModelsProps) {
     setFormError('');
     try {
       const res = await modelsApi.testVision(buildTestPayload());
-      setVisionTestResult(res.data);
+      const d = res.data;
+      setVisionTestResult({
+        visionDescribe: d.visionDescribe?.passed ?? d.visionDescribe ?? false,
+        visionJudge: d.visionJudge?.passed ?? d.visionJudge ?? false,
+        passed: d.passed ?? false,
+      });
     } catch (error: any) {
       setVisionTestResult({ visionDescribe: false, visionJudge: false, passed: false });
       setFormError(error.response?.data?.error || 'Vision 테스트 실행에 실패했습니다.');
@@ -422,7 +427,11 @@ export default function Models({ adminRole }: ModelsProps) {
     setFormError('');
     try {
       const res = await modelsApi.testImage(buildTestPayload());
-      setImageTestResult(res.data);
+      const d = res.data;
+      setImageTestResult({
+        imageGen: d.imageGen?.passed ?? d.imageGen ?? false,
+        passed: d.passed ?? false,
+      });
     } catch (error: any) {
       setImageTestResult({ imageGen: false, passed: false });
       setFormError(error.response?.data?.error || '이미지 생성 테스트 실행에 실패했습니다.');
