@@ -13,7 +13,7 @@ GET /v1/models
 ### 요청
 
 ```bash
-curl -X GET https://a2g.samsungds.net:8090/v1/models \
+curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-service" \
   -H "x-user-id: hong.gildong" \
   -H "x-dept-name: SW혁신팀(S.LSI)"
@@ -71,7 +71,7 @@ GET /v1/models/:name
 ### 요청
 
 ```bash
-curl -X GET https://a2g.samsungds.net:8090/v1/models/gpt-4o \
+curl -X GET http://a2g.samsungds.net:8090/v1/models/gpt-4o \
   -H "x-service-id: my-service" \
   -H "x-user-id: hong.gildong" \
   -H "x-dept-name: SW혁신팀(S.LSI)"
@@ -108,7 +108,7 @@ curl -X GET https://a2g.samsungds.net:8090/v1/models/gpt-4o \
 import requests
 
 response = requests.get(
-    "https://a2g.samsungds.net:8090/v1/models",
+    "http://a2g.samsungds.net:8090/v1/models",
     headers={
         "x-service-id": "my-service",
         "x-user-id": "hong.gildong",
@@ -124,7 +124,7 @@ for model in models:
 ### JavaScript - 모델 목록을 드롭다운에 표시
 
 ```javascript
-const response = await fetch('https://a2g.samsungds.net:8090/v1/models', {
+const response = await fetch('http://a2g.samsungds.net:8090/v1/models', {
   headers: {
     'x-service-id': 'my-service',
     'x-user-id': 'hong.gildong',
@@ -151,7 +151,7 @@ import requests
 
 def is_model_available(model_name):
     response = requests.get(
-        f"https://a2g.samsungds.net:8090/v1/models/{model_name}",
+        f"http://a2g.samsungds.net:8090/v1/models/{model_name}",
         headers={
             "x-service-id": "my-service",
             "x-user-id": "hong.gildong",

@@ -61,7 +61,7 @@ export default function Navbar() {
             </div>
           ))}
 
-          <a href="https://a2g.samsungds.net:8090" className="px-4 py-2 text-sm text-gray-300 hover:text-white rounded-lg hover:bg-white/5 transition-all">
+          <a href="http://a2g.samsungds.net:8090" className="px-4 py-2 text-sm text-gray-300 hover:text-white rounded-lg hover:bg-white/5 transition-all">
             Dashboard
           </a>
         </div>
