@@ -22,6 +22,10 @@ RUN npx tsc && npx vite build
 # Production stage - serve with nginx
 FROM nginx:alpine AS production
 
+# Timezone 설정 (KST)
+ENV TZ=Asia/Seoul
+RUN apk add --no-cache tzdata
+
 # Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html
 

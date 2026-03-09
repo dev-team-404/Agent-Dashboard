@@ -17,12 +17,25 @@ import { z } from 'zod';
 
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
+ * (PG DATE는 midnight UTC로 반환되므로 toISOString 사용 OK)
  */
 function formatDateToString(date: Date | string): string {
   if (typeof date === 'string') {
     return date.split('T')[0] || date;
   }
   return date.toISOString().split('T')[0]!;
+}
+
+/**
+ * Helper: JS Date를 로컬(KST) 기준 YYYY-MM-DD 문자열로 변환
+ * toISOString()은 UTC 기반이라 KST에서 날짜가 1일 밀릴 수 있으므로
+ * getFullYear/getMonth/getDate (로컬 TZ 기준) 사용
+ */
+function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**
@@ -1741,7 +1754,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
     const chartData: Array<{ date: string; cumulativeUsers: number; newUsers: number }> = [];
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const newUsers = newUsersMap.get(dateStr) || 0;
       cumulativeCount += newUsers;
       chartData.push({
@@ -1826,7 +1839,7 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
     const existingModelIds = models.map((m) => m.id);
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const modelId of existingModelIds) {
         initialData[modelId] = 0;
@@ -1940,7 +1953,7 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
     const dateMap = new Map<string, Record<string, number>>();
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const userId of topUserIds) {
         if (userId) initialData[userId] = 0;
@@ -2368,7 +2381,7 @@ adminRoutes.get('/stats/global/by-service', async (req: AuthenticatedRequest, re
     const serviceIds = services.map((s) => s.id);
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const serviceId of serviceIds) {
         initialData[serviceId] = 0;
@@ -2791,7 +2804,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
     const dailyMap = new Map<string, Record<string, number>>();
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const bu of topBUNames) {
         initialData[bu] = 0;
@@ -2914,7 +2927,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
     const chartData: Array<Record<string, string | number>> = [];
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const dayData = usersByDateBU.get(dateStr);
 
       // Add users from this day to cumulative sets
@@ -3009,7 +3022,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
     const dailyMap = new Map<string, Record<string, number>>();
 
     for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]!;
+      const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const combo of comboNames) {
         initialData[combo] = 0;

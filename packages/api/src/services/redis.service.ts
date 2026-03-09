@@ -54,6 +54,18 @@ export async function trackActiveUser(redis: Redis, userId: string): Promise<voi
 }
 
 /**
+ * Helper: 로컬(KST) 기준 오늘 날짜 (YYYY-MM-DD)
+ * toISOString()은 UTC 기반이라 KST 저녁에 날짜가 밀릴 수 있음
+ */
+function getTodayLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Get today's usage stats
  */
 export async function getTodayUsage(redis: Redis): Promise<{
@@ -61,7 +73,7 @@ export async function getTodayUsage(redis: Redis): Promise<{
   inputTokens: number;
   outputTokens: number;
 }> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayLocal();
   const key = `daily_usage:${today}`;
 
   const data = await redis.hgetall(key);
@@ -83,7 +95,7 @@ export async function incrementUsage(
   inputTokens: number,
   outputTokens: number
 ): Promise<void> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayLocal();
   const dailyKey = `daily_usage:${today}`;
   const userKey = `user_usage:${userId}:${today}`;
   const modelKey = `model_usage:${modelId}:${today}`;
@@ -115,7 +127,7 @@ export async function incrementTodayUsage(
   inputTokens: number,
   outputTokens: number
 ): Promise<void> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayLocal();
   const key = `daily_usage:${today}`;
 
   await redis.hincrby(key, 'requests', 1);
