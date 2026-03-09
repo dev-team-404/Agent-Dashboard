@@ -41,7 +41,19 @@ export const prisma = new PrismaClient();
 export const redis = createRedisClient();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:"],
+      // upgrade-insecure-requests 제거 — HTTP 환경에서 HTTPS 강제 방지
+    },
+  },
+  crossOriginOpenerPolicy: false,   // HTTP에서 무의미
+  originAgentCluster: false,        // HTTP에서 무의미
+}));
 app.use(cors({
   origin: process.env['CORS_ORIGIN'] || '*',
   credentials: true,
