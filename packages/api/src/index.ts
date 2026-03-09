@@ -41,18 +41,13 @@ export const prisma = new PrismaClient();
 export const redis = createRedisClient();
 
 // Middleware
+// HTTP 환경 (사내망) — HTTPS 전용 헤더 전부 비활성화
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:"],
-      // upgrade-insecure-requests 제거 — HTTP 환경에서 HTTPS 강제 방지
-    },
-  },
-  crossOriginOpenerPolicy: false,   // HTTP에서 무의미
-  originAgentCluster: false,        // HTTP에서 무의미
+  contentSecurityPolicy: false,           // CSP 비활성화 (upgrade-insecure-requests 방지)
+  strictTransportSecurity: false,         // HSTS 비활성화 (브라우저 HTTPS 강제 캐시 방지)
+  crossOriginOpenerPolicy: false,         // HTTP에서 무의미
+  originAgentCluster: false,              // HTTP에서 무의미
+  crossOriginEmbedderPolicy: false,       // HTTP에서 무의미
 }));
 app.use(cors({
   origin: process.env['CORS_ORIGIN'] || '*',
