@@ -10,7 +10,7 @@ LLM 서비스 통합 관리 대시보드 — 3-Tier 권한, 헤더 기반 인증
 │                                                       │
 │   ┌─────────┐   ┌──────────┐   ┌────────┐  ┌─────┐  │
 │   │  Nginx  │──►│   API    │──►│Postgres│  │Redis│  │
-│   │  :4090  │   │  :3000   │   │ :5432  │  │:6379│  │
+│   │  :8090  │   │  :3000   │   │ :5432  │  │:6379│  │
 │   │         │   └──────────┘   └────────┘  └─────┘  │
 │   │  /      │──► Dashboard (React SPA)               │
 │   │  /api/* │──► API Server                          │
@@ -53,10 +53,10 @@ API 서버 시작 시 자동으로 `prisma db push`로 스키마를 동기화합
 
 | Service | URL | Description |
 |---------|-----|-------------|
-| Dashboard | http://localhost:4090 | 관리 대시보드 |
-| API | http://localhost:4090/api | REST API |
-| LLM Proxy | http://localhost:4090/v1 | OpenAI 호환 프록시 |
-| Docs | http://localhost:4090/docs | 사용 가이드 |
+| Dashboard | http://localhost:8090 | 관리 대시보드 |
+| API | http://localhost:8090/api | REST API |
+| LLM Proxy | http://localhost:8090/v1 | OpenAI 호환 프록시 |
+| Docs | http://localhost:8090/docs | 사용 가이드 |
 
 ## 3-Tier 권한
 
@@ -75,7 +75,7 @@ Super Admin 하드코딩: `syngha.han`, `young87.kim`, `byeongju.lee`
 ### Standard 서비스 (사용자 추적)
 
 ```bash
-curl http://localhost:4090/v1/chat/completions \
+curl http://localhost:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: user.loginid" \
@@ -86,7 +86,7 @@ curl http://localhost:4090/v1/chat/completions \
 ### Background 서비스 (배치/자동화)
 
 ```bash
-curl http://localhost:4090/v1/chat/completions \
+curl http://localhost:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: batch-service" \
   -H "x-dept-name: SW혁신팀(S.LSI)" \
@@ -97,7 +97,7 @@ curl http://localhost:4090/v1/chat/completions \
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PROXY_PORT` | Nginx 프록시 포트 | 4090 |
+| `PROXY_PORT` | Nginx 프록시 포트 | 8090 |
 | `POSTGRES_DB` | DB 이름 | nexuscoder |
 | `POSTGRES_USER` | DB 유저 | nexuscoder |
 | `POSTGRES_PASSWORD` | DB 비밀번호 | nexuscoder123 |
