@@ -146,7 +146,7 @@ myUsageRoutes.get('/daily', async (req: AuthenticatedRequest, res) => {
     }
 
     const serviceId = req.query['serviceId'] as string | undefined;
-    const days = parseInt(req.query['days'] as string) || 30;
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
@@ -231,7 +231,7 @@ myUsageRoutes.get('/by-model', async (req: AuthenticatedRequest, res) => {
     }
 
     const serviceId = req.query['serviceId'] as string | undefined;
-    const days = parseInt(req.query['days'] as string) || 30;
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
@@ -295,7 +295,7 @@ myUsageRoutes.get('/by-service', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    const days = parseInt(req.query['days'] as string) || 30;
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
@@ -363,8 +363,8 @@ myUsageRoutes.get('/recent', async (req: AuthenticatedRequest, res) => {
     }
 
     const serviceId = req.query['serviceId'] as string | undefined;
-    const limit = Math.min(parseInt(req.query['limit'] as string) || 50, 100);
-    const offset = parseInt(req.query['offset'] as string) || 0;
+    const limit = Math.min(100, Math.max(1, parseInt(req.query['limit'] as string) || 50));
+    const offset = Math.max(0, parseInt(req.query['offset'] as string) || 0);
 
     const whereClause = {
       userId: user.id,

@@ -120,6 +120,7 @@ model Model {
   createdByDept         String? @map("created_by_dept")
   createdByBusinessUnit String? @map("created_by_business_unit")
   createdBySuperAdmin   Boolean @default(false) @map("created_by_super_admin")
+  superAdminOnly        Boolean @default(false) @map("super_admin_only")
 
   creator         Admin?           @relation(fields: [createdBy], references: [id])
   usageLogs       UsageLog[]

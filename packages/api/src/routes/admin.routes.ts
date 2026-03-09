@@ -900,8 +900,8 @@ adminRoutes.post('/models/test', async (req: AuthenticatedRequest, res) => {
  */
 adminRoutes.get('/users', async (req: AuthenticatedRequest, res) => {
   try {
-    const page = parseInt(req.query['page'] as string) || 1;
-    const limit = parseInt(req.query['limit'] as string) || 50;
+    const page = Math.max(1, parseInt(req.query['page'] as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query['limit'] as string) || 50));
     const skip = (page - 1) * limit;
     const serviceId = req.query['serviceId'] as string | undefined;
 
@@ -1157,6 +1157,203 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
   } catch (error) {
     console.error('Demote user error:', error);
     res.status(500).json({ error: 'Failed to demote user' });
+  }
+});
+
+// ==================== Unified Users (SUPER_ADMIN) ====================
+
+/**
+ * GET /admin/unified-users
+ * 전체 사용자 통합 관리 (서비스별 통계 포함)
+ * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
+ */
+adminRoutes.get('/unified-users', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = Math.min(100, parseInt(req.query['limit'] as string) || 50);
+    const skip = (page - 1) * limit;
+    const search = req.query['search'] as string | undefined;
+    const serviceId = req.query['serviceId'] as string | undefined;
+    const businessUnit = req.query['businessUnit'] as string | undefined;
+    const role = req.query['role'] as string | undefined;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: any = {
+      loginid: { not: 'anonymous' },
+    };
+
+    if (search) {
+      whereClause.OR = [
+        { loginid: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { deptname: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (businessUnit) {
+      whereClause.businessUnit = businessUnit;
+    }
+
+    if (serviceId) {
+      whereClause.userServices = { some: { serviceId } };
+    }
+
+    // Role filter: need to check admin table
+    let adminLoginIds: string[] | undefined;
+    if (role === 'SUPER_ADMIN') {
+      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const dbSuperAdmins = await prisma.admin.findMany({
+        where: { role: 'SUPER_ADMIN' },
+        select: { loginid: true },
+      });
+      adminLoginIds = [...developers, ...dbSuperAdmins.map(a => a.loginid)];
+      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+    } else if (role === 'ADMIN') {
+      const dbAdmins = await prisma.admin.findMany({
+        where: { role: 'ADMIN' },
+        select: { loginid: true },
+      });
+      adminLoginIds = dbAdmins.map(a => a.loginid);
+      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+    } else if (role === 'USER') {
+      const allAdmins = await prisma.admin.findMany({ select: { loginid: true } });
+      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const adminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
+      whereClause.loginid = { notIn: [...adminIds], not: 'anonymous' };
+    }
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where: whereClause,
+        skip,
+        take: limit,
+        orderBy: { lastActive: 'desc' },
+        include: {
+          userServices: {
+            include: {
+              service: { select: { id: true, name: true, displayName: true } },
+            },
+          },
+          _count: { select: { usageLogs: true } },
+        },
+      }),
+      prisma.user.count({ where: whereClause }),
+    ]);
+
+    // Admin lookup
+    const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
+    const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
+    const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    const mappedUsers = users.map(u => {
+      let globalRole: string = 'USER';
+      if (developers.includes(u.loginid)) {
+        globalRole = 'SUPER_ADMIN';
+      } else if (adminMap.has(u.loginid)) {
+        globalRole = adminMap.get(u.loginid)!;
+      }
+
+      return {
+        id: u.id,
+        loginid: u.loginid,
+        username: u.username,
+        deptname: u.deptname,
+        businessUnit: u.businessUnit,
+        globalRole,
+        firstSeen: u.firstSeen,
+        lastActive: u.lastActive,
+        totalRequests: u._count.usageLogs,
+        serviceStats: u.userServices.map(us => ({
+          serviceId: us.service.id,
+          serviceName: us.service.displayName,
+          firstSeen: us.firstSeen,
+          lastActive: us.lastActive,
+          requestCount: us.requestCount,
+        })),
+      };
+    });
+
+    // Filter options
+    const [services, businessUnits] = await Promise.all([
+      prisma.service.findMany({
+        where: { enabled: true },
+        select: { id: true, name: true, displayName: true },
+        orderBy: { displayName: 'asc' },
+      }),
+      prisma.user.findMany({
+        where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
+        select: { businessUnit: true },
+        distinct: ['businessUnit'],
+      }),
+    ]);
+
+    res.json({
+      users: mappedUsers,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      filterOptions: {
+        services,
+        businessUnits: businessUnits.map(b => b.businessUnit).filter(Boolean) as string[],
+        deptnames: [],
+        roles: ['SUPER_ADMIN', 'ADMIN', 'USER'],
+      },
+    });
+  } catch (error) {
+    console.error('Get unified users error:', error);
+    res.status(500).json({ error: 'Failed to get unified users' });
+  }
+});
+
+/**
+ * PUT /admin/unified-users/:id/permissions
+ * 사용자 권한 변경 (SUPER_ADMIN만)
+ * Body: { globalRole?: 'ADMIN' }
+ */
+adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { globalRole } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: { loginid: true, username: true, deptname: true, businessUnit: true },
+    });
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (isSuperAdminByEnv(user.loginid)) {
+      res.status(400).json({ error: 'Cannot modify environment super admin' });
+      return;
+    }
+
+    if (globalRole === 'ADMIN') {
+      await prisma.admin.upsert({
+        where: { loginid: user.loginid },
+        update: {
+          role: 'ADMIN',
+          deptname: user.deptname || '',
+          businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+          designatedBy: req.user!.loginid,
+        },
+        create: {
+          loginid: user.loginid,
+          role: 'ADMIN',
+          deptname: user.deptname || '',
+          businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+          designatedBy: req.user!.loginid,
+        },
+      });
+    } else {
+      // globalRole undefined or not ADMIN → demote
+      await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
+    }
+
+    res.json({ success: true, message: `${user.username} permissions updated` });
+  } catch (error) {
+    console.error('Update unified user permissions error:', error);
+    res.status(500).json({ error: 'Failed to update permissions' });
   }
 });
 
@@ -1753,7 +1950,8 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
 
     const chartData: Array<{ date: string; cumulativeUsers: number; newUsers: number }> = [];
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate = new Date();
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const newUsers = newUsersMap.get(dateStr) || 0;
       cumulativeCount += newUsers;
@@ -1838,7 +2036,8 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
     const dateMap = new Map<string, Record<string, number>>();
     const existingModelIds = models.map((m) => m.id);
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate1 = new Date();
+    for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const modelId of existingModelIds) {
@@ -1952,7 +2151,8 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
     // Process into date-keyed structure
     const dateMap = new Map<string, Record<string, number>>();
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate2 = new Date();
+    for (let d = new Date(startDate); d <= endDate2; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const userId of topUserIds) {
@@ -2380,7 +2580,8 @@ adminRoutes.get('/stats/global/by-service', async (req: AuthenticatedRequest, re
     const dateMap = new Map<string, Record<string, number>>();
     const serviceIds = services.map((s) => s.id);
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate3 = new Date();
+    for (let d = new Date(startDate); d <= endDate3; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const serviceId of serviceIds) {
@@ -2803,7 +3004,8 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
     // 3. Build response with CUMULATIVE data
     const dailyMap = new Map<string, Record<string, number>>();
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate4 = new Date();
+    for (let d = new Date(startDate); d <= endDate4; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const bu of topBUNames) {
@@ -2926,7 +3128,8 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
     // Build chart data with proper cumulative calculation
     const chartData: Array<Record<string, string | number>> = [];
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate5 = new Date();
+    for (let d = new Date(startDate); d <= endDate5; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const dayData = usersByDateBU.get(dateStr);
 
@@ -3021,7 +3224,8 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
     // 3. Build response with CUMULATIVE data
     const dailyMap = new Map<string, Record<string, number>>();
 
-    for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const endDate6 = new Date();
+    for (let d = new Date(startDate); d <= endDate6; d.setDate(d.getDate() + 1)) {
       const dateStr = toLocalDateString(d);
       const initialData: Record<string, number> = {};
       for (const combo of comboNames) {

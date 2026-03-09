@@ -274,7 +274,12 @@ export default function Models({ adminRole }: ModelsProps) {
     try {
       let extraHeaders: Record<string, string> | undefined;
       if (subModelForm.extraHeaders.trim()) {
-        extraHeaders = JSON.parse(subModelForm.extraHeaders);
+        try {
+          extraHeaders = JSON.parse(subModelForm.extraHeaders);
+        } catch {
+          alert('Extra Headers가 올바른 JSON 형식이 아닙니다.');
+          return;
+        }
       }
       const data = {
         modelName: subModelForm.modelName || undefined,
