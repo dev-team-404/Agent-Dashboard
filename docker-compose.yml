@@ -21,7 +21,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: dashboard-db
+    container_name: axportal-db
     restart: unless-stopped
     command: postgres -c max_connections=1000 -c shared_buffers=512MB -c work_mem=8MB -c effective_cache_size=1536MB
     environment:
@@ -30,7 +30,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nexuscoder}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexuscoder123}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - axportal_postgres_data:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-8091}:5432"
     healthcheck:
@@ -42,13 +42,13 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: dashboard-redis
+    container_name: axportal-redis
     restart: unless-stopped
     environment:
       <<: *timezone
     command: redis-server --appendonly yes --maxclients 10000
     volumes:
-      - redis_data:/data
+      - axportal_redis_data:/data
     ports:
       - "${REDIS_PORT:-8092}:6379"
     healthcheck:
@@ -64,7 +64,7 @@ services:
       dockerfile: Dockerfile
       args:
         <<: *proxy-env
-    container_name: dashboard-api
+    container_name: axportal-api
     restart: unless-stopped
     environment:
       <<: *proxy-env
@@ -92,7 +92,7 @@ services:
       dockerfile: Dockerfile
       args:
         <<: *proxy-env
-    container_name: dashboard-frontend
+    container_name: axportal-frontend
     restart: unless-stopped
     environment:
       <<: *proxy-env
@@ -105,7 +105,7 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: dashboard-proxy
+    container_name: axportal-proxy
     restart: unless-stopped
     environment:
       <<: *timezone
@@ -119,5 +119,5 @@ services:
       - dashboard
 
 volumes:
-  postgres_data:
-  redis_data:
+  axportal_postgres_data:
+  axportal_redis_data:
