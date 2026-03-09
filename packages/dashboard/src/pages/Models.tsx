@@ -108,10 +108,11 @@ export default function Models({ adminRole }: ModelsProps) {
     enabled: boolean;
   } | null>(null);
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 30s (± jitter to prevent thundering herd)
   useEffect(() => {
     loadModels();
-    const interval = setInterval(loadModels, 30000);
+    const jitter = Math.floor(Math.random() * 10000); // 0~10s jitter
+    const interval = setInterval(loadModels, 30000 + jitter);
     return () => clearInterval(interval);
   }, []);
 

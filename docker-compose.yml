@@ -69,7 +69,7 @@ services:
     environment:
       <<: *proxy-env
       NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-nexuscoder}:${POSTGRES_PASSWORD:-nexuscoder123}@postgres:5432/${POSTGRES_DB:-nexuscoder}?connection_limit=100&pool_timeout=30
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nexuscoder}:${POSTGRES_PASSWORD:-nexuscoder123}@postgres:5432/${POSTGRES_DB:-nexuscoder}?connection_limit=200&pool_timeout=30
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
       SSO_CERT_PATH: /app/cert/cert.cer
