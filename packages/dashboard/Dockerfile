@@ -24,7 +24,7 @@ FROM nginx:alpine AS production
 
 # Timezone 설정 (KST)
 ENV TZ=Asia/Seoul
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache --allow-untrusted tzdata
 
 # Copy built files
 COPY --from=builder /app/dist /usr/share/nginx/html

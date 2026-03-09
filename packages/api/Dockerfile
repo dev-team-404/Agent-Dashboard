@@ -31,14 +31,11 @@ RUN npx tsc
 # Production stage
 FROM node:24-alpine AS production
 
-# Timezone 설정 (KST)
+# Timezone 설정 (KST) + OpenSSL 1.1 for Prisma (skip SSL for corporate network)
 ENV TZ=Asia/Seoul
-RUN apk add --no-cache tzdata
-
-# Install OpenSSL 1.1 for Prisma (skip SSL verification for corporate network)
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/main" > /etc/apk/repositories && \
     echo "http://dl-cdn.alpinelinux.org/alpine/v3.18/community" >> /etc/apk/repositories && \
-    apk add --no-cache --allow-untrusted openssl1.1-compat
+    apk add --no-cache --allow-untrusted openssl1.1-compat tzdata
 
 WORKDIR /app
 
