@@ -640,8 +640,8 @@ export default function Models({ adminRole }: ModelsProps) {
           healthy: false,
           checks: {
             chatCompletion: { passed: false, message: error.message || 'Failed', latencyMs: 0 },
-            toolCall: { passed: false, message: 'Skipped', latencyMs: 0 },
           },
+          allPassed: false,
           message: 'Health check failed',
           totalLatencyMs: 0,
         },
