@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, ChevronRight, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store } from 'lucide-react';
+import { Users, LogOut, Menu, X, ChevronRight, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -221,6 +221,19 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               <BookOpen className="w-5 h-5 text-pastel-400 group-hover:text-pastel-600 flex-shrink-0" />
               {!sidebarCollapsed && <span className="font-medium">문서</span>}
             </a>
+            {isAdmin && (
+              <a
+                href="/api/api-docs/ui"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setSidebarOpen(false)}
+                title={sidebarCollapsed ? 'API 문서' : undefined}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700 ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
+              >
+                <Code className="w-5 h-5 text-pastel-400 group-hover:text-pastel-600 flex-shrink-0" />
+                {!sidebarCollapsed && <span className="font-medium">API 문서</span>}
+              </a>
+            )}
           </div>
 
           {/* Collapse toggle (desktop only) */}

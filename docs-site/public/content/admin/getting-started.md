@@ -73,9 +73,20 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   }'
 ```
 
+## API 문서 (Swagger)
+
+등록된 API의 전체 스펙을 Swagger UI에서 확인하고 테스트할 수 있습니다.
+
+```
+http://a2g.samsungds.net:8090/api/api-docs/ui
+```
+
+> Swagger UI는 Admin 권한이 있는 사용자만 접근할 수 있습니다. Dashboard 사이드바의 **API 문서** 링크에서도 접근 가능합니다.
+
 ## 다음 단계
 
 - [서비스 관리](/docs/admin/service-management) — 서비스 등록, 수정, 삭제 방법
 - [LLM 관리](/docs/admin/llm-management) — LLM 등록 및 공개 범위 설정
 - [사용자/권한 관리](/docs/admin/user-management) — 사용자 목록 및 Admin 지정
 - [통계 활용](/docs/admin/stats) — 대시보드 통계 보기
+- [Swagger API 문서](http://a2g.samsungds.net:8090/api/api-docs/ui) — API 스펙 확인 및 테스트
