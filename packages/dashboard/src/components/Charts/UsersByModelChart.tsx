@@ -89,7 +89,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
 
   const loadModels = async () => {
     try {
-      const response = await modelsApi.list(serviceId);
+      const response = await modelsApi.list();
       const modelList = response.data.models;
       setModels(modelList);
       if (modelList.length > 0) {

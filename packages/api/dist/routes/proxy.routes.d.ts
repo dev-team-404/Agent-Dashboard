@@ -1,9 +1,12 @@
 /**
- * LLM Proxy Routes
+ * LLM Proxy Routes (v2)
  *
- * Proxies /v1/* requests to actual LLM endpoints
- * 폐쇄망 환경: 인증 없이 사용 가능
- * Usage tracking: LLM 응답에서 토큰 사용량 추출하여 DB에 저장
+ * 헤더 기반 인증 (Bearer token 폐지):
+ * - 일반 서비스: x-service-id, x-user-id, x-dept-name
+ * - 백그라운드 서비스: x-service-id, x-dept-name
+ *
+ * 서비스는 등록한 admin의 LLM 접근 권한을 자동 계승
+ * LLM visibility: PUBLIC / BUSINESS_UNIT / TEAM / ADMIN_ONLY
  */
 export declare const proxyRoutes: import("express-serve-static-core").Router;
 //# sourceMappingURL=proxy.routes.d.ts.map

@@ -4,6 +4,7 @@ import { ChevronRight, Menu, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import { guideSections } from '../data/guides';
 
 interface SidebarItem {
   path: string;
@@ -27,7 +28,7 @@ export default function DocLayout({ title, sidebarItems, contentPath }: DocLayou
     fetch(`/docs/content/${contentPath}`)
       .then((r) => r.ok ? r.text() : '# 페이지를 찾을 수 없습니다')
       .then((text) => {
-        // Strip VitePress frontmatter
+        // Strip frontmatter
         const cleaned = text.replace(/^---[\s\S]*?---\n*/m, '');
         // Convert ::: tip/warning/danger blocks to blockquotes
         const processed = cleaned
@@ -61,6 +62,7 @@ export default function DocLayout({ title, sidebarItems, contentPath }: DocLayou
         {/* Sidebar */}
         <aside className={`fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-72 bg-white lg:bg-transparent border-r border-gray-100 lg:border-r-0 z-30 overflow-y-auto transform transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="p-6">
+            {/* Current section */}
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">{title}</h3>
             <ul className="space-y-1">
               {sidebarItems.map((item) => {
@@ -83,6 +85,23 @@ export default function DocLayout({ title, sidebarItems, contentPath }: DocLayou
                 );
               })}
             </ul>
+
+            {/* Other sections */}
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">다른 가이드</h4>
+              {guideSections
+                .filter((s) => s.title !== title)
+                .map((section) => (
+                  <Link
+                    key={section.id}
+                    to={section.items[0].path}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-all"
+                  >
+                    <span>{section.icon}</span>
+                    <span>{section.title}</span>
+                  </Link>
+                ))}
+            </div>
           </div>
         </aside>
 

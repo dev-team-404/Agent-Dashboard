@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Server, Check, X, GripVertical, Layers, ChevronDown, ChevronRight, Play, CheckCircle, XCircle, Loader2, Eye, Shield } from 'lucide-react';
-import { modelsApi, serviceApi } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Plus, Edit2, Trash2, Check, X, Layers, ChevronDown, ChevronRight,
+  Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
+  Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles
+} from 'lucide-react';
+import { modelsApi } from '../services/api';
+
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 interface SubModel {
   id: string;
-  modelName: string | null;  // 엔드포인트별 모델명 (null이면 parent.name 사용)
+  modelName: string | null;
   endpointUrl: string;
   apiKey: string | null;
   extraHeaders: Record<string, string> | null;
@@ -22,14 +28,15 @@ interface Model {
   extraHeaders: Record<string, string> | null;
   maxTokens: number;
   enabled: boolean;
-  sortOrder: number;
-  createdAt: string;
-  creator?: { loginid: string };
-  serviceId?: string;
-  service?: { id: string; name: string; displayName: string };
   supportsVision: boolean;
-  superAdminOnly?: boolean;
-  allowedBusinessUnits?: string[];
+  visibility: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+  visibilityScope: string[];
+  sortOrder: number;
+  createdBy: string | null;
+  createdByDept: string;
+  createdByBusinessUnit: string;
+  createdBySuperAdmin: boolean;
+  createdAt: string;
   subModels?: SubModel[];
 }
 
@@ -43,1217 +50,896 @@ interface HealthCheckResult {
   totalLatencyMs: number;
 }
 
-interface ServiceInfo {
-  id: string;
-  name: string;
-  displayName: string;
-}
-
 interface ModelsProps {
-  serviceId?: string;
+  adminRole?: AdminRole;
 }
 
-export default function Models({ serviceId }: ModelsProps) {
+type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+
+const VISIBILITY_CONFIG: Record<VisibilityType, { label: string; icon: typeof Globe; color: string; bg: string; desc: string }> = {
+  PUBLIC: { label: '전체 공개', icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: '모든 서비스에서 사용 가능' },
+  BUSINESS_UNIT: { label: '사업부', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '동일 사업부 서비스만 사용 가능' },
+  TEAM: { label: '팀 전용', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '동일 부서 서비스만 사용 가능' },
+  ADMIN_ONLY: { label: '관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: '관리자만 접근 가능' },
+};
+
+const emptyForm = {
+  name: '',
+  displayName: '',
+  endpointUrl: '',
+  apiKey: '',
+  extraHeaders: '',
+  maxTokens: 128000,
+  enabled: true,
+  supportsVision: false,
+  visibility: 'PUBLIC' as VisibilityType,
+  visibilityScope: '',
+  sortOrder: 0,
+};
+
+export default function Models({ adminRole }: ModelsProps) {
   const [models, setModels] = useState<Model[]>([]);
-  const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState<VisibilityType | ''>('');
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+
+  // Modal state
   const [showModal, setShowModal] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [isSavingOrder, setIsSavingOrder] = useState(false);
-  const dragRef = useRef<HTMLTableRowElement | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  // SubModel 관리
-  const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
-  const [showSubModelModal, setShowSubModelModal] = useState(false);
-  const [editingSubModel, setEditingSubModel] = useState<{ modelId: string; subModel: SubModel | null } | null>(null);
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<Model | null>(null);
 
+  // Health check state
+  const [healthChecks, setHealthChecks] = useState<Record<string, HealthCheckResult | 'loading'>>({});
+
+  // SubModel state
+  const [subModelForm, setSubModelForm] = useState<{
+    modelId: string;
+    editing: string | null;
+    modelName: string;
+    endpointUrl: string;
+    apiKey: string;
+    extraHeaders: string;
+    enabled: boolean;
+  } | null>(null);
+
+  // Auto-refresh every 30s
   useEffect(() => {
-    loadData();
-  }, [serviceId]);
+    loadModels();
+    const interval = setInterval(loadModels, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadModels = useCallback(async () => {
     try {
-      const response = await modelsApi.list(serviceId);
-      setModels(response.data.models);
-
-      // Load service info if serviceId is provided
-      if (serviceId) {
-        const serviceRes = await serviceApi.get(serviceId);
-        setServiceInfo(serviceRes.data.service);
-      }
+      const res = await modelsApi.list();
+      setModels(res.data.models || []);
     } catch (error) {
       console.error('Failed to load models:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreate = () => {
+  const openCreateModal = () => {
     setEditingModel(null);
+    setForm(emptyForm);
+    setFormError('');
     setShowModal(true);
   };
 
-  const handleEdit = (model: Model) => {
+  const openEditModal = (model: Model) => {
     setEditingModel(model);
+    setForm({
+      name: model.name,
+      displayName: model.displayName,
+      endpointUrl: model.endpointUrl,
+      apiKey: model.apiKey || '',
+      extraHeaders: model.extraHeaders ? JSON.stringify(model.extraHeaders, null, 2) : '',
+      maxTokens: model.maxTokens,
+      enabled: model.enabled,
+      supportsVision: model.supportsVision,
+      visibility: model.visibility,
+      visibilityScope: model.visibilityScope?.join(', ') || '',
+      sortOrder: model.sortOrder,
+    });
+    setFormError('');
     setShowModal(true);
   };
 
-  const handleDelete = async (id: string, force = false) => {
-    const model = models.find(m => m.id === id);
-    const modelName = model?.displayName || model?.name || 'this model';
-
-    if (!force && !confirm(`정말 "${modelName}" 모델을 삭제하시겠습니까?`)) return;
-
-    try {
-      await modelsApi.delete(id, force);
-      setModels(models.filter((m) => m.id !== id));
-    } catch (error: unknown) {
-      console.error('Failed to delete model:', error);
-
-      // Check if it's usage log constraint error
-      const axiosError = error as { response?: { data?: { usageCount?: number; error?: string } } };
-      const usageCount = axiosError.response?.data?.usageCount;
-      const errorMessage = axiosError.response?.data?.error;
-
-      if (usageCount && usageCount > 0) {
-        const forceDelete = confirm(
-          `${errorMessage}\n\n` +
-          `사용 기록 ${usageCount.toLocaleString()}개를 포함하여 강제 삭제하시겠습니까?\n` +
-          `⚠️ 이 작업은 되돌릴 수 없습니다.`
-        );
-        if (forceDelete) {
-          handleDelete(id, true);
-        }
-      } else {
-        alert(errorMessage || '모델 삭제에 실패했습니다.');
-      }
-    }
-  };
-
-  const handleToggleEnabled = async (model: Model) => {
-    try {
-      await modelsApi.update(model.id, { enabled: !model.enabled });
-      setModels(models.map((m) => (m.id === model.id ? { ...m, enabled: !m.enabled } : m)));
-    } catch (error) {
-      console.error('Failed to update model:', error);
-    }
-  };
-
-  // Drag and drop handlers
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', '');
-    if (dragRef.current) {
-      dragRef.current.style.opacity = '0.5';
-    }
-  };
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null);
-    setDragOverIndex(null);
-    if (dragRef.current) {
-      dragRef.current.style.opacity = '1';
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === index) return;
-    setDragOverIndex(index);
-  };
-
-  const handleDrop = async (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === dropIndex) {
-      handleDragEnd();
+  const handleSave = async () => {
+    if (!form.name || !form.displayName || !form.endpointUrl) {
+      setFormError('이름, 표시 이름, 엔드포인트 URL은 필수입니다.');
       return;
     }
 
-    // Reorder models locally
-    const newModels = [...models];
-    const [draggedModel] = newModels.splice(draggedIndex, 1);
-    newModels.splice(dropIndex, 0, draggedModel);
-    setModels(newModels);
-    handleDragEnd();
+    setSaving(true);
+    setFormError('');
 
-    // Save to server
-    setIsSavingOrder(true);
     try {
-      await modelsApi.reorder(newModels.map(m => m.id));
-    } catch (error) {
-      console.error('Failed to save model order:', error);
-      // Revert on error
-      loadData();
+      let extraHeaders: Record<string, string> | undefined;
+      if (form.extraHeaders.trim()) {
+        try {
+          extraHeaders = JSON.parse(form.extraHeaders);
+        } catch {
+          setFormError('Extra Headers는 유효한 JSON이어야 합니다.');
+          setSaving(false);
+          return;
+        }
+      }
+
+      const data = {
+        name: form.name,
+        displayName: form.displayName,
+        endpointUrl: form.endpointUrl,
+        apiKey: form.apiKey || undefined,
+        extraHeaders,
+        maxTokens: form.maxTokens,
+        enabled: form.enabled,
+        supportsVision: form.supportsVision,
+        visibility: form.visibility,
+        visibilityScope: form.visibilityScope ? form.visibilityScope.split(',').map(s => s.trim()).filter(Boolean) : [],
+        sortOrder: form.sortOrder,
+      };
+
+      if (editingModel) {
+        await modelsApi.update(editingModel.id, data);
+      } else {
+        await modelsApi.create(data);
+      }
+
+      setShowModal(false);
+      loadModels();
+    } catch (error: any) {
+      setFormError(error.response?.data?.error || '저장에 실패했습니다.');
     } finally {
-      setIsSavingOrder(false);
+      setSaving(false);
     }
+  };
+
+  const handleDelete = async (model: Model) => {
+    try {
+      await modelsApi.delete(model.id, true);
+      setDeleteTarget(null);
+      loadModels();
+    } catch (error: any) {
+      alert(error.response?.data?.error || '삭제에 실패했습니다.');
+    }
+  };
+
+  const handleToggle = async (model: Model) => {
+    try {
+      await modelsApi.toggle(model.id);
+      loadModels();
+    } catch (error: any) {
+      alert(error.response?.data?.error || '토글에 실패했습니다.');
+    }
+  };
+
+  const runHealthCheck = async (model: Model) => {
+    setHealthChecks(prev => ({ ...prev, [model.id]: 'loading' }));
+    try {
+      const res = await modelsApi.testEndpoint({
+        endpointUrl: model.endpointUrl,
+        modelName: model.name,
+        apiKey: model.apiKey || undefined,
+        extraHeaders: model.extraHeaders || undefined,
+      });
+      setHealthChecks(prev => ({ ...prev, [model.id]: res.data }));
+    } catch (error: any) {
+      setHealthChecks(prev => ({
+        ...prev,
+        [model.id]: {
+          healthy: false,
+          checks: {
+            chatCompletion: { passed: false, message: error.message || 'Failed', latencyMs: 0 },
+            toolCall: { passed: false, message: 'Skipped', latencyMs: 0 },
+          },
+          message: 'Health check failed',
+          totalLatencyMs: 0,
+        },
+      }));
+    }
+  };
+
+  const toggleExpand = (modelId: string) => {
+    setExpandedModels(prev => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  };
+
+  // SubModel handlers
+  const openSubModelForm = (modelId: string) => {
+    setSubModelForm({
+      modelId,
+      editing: null,
+      modelName: '',
+      endpointUrl: '',
+      apiKey: '',
+      extraHeaders: '',
+      enabled: true,
+    });
+  };
+
+  const saveSubModel = async () => {
+    if (!subModelForm) return;
+    try {
+      let extraHeaders: Record<string, string> | undefined;
+      if (subModelForm.extraHeaders.trim()) {
+        extraHeaders = JSON.parse(subModelForm.extraHeaders);
+      }
+      const data = {
+        modelName: subModelForm.modelName || undefined,
+        endpointUrl: subModelForm.endpointUrl,
+        apiKey: subModelForm.apiKey || undefined,
+        extraHeaders,
+        enabled: subModelForm.enabled,
+      };
+      if (subModelForm.editing) {
+        await modelsApi.updateSubModel(subModelForm.modelId, subModelForm.editing, data);
+      } else {
+        await modelsApi.createSubModel(subModelForm.modelId, data);
+      }
+      setSubModelForm(null);
+      loadModels();
+    } catch (error: any) {
+      alert(error.response?.data?.error || '저장에 실패했습니다.');
+    }
+  };
+
+  const deleteSubModel = async (modelId: string, subModelId: string) => {
+    if (!confirm('이 서브모델을 삭제하시겠습니까?')) return;
+    try {
+      await modelsApi.deleteSubModel(modelId, subModelId);
+      loadModels();
+    } catch (error: any) {
+      alert(error.response?.data?.error || '삭제에 실패했습니다.');
+    }
+  };
+
+  // Admin can modify? (Super Admin: always, Admin: only non-super-admin-created models)
+  const canModify = (model: Model) => {
+    if (adminRole === 'SUPER_ADMIN') return true;
+    if (model.createdBySuperAdmin) return false;
+    return true; // API will enforce dept check
+  };
+
+  // Filters
+  const filteredModels = models.filter(m => {
+    const matchesSearch = !searchQuery ||
+      m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.displayName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesVisibility = !visibilityFilter || m.visibility === visibilityFilter;
+    return matchesSearch && matchesVisibility;
+  });
+
+  const getVisibilityBadge = (visibility: VisibilityType) => {
+    const config = VISIBILITY_CONFIG[visibility];
+    const Icon = config.icon;
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border ${config.bg} ${config.color}`}>
+        <Icon className="w-3 h-3" />
+        {config.label}
+      </span>
+    );
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-nexus-600"></div>
+        <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div>
-      {/* Service Info Banner */}
-      {serviceInfo && (
-        <div className="bg-gradient-to-r from-samsung-blue to-blue-600 rounded-2xl p-6 text-white mb-8">
-          <h1 className="text-2xl font-bold">{serviceInfo.displayName} - 모델 관리</h1>
-          <p className="text-blue-200 text-sm mt-1">서비스 ID: {serviceInfo.name}</p>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Models</h1>
-          <p className="text-gray-500 mt-1">
-            {serviceInfo ? `${serviceInfo.displayName}의 LLM 엔드포인트 관리` : 'Manage LLM endpoints for AX Portal'}
+          <h1 className="text-2xl font-bold text-pastel-800">LLM 모델 관리</h1>
+          <p className="text-sm text-pastel-500 mt-1">
+            {models.length}개 모델 | 서비스와 독립적으로 관리됩니다
           </p>
         </div>
         <button
-          onClick={handleCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-samsung-blue text-white rounded-xl hover:bg-samsung-blue-dark transition-colors"
+          onClick={openCreateModal}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
+                     hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
+                     transform active:scale-[0.97] transition-all duration-200"
         >
-          <Plus className="w-5 h-5" />
-          Add Model
+          <Plus className="w-4 h-4" />
+          새 모델 추가
         </button>
       </div>
 
-      {/* Models Table */}
-      <div className="bg-white rounded-2xl shadow-card overflow-hidden">
-        {isSavingOrder && (
-          <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-sm text-blue-600 flex items-center gap-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-            순서 저장 중...
-          </div>
-        )}
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
-                <span className="sr-only">순서</span>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Model
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Endpoint
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Max Tokens
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                사업부 제한
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {models.map((model, index) => (
-              <React.Fragment key={model.id}>
-              <tr
-                ref={draggedIndex === index ? dragRef : null}
-                draggable
-                onDragStart={(e) => handleDragStart(e, index)}
-                onDragEnd={handleDragEnd}
-                onDragOver={(e) => handleDragOver(e, index)}
-                onDrop={(e) => handleDrop(e, index)}
-                className={`hover:bg-gray-50 transition-colors ${
-                  dragOverIndex === index ? 'bg-blue-50 border-t-2 border-blue-400' : ''
-                } ${draggedIndex === index ? 'opacity-50' : ''}`}
+      {/* Search & Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-400" />
+          <input
+            type="text"
+            placeholder="모델 검색..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-pastel-200 rounded-ios text-sm
+                       focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue
+                       transition-all duration-200"
+          />
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setVisibilityFilter('')}
+            className={`px-3 py-2 rounded-ios text-xs font-medium transition-all duration-200
+              ${!visibilityFilter ? 'bg-samsung-blue text-white shadow-ios' : 'bg-white text-pastel-600 border border-pastel-200 hover:bg-pastel-50'}`}
+          >
+            전체
+          </button>
+          {(Object.keys(VISIBILITY_CONFIG) as VisibilityType[]).map(v => {
+            const cfg = VISIBILITY_CONFIG[v];
+            const Icon = cfg.icon;
+            return (
+              <button
+                key={v}
+                onClick={() => setVisibilityFilter(visibilityFilter === v ? '' : v)}
+                className={`inline-flex items-center gap-1 px-3 py-2 rounded-ios text-xs font-medium transition-all duration-200
+                  ${visibilityFilter === v ? 'bg-samsung-blue text-white shadow-ios' : 'bg-white text-pastel-600 border border-pastel-200 hover:bg-pastel-50'}`}
               >
-                <td className="px-3 py-4 cursor-grab active:cursor-grabbing">
-                  <GripVertical className="w-5 h-5 text-gray-400 hover:text-gray-600" />
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-samsung-blue/10 rounded-xl">
-                      <Server className="w-5 h-5 text-samsung-blue" />
+                <Icon className="w-3 h-3" />
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Models Grid */}
+      {filteredModels.length === 0 ? (
+        <div className="text-center py-16">
+          <Cpu className="w-12 h-12 text-pastel-300 mx-auto" />
+          <p className="mt-4 text-pastel-500">
+            {searchQuery || visibilityFilter ? '검색 결과가 없습니다' : '등록된 모델이 없습니다'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {filteredModels.map((model) => {
+            const healthCheck = healthChecks[model.id];
+            const isExpanded = expandedModels.has(model.id);
+
+            return (
+              <div
+                key={model.id}
+                className="bg-white rounded-ios-lg border border-pastel-100 shadow-card hover:shadow-card-hover
+                           transition-all duration-300 overflow-hidden"
+              >
+                {/* Main Row */}
+                <div className="p-5">
+                  <div className="flex items-start gap-4">
+                    {/* Model Icon */}
+                    <div className={`w-11 h-11 rounded-ios flex items-center justify-center flex-shrink-0 ${
+                      model.enabled ? 'bg-samsung-blue/10' : 'bg-gray-100'
+                    }`}>
+                      <Cpu className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <p className="font-medium text-gray-900">{model.displayName}</p>
-                        {model.supportsVision && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-700" title="Vision Language Model">
-                            <Eye className="w-3 h-3" />
-                            VL
+
+                    {/* Model Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className={`font-semibold text-base ${model.enabled ? 'text-pastel-800' : 'text-gray-400'}`}>
+                          {model.displayName}
+                        </h3>
+                        {!model.enabled && (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded-full">
+                            비활성
                           </span>
                         )}
-                        {model.superAdminOnly && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 text-red-700" title="슈퍼 관리자 전용">
-                            <Shield className="w-3 h-3" />
-                            관리자
+                        {model.supportsVision && (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-violet-50 text-violet-600 rounded-full border border-violet-200">
+                            <Eye className="w-2.5 h-2.5 inline mr-0.5" />Vision
+                          </span>
+                        )}
+                        {model.createdBySuperAdmin && (
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded-full border border-amber-200">
+                            <Shield className="w-2.5 h-2.5 inline mr-0.5" />Super
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-500">{model.name}</p>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-pastel-500 flex-wrap">
+                        <code className="px-1.5 py-0.5 bg-pastel-50 rounded text-[11px] font-mono">{model.name}</code>
+                        {getVisibilityBadge(model.visibility)}
+                        {model.createdByDept && (
+                          <span className="hidden sm:inline">{model.createdByDept}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-pastel-400 mt-1.5 truncate max-w-lg font-mono">
+                        {model.endpointUrl}
+                      </p>
                     </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <p className="text-sm text-gray-600 truncate max-w-xs" title={model.endpointUrl}>
-                    {model.endpointUrl}
-                  </p>
-                  {model.apiKey && (
-                    <p className="text-xs text-gray-400">API Key: {model.apiKey}</p>
-                  )}
-                </td>
-                <td className="px-6 py-4">
-                  <p className="text-sm text-gray-600">{model.maxTokens.toLocaleString()}</p>
-                </td>
-                <td className="px-6 py-4">
-                  <button
-                    onClick={() => handleToggleEnabled(model)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                      model.enabled
-                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {model.enabled ? (
-                      <>
-                        <Check className="w-3.5 h-3.5" />
-                        Enabled
-                      </>
-                    ) : (
-                      <>
-                        <X className="w-3.5 h-3.5" />
-                        Disabled
-                      </>
-                    )}
-                  </button>
-                </td>
-                <td className="px-6 py-4">
-                  {model.allowedBusinessUnits && model.allowedBusinessUnits.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {model.allowedBusinessUnits.map((bu) => (
-                        <span
-                          key={bu}
-                          className="inline-block px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full"
-                        >
-                          {bu}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-gray-400">전체 허용</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button
-                    onClick={() => {
-                      setEditingSubModel({ modelId: model.id, subModel: null });
-                      setShowSubModelModal(true);
-                    }}
-                    className="p-2 text-gray-400 hover:text-green-600 transition-colors"
-                    title="Add SubModel (로드밸런싱)"
-                  >
-                    <Layers className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleEdit(model)}
-                    className="p-2 text-gray-400 hover:text-samsung-blue transition-colors"
-                    title="Edit"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(model.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
-              {/* SubModels 확장 행 */}
-              {model.subModels && model.subModels.length > 0 && (
-                <tr className="bg-gray-50">
-                  <td></td>
-                  <td colSpan={6} className="px-6 py-3">
-                    <div className="flex items-center gap-2 mb-2">
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                       <button
-                        onClick={() => setExpandedModelId(expandedModelId === model.id ? null : model.id)}
-                        className="flex items-center gap-1 text-sm text-gray-600 hover:text-samsung-blue"
+                        onClick={() => runHealthCheck(model)}
+                        disabled={healthCheck === 'loading'}
+                        className="p-2 rounded-ios text-pastel-500 hover:bg-pastel-50 hover:text-samsung-blue
+                                   transition-all duration-200 disabled:opacity-50"
+                        title="Health Check"
                       >
-                        {expandedModelId === model.id ? (
+                        {healthCheck === 'loading' ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : healthCheck && typeof healthCheck !== 'string' ? (
+                          healthCheck.healthy ? (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          )
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      {canModify(model) && (
+                        <button
+                          onClick={() => handleToggle(model)}
+                          className="p-2 rounded-ios hover:bg-pastel-50 transition-all duration-200"
+                          title={model.enabled ? '비활성화' : '활성화'}
+                        >
+                          {model.enabled ? (
+                            <ToggleRight className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <ToggleLeft className="w-5 h-5 text-gray-400" />
+                          )}
+                        </button>
+                      )}
+
+                      {canModify(model) && (
+                        <button
+                          onClick={() => openEditModal(model)}
+                          className="p-2 rounded-ios text-pastel-500 hover:bg-pastel-50 hover:text-samsung-blue
+                                     transition-all duration-200"
+                          title="수정"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {canModify(model) && (
+                        <button
+                          onClick={() => setDeleteTarget(model)}
+                          className="p-2 rounded-ios text-pastel-500 hover:bg-red-50 hover:text-red-500
+                                     transition-all duration-200"
+                          title="삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => toggleExpand(model.id)}
+                        className="p-2 rounded-ios text-pastel-500 hover:bg-pastel-50
+                                   transition-all duration-200"
+                        title="서브모델"
+                      >
+                        {isExpanded ? (
                           <ChevronDown className="w-4 h-4" />
                         ) : (
                           <ChevronRight className="w-4 h-4" />
                         )}
-                        <Layers className="w-4 h-4" />
-                        <span className="font-medium">서브모델 {model.subModels.length}개</span>
-                        <span className="text-xs text-gray-400">(라운드로빈 로드밸런싱)</span>
                       </button>
                     </div>
-                    {expandedModelId === model.id && (
-                      <div className="space-y-2 pl-6">
-                        {/* Parent endpoint 표시 */}
-                        <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg border border-blue-200">
-                          <div className="flex-1">
-                            <span className="text-xs font-medium text-blue-600 mr-2">Parent</span>
-                            <span className="text-sm text-gray-700">{model.endpointUrl}</span>
-                            {model.apiKey && (
-                              <span className="text-xs text-gray-400 ml-2">API Key: {model.apiKey}</span>
-                            )}
-                          </div>
-                        </div>
-                        {/* SubModels */}
-                        {model.subModels.map((sub, idx) => (
-                          <div key={sub.id} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-200">
-                            <div className="flex-1">
-                              <span className="text-xs font-medium text-gray-500 mr-2">#{idx + 1}</span>
-                              {sub.modelName && (
-                                <span className="text-xs font-medium text-purple-600 mr-2">[{sub.modelName}]</span>
-                              )}
-                              <span className="text-sm text-gray-700">{sub.endpointUrl}</span>
-                              {sub.apiKey && (
-                                <span className="text-xs text-gray-400 ml-2">API Key: {sub.apiKey}</span>
-                              )}
-                              {!sub.enabled && (
-                                <span className="ml-2 px-1.5 py-0.5 text-xs bg-gray-200 text-gray-600 rounded">Disabled</span>
-                              )}
+                  </div>
+
+                  {/* Health Check Result */}
+                  {healthCheck && typeof healthCheck !== 'string' && (
+                    <div className={`mt-3 p-3 rounded-ios text-xs ${
+                      healthCheck.healthy ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                    }`}>
+                      <div className="flex items-center gap-4">
+                        <span className={healthCheck.healthy ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
+                          {healthCheck.healthy ? 'Healthy' : 'Unhealthy'}
+                        </span>
+                        <span className="text-gray-500">Chat: {healthCheck.checks.chatCompletion.latencyMs}ms</span>
+                        <span className="text-gray-500">Tool: {healthCheck.checks.toolCall.latencyMs}ms</span>
+                        <span className="text-gray-500">Total: {healthCheck.totalLatencyMs}ms</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* SubModels */}
+                {isExpanded && (
+                  <div className="border-t border-pastel-100 bg-pastel-50/50 p-4 animate-slide-up">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-medium text-pastel-700 flex items-center gap-1.5">
+                        <Layers className="w-4 h-4" />
+                        서브모델 ({model.subModels?.length || 0})
+                      </h4>
+                      <button
+                        onClick={() => openSubModelForm(model.id)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-pastel-200
+                                   rounded-ios hover:bg-pastel-50 text-pastel-600 transition-all duration-200"
+                      >
+                        <Plus className="w-3 h-3" />
+                        추가
+                      </button>
+                    </div>
+
+                    {model.subModels && model.subModels.length > 0 ? (
+                      <div className="space-y-2">
+                        {model.subModels.map(sub => (
+                          <div key={sub.id} className="flex items-center gap-3 p-3 bg-white rounded-ios border border-pastel-100">
+                            <div className={`w-2 h-2 rounded-full ${sub.enabled ? 'bg-green-400' : 'bg-gray-300'}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-pastel-700 truncate">
+                                {sub.modelName || model.name}
+                              </p>
+                              <p className="text-xs text-pastel-400 font-mono truncate">{sub.endpointUrl}</p>
                             </div>
                             <div className="flex items-center gap-1">
                               <button
-                                onClick={() => {
-                                  setEditingSubModel({ modelId: model.id, subModel: sub });
-                                  setShowSubModelModal(true);
-                                }}
-                                className="p-1.5 text-gray-400 hover:text-samsung-blue transition-colors"
-                                title="Edit SubModel"
+                                onClick={() => setSubModelForm({
+                                  modelId: model.id,
+                                  editing: sub.id,
+                                  modelName: sub.modelName || '',
+                                  endpointUrl: sub.endpointUrl,
+                                  apiKey: sub.apiKey || '',
+                                  extraHeaders: sub.extraHeaders ? JSON.stringify(sub.extraHeaders) : '',
+                                  enabled: sub.enabled,
+                                })}
+                                className="p-1.5 rounded text-pastel-400 hover:text-samsung-blue hover:bg-pastel-50"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={async () => {
-                                  if (!confirm('이 서브모델을 삭제하시겠습니까?')) return;
-                                  try {
-                                    await modelsApi.deleteSubModel(model.id, sub.id);
-                                    loadData();
-                                  } catch (err) {
-                                    console.error('Failed to delete sub-model:', err);
-                                    alert('서브모델 삭제에 실패했습니다.');
-                                  }
-                                }}
-                                className="p-1.5 text-gray-400 hover:text-red-600 transition-colors"
-                                title="Delete SubModel"
+                                onClick={() => deleteSubModel(model.id, sub.id)}
+                                className="p-1.5 rounded text-pastel-400 hover:text-red-500 hover:bg-red-50"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
                         ))}
-                        <button
-                          onClick={() => {
-                            setEditingSubModel({ modelId: model.id, subModel: null });
-                            setShowSubModelModal(true);
-                          }}
-                          className="flex items-center gap-1 text-sm text-samsung-blue hover:text-samsung-blue-dark"
-                        >
-                          <Plus className="w-4 h-4" />
-                          서브모델 추가
-                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-pastel-400 py-3 text-center">
+                        서브모델이 없습니다. 로드밸런싱이 필요한 경우 추가하세요.
+                      </p>
+                    )}
+
+                    {subModelForm && subModelForm.modelId === model.id && (
+                      <div className="mt-3 p-4 bg-white rounded-ios border border-pastel-200 space-y-3">
+                        <h5 className="text-sm font-medium text-pastel-700">
+                          {subModelForm.editing ? '서브모델 수정' : '서브모델 추가'}
+                        </h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            placeholder="모델명 (비워두면 부모 모델명 사용)"
+                            value={subModelForm.modelName}
+                            onChange={e => setSubModelForm({ ...subModelForm, modelName: e.target.value })}
+                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
+                          />
+                          <input
+                            type="text"
+                            placeholder="엔드포인트 URL *"
+                            value={subModelForm.endpointUrl}
+                            onChange={e => setSubModelForm({ ...subModelForm, endpointUrl: e.target.value })}
+                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
+                          />
+                          <input
+                            type="password"
+                            placeholder="API Key"
+                            value={subModelForm.apiKey}
+                            onChange={e => setSubModelForm({ ...subModelForm, apiKey: e.target.value })}
+                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
+                          />
+                          <label className="flex items-center gap-2 px-3 py-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={subModelForm.enabled}
+                              onChange={e => setSubModelForm({ ...subModelForm, enabled: e.target.checked })}
+                              className="rounded border-pastel-300 text-samsung-blue focus:ring-samsung-blue/20"
+                            />
+                            <span className="text-sm text-pastel-600">활성화</span>
+                          </label>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setSubModelForm(null)}
+                            className="px-3 py-1.5 text-xs text-pastel-600 hover:bg-pastel-50 rounded-ios transition-colors"
+                          >
+                            취소
+                          </button>
+                          <button
+                            onClick={saveSubModel}
+                            className="px-3 py-1.5 text-xs bg-samsung-blue text-white rounded-ios hover:bg-samsung-blue-dark transition-colors"
+                          >
+                            {subModelForm.editing ? '수정' : '추가'}
+                          </button>
+                        </div>
                       </div>
                     )}
-                  </td>
-                </tr>
-              )}
-              </React.Fragment>
-            ))}
-            {models.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                  No models configured. Click "Add Model" to create one.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <ModelModal
-          model={editingModel}
-          serviceId={serviceId}
-          onClose={() => setShowModal(false)}
-          onSave={() => {
-            setShowModal(false);
-            loadData();
-          }}
-        />
-      )}
-
-      {/* SubModel Modal */}
-      {showSubModelModal && editingSubModel && (
-        <SubModelModal
-          modelId={editingSubModel.modelId}
-          parentModelName={models.find(m => m.id === editingSubModel.modelId)?.name || ''}
-          subModel={editingSubModel.subModel}
-          onClose={() => {
-            setShowSubModelModal(false);
-            setEditingSubModel(null);
-          }}
-          onSave={() => {
-            setShowSubModelModal(false);
-            setEditingSubModel(null);
-            loadData();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-interface ModelModalProps {
-  model: Model | null;
-  serviceId?: string;
-  onClose: () => void;
-  onSave: () => void;
-}
-
-function ModelModal({ model, serviceId, onClose, onSave }: ModelModalProps) {
-  const [formData, setFormData] = useState({
-    name: model?.name || '',
-    displayName: model?.displayName || '',
-    endpointUrl: model?.endpointUrl || '',
-    apiKey: '',
-    extraHeadersJson: model?.extraHeaders && Object.keys(model.extraHeaders).length > 0 ? JSON.stringify(model.extraHeaders, null, 2) : '',
-    maxTokens: model?.maxTokens || 128000,
-    enabled: model?.enabled ?? true,
-    supportsVision: model?.supportsVision ?? false,
-    superAdminOnly: model?.superAdminOnly ?? false,
-    serviceId: model?.serviceId || serviceId || '',
-    allowedBusinessUnits: model?.allowedBusinessUnits || [] as string[],
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [businessUnits, setBusinessUnits] = useState<string[]>([]);
-  const [buLoading, setBuLoading] = useState(true);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<HealthCheckResult | null>(null);
-  const [testPassed, setTestPassed] = useState(false);  // 테스트 통과 여부
-
-  useEffect(() => {
-    modelsApi.businessUnits()
-      .then((res) => setBusinessUnits(res.data.businessUnits))
-      .catch((err) => console.error('Failed to load business units:', err))
-      .finally(() => setBuLoading(false));
-  }, []);
-
-  // 편집 모드에서는 테스트 필수 아님 (기존 통과 간주)
-  useEffect(() => {
-    if (model) setTestPassed(true);
-  }, [model]);
-
-  const parseExtraHeaders = (): Record<string, string> | undefined => {
-    if (!formData.extraHeadersJson.trim()) return undefined;
-    try {
-      const parsed = JSON.parse(formData.extraHeadersJson);
-      if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
-      return parsed;
-    } catch {
-      return undefined;
-    }
-  };
-
-  const handleTest = async () => {
-    if (!formData.endpointUrl || !formData.name) {
-      setError('테스트하려면 Model Name과 Endpoint URL이 필요합니다.');
-      return;
-    }
-    // extraHeaders JSON 유효성 검사
-    if (formData.extraHeadersJson.trim()) {
-      try {
-        const parsed = JSON.parse(formData.extraHeadersJson);
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-          setError('Extra Headers는 JSON 객체 형식이어야 합니다. 예: {"X-Custom": "value"}');
-          return;
-        }
-      } catch {
-        setError('Extra Headers JSON 형식이 올바르지 않습니다.');
-        return;
-      }
-    }
-    setTesting(true);
-    setTestResult(null);
-    setError('');
-    try {
-      const res = await modelsApi.testEndpoint({
-        endpointUrl: formData.endpointUrl,
-        modelName: formData.name,
-        apiKey: formData.apiKey || undefined,
-        extraHeaders: parseExtraHeaders(),
-      });
-      setTestResult(res.data.healthCheck);
-      setTestPassed(res.data.healthCheck.healthy);
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string; details?: Array<{ path?: string[]; message?: string }> } } };
-      const details = axiosError.response?.data?.details;
-      const detailMsg = details?.map((d) => `${d.path?.join('.') || '?'}: ${d.message}`).join(', ');
-      setError(detailMsg || axiosError.response?.data?.error || '테스트 요청에 실패했습니다.');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const toggleBusinessUnit = (bu: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      allowedBusinessUnits: prev.allowedBusinessUnits.includes(bu)
-        ? prev.allowedBusinessUnits.filter((b) => b !== bu)
-        : [...prev.allowedBusinessUnits, bu],
-    }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // 새 모델 추가 시 테스트 통과 필수
-    if (!testPassed) {
-      setError('모델을 저장하려면 먼저 테스트를 통과해야 합니다. "Test" 버튼을 눌러 테스트해주세요.');
-      return;
-    }
-
-    // extraHeaders JSON 유효성 검사
-    if (formData.extraHeadersJson.trim()) {
-      try {
-        const parsed = JSON.parse(formData.extraHeadersJson);
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-          setError('Extra Headers는 JSON 객체 형식이어야 합니다.');
-          return;
-        }
-      } catch {
-        setError('Extra Headers JSON 형식이 올바르지 않습니다.');
-        return;
-      }
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const { extraHeadersJson, ...rest } = formData;
-      // 편집 모드에서 textarea 비움 + 기존에 extraHeaders 있었으면 → {} 전송해서 삭제
-      const extraHeaders = formData.extraHeadersJson.trim()
-        ? parseExtraHeaders()
-        : (model?.extraHeaders && Object.keys(model.extraHeaders).length > 0 ? {} : undefined);
-      const data = {
-        ...rest,
-        apiKey: formData.apiKey || undefined,
-        serviceId: formData.serviceId || undefined,
-        extraHeaders,
-      };
-
-      if (model) {
-        await modelsApi.update(model.id, data);
-      } else {
-        // 새 모델: 서버에서도 health check 수행
-        await modelsApi.create(data);
-      }
-      onSave();
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string; healthCheck?: HealthCheckResult } } };
-      const healthCheck = axiosError.response?.data?.healthCheck;
-      if (healthCheck) {
-        setTestResult(healthCheck);
-        setTestPassed(false);
-        setError(`Endpoint health check 실패: ${healthCheck.message}`);
-      } else {
-        setError(axiosError.response?.data?.error || 'Failed to save model. Please check your inputs.');
-      }
-      console.error('Save model error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {model ? 'Edit Model' : 'Add Model'}
-          </h2>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Model Name
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => { setFormData({ ...formData, name: e.target.value }); setTestPassed(!!model); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="e.g., gpt-4"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Display Name
-            </label>
-            <input
-              type="text"
-              value={formData.displayName}
-              onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="e.g., GPT-4 Turbo"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Endpoint URL
-            </label>
-            <input
-              type="url"
-              value={formData.endpointUrl}
-              onChange={(e) => { setFormData({ ...formData, endpointUrl: e.target.value }); setTestPassed(!!model); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="https://api.openai.com/v1/chat/completions"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              API Key {model && '(leave empty to keep existing)'}
-            </label>
-            <input
-              type="password"
-              value={formData.apiKey}
-              onChange={(e) => { setFormData({ ...formData, apiKey: e.target.value }); setTestPassed(!!model); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="sk-..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Extra Headers <span className="text-gray-400 font-normal">(JSON)</span>
-            </label>
-            <textarea
-              value={formData.extraHeadersJson}
-              onChange={(e) => {
-                setFormData({ ...formData, extraHeadersJson: e.target.value });
-                setTestPassed(!!model); // 변경 시 재테스트 필요 (편집모드에서만 유지)
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent font-mono text-sm"
-              placeholder={'{\n  "X-Custom-Header": "value"\n}'}
-              rows={3}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              LLM API 호출 시 추가할 헤더를 JSON 형식으로 입력하세요.
-            </p>
-          </div>
-
-          {/* Test 버튼 및 결과 */}
-          <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">
-                Endpoint Test {!model && <span className="text-red-500">*</span>}
-              </label>
-              <button
-                type="button"
-                onClick={handleTest}
-                disabled={testing || !formData.endpointUrl || !formData.name}
-                className="flex items-center gap-2 px-3 py-1.5 bg-samsung-blue text-white text-sm rounded-lg hover:bg-samsung-blue-dark disabled:opacity-50 transition-colors"
-              >
-                {testing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Testing...</>
-                ) : (
-                  <><Play className="w-4 h-4" /> Test</>
+                  </div>
                 )}
-              </button>
-            </div>
-            {!model && !testPassed && (
-              <p className="text-xs text-amber-600">
-                새 모델 추가 시 Call Test와 Tool Call Test를 통과해야 저장할 수 있습니다.
-              </p>
-            )}
-            {testResult && (
-              <div className="space-y-2">
-                <div className={`flex items-center gap-2 text-sm ${testResult.checks.chatCompletion.passed ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResult.checks.chatCompletion.passed ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  <span className="font-medium">Call Test</span>
-                  <span className="text-gray-400">({testResult.checks.chatCompletion.latencyMs}ms)</span>
-                  <span className="text-xs truncate max-w-[200px]" title={testResult.checks.chatCompletion.message}>
-                    {testResult.checks.chatCompletion.message}
-                  </span>
-                </div>
-                <div className={`flex items-center gap-2 text-sm ${testResult.checks.toolCall.passed ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResult.checks.toolCall.passed ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  <span className="font-medium">Tool Call Test</span>
-                  <span className="text-gray-400">({testResult.checks.toolCall.latencyMs}ms)</span>
-                  <span className="text-xs truncate max-w-[200px]" title={testResult.checks.toolCall.message}>
-                    {testResult.checks.toolCall.message}
-                  </span>
-                </div>
-                <div className={`text-xs font-medium ${testResult.healthy ? 'text-green-600' : 'text-red-600'}`}>
-                  Total: {testResult.totalLatencyMs}ms — {testResult.healthy ? 'All checks passed' : testResult.message}
-                </div>
               </div>
-            )}
-          </div>
+            );
+          })}
+        </div>
+      )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Max Tokens
-            </label>
-            <input
-              type="number"
-              value={formData.maxTokens}
-              onChange={(e) => setFormData({ ...formData, maxTokens: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              min={1}
-              max={1000000}
-            />
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="enabled"
-                checked={formData.enabled}
-                onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                className="w-4 h-4 text-samsung-blue rounded focus:ring-samsung-blue"
-              />
-              <label htmlFor="enabled" className="text-sm text-gray-700">
-                Enable this model
-              </label>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="supportsVision"
-                checked={formData.supportsVision}
-                onChange={(e) => setFormData({ ...formData, supportsVision: e.target.checked })}
-                className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-600"
-              />
-              <label htmlFor="supportsVision" className="text-sm text-gray-700 flex items-center gap-1">
-                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                Vision (VL) 지원
-              </label>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="superAdminOnly"
-                checked={formData.superAdminOnly}
-                onChange={(e) => setFormData({ ...formData, superAdminOnly: e.target.checked })}
-                className="w-4 h-4 text-red-600 rounded focus:ring-red-600"
-              />
-              <label htmlFor="superAdminOnly" className="text-sm text-gray-700 flex items-center gap-1">
-                <Shield className="w-3.5 h-3.5 text-red-600" />
-                슈퍼 관리자 전용
-              </label>
-            </div>
-          </div>
-
-          {/* 사업부 제한 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              사업부 제한
-            </label>
-            <p className="text-xs text-gray-500 mb-2">
-              선택하지 않으면 모든 사업부에서 사용 가능합니다.
-            </p>
-            {buLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-transparent"></div>
-                로딩 중...
-              </div>
-            ) : businessUnits.length === 0 ? (
-              <p className="text-sm text-gray-400">등록된 사업부가 없습니다.</p>
-            ) : (
-              <div className="border border-gray-200 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1">
-                {businessUnits.map((bu) => (
-                  <label key={bu} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowedBusinessUnits.includes(bu)}
-                      onChange={() => toggleBusinessUnit(bu)}
-                      className="w-4 h-4 text-samsung-blue rounded focus:ring-samsung-blue"
-                    />
-                    <span className="text-sm text-gray-700">{bu}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {formData.allowedBusinessUnits.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {formData.allowedBusinessUnits.map((bu) => (
-                  <span
-                    key={bu}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full"
-                  >
-                    {bu}
-                    <button
-                      type="button"
-                      onClick={() => toggleBusinessUnit(bu)}
-                      className="hover:text-amber-900"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
+      {/* Create/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-ios-xl shadow-modal w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="sticky top-0 bg-white/95 backdrop-blur-[20px] border-b border-pastel-100 px-6 py-4 z-10 rounded-t-ios-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-ios bg-samsung-blue/10 flex items-center justify-center">
+                    {editingModel ? <Edit2 className="w-4 h-4 text-samsung-blue" /> : <Sparkles className="w-4 h-4 text-samsung-blue" />}
+                  </div>
+                  <h2 className="text-lg font-semibold text-pastel-800">
+                    {editingModel ? '모델 수정' : '새 모델 추가'}
+                  </h2>
+                </div>
                 <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, allowedBusinessUnits: [] })}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline ml-1"
+                  onClick={() => setShowModal(false)}
+                  className="p-2 rounded-ios text-pastel-400 hover:bg-pastel-50 hover:text-pastel-600 transition-colors"
                 >
-                  전체 해제
+                  <X className="w-5 h-5" />
                 </button>
               </div>
-            )}
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">{error}</p>
             </div>
-          )}
 
-          <div className="flex justify-end gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-samsung-blue text-white rounded-xl hover:bg-samsung-blue-dark disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ==================== SubModel Modal ====================
-
-interface SubModelModalProps {
-  modelId: string;
-  parentModelName: string;
-  subModel: SubModel | null;
-  onClose: () => void;
-  onSave: () => void;
-}
-
-function SubModelModal({ modelId, parentModelName, subModel, onClose, onSave }: SubModelModalProps) {
-  const [formData, setFormData] = useState({
-    modelName: subModel?.modelName || '',
-    endpointUrl: subModel?.endpointUrl || '',
-    apiKey: '',
-    extraHeadersJson: subModel?.extraHeaders && Object.keys(subModel.extraHeaders).length > 0 ? JSON.stringify(subModel.extraHeaders, null, 2) : '',
-    enabled: subModel?.enabled ?? true,
-    sortOrder: subModel?.sortOrder || 0,
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<HealthCheckResult | null>(null);
-  const [testPassed, setTestPassed] = useState(!!subModel);  // 편집 시 기존 통과 간주
-
-  const parseExtraHeaders = (): Record<string, string> | undefined => {
-    if (!formData.extraHeadersJson.trim()) return undefined;
-    try {
-      const parsed = JSON.parse(formData.extraHeadersJson);
-      if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
-      return parsed;
-    } catch {
-      return undefined;
-    }
-  };
-
-  const handleTest = async () => {
-    if (!formData.endpointUrl) {
-      setError('테스트하려면 Endpoint URL이 필요합니다.');
-      return;
-    }
-    if (formData.extraHeadersJson.trim()) {
-      try {
-        const parsed = JSON.parse(formData.extraHeadersJson);
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-          setError('Extra Headers는 JSON 객체 형식이어야 합니다.');
-          return;
-        }
-      } catch {
-        setError('Extra Headers JSON 형식이 올바르지 않습니다.');
-        return;
-      }
-    }
-    setTesting(true);
-    setTestResult(null);
-    setError('');
-    try {
-      const res = await modelsApi.testEndpoint({
-        endpointUrl: formData.endpointUrl,
-        modelName: formData.modelName || parentModelName,
-        apiKey: formData.apiKey || undefined,
-        extraHeaders: parseExtraHeaders(),
-      });
-      setTestResult(res.data.healthCheck);
-      setTestPassed(res.data.healthCheck.healthy);
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string; details?: Array<{ path?: string[]; message?: string }> } } };
-      const details = axiosError.response?.data?.details;
-      const detailMsg = details?.map((d) => `${d.path?.join('.') || '?'}: ${d.message}`).join(', ');
-      setError(detailMsg || axiosError.response?.data?.error || '테스트 요청에 실패했습니다.');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!testPassed) {
-      setError('서브모델을 저장하려면 먼저 테스트를 통과해야 합니다.');
-      return;
-    }
-
-    if (formData.extraHeadersJson.trim()) {
-      try {
-        const parsed = JSON.parse(formData.extraHeadersJson);
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-          setError('Extra Headers는 JSON 객체 형식이어야 합니다.');
-          return;
-        }
-      } catch {
-        setError('Extra Headers JSON 형식이 올바르지 않습니다.');
-        return;
-      }
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const { extraHeadersJson, ...rest } = formData;
-      // 편집 모드에서 textarea 비움 + 기존에 extraHeaders 있었으면 → {} 전송해서 삭제
-      const extraHeaders = formData.extraHeadersJson.trim()
-        ? parseExtraHeaders()
-        : (subModel?.extraHeaders && Object.keys(subModel.extraHeaders).length > 0 ? {} : undefined);
-      const data = {
-        ...rest,
-        modelName: formData.modelName || undefined,
-        apiKey: formData.apiKey || undefined,
-        extraHeaders,
-      };
-
-      if (subModel) {
-        await modelsApi.updateSubModel(modelId, subModel.id, data);
-      } else {
-        await modelsApi.createSubModel(modelId, data);
-      }
-      onSave();
-    } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { error?: string; healthCheck?: HealthCheckResult } } };
-      const healthCheck = axiosError.response?.data?.healthCheck;
-      if (healthCheck) {
-        setTestResult(healthCheck);
-        setTestPassed(false);
-        setError(`Health check 실패: ${healthCheck.message}`);
-      } else {
-        setError(axiosError.response?.data?.error || '서브모델 저장에 실패했습니다.');
-      }
-      console.error('Save sub-model error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {subModel ? '서브모델 수정' : '서브모델 추가'}
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            라운드로빈 로드밸런싱을 위한 추가 엔드포인트
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Model Name <span className="text-gray-400 font-normal">(선택)</span>
-            </label>
-            <input
-              type="text"
-              value={formData.modelName}
-              onChange={(e) => { setFormData({ ...formData, modelName: e.target.value }); setTestPassed(!!subModel); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="비워두면 Parent 모델명 사용"
-            />
-            <p className="text-xs text-gray-500 mt-1">이 엔드포인트에서 사용할 모델명 (예: GLM-4, gpt-4-turbo)</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Endpoint URL
-            </label>
-            <input
-              type="url"
-              value={formData.endpointUrl}
-              onChange={(e) => { setFormData({ ...formData, endpointUrl: e.target.value }); setTestPassed(!!subModel); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="https://api.example.com/v1/chat/completions"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              API Key {subModel && '(비워두면 기존 유지)'}
-            </label>
-            <input
-              type="password"
-              value={formData.apiKey}
-              onChange={(e) => { setFormData({ ...formData, apiKey: e.target.value }); setTestPassed(!!subModel); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              placeholder="sk-..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Extra Headers <span className="text-gray-400 font-normal">(JSON)</span>
-            </label>
-            <textarea
-              value={formData.extraHeadersJson}
-              onChange={(e) => { setFormData({ ...formData, extraHeadersJson: e.target.value }); setTestPassed(!!subModel); setTestResult(null); }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent font-mono text-sm"
-              placeholder={'{\n  "X-Custom-Header": "value"\n}'}
-              rows={3}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              LLM API 호출 시 추가할 헤더를 JSON 형식으로 입력하세요.
-            </p>
-          </div>
-
-          {/* Test 버튼 및 결과 */}
-          <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">
-                Endpoint Test {!subModel && <span className="text-red-500">*</span>}
-              </label>
-              <button
-                type="button"
-                onClick={handleTest}
-                disabled={testing || !formData.endpointUrl}
-                className="flex items-center gap-2 px-3 py-1.5 bg-samsung-blue text-white text-sm rounded-lg hover:bg-samsung-blue-dark disabled:opacity-50 transition-colors"
-              >
-                {testing ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Testing...</>
-                ) : (
-                  <><Play className="w-4 h-4" /> Test</>
-                )}
-              </button>
-            </div>
-            {!subModel && !testPassed && (
-              <p className="text-xs text-amber-600">
-                서브모델 추가 시 Call Test와 Tool Call Test를 통과해야 저장할 수 있습니다.
-              </p>
-            )}
-            {testResult && (
-              <div className="space-y-2">
-                <div className={`flex items-center gap-2 text-sm ${testResult.checks.chatCompletion.passed ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResult.checks.chatCompletion.passed ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  <span className="font-medium">Call Test</span>
-                  <span className="text-gray-400">({testResult.checks.chatCompletion.latencyMs}ms)</span>
+            <div className="p-6 space-y-5">
+              {formError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-ios text-sm text-red-600 animate-slide-down">
+                  {formError}
                 </div>
-                <div className={`flex items-center gap-2 text-sm ${testResult.checks.toolCall.passed ? 'text-green-600' : 'text-red-600'}`}>
-                  {testResult.checks.toolCall.passed ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  <span className="font-medium">Tool Call Test</span>
-                  <span className="text-gray-400">({testResult.checks.toolCall.latencyMs}ms)</span>
+              )}
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">모델 ID *</label>
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={e => setForm({ ...form, name: e.target.value })}
+                      placeholder="gpt-4o, claude-3.5-sonnet"
+                      disabled={!!editingModel}
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue
+                                 disabled:bg-pastel-50 disabled:text-pastel-500 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">표시 이름 *</label>
+                    <input
+                      type="text"
+                      value={form.displayName}
+                      onChange={e => setForm({ ...form, displayName: e.target.value })}
+                      placeholder="GPT-4o, Claude 3.5 Sonnet"
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                    />
+                  </div>
                 </div>
-                <div className={`text-xs font-medium ${testResult.healthy ? 'text-green-600' : 'text-red-600'}`}>
-                  Total: {testResult.totalLatencyMs}ms — {testResult.healthy ? 'All checks passed' : testResult.message}
+
+                <div>
+                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">엔드포인트 URL *</label>
+                  <input
+                    type="text"
+                    value={form.endpointUrl}
+                    onChange={e => setForm({ ...form, endpointUrl: e.target.value })}
+                    placeholder="https://api.example.com/v1/chat/completions"
+                    className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm font-mono
+                               focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">API Key</label>
+                    <input
+                      type="password"
+                      value={form.apiKey}
+                      onChange={e => setForm({ ...form, apiKey: e.target.value })}
+                      placeholder="sk-..."
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">Max Tokens</label>
+                    <input
+                      type="number"
+                      value={form.maxTokens}
+                      onChange={e => setForm({ ...form, maxTokens: parseInt(e.target.value) || 128000 })}
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">Extra Headers (JSON)</label>
+                  <textarea
+                    value={form.extraHeaders}
+                    onChange={e => setForm({ ...form, extraHeaders: e.target.value })}
+                    placeholder='{"X-Custom-Header": "value"}'
+                    rows={2}
+                    className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm font-mono
+                               focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all resize-none"
+                  />
                 </div>
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              정렬 순서
-            </label>
-            <input
-              type="number"
-              value={formData.sortOrder}
-              onChange={(e) => setFormData({ ...formData, sortOrder: parseInt(e.target.value) || 0 })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
-              min={0}
-            />
-            <p className="text-xs text-gray-500 mt-1">낮을수록 먼저 선택됩니다 (Parent는 항상 0순위)</p>
-          </div>
+              {/* Visibility */}
+              <div>
+                <label className="block text-sm font-medium text-pastel-700 mb-2">접근 범위</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(Object.keys(VISIBILITY_CONFIG) as VisibilityType[]).map(v => {
+                    const cfg = VISIBILITY_CONFIG[v];
+                    const Icon = cfg.icon;
+                    const isSelected = form.visibility === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setForm({ ...form, visibility: v })}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-ios border-2 transition-all duration-200
+                          ${isSelected
+                            ? 'border-samsung-blue bg-samsung-blue/5'
+                            : 'border-pastel-100 hover:border-pastel-300 bg-white'}`}
+                      >
+                        <Icon className={`w-5 h-5 ${isSelected ? 'text-samsung-blue' : 'text-pastel-400'}`} />
+                        <span className={`text-xs font-medium ${isSelected ? 'text-samsung-blue' : 'text-pastel-600'}`}>
+                          {cfg.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-pastel-400 mt-1.5">
+                  {VISIBILITY_CONFIG[form.visibility].desc}
+                </p>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="submodel-enabled"
-              checked={formData.enabled}
-              onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-              className="w-4 h-4 text-samsung-blue rounded focus:ring-samsung-blue"
-            />
-            <label htmlFor="submodel-enabled" className="text-sm text-gray-700">
-              활성화
-            </label>
-          </div>
+                {(form.visibility === 'BUSINESS_UNIT' || form.visibility === 'TEAM') && (
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-pastel-600 mb-1">범위 (쉼표 구분)</label>
+                    <input
+                      type="text"
+                      value={form.visibilityScope}
+                      onChange={e => setForm({ ...form, visibilityScope: e.target.value })}
+                      placeholder={form.visibility === 'BUSINESS_UNIT' ? 'S.LSI, MX' : 'SW혁신팀, AI개발팀'}
+                      className="w-full px-3 py-2 border border-pastel-200 rounded-ios text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 transition-all"
+                    />
+                  </div>
+                )}
+              </div>
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-600">{error}</p>
+              {/* Options */}
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-3 p-3 bg-pastel-50 rounded-ios cursor-pointer hover:bg-pastel-100 transition-colors">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      checked={form.enabled}
+                      onChange={e => setForm({ ...form, enabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full
+                                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
+                                    after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500" />
+                  </div>
+                  <span className="text-sm text-pastel-700">활성화</span>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 bg-pastel-50 rounded-ios cursor-pointer hover:bg-pastel-100 transition-colors">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      checked={form.supportsVision}
+                      onChange={e => setForm({ ...form, supportsVision: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full
+                                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
+                                    after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500" />
+                  </div>
+                  <span className="text-sm text-pastel-700">Vision 지원</span>
+                </label>
+
+                <div className="flex items-center gap-2 p-3 bg-pastel-50 rounded-ios">
+                  <label className="text-sm text-pastel-700">정렬 순서</label>
+                  <input
+                    type="number"
+                    value={form.sortOrder}
+                    onChange={e => setForm({ ...form, sortOrder: parseInt(e.target.value) || 0 })}
+                    className="w-20 px-2 py-1 text-sm border border-pastel-200 rounded-ios text-center
+                               focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
+                  />
+                </div>
+              </div>
             </div>
-          )}
 
-          <div className="flex justify-end gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-samsung-blue text-white rounded-xl hover:bg-samsung-blue-dark disabled:opacity-50 transition-colors"
-            >
-              {loading ? '저장 중...' : '저장'}
-            </button>
+            <div className="sticky bottom-0 bg-white/95 backdrop-blur-[20px] border-t border-pastel-100 px-6 py-4 rounded-b-ios-xl">
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-ios transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-5 py-2.5 text-sm font-medium bg-samsung-blue text-white rounded-ios
+                             hover:bg-samsung-blue-dark shadow-ios transition-all duration-200
+                             disabled:opacity-50 disabled:cursor-not-allowed
+                             transform active:scale-[0.97]"
+                >
+                  {saving ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      저장 중...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <Check className="w-4 h-4" />
+                      {editingModel ? '수정' : '생성'}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-ios-xl shadow-modal w-full max-w-md animate-scale-in">
+            <div className="p-6">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-red-500" />
+              </div>
+              <h3 className="text-lg font-semibold text-pastel-800 text-center">모델 삭제</h3>
+              <p className="text-sm text-pastel-500 text-center mt-2">
+                <span className="font-medium text-pastel-700">{deleteTarget.displayName}</span>을(를) 삭제하시겠습니까?
+                <br />이 작업은 되돌릴 수 없습니다.
+              </p>
+            </div>
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-pastel-600 bg-pastel-50 rounded-ios
+                           hover:bg-pastel-100 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => handleDelete(deleteTarget)}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-500 rounded-ios
+                           hover:bg-red-600 transition-colors transform active:scale-[0.97]"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 /**
- * Nexus Coder Admin API Server
+ * Agent Dashboard API Server (v2)
  *
- * Express server for managing models, users, and usage statistics
+ * 3단계 권한 체계 + 헤더 기반 프록시 인증
  */
 import { PrismaClient } from '@prisma/client';
 import 'dotenv/config';

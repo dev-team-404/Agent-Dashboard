@@ -1,38 +1,39 @@
 /**
- * Models Routes
+ * Models Routes (v2)
  *
- * CRUD operations for LLM models management
+ * LLM 모델 CRUD (서비스와 독립)
+ * - Super Admin: 모든 LLM CRUD
+ * - Admin: LLM 등록 가능, 수정/삭제는 super admin이 등록하지 않은 + 본인 dept LLM만
+ * - User: CRUD 불가 (사용만)
+ *
+ * Visibility: PUBLIC / BUSINESS_UNIT / TEAM / ADMIN_ONLY
  */
 
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 
 export const modelsRoutes = Router();
 
 /**
  * GET /models
- * List all models
- * Query: ?businessUnit= (optional) - 사업부 필터링. 설정된 경우 해당 사업부가 허용된 모델만 반환
- *        ?serviceId= (optional) - 서비스 필터링
+ * 모델 목록 (권한에 따라 필터링)
+ * Admin/SuperAdmin만 접근 가능 (Dashboard UI용)
  */
-modelsRoutes.get('/', async (req, res) => {
+modelsRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
-    const businessUnit = req.query['businessUnit'] as string | undefined;
-    const serviceId = req.query['serviceId'] as string | undefined;
-
     const models = await prisma.model.findMany({
-      where: {
-        ...(serviceId && { serviceId }),
-      },
-      orderBy: { displayName: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
 
-    // 사업부 필터링: allowedBusinessUnits가 빈 배열이면 제한 없음, 아니면 해당 사업부 포함 여부 확인
-    const filtered = businessUnit
-      ? models.filter(
-          (m) => m.allowedBusinessUnits.length === 0 || m.allowedBusinessUnits.includes(businessUnit)
-        )
-      : models;
+    // 권한에 따라 필터링
+    const userDept = req.adminDept || req.user?.deptname || '';
+    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const isSuper = req.adminRole === 'SUPER_ADMIN';
+
+    const filtered = isSuper
+      ? models  // Super Admin은 모든 모델 보임
+      : models.filter(m => isModelVisibleTo(m, userDept, userBU, true));
 
     res.json({ models: filtered });
   } catch (error) {
@@ -43,19 +44,25 @@ modelsRoutes.get('/', async (req, res) => {
 
 /**
  * GET /models/:id
- * Get model by ID
  */
-modelsRoutes.get('/:id', async (req, res) => {
+modelsRoutes.get('/:id', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-
-    const model = await prisma.model.findUnique({
-      where: { id },
-    });
+    const model = await prisma.model.findUnique({ where: { id } });
 
     if (!model) {
       res.status(404).json({ error: 'Model not found' });
       return;
+    }
+
+    // 권한 확인
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const userDept = req.adminDept || req.user?.deptname || '';
+      const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+      if (!isModelVisibleTo(model, userDept, userBU, true)) {
+        res.status(403).json({ error: 'No access to this model' });
+        return;
+      }
     }
 
     res.json({ model });
@@ -67,16 +74,27 @@ modelsRoutes.get('/:id', async (req, res) => {
 
 /**
  * POST /models
- * Create new model
+ * 모델 생성 (Admin 이상)
  */
-modelsRoutes.post('/', async (req, res) => {
+modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
-    const { name, displayName, endpointUrl, apiKey, maxTokens, enabled } = req.body;
+    const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
+            extraHeaders, supportsVision, visibility, visibilityScope, sortOrder } = req.body;
 
     if (!name || !displayName || !endpointUrl) {
       res.status(400).json({ error: 'name, displayName, and endpointUrl are required' });
       return;
     }
+
+    // 이름 중복 체크
+    const existing = await prisma.model.findUnique({ where: { name } });
+    if (existing) {
+      res.status(409).json({ error: `Model name '${name}' is already taken` });
+      return;
+    }
+
+    const deptname = req.adminDept || req.user?.deptname || '';
+    const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
 
     const model = await prisma.model.create({
       data: {
@@ -84,8 +102,17 @@ modelsRoutes.post('/', async (req, res) => {
         displayName,
         endpointUrl,
         apiKey: apiKey || null,
-        maxTokens: maxTokens || 4096,
+        maxTokens: maxTokens || 128000,
         enabled: enabled !== false,
+        extraHeaders: extraHeaders || null,
+        supportsVision: supportsVision || false,
+        visibility: visibility || 'PUBLIC',
+        visibilityScope: visibilityScope || [],
+        sortOrder: sortOrder || 0,
+        createdBy: req.adminId || null,
+        createdByDept: deptname,
+        createdByBusinessUnit: businessUnit,
+        createdBySuperAdmin: req.adminRole === 'SUPER_ADMIN',
       },
     });
 
@@ -98,14 +125,45 @@ modelsRoutes.post('/', async (req, res) => {
 
 /**
  * PUT /models/:id
- * Update model
+ * 모델 수정
+ * Admin: super admin이 등록하지 않은 + 본인 dept LLM만
  */
-modelsRoutes.put('/:id', async (req, res) => {
+modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, displayName, endpointUrl, apiKey, maxTokens, enabled } = req.body;
+    const model = await prisma.model.findUnique({ where: { id } });
 
-    const model = await prisma.model.update({
+    if (!model) {
+      res.status(404).json({ error: 'Model not found' });
+      return;
+    }
+
+    // Admin 수정/삭제 권한 확인
+    if (req.adminRole === 'ADMIN') {
+      if (model.createdBySuperAdmin) {
+        res.status(403).json({ error: 'Cannot modify models created by super admin' });
+        return;
+      }
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (model.createdByDept && model.createdByDept !== adminDept) {
+        res.status(403).json({ error: 'Can only modify models created by your department' });
+        return;
+      }
+    }
+
+    const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
+            extraHeaders, supportsVision, visibility, visibilityScope, sortOrder } = req.body;
+
+    // 이름 변경 시 중복 체크
+    if (name && name !== model.name) {
+      const existing = await prisma.model.findUnique({ where: { name } });
+      if (existing) {
+        res.status(409).json({ error: `Model name '${name}' is already taken` });
+        return;
+      }
+    }
+
+    const updated = await prisma.model.update({
       where: { id },
       data: {
         ...(name && { name }),
@@ -114,10 +172,15 @@ modelsRoutes.put('/:id', async (req, res) => {
         ...(apiKey !== undefined && { apiKey }),
         ...(maxTokens !== undefined && { maxTokens }),
         ...(enabled !== undefined && { enabled }),
+        ...(extraHeaders !== undefined && { extraHeaders }),
+        ...(supportsVision !== undefined && { supportsVision }),
+        ...(visibility !== undefined && { visibility }),
+        ...(visibilityScope !== undefined && { visibilityScope }),
+        ...(sortOrder !== undefined && { sortOrder }),
       },
     });
 
-    res.json({ model });
+    res.json({ model: updated });
   } catch (error) {
     console.error('Update model error:', error);
     res.status(500).json({ error: 'Failed to update model' });
@@ -126,15 +189,48 @@ modelsRoutes.put('/:id', async (req, res) => {
 
 /**
  * DELETE /models/:id
- * Delete model
  */
-modelsRoutes.delete('/:id', async (req, res) => {
+modelsRoutes.delete('/:id', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
+    const model = await prisma.model.findUnique({ where: { id } });
 
-    await prisma.model.delete({
-      where: { id },
-    });
+    if (!model) {
+      res.status(404).json({ error: 'Model not found' });
+      return;
+    }
+
+    if (req.adminRole === 'ADMIN') {
+      if (model.createdBySuperAdmin) {
+        res.status(403).json({ error: 'Cannot delete models created by super admin' });
+        return;
+      }
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (model.createdByDept && model.createdByDept !== adminDept) {
+        res.status(403).json({ error: 'Can only delete models created by your department' });
+        return;
+      }
+    }
+
+    // 관련 데이터 체크
+    const usageCount = await prisma.usageLog.count({ where: { modelId: id } });
+    const force = req.query['force'] === 'true';
+
+    if (usageCount > 0 && !force) {
+      res.status(409).json({
+        error: 'Model has usage data. Use ?force=true to delete anyway.',
+        usageCount,
+      });
+      return;
+    }
+
+    // SubModel, UsageLog 등 cascade 처리
+    await prisma.$transaction([
+      prisma.subModel.deleteMany({ where: { parentId: id } }),
+      prisma.usageLog.deleteMany({ where: { modelId: id } }),
+      prisma.dailyUsageStat.deleteMany({ where: { modelId: id } }),
+      prisma.model.delete({ where: { id } }),
+    ]);
 
     res.json({ success: true });
   } catch (error) {
@@ -145,19 +241,27 @@ modelsRoutes.delete('/:id', async (req, res) => {
 
 /**
  * PATCH /models/:id/toggle
- * Toggle model enabled status
  */
-modelsRoutes.patch('/:id/toggle', async (req, res) => {
+modelsRoutes.patch('/:id/toggle', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-
-    const model = await prisma.model.findUnique({
-      where: { id },
-    });
+    const model = await prisma.model.findUnique({ where: { id } });
 
     if (!model) {
       res.status(404).json({ error: 'Model not found' });
       return;
+    }
+
+    if (req.adminRole === 'ADMIN') {
+      if (model.createdBySuperAdmin) {
+        res.status(403).json({ error: 'Cannot toggle models created by super admin' });
+        return;
+      }
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (model.createdByDept && model.createdByDept !== adminDept) {
+        res.status(403).json({ error: 'Can only toggle models created by your department' });
+        return;
+      }
     }
 
     const updated = await prisma.model.update({

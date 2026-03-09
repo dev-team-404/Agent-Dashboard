@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck, Crown } from 'lucide-react';
+import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck } from 'lucide-react';
 import { usersApi, serviceApi } from '../services/api';
 
 /**
@@ -29,8 +29,7 @@ interface UserData {
 
 interface AdminStatus {
   isAdmin: boolean;
-  adminRole: 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER' | null;
-  isDeveloper: boolean;
+  adminRole: 'SUPER_ADMIN' | 'ADMIN' | null;
   canModify: boolean;
 }
 
@@ -83,7 +82,7 @@ export default function Users({ serviceId }: UsersProps) {
             const statusResponse = await usersApi.getAdminStatus(user.id);
             statuses[user.id] = statusResponse.data;
           } catch {
-            statuses[user.id] = { isAdmin: false, adminRole: null, isDeveloper: false, canModify: true };
+            statuses[user.id] = { isAdmin: false, adminRole: null, canModify: true };
           }
         })
       );
@@ -117,13 +116,10 @@ export default function Users({ serviceId }: UsersProps) {
   );
 
   const getRoleBadge = (status: AdminStatus | undefined) => {
-    if (!status?.isAdmin) return null;
-
-    if (status.isDeveloper) {
+    if (!status) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 rounded-full">
-          <Crown className="w-3 h-3" />
-          개발자
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+          사용자
         </span>
       );
     }
@@ -137,34 +133,20 @@ export default function Users({ serviceId }: UsersProps) {
       );
     }
 
-    if (status.adminRole === 'SERVICE_ADMIN') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded-full">
-          <Shield className="w-3 h-3" />
-          서비스관리자
-        </span>
-      );
-    }
-
-    if (status.adminRole === 'VIEWER') {
+    if (status.adminRole === 'ADMIN') {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
           <Shield className="w-3 h-3" />
-          뷰어
+          관리자
         </span>
       );
     }
 
-    if (status.adminRole === 'SERVICE_VIEWER') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-cyan-100 text-cyan-700 rounded-full">
-          <Shield className="w-3 h-3" />
-          서비스뷰어
-        </span>
-      );
-    }
-
-    return null;
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+        사용자
+      </span>
+    );
   };
 
   if (loading && users.length === 0) {
@@ -250,9 +232,7 @@ export default function Users({ serviceId }: UsersProps) {
                       <p className="text-sm text-gray-600">{decodeUsername(user.deptname)}</p>
                     </td>
                     <td className="px-6 py-4">
-                      {getRoleBadge(status) || (
-                        <span className="text-sm text-gray-400">일반 사용자</span>
-                      )}
+                      {getRoleBadge(status)}
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-sm text-gray-600">{formatDate(user.lastActive)}</p>

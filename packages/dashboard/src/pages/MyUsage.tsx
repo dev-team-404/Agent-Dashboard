@@ -66,8 +66,7 @@ export default function MyUsage() {
 
   const loadServices = async () => {
     try {
-      // list()는 인증된 사용자 누구나 접근 가능 (활성 서비스만)
-      const response = await serviceApi.list();
+      const response = await serviceApi.listNames();
       setServices(response.data.services || []);
     } catch (error) {
       console.error('Failed to load services:', error);

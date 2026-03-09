@@ -1,12 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Users, Server, Activity, Zap, RotateCcw, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import {
+  Users, Activity, Zap, RotateCcw, X, TrendingUp,
+  Server, Hash,
+} from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
-
-type AdminRole = 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER' | null;
 import UserStatsChart from '../components/Charts/UserStatsChart';
 import ModelUsageChart from '../components/Charts/ModelUsageChart';
 import UsersByModelChart from '../components/Charts/UsersByModelChart';
 import ModelRatingChart from '../components/Charts/ModelRatingChart';
+import {
+  PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
+} from 'recharts';
+
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 interface OverviewStats {
   activeUsers: number;
@@ -37,6 +43,220 @@ interface DashboardProps {
   adminRole?: AdminRole;
 }
 
+// ── Animated Counter ──
+function useAnimatedCounter(target: number, duration = 1000) {
+  const [value, setValue] = useState(0);
+  const rafRef = useRef<number>(0);
+  const prevTarget = useRef(0);
+
+  useEffect(() => {
+    const start = performance.now();
+    const from = prevTarget.current;
+    prevTarget.current = target;
+
+    const animate = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutExpo
+      const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setValue(Math.round(from + (target - from) * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, duration]);
+
+  return value;
+}
+
+// ── Donut Ring Chart for Token Breakdown ──
+const TOKEN_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4'];
+
+function TokenDonutChart({
+  inputTokens,
+  outputTokens,
+  formatNumber,
+}: {
+  inputTokens: number;
+  outputTokens: number;
+  formatNumber: (n: number) => string;
+}) {
+  const total = inputTokens + outputTokens;
+  const data = [
+    { name: '입력 토큰', value: inputTokens, color: TOKEN_COLORS[0] },
+    { name: '출력 토큰', value: outputTokens, color: TOKEN_COLORS[1] },
+  ];
+
+  if (total === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+        토큰 데이터가 없습니다
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-6">
+      <div className="relative w-44 h-44 flex-shrink-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={52}
+              outerRadius={72}
+              paddingAngle={4}
+              dataKey="value"
+              strokeWidth={0}
+            >
+              {data.map((entry, index) => (
+                <Cell key={index} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value: number) => formatNumber(value)}
+              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        {/* Center label */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-xs text-gray-400">총 토큰</span>
+          <span className="text-lg font-bold text-gray-900">{formatNumber(total)}</span>
+        </div>
+      </div>
+
+      <div className="space-y-3 flex-1">
+        {data.map((item) => (
+          <div key={item.name} className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="text-sm text-gray-600">{item.name}</span>
+            </div>
+            <div className="text-right">
+              <span className="text-sm font-semibold text-gray-900">{formatNumber(item.value)}</span>
+              <span className="text-xs text-gray-400 ml-1.5">
+                ({total > 0 ? ((item.value / total) * 100).toFixed(1) : 0}%)
+              </span>
+            </div>
+          </div>
+        ))}
+        <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-700">합계</span>
+          <span className="text-sm font-bold text-gray-900">{formatNumber(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Metric Card ──
+function MetricCard({
+  label, value, icon: Icon, gradient, description, highlight, delay, suffix,
+}: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  gradient: string;
+  description: string;
+  highlight?: boolean;
+  delay: number;
+  suffix?: string;
+}) {
+  const animatedValue = useAnimatedCounter(value);
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
+
+  return (
+    <div
+      className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      {/* Top gradient accent */}
+      <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
+
+      {/* Glass shimmer */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+
+      <div className="relative p-5">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-500">{label}</p>
+            <p className={`text-3xl font-bold tracking-tight ${highlight ? 'text-orange-600' : 'text-gray-900'}`}>
+              {formatNumber(animatedValue)}{suffix && <span className="text-lg ml-0.5">{suffix}</span>}
+            </p>
+            <p className="text-xs text-gray-400">{description}</p>
+          </div>
+          <div className={`p-3 rounded-xl ${gradient} shadow-lg`}>
+            <Icon className="w-5 h-5 text-white" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Loading Skeleton ──
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* Service header skeleton */}
+      <div className="rounded-2xl bg-gradient-to-r from-gray-200 to-gray-300 p-6 animate-pulse">
+        <div className="h-8 bg-white/20 rounded w-48 mb-2" />
+        <div className="h-4 bg-white/10 rounded w-64" />
+      </div>
+
+      {/* Metric cards skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-5">
+            <div className="animate-pulse space-y-3">
+              <div className="h-3 bg-gray-200 rounded w-20" />
+              <div className="h-8 bg-gray-200 rounded w-16" />
+              <div className="h-2 bg-gray-100 rounded w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Token donut skeleton */}
+      <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+        <div className="animate-pulse">
+          <div className="h-6 bg-gray-200 rounded w-40 mb-6" />
+          <div className="flex items-center gap-6">
+            <div className="w-44 h-44 bg-gray-100 rounded-full" />
+            <div className="flex-1 space-y-4">
+              <div className="h-4 bg-gray-200 rounded w-32" />
+              <div className="h-4 bg-gray-200 rounded w-28" />
+              <div className="h-4 bg-gray-200 rounded w-36" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Charts skeleton */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+            <div className="animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-48 mb-4" />
+              <div className="h-64 bg-gray-100 rounded-xl" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
@@ -59,7 +279,6 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       ]);
       setOverview(overviewRes.data);
 
-      // Extract service-specific stats from global overview
       if (serviceId && globalRes.data.services) {
         const svcStats = globalRes.data.services.find(
           (s: ServiceStats) => s.serviceId === serviceId
@@ -69,7 +288,6 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
         }
       }
 
-      // Load service info if serviceId is provided
       if (serviceId) {
         const serviceRes = await serviceApi.get(serviceId);
         setServiceInfo(serviceRes.data.service);
@@ -89,7 +307,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       const res = await serviceApi.resetData(serviceId);
       const d = res.data.deleted;
       setResetResult(
-        `삭제 완료: 사용 기록 ${d.usageLogs}건, 일일 통계 ${d.dailyStats}건, 평가 ${d.ratings}건, 사용자 연결 ${d.userServices}건, 피드백 ${d.feedbacks}건`
+        `삭제 완료: 사용 기록 ${d.usageLogs}건, 일일 통계 ${d.dailyStats}건, 평가 ${d.ratings}건, 사용자 연결 ${d.userServices}건`
       );
       loadData();
       window.dispatchEvent(new CustomEvent('services-updated'));
@@ -101,84 +319,51 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
   };
 
   const formatNumber = (num: number): string => {
+    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toString();
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
-
-  const stats = [
-    {
-      label: '활성 사용자',
-      value: overview?.activeUsers || 0,
-      icon: Activity,
-      color: 'bg-emerald-500',
-      bgLight: 'bg-emerald-50',
-      description: '최근 30분',
-    },
-    {
-      label: '전체 사용자',
-      value: overview?.totalUsers || 0,
-      icon: Users,
-      color: 'bg-samsung-blue',
-      bgLight: 'bg-blue-50',
-      description: '등록된 사용자',
-    },
-    {
-      label: '일평균 활성(영업일)',
-      value: serviceStats?.avgDailyActiveUsersExcluding || 0,
-      icon: Activity,
-      color: 'bg-orange-500',
-      bgLight: 'bg-orange-50',
-      description: '최근 한달, 주말/휴일 제외',
-      highlight: true,
-    },
-    {
-      label: '활성 모델',
-      value: overview?.totalModels || 0,
-      icon: Server,
-      color: 'bg-violet-500',
-      bgLight: 'bg-violet-50',
-      description: '사용 가능한 모델',
-    },
-    {
-      label: '오늘 요청',
-      value: overview?.todayUsage?.requests || 0,
-      icon: Zap,
-      color: 'bg-amber-500',
-      bgLight: 'bg-amber-50',
-      description: 'API 호출 수',
-    },
-  ];
 
   const todayTokens = overview?.todayUsage
     ? overview.todayUsage.inputTokens + overview.todayUsage.outputTokens
     : 0;
 
   return (
-    <div className="space-y-6">
-      {/* Service Info Banner (only for service-specific dashboard) */}
+    <div className="space-y-6 animate-fade-in">
+      {/* ════════ Service Info Header ════════ */}
       {serviceInfo && (
-        <div className="bg-gradient-to-r from-samsung-blue to-blue-600 rounded-2xl p-6 text-white">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{serviceInfo.displayName}</h1>
-              {serviceInfo.description && (
-                <p className="text-blue-100 mt-1">{serviceInfo.description}</p>
-              )}
-              <p className="text-blue-200 text-sm mt-2">서비스 ID: {serviceInfo.name}</p>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-samsung-blue via-blue-500 to-blue-600 p-6 text-white shadow-lg">
+          {/* Background decoration */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-32 translate-x-32" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-24 -translate-x-24" />
+
+          <div className="relative flex items-start justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-white/15 backdrop-blur-sm rounded-xl">
+                <Server className="w-7 h-7" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">{serviceInfo.displayName}</h1>
+                {serviceInfo.description && (
+                  <p className="text-blue-100 mt-1 text-sm">{serviceInfo.description}</p>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-white/15 backdrop-blur-sm rounded-lg text-xs font-medium">
+                    <Hash className="w-3 h-3" />
+                    {serviceInfo.name}
+                  </span>
+                </div>
+              </div>
             </div>
             {adminRole === 'SUPER_ADMIN' && (
               <button
                 onClick={() => { setResetResult(null); setShowResetModal(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white text-sm rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 bg-white/15 hover:bg-white/25 backdrop-blur-sm text-white text-sm rounded-xl transition-all hover:shadow-lg font-medium"
               >
                 <RotateCcw className="w-4 h-4" />
                 기록 초기화
@@ -188,26 +373,33 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
         </div>
       )}
 
-      {/* Data Reset Modal */}
+      {/* ════════ Data Reset Modal ════════ */}
       {showResetModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">기록 초기화</h3>
-              <button onClick={() => { if (!resetting) setShowResetModal(false); }} className={`p-1 transition-colors ${resetting ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900">기록 초기화</h3>
+              <button
+                onClick={() => { if (!resetting) setShowResetModal(false); }}
+                className={`p-1.5 rounded-lg transition-colors ${resetting ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-5 space-y-4">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold text-gray-900">{serviceInfo?.displayName}</span>의 모든 사용 기록을 초기화하시겠습니까?
               </p>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-700">사용 기록, 일일 통계, 평가, 사용자 연결, 피드백이 모두 삭제됩니다. 모델 설정은 유지됩니다.</p>
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-sm text-amber-700">
+                  사용 기록, 일일 통계, 평가, 사용자 연결이 모두 삭제됩니다. 모델 설정은 유지됩니다.
+                </p>
               </div>
               {resetResult && (
-                <div className={`p-3 rounded-lg border ${resetResult.startsWith('삭제 완료') ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                  <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-green-600' : 'text-red-600'}`}>{resetResult}</p>
+                <div className={`p-3.5 rounded-xl border ${resetResult.startsWith('삭제 완료') ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-green-600' : 'text-red-600'}`}>
+                    {resetResult}
+                  </p>
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-2">
@@ -215,7 +407,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                   type="button"
                   onClick={() => setShowResetModal(false)}
                   disabled={resetting}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium"
                 >
                   {resetResult?.startsWith('삭제 완료') ? '닫기' : '취소'}
                 </button>
@@ -224,7 +416,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                     type="button"
                     onClick={handleResetData}
                     disabled={resetting}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                    className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 font-medium"
                   >
                     {resetting ? '초기화 중...' : '초기화'}
                   </button>
@@ -235,67 +427,107 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
         </div>
       )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
-        {stats.map(({ label, value, icon: Icon, color, bgLight, description, highlight }) => (
-          <div
-            key={label}
-            className={`bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300 ${
-              highlight ? 'border-l-4 border-orange-400' : ''
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">{label}</p>
-                <p className={`text-2xl font-bold mt-1 ${highlight ? 'text-orange-600' : 'text-gray-900'}`}>
-                  {formatNumber(value)}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">{description}</p>
-              </div>
-              <div className={`p-3 rounded-xl ${bgLight}`}>
-                <Icon className={`w-5 h-5 ${color.replace('bg-', 'text-')}`} />
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* ════════ Metric Cards ════════ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
+        <MetricCard
+          label="활성 사용자"
+          value={overview?.activeUsers || 0}
+          icon={Activity}
+          gradient="bg-gradient-to-r from-emerald-500 to-teal-500"
+          description="최근 30분"
+          delay={0}
+        />
+        <MetricCard
+          label="전체 사용자"
+          value={overview?.totalUsers || 0}
+          icon={Users}
+          gradient="bg-gradient-to-r from-blue-500 to-blue-600"
+          description="등록된 사용자"
+          delay={80}
+        />
+        <MetricCard
+          label="일평균 활성(영업일)"
+          value={serviceStats?.avgDailyActiveUsersExcluding || 0}
+          icon={TrendingUp}
+          gradient="bg-gradient-to-r from-orange-500 to-amber-500"
+          description="최근 한달, 주말/휴일 제외"
+          highlight
+          delay={160}
+        />
+        <MetricCard
+          label="오늘 요청"
+          value={overview?.todayUsage?.requests || 0}
+          icon={Zap}
+          gradient="bg-gradient-to-r from-amber-500 to-yellow-500"
+          description="API 호출 수"
+          delay={240}
+        />
+        <MetricCard
+          label="오늘 토큰"
+          value={todayTokens}
+          icon={Hash}
+          gradient="bg-gradient-to-r from-violet-500 to-purple-500"
+          description="입력 + 출력 토큰"
+          delay={320}
+        />
       </div>
 
-      {/* Today's Token Usage */}
-      <div className="bg-white rounded-2xl shadow-card p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">오늘의 토큰 사용량</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-gray-50 rounded-xl">
-            <p className="text-2xl font-bold text-samsung-blue">
-              {formatNumber(overview?.todayUsage?.inputTokens || 0)}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">입력 토큰</p>
+      {/* ════════ Active Users Pulse ════════ */}
+      {(overview?.activeUsers || 0) > 0 && (
+        <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+          </span>
+          <span className="text-sm font-medium text-emerald-700">
+            최근 30분간 <span className="font-bold text-emerald-800">{overview?.activeUsers}명</span>이 활동 중입니다
+          </span>
+          <span className="text-xs text-emerald-500 ml-auto">실시간</span>
+        </div>
+      )}
+
+      {/* ════════ Token Donut Chart ════════ */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/80">
+          <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
+            <Hash className="w-4 h-4 text-white" />
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-xl">
-            <p className="text-2xl font-bold text-samsung-blue">
-              {formatNumber(overview?.todayUsage?.outputTokens || 0)}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">출력 토큰</p>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">오늘의 토큰 사용량</h2>
+            <p className="text-xs text-gray-500">입력/출력 토큰 비율</p>
           </div>
-          <div className="text-center p-4 bg-samsung-blue/5 rounded-xl border border-samsung-blue/20">
-            <p className="text-2xl font-bold text-samsung-blue-dark">
-              {formatNumber(todayTokens)}
-            </p>
-            <p className="text-sm text-gray-500 mt-1">총 토큰</p>
-          </div>
+        </div>
+        <div className="p-6">
+          <TokenDonutChart
+            inputTokens={overview?.todayUsage?.inputTokens || 0}
+            outputTokens={overview?.todayUsage?.outputTokens || 0}
+            formatNumber={formatNumber}
+          />
         </div>
       </div>
 
-      {/* User Stats Chart (Cumulative + Daily Active) */}
-      <UserStatsChart serviceId={serviceId} />
+      {/* ════════ Charts Grid ════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* User Stats Chart (Cumulative + Daily Active) */}
+        <div className="lg:col-span-2">
+          <UserStatsChart serviceId={serviceId} />
+        </div>
 
-      {/* Model Usage Chart */}
-      <ModelUsageChart serviceId={serviceId} />
+        {/* Model Usage Chart */}
+        <div className="lg:col-span-1">
+          <ModelUsageChart serviceId={serviceId} />
+        </div>
 
-      {/* Model Rating Chart */}
-      <ModelRatingChart serviceId={serviceId} />
+        {/* Model Rating Chart */}
+        <div className="lg:col-span-1">
+          <ModelRatingChart serviceId={serviceId} />
+        </div>
 
-      {/* Users by Model Chart */}
-      <UsersByModelChart serviceId={serviceId} />
+        {/* Users by Model Chart */}
+        <div className="lg:col-span-2">
+          <UsersByModelChart serviceId={serviceId} />
+        </div>
+      </div>
     </div>
   );
 }

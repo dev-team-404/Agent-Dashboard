@@ -1,15 +1,16 @@
 /**
- * Admin Routes
+ * Admin Routes (v2)
  *
  * Protected endpoints for admin dashboard
- * - DEVELOPERS 환경변수의 사용자는 SUPER_ADMIN으로 표시
- * - DB admins 테이블의 사용자는 해당 역할로 표시
- * - 모든 통계 API는 ?serviceId= 쿼리 파라미터로 서비스별 필터링 지원
+ * - 3-tier admin system: SUPER_ADMIN / ADMIN (dept-scoped)
+ * - Models are independent of services (no serviceId on Model)
+ * - Model visibility: PUBLIC / BUSINESS_UNIT / TEAM / ADMIN_ONLY
+ * - Admin has deptname, businessUnit, designatedBy
  */
 import { Router } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, getAccessibleServiceIds, isDeveloper } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { z } from 'zod';
 /**
@@ -32,57 +33,272 @@ export const adminRoutes = Router();
 adminRoutes.use(authenticateToken);
 adminRoutes.use(requireAdmin);
 // ==================== Models Management ====================
+/**
+ * 모델 엔드포인트 Health Check
+ * 실제 chat completion 및 tool call 요청을 보내서 정상 동작 확인
+ */
+const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초 (실제 LLM 응답 대기)
+/**
+ * endpointUrl에서 chat completions URL 구성
+ */
+function buildHealthCheckUrl(endpointUrl) {
+    let url = endpointUrl.trim().replace(/\/+$/, '');
+    if (url.endsWith('/chat/completions'))
+        return url;
+    if (url.endsWith('/completions'))
+        return url.replace(/\/completions$/, '/chat/completions');
+    if (url.endsWith('/v1'))
+        return `${url}/chat/completions`;
+    return `${url}/chat/completions`;
+}
+/**
+ * fetch 요청 with timeout
+ */
+async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeoutId);
+        return response;
+    }
+    catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+    }
+}
+/**
+ * Health Check 상세 로그 (요청/응답 전부 출력)
+ */
+function logHealthCheckDetail(step, modelName, url, requestBody, result, responseBody) {
+    const reqStr = JSON.stringify(requestBody, null, 2);
+    const maxLen = 2000;
+    const truncatedReq = reqStr.length > maxLen ? reqStr.substring(0, maxLen) + `... (${reqStr.length} chars)` : reqStr;
+    const truncatedRes = responseBody && responseBody.length > maxLen
+        ? responseBody.substring(0, maxLen) + `... (${responseBody.length} chars)`
+        : (responseBody || '(empty)');
+    console.log(`[HealthCheck] ${step} ${result.passed ? 'PASS' : 'FAIL'} (${result.latencyMs}ms)\n` +
+        `  Model: ${modelName}\n` +
+        `  URL: ${url}\n` +
+        `  Status: ${result.status || 'N/A'}\n` +
+        `  Request:\n${truncatedReq}\n` +
+        `  Response:\n${truncatedRes}`);
+}
+/**
+ * 1단계: Chat Completion 테스트
+ */
+async function testChatCompletion(url, modelName, headers) {
+    const startTime = Date.now();
+    const requestBody = {
+        model: modelName,
+        messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }],
+        temperature: 0,
+    };
+    try {
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+        if (!response.ok) {
+            const result = { passed: false, status: response.status, message: '', latencyMs };
+            if (response.status === 401 || response.status === 403) {
+                result.message = `Authentication failed (${response.status}). Check API key.`;
+            }
+            else {
+                result.message = `Chat completion failed with status ${response.status}`;
+            }
+            logHealthCheckDetail('Chat Completion', modelName, url, requestBody, result, responseText);
+            return result;
+        }
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        }
+        catch {
+            const result = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+            logHealthCheckDetail('Chat Completion', modelName, url, requestBody, result, responseText);
+            return result;
+        }
+        const content = data.choices?.[0]?.message?.content;
+        if (!content && !data.choices?.[0]?.message) {
+            const result = { passed: false, status: response.status, message: 'No message in response choices', latencyMs };
+            logHealthCheckDetail('Chat Completion', modelName, url, requestBody, result, responseText);
+            return result;
+        }
+        const result = { passed: true, status: response.status, message: `OK: "${(content || '').slice(0, 100)}"`, latencyMs };
+        logHealthCheckDetail('Chat Completion', modelName, url, requestBody, result, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+        return result;
+    }
+    catch (error) {
+        const latencyMs = Date.now() - startTime;
+        const errMsg = error instanceof Error
+            ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+            : 'Unknown error';
+        const result = { passed: false, message: errMsg, latencyMs };
+        logHealthCheckDetail('Chat Completion', modelName, url, requestBody, result, errMsg);
+        return result;
+    }
+}
+/**
+ * 2단계: Tool Call 테스트
+ */
+async function testToolCall(url, modelName, headers) {
+    const startTime = Date.now();
+    const requestBody = {
+        model: modelName,
+        messages: [{ role: 'user', content: 'What is the current time? Use the get_current_time tool.' }],
+        tools: [{
+                type: 'function',
+                function: {
+                    name: 'get_current_time',
+                    description: 'Get the current time',
+                    parameters: { type: 'object', properties: {}, required: [] },
+                },
+            }],
+        tool_choice: 'required',
+    };
+    try {
+        const response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+        if (!response.ok) {
+            const result = { passed: false, status: response.status, message: `Tool call failed with status ${response.status}`, latencyMs };
+            logHealthCheckDetail('Tool Call', modelName, url, requestBody, result, responseText);
+            return result;
+        }
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        }
+        catch {
+            const result = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+            logHealthCheckDetail('Tool Call', modelName, url, requestBody, result, responseText);
+            return result;
+        }
+        const toolCalls = data.choices?.[0]?.message?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+            const toolName = toolCalls[0]?.function?.name || 'unknown';
+            const result = { passed: true, status: response.status, message: `OK: called "${toolName}"`, latencyMs };
+            logHealthCheckDetail('Tool Call', modelName, url, requestBody, result, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+            return result;
+        }
+        const result = { passed: false, status: response.status, message: 'Model responded but did not invoke tool call. Tool calling may not be supported.', latencyMs };
+        logHealthCheckDetail('Tool Call', modelName, url, requestBody, result, responseText);
+        return result;
+    }
+    catch (error) {
+        const latencyMs = Date.now() - startTime;
+        const errMsg = error instanceof Error
+            ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+            : 'Unknown error';
+        const result = { passed: false, message: errMsg, latencyMs };
+        logHealthCheckDetail('Tool Call', modelName, url, requestBody, result, errMsg);
+        return result;
+    }
+}
+/**
+ * 전체 Health Check 실행
+ * chatCompletion -> toolCall 순서로 테스트
+ * chatCompletion 실패 시 toolCall은 건너뜀
+ */
+async function checkModelEndpointHealth(endpointUrl, modelName, apiKey, extraHeaders) {
+    const totalStart = Date.now();
+    const url = buildHealthCheckUrl(endpointUrl);
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    if (extraHeaders) {
+        for (const [key, value] of Object.entries(extraHeaders)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                headers[key] = value;
+            }
+        }
+    }
+    // 1단계: Chat Completion 테스트
+    const chatResult = await testChatCompletion(url, modelName, headers);
+    console.log(`[HealthCheck] Chat Completion: ${chatResult.passed ? 'PASS' : 'FAIL'} (${chatResult.latencyMs}ms) ${chatResult.message}`);
+    if (!chatResult.passed) {
+        return {
+            healthy: false,
+            checks: {
+                chatCompletion: chatResult,
+                toolCall: { passed: false, message: 'Skipped (chat completion failed)', latencyMs: 0 },
+            },
+            message: `Chat completion failed: ${chatResult.message}`,
+            totalLatencyMs: Date.now() - totalStart,
+        };
+    }
+    // 2단계: Tool Call 테스트
+    const toolResult = await testToolCall(url, modelName, headers);
+    console.log(`[HealthCheck] Tool Call: ${toolResult.passed ? 'PASS' : 'FAIL'} (${toolResult.latencyMs}ms) ${toolResult.message}`);
+    const allPassed = chatResult.passed && toolResult.passed;
+    return {
+        healthy: allPassed,
+        checks: { chatCompletion: chatResult, toolCall: toolResult },
+        message: allPassed
+            ? 'All checks passed'
+            : `Tool call check failed: ${toolResult.message}`,
+        totalLatencyMs: Date.now() - totalStart,
+    };
+}
+// ==================== Model Schema ====================
 const modelSchema = z.object({
     name: z.string().min(1).max(100),
     displayName: z.string().min(1).max(200),
     endpointUrl: z.string().url(),
     apiKey: z.string().optional(),
+    extraHeaders: z.record(z.string()).optional(),
     maxTokens: z.number().int().min(1).max(1000000).default(128000),
     enabled: z.boolean().default(true),
-    serviceId: z.string().uuid().optional(),
+    supportsVision: z.boolean().default(false),
+    visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY']).default('PUBLIC'),
+    visibilityScope: z.array(z.string()).default([]),
 });
 /**
  * GET /admin/models
  * Get all models (including disabled)
- * Query: ?serviceId= (optional)
- * - SUPER_ADMIN/VIEWER: all models or filtered by serviceId
- * - SERVICE_ADMIN/SERVICE_VIEWER: only models from assigned services
+ * - SUPER_ADMIN: all models
+ * - ADMIN: models visible to their dept/BU
  */
 adminRoutes.get('/models', async (req, res) => {
     try {
-        const serviceId = req.query['serviceId'];
-        // Get accessible service IDs for non-global admins
-        const accessibleServiceIds = await getAccessibleServiceIds(req);
-        // Build where clause
-        let whereClause = {};
-        if (serviceId) {
-            // If specific serviceId requested, check access
-            if (accessibleServiceIds !== null && !accessibleServiceIds.includes(serviceId)) {
-                res.status(403).json({ error: 'No access to this service' });
-                return;
-            }
-            whereClause = { serviceId };
-        }
-        else if (accessibleServiceIds !== null) {
-            // Filter to accessible services only
-            whereClause = { serviceId: { in: accessibleServiceIds } };
-        }
         const models = await prisma.model.findMany({
-            where: whereClause,
             include: {
                 creator: {
                     select: { loginid: true },
                 },
-                service: {
-                    select: { id: true, name: true, displayName: true },
+                subModels: {
+                    orderBy: { sortOrder: 'asc' },
+                    select: { id: true, modelName: true, endpointUrl: true, apiKey: true, extraHeaders: true, enabled: true, sortOrder: true, createdAt: true },
                 },
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy: [
+                { sortOrder: 'asc' },
+                { displayName: 'asc' },
+            ],
         });
-        // Mask API keys
-        const maskedModels = models.map((m) => ({
+        // For non-super admins, filter by visibility
+        let filteredModels = models;
+        if (!req.isSuperAdmin) {
+            filteredModels = models.filter((m) => isModelVisibleTo({ visibility: m.visibility, visibilityScope: m.visibilityScope }, req.adminDept || '', req.adminBusinessUnit || '', true));
+        }
+        // Mask API keys (parent and subModels)
+        const maskedModels = filteredModels.map((m) => ({
             ...m,
             apiKey: m.apiKey ? '***' + m.apiKey.slice(-4) : null,
+            subModels: m.subModels.map((s) => ({
+                ...s,
+                apiKey: s.apiKey ? '***' + s.apiKey.slice(-4) : null,
+            })),
         }));
         res.json({ models: maskedModels });
     }
@@ -94,27 +310,24 @@ adminRoutes.get('/models', async (req, res) => {
 /**
  * POST /admin/models
  * Create a new model
- * - VIEWER/SERVICE_VIEWER cannot create
- * - SERVICE_ADMIN can only create for assigned services
  */
 adminRoutes.post('/models', async (req, res) => {
     try {
-        // Check write access
-        if (['VIEWER', 'SERVICE_VIEWER'].includes(req.adminRole || '')) {
-            res.status(403).json({ error: 'Read-only access. Cannot create models.' });
-            return;
-        }
         const validation = modelSchema.safeParse(req.body);
         if (!validation.success) {
             res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
             return;
         }
-        // Check service access for SERVICE_ADMIN
-        const { serviceId } = validation.data;
-        if (serviceId && req.adminRole === 'SERVICE_ADMIN') {
-            const accessibleServiceIds = await getAccessibleServiceIds(req);
-            if (accessibleServiceIds !== null && !accessibleServiceIds.includes(serviceId)) {
-                res.status(403).json({ error: 'No access to create models for this service' });
+        // Health check: 엔드포인트 연결 확인
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        if (!skipHealthCheck) {
+            const healthResult = await checkModelEndpointHealth(validation.data.endpointUrl, validation.data.name, validation.data.apiKey, validation.data.extraHeaders);
+            console.log(`[HealthCheck] Model "${validation.data.name}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+            if (!healthResult.healthy) {
+                res.status(400).json({
+                    error: 'Endpoint health check failed',
+                    healthCheck: healthResult,
+                });
                 return;
             }
         }
@@ -125,6 +338,9 @@ adminRoutes.post('/models', async (req, res) => {
             data: {
                 ...validation.data,
                 createdBy: admin?.id,
+                createdByDept: req.adminDept || req.user.deptname,
+                createdByBusinessUnit: req.adminBusinessUnit || extractBusinessUnit(req.user.deptname),
+                createdBySuperAdmin: !!req.isSuperAdmin,
             },
         });
         res.status(201).json({ model });
@@ -135,37 +351,96 @@ adminRoutes.post('/models', async (req, res) => {
     }
 });
 /**
+ * PUT /admin/models/reorder
+ * Reorder models (must be before :id route)
+ * Body: { modelIds: string[] }
+ */
+adminRoutes.put('/models/reorder', async (req, res) => {
+    try {
+        const { modelIds } = req.body;
+        if (!Array.isArray(modelIds) || modelIds.length === 0) {
+            res.status(400).json({ error: 'modelIds must be a non-empty array' });
+            return;
+        }
+        // Verify all model IDs exist first
+        const existingModels = await prisma.model.findMany({
+            where: { id: { in: modelIds } },
+            select: { id: true },
+        });
+        const existingIds = new Set(existingModels.map(m => m.id));
+        const validModelIds = modelIds.filter((id) => existingIds.has(id));
+        if (validModelIds.length === 0) {
+            res.status(400).json({ error: 'No valid model IDs provided' });
+            return;
+        }
+        // Update sort order for each valid model
+        const updates = validModelIds.map((id, index) => prisma.model.update({
+            where: { id },
+            data: { sortOrder: index },
+        }));
+        await prisma.$transaction(updates);
+        res.json({ success: true, count: validModelIds.length });
+    }
+    catch (error) {
+        console.error('Reorder models error:', error);
+        res.status(500).json({ error: 'Failed to reorder models' });
+    }
+});
+/**
  * PUT /admin/models/:id
  * Update a model
- * - VIEWER/SERVICE_VIEWER cannot update
- * - SERVICE_ADMIN can only update models in assigned services
+ * - ADMIN can only update models they created (same dept)
  */
 adminRoutes.put('/models/:id', async (req, res) => {
     try {
-        // Check write access
-        if (['VIEWER', 'SERVICE_VIEWER'].includes(req.adminRole || '')) {
-            res.status(403).json({ error: 'Read-only access. Cannot update models.' });
-            return;
-        }
         const { id } = req.params;
-        // Check service access for SERVICE_ADMIN
-        if (req.adminRole === 'SERVICE_ADMIN') {
+        // Dept-scoped admins can only update models created by their dept
+        if (!req.isSuperAdmin) {
             const existingModel = await prisma.model.findUnique({
                 where: { id },
-                select: { serviceId: true },
+                select: { createdByDept: true, createdByBusinessUnit: true, createdBySuperAdmin: true },
             });
-            if (existingModel?.serviceId) {
-                const accessibleServiceIds = await getAccessibleServiceIds(req);
-                if (accessibleServiceIds !== null && !accessibleServiceIds.includes(existingModel.serviceId)) {
-                    res.status(403).json({ error: 'No access to update this model' });
-                    return;
-                }
+            if (!existingModel) {
+                res.status(404).json({ error: 'Model not found' });
+                return;
+            }
+            // ADMIN can only update models from their own dept/BU, not super admin models
+            if (existingModel.createdBySuperAdmin || existingModel.createdByBusinessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to update this model' });
+                return;
             }
         }
         const validation = modelSchema.partial().safeParse(req.body);
         if (!validation.success) {
             res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
             return;
+        }
+        // Health check: endpointUrl, apiKey, name, extraHeaders 중 실제로 변경된 경우만 연결 확인
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        if (!skipHealthCheck) {
+            const existing = await prisma.model.findUnique({ where: { id }, select: { endpointUrl: true, apiKey: true, name: true, extraHeaders: true } });
+            if (existing) {
+                const endpointChanged = validation.data.endpointUrl !== undefined && validation.data.endpointUrl !== existing.endpointUrl;
+                const apiKeyChanged = validation.data.apiKey !== undefined && validation.data.apiKey !== (existing.apiKey || undefined);
+                const nameChanged = validation.data.name !== undefined && validation.data.name !== existing.name;
+                const extraHeadersChanged = validation.data.extraHeaders !== undefined &&
+                    JSON.stringify(validation.data.extraHeaders) !== JSON.stringify(existing.extraHeaders || undefined);
+                if (endpointChanged || apiKeyChanged || nameChanged || extraHeadersChanged) {
+                    const endpointUrl = validation.data.endpointUrl || existing.endpointUrl;
+                    const apiKey = validation.data.apiKey !== undefined ? validation.data.apiKey : (existing.apiKey || undefined);
+                    const modelName = validation.data.name || existing.name;
+                    const extraHeaders = validation.data.extraHeaders !== undefined ? validation.data.extraHeaders : (existing.extraHeaders || undefined);
+                    const healthResult = await checkModelEndpointHealth(endpointUrl, modelName, apiKey, extraHeaders);
+                    console.log(`[HealthCheck] Model "${modelName}" update -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+                    if (!healthResult.healthy) {
+                        res.status(400).json({
+                            error: 'Endpoint health check failed',
+                            healthCheck: healthResult,
+                        });
+                        return;
+                    }
+                }
+            }
         }
         const model = await prisma.model.update({
             where: { id },
@@ -180,15 +455,11 @@ adminRoutes.put('/models/:id', async (req, res) => {
 });
 /**
  * DELETE /admin/models/:id
- * Delete a model
- * Query: ?force=true - 사용 기록이 있어도 강제 삭제 (usage_logs도 함께 삭제)
+ * Delete a model (SUPER_ADMIN only)
+ * Query: ?force=true - 사용 기록이 있어도 강제 삭제
  */
-adminRoutes.delete('/models/:id', async (req, res) => {
+adminRoutes.delete('/models/:id', requireSuperAdmin, async (req, res) => {
     try {
-        if (req.adminRole !== 'SUPER_ADMIN') {
-            res.status(403).json({ error: 'Only super admins can delete models' });
-            return;
-        }
         const { id } = req.params;
         const force = req.query['force'] === 'true';
         // Check if model has usage logs
@@ -227,11 +498,253 @@ adminRoutes.delete('/models/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to delete model' });
     }
 });
+// ==================== SubModel Management (로드밸런싱) ====================
+const subModelSchema = z.object({
+    modelName: z.string().optional(),
+    endpointUrl: z.string().url(),
+    apiKey: z.string().optional(),
+    extraHeaders: z.record(z.string()).optional(),
+    enabled: z.boolean().default(true),
+    sortOrder: z.number().int().default(0),
+});
+/**
+ * GET /admin/models/:modelId/sub-models
+ * 특정 모델의 서브모델 목록 조회
+ */
+adminRoutes.get('/models/:modelId/sub-models', async (req, res) => {
+    try {
+        const { modelId } = req.params;
+        const model = await prisma.model.findUnique({
+            where: { id: modelId },
+            select: { id: true, visibility: true, visibilityScope: true },
+        });
+        if (!model) {
+            res.status(404).json({ error: 'Model not found' });
+            return;
+        }
+        // Check visibility for non-super admins
+        if (!req.isSuperAdmin) {
+            if (!isModelVisibleTo({ visibility: model.visibility, visibilityScope: model.visibilityScope }, req.adminDept || '', req.adminBusinessUnit || '', true)) {
+                res.status(403).json({ error: 'No access to this model' });
+                return;
+            }
+        }
+        const subModels = await prisma.subModel.findMany({
+            where: { parentId: modelId },
+            orderBy: { sortOrder: 'asc' },
+        });
+        // Mask API keys
+        const maskedSubModels = subModels.map((s) => ({
+            ...s,
+            apiKey: s.apiKey ? '***' + s.apiKey.slice(-4) : null,
+        }));
+        res.json({ subModels: maskedSubModels });
+    }
+    catch (error) {
+        console.error('Get sub-models error:', error);
+        res.status(500).json({ error: 'Failed to get sub-models' });
+    }
+});
+/**
+ * POST /admin/models/:modelId/sub-models
+ * 서브모델 추가 (health check 포함)
+ */
+adminRoutes.post('/models/:modelId/sub-models', async (req, res) => {
+    try {
+        const { modelId } = req.params;
+        const model = await prisma.model.findUnique({
+            where: { id: modelId },
+            select: { id: true, name: true, createdByBusinessUnit: true, createdBySuperAdmin: true },
+        });
+        if (!model) {
+            res.status(404).json({ error: 'Model not found' });
+            return;
+        }
+        // Dept-scoped admins can only manage sub-models of models from their dept/BU
+        if (!req.isSuperAdmin) {
+            if (model.createdBySuperAdmin || model.createdByBusinessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to add sub-models for this model' });
+                return;
+            }
+        }
+        const validation = subModelSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        // Health check
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        if (!skipHealthCheck) {
+            const healthCheckModelName = validation.data.modelName || model.name;
+            const healthResult = await checkModelEndpointHealth(validation.data.endpointUrl, healthCheckModelName, validation.data.apiKey, validation.data.extraHeaders);
+            console.log(`[HealthCheck] SubModel for "${model.name}" (model=${healthCheckModelName}) -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+            if (!healthResult.healthy) {
+                res.status(400).json({
+                    error: 'Endpoint health check failed',
+                    healthCheck: healthResult,
+                });
+                return;
+            }
+        }
+        const subModel = await prisma.subModel.create({
+            data: {
+                parentId: modelId,
+                ...validation.data,
+            },
+        });
+        res.status(201).json({
+            subModel: {
+                ...subModel,
+                apiKey: subModel.apiKey ? '***' + subModel.apiKey.slice(-4) : null,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Create sub-model error:', error);
+        res.status(500).json({ error: 'Failed to create sub-model' });
+    }
+});
+/**
+ * PUT /admin/models/:modelId/sub-models/:subModelId
+ * 서브모델 수정
+ */
+adminRoutes.put('/models/:modelId/sub-models/:subModelId', async (req, res) => {
+    try {
+        const { modelId, subModelId } = req.params;
+        const model = await prisma.model.findUnique({
+            where: { id: modelId },
+            select: { id: true, name: true, createdByBusinessUnit: true, createdBySuperAdmin: true },
+        });
+        if (!model) {
+            res.status(404).json({ error: 'Model not found' });
+            return;
+        }
+        // Dept-scoped access check
+        if (!req.isSuperAdmin) {
+            if (model.createdBySuperAdmin || model.createdByBusinessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to update sub-models for this model' });
+                return;
+            }
+        }
+        const existing = await prisma.subModel.findUnique({ where: { id: subModelId } });
+        if (!existing || existing.parentId !== modelId) {
+            res.status(404).json({ error: 'Sub-model not found' });
+            return;
+        }
+        const validation = subModelSchema.partial().safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        // Health check: 실제로 변경된 필드가 있는 경우만 연결 확인
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        if (!skipHealthCheck) {
+            const endpointChanged = validation.data.endpointUrl !== undefined && validation.data.endpointUrl !== existing.endpointUrl;
+            const apiKeyChanged = validation.data.apiKey !== undefined && validation.data.apiKey !== (existing.apiKey || undefined);
+            const modelNameChanged = validation.data.modelName !== undefined && validation.data.modelName !== (existing.modelName || undefined);
+            const extraHeadersChanged = validation.data.extraHeaders !== undefined &&
+                JSON.stringify(validation.data.extraHeaders) !== JSON.stringify(existing.extraHeaders || undefined);
+            if (endpointChanged || apiKeyChanged || modelNameChanged || extraHeadersChanged) {
+                const endpointUrl = validation.data.endpointUrl || existing.endpointUrl;
+                const apiKey = validation.data.apiKey !== undefined ? validation.data.apiKey : (existing.apiKey || undefined);
+                const extraHeaders = validation.data.extraHeaders !== undefined ? validation.data.extraHeaders : (existing.extraHeaders || undefined);
+                const healthCheckModelName = validation.data.modelName || existing.modelName || model.name;
+                const healthResult = await checkModelEndpointHealth(endpointUrl, healthCheckModelName, apiKey, extraHeaders);
+                console.log(`[HealthCheck] SubModel update for "${model.name}" (model=${healthCheckModelName}) -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+                if (!healthResult.healthy) {
+                    res.status(400).json({
+                        error: 'Endpoint health check failed',
+                        healthCheck: healthResult,
+                    });
+                    return;
+                }
+            }
+        }
+        const subModel = await prisma.subModel.update({
+            where: { id: subModelId },
+            data: validation.data,
+        });
+        res.json({
+            subModel: {
+                ...subModel,
+                apiKey: subModel.apiKey ? '***' + subModel.apiKey.slice(-4) : null,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Update sub-model error:', error);
+        res.status(500).json({ error: 'Failed to update sub-model' });
+    }
+});
+/**
+ * DELETE /admin/models/:modelId/sub-models/:subModelId
+ * 서브모델 삭제
+ */
+adminRoutes.delete('/models/:modelId/sub-models/:subModelId', async (req, res) => {
+    try {
+        const { modelId, subModelId } = req.params;
+        const model = await prisma.model.findUnique({
+            where: { id: modelId },
+            select: { id: true, createdByBusinessUnit: true, createdBySuperAdmin: true },
+        });
+        if (!model) {
+            res.status(404).json({ error: 'Model not found' });
+            return;
+        }
+        // Dept-scoped access check
+        if (!req.isSuperAdmin) {
+            if (model.createdBySuperAdmin || model.createdByBusinessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to delete sub-models for this model' });
+                return;
+            }
+        }
+        const existing = await prisma.subModel.findUnique({ where: { id: subModelId } });
+        if (!existing || existing.parentId !== modelId) {
+            res.status(404).json({ error: 'Sub-model not found' });
+            return;
+        }
+        await prisma.subModel.delete({ where: { id: subModelId } });
+        res.json({ success: true });
+    }
+    catch (error) {
+        console.error('Delete sub-model error:', error);
+        res.status(500).json({ error: 'Failed to delete sub-model' });
+    }
+});
+/**
+ * POST /admin/models/test
+ * 모델 엔드포인트 테스트 (저장 전 독립 테스트용)
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders } = validation.data;
+        const healthResult = await checkModelEndpointHealth(endpointUrl, modelName, apiKey, extraHeaders);
+        console.log(`[Test] Model "${modelName}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
+        res.json({ healthCheck: healthResult });
+    }
+    catch (error) {
+        console.error('Model test error:', error);
+        res.status(500).json({ error: 'Failed to test model' });
+    }
+});
 // ==================== Users Management ====================
 /**
  * GET /admin/users
  * Get all users with usage stats (excluding anonymous and users with 0 calls)
  * Query: ?serviceId= (optional), ?page=, ?limit=
+ * - ADMIN: filtered by their dept
  */
 adminRoutes.get('/users', async (req, res) => {
     try {
@@ -239,13 +752,18 @@ adminRoutes.get('/users', async (req, res) => {
         const limit = parseInt(req.query['limit']) || 50;
         const skip = (page - 1) * limit;
         const serviceId = req.query['serviceId'];
-        // Filter: exclude anonymous AND only users with at least 1 usage log (optionally for specific service)
+        // Build where clause
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const whereClause = {
             loginid: { not: 'anonymous' },
             usageLogs: {
                 some: getServiceFilter(serviceId),
             },
         };
+        // Dept-scoped admins see only users from their business unit
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            whereClause['businessUnit'] = req.adminBusinessUnit;
+        }
         const [users, total] = await Promise.all([
             prisma.user.findMany({
                 where: whereClause,
@@ -308,6 +826,13 @@ adminRoutes.get('/users/:id', async (req, res) => {
             res.status(404).json({ error: 'User not found' });
             return;
         }
+        // Dept-scoped admins can only view users from their BU
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            if (user.businessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to this user' });
+                return;
+            }
+        }
         res.json({ user });
     }
     catch (error) {
@@ -315,224 +840,146 @@ adminRoutes.get('/users/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to get user' });
     }
 });
-// ==================== Admin Management ====================
 /**
- * GET /admin/admins
- * Get all admins (super admin only)
+ * GET /admin/users/:id/admin-status
+ * 사용자의 admin 상태 조회
  */
-adminRoutes.get('/admins', requireSuperAdmin, async (_req, res) => {
-    try {
-        const admins = await prisma.admin.findMany({
-            orderBy: { createdAt: 'desc' },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
-            },
-        });
-        res.json({ admins });
-    }
-    catch (error) {
-        console.error('Get admins error:', error);
-        res.status(500).json({ error: 'Failed to get admins' });
-    }
-});
-/**
- * POST /admin/admins
- * Add new admin (super admin only)
- * Body: { loginid, role, serviceId? }
- * role: 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER'
- */
-adminRoutes.post('/admins', requireSuperAdmin, async (req, res) => {
-    try {
-        const { loginid, role, serviceId } = req.body;
-        const validRoles = ['SUPER_ADMIN', 'SERVICE_ADMIN', 'VIEWER', 'SERVICE_VIEWER'];
-        if (!loginid || !validRoles.includes(role)) {
-            res.status(400).json({
-                error: 'Invalid request',
-                validRoles,
-            });
-            return;
-        }
-        // SERVICE_ADMIN and SERVICE_VIEWER require serviceId
-        if (['SERVICE_ADMIN', 'SERVICE_VIEWER'].includes(role) && !serviceId) {
-            res.status(400).json({ error: 'serviceId is required for SERVICE_ADMIN and SERVICE_VIEWER roles' });
-            return;
-        }
-        // Create or update admin
-        const admin = await prisma.admin.upsert({
-            where: { loginid },
-            update: { role },
-            create: { loginid, role },
-        });
-        // If serviceId provided, add to AdminService
-        if (serviceId) {
-            await prisma.adminService.upsert({
-                where: {
-                    adminId_serviceId: { adminId: admin.id, serviceId },
-                },
-                update: { role },
-                create: { adminId: admin.id, serviceId, role },
-            });
-        }
-        // Return admin with services
-        const adminWithServices = await prisma.admin.findUnique({
-            where: { id: admin.id },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
-            },
-        });
-        res.status(201).json({ admin: adminWithServices });
-    }
-    catch (error) {
-        console.error('Create admin error:', error);
-        res.status(500).json({ error: 'Failed to create admin' });
-    }
-});
-/**
- * DELETE /admin/admins/:id
- * Remove admin (super admin only)
- */
-adminRoutes.delete('/admins/:id', requireSuperAdmin, async (req, res) => {
+adminRoutes.get('/users/:id/admin-status', async (req, res) => {
     try {
         const { id } = req.params;
-        // Can't delete super admins
-        const admin = await prisma.admin.findUnique({ where: { id } });
-        if (admin?.role === 'SUPER_ADMIN') {
-            res.status(403).json({ error: 'Cannot delete super admin' });
+        const user = await prisma.user.findUnique({
+            where: { id },
+            select: { loginid: true, username: true },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
             return;
         }
-        // Also delete AdminService entries
-        await prisma.adminService.deleteMany({ where: { adminId: id } });
-        await prisma.admin.delete({ where: { id } });
-        res.json({ success: true });
+        // 환경변수 Super Admin 체크
+        const isEnvSuperAdmin = isSuperAdminByEnv(user.loginid);
+        if (isEnvSuperAdmin) {
+            res.json({
+                isAdmin: true,
+                adminRole: 'SUPER_ADMIN',
+                isSuperAdmin: true,
+                canModify: false,
+            });
+            return;
+        }
+        // DB admin 체크
+        const admin = await prisma.admin.findUnique({
+            where: { loginid: user.loginid },
+        });
+        res.json({
+            isAdmin: !!admin,
+            adminRole: admin?.role || null,
+            isSuperAdmin: false,
+            canModify: true,
+            deptname: admin?.deptname || null,
+            businessUnit: admin?.businessUnit || null,
+            designatedBy: admin?.designatedBy || null,
+        });
     }
     catch (error) {
-        console.error('Delete admin error:', error);
-        res.status(500).json({ error: 'Failed to delete admin' });
+        console.error('Get user admin status error:', error);
+        res.status(500).json({ error: 'Failed to get admin status' });
     }
 });
 /**
- * PUT /admin/admins/:id
- * Update admin role (super admin only)
+ * POST /admin/users/:id/promote
+ * 사용자를 Admin으로 승격 (SUPER_ADMIN만)
+ * Body: { role: 'ADMIN' }
  */
-adminRoutes.put('/admins/:id', requireSuperAdmin, async (req, res) => {
+adminRoutes.post('/users/:id/promote', requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        const validRoles = ['SUPER_ADMIN', 'SERVICE_ADMIN', 'VIEWER', 'SERVICE_VIEWER'];
-        if (!validRoles.includes(role)) {
-            res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
+        if (!role || role !== 'ADMIN') {
+            res.status(400).json({ error: 'role must be ADMIN' });
             return;
         }
-        const admin = await prisma.admin.update({
+        // Get user
+        const user = await prisma.user.findUnique({
             where: { id },
-            data: { role },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
+            select: { loginid: true, username: true, deptname: true, businessUnit: true },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        // 환경변수 Super Admin은 승격 불가
+        if (isSuperAdminByEnv(user.loginid)) {
+            res.status(400).json({ error: 'Environment super admins cannot be promoted' });
+            return;
+        }
+        // Upsert admin record with dept info and designatedBy
+        const admin = await prisma.admin.upsert({
+            where: { loginid: user.loginid },
+            update: {
+                role,
+                deptname: user.deptname || '',
+                businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+                designatedBy: req.user.loginid,
+            },
+            create: {
+                loginid: user.loginid,
+                role,
+                deptname: user.deptname || '',
+                businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+                designatedBy: req.user.loginid,
             },
         });
-        res.json({ admin });
+        res.json({
+            success: true,
+            admin,
+            message: `${user.username} promoted to ${role}`,
+        });
     }
     catch (error) {
-        console.error('Update admin error:', error);
-        res.status(500).json({ error: 'Failed to update admin' });
+        console.error('Promote user error:', error);
+        res.status(500).json({ error: 'Failed to promote user' });
     }
 });
 /**
- * POST /admin/admins/:id/services
- * Add service to admin (super admin only)
- * Body: { serviceId, role? }
+ * DELETE /admin/users/:id/demote
+ * Admin 권한 해제 (SUPER_ADMIN만)
  */
-adminRoutes.post('/admins/:id/services', requireSuperAdmin, async (req, res) => {
+adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { serviceId, role } = req.body;
-        if (!serviceId) {
-            res.status(400).json({ error: 'serviceId is required' });
+        // Get user
+        const user = await prisma.user.findUnique({
+            where: { id },
+            select: { loginid: true, username: true },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
             return;
         }
-        // Get admin's current role
-        const admin = await prisma.admin.findUnique({ where: { id } });
+        // 환경변수 Super Admin은 해제 불가
+        if (isSuperAdminByEnv(user.loginid)) {
+            res.status(400).json({ error: 'Cannot demote environment super admins' });
+            return;
+        }
+        const admin = await prisma.admin.findUnique({
+            where: { loginid: user.loginid },
+        });
         if (!admin) {
-            res.status(404).json({ error: 'Admin not found' });
+            res.status(400).json({ error: 'User is not an admin' });
             return;
         }
-        // Use provided role or default to admin's global role
-        const serviceRole = role || admin.role;
-        await prisma.adminService.upsert({
-            where: {
-                adminId_serviceId: { adminId: id, serviceId },
-            },
-            update: { role: serviceRole },
-            create: { adminId: id, serviceId, role: serviceRole },
+        // Remove entire admin record
+        await prisma.admin.delete({
+            where: { loginid: user.loginid },
         });
-        // Return updated admin
-        const updatedAdmin = await prisma.admin.findUnique({
-            where: { id },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
-            },
+        res.json({
+            success: true,
+            message: `${user.username} demoted from admin`,
         });
-        res.json({ admin: updatedAdmin });
     }
     catch (error) {
-        console.error('Add service to admin error:', error);
-        res.status(500).json({ error: 'Failed to add service to admin' });
-    }
-});
-/**
- * DELETE /admin/admins/:id/services/:serviceId
- * Remove service from admin (super admin only)
- */
-adminRoutes.delete('/admins/:id/services/:serviceId', requireSuperAdmin, async (req, res) => {
-    try {
-        const { id, serviceId } = req.params;
-        await prisma.adminService.delete({
-            where: {
-                adminId_serviceId: { adminId: id, serviceId },
-            },
-        });
-        // Return updated admin
-        const updatedAdmin = await prisma.admin.findUnique({
-            where: { id },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
-            },
-        });
-        res.json({ admin: updatedAdmin });
-    }
-    catch (error) {
-        console.error('Remove service from admin error:', error);
-        res.status(500).json({ error: 'Failed to remove service from admin' });
+        console.error('Demote user error:', error);
+        res.status(500).json({ error: 'Failed to demote user' });
     }
 });
 // ==================== Statistics (서비스별 필터링 지원) ====================
@@ -540,27 +987,39 @@ adminRoutes.delete('/admins/:id/services/:serviceId', requireSuperAdmin, async (
  * GET /admin/stats/overview
  * Get dashboard overview statistics
  * Query: ?serviceId= (optional)
+ * - ADMIN: filtered by their dept
  */
 adminRoutes.get('/stats/overview', async (req, res) => {
     try {
         const serviceId = req.query['serviceId'];
         const serviceFilter = getServiceFilter(serviceId);
+        // Dept-scoped filter for non-super admins
+        const deptFilter = (!req.isSuperAdmin && req.adminBusinessUnit)
+            ? { user: { businessUnit: req.adminBusinessUnit } }
+            : {};
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
         const [activeUsers, todayUsage, totalUsers, totalModels] = await Promise.all([
-            // Redis active users (전체 시스템)
-            getActiveUserCount(redis),
-            // Redis today usage (전체 시스템)
+            serviceId
+                ? prisma.usageLog.groupBy({
+                    by: ['userId'],
+                    where: {
+                        serviceId,
+                        timestamp: { gte: thirtyMinutesAgo },
+                        user: { loginid: { not: 'anonymous' }, ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}) },
+                    },
+                }).then((r) => r.length)
+                : getActiveUserCount(redis),
             getTodayUsage(redis),
-            // DB에서 서비스별 사용자 수
             prisma.user.count({
                 where: {
                     isActive: true,
                     loginid: { not: 'anonymous' },
                     usageLogs: { some: serviceFilter },
+                    ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
                 },
             }),
-            // 서비스별 모델 수
             prisma.model.count({
-                where: { enabled: true, ...serviceFilter },
+                where: { enabled: true },
             }),
         ]);
         // 서비스별 today's usage (DB에서 계산)
@@ -572,6 +1031,7 @@ adminRoutes.get('/stats/overview', async (req, res) => {
                 where: {
                     serviceId,
                     timestamp: { gte: todayStart },
+                    ...deptFilter,
                 },
                 _sum: {
                     inputTokens: true,
@@ -616,6 +1076,7 @@ adminRoutes.get('/stats/daily', async (req, res) => {
             where: {
                 date: { gte: startDate },
                 ...getServiceFilter(serviceId),
+                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
             },
             _sum: {
                 totalInputTokens: true,
@@ -648,6 +1109,7 @@ adminRoutes.get('/stats/by-user', async (req, res) => {
                 timestamp: { gte: startDate },
                 user: {
                     loginid: { not: 'anonymous' },
+                    ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
                 },
                 ...getServiceFilter(serviceId),
             },
@@ -665,7 +1127,7 @@ adminRoutes.get('/stats/by-user', async (req, res) => {
             take: 20,
         });
         // Get user details
-        const userIds = userStats.map((s) => s.userId);
+        const userIds = userStats.map((s) => s.userId).filter((id) => id !== null);
         const users = await prisma.user.findMany({
             where: { id: { in: userIds } },
             select: { id: true, loginid: true, username: true, deptname: true },
@@ -673,7 +1135,7 @@ adminRoutes.get('/stats/by-user', async (req, res) => {
         const userMap = new Map(users.map((u) => [u.id, u]));
         const statsWithUsers = userStats.map((s) => ({
             ...s,
-            user: userMap.get(s.userId),
+            user: s.userId ? userMap.get(s.userId) : null,
         }));
         res.json({ userStats: statsWithUsers });
     }
@@ -698,6 +1160,7 @@ adminRoutes.get('/stats/by-model', async (req, res) => {
             where: {
                 timestamp: { gte: startDate },
                 ...getServiceFilter(serviceId),
+                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { user: { businessUnit: req.adminBusinessUnit } } : {}),
             },
             _sum: {
                 inputTokens: true,
@@ -745,6 +1208,7 @@ adminRoutes.get('/stats/by-dept', async (req, res) => {
             where: {
                 date: { gte: startDate },
                 ...getServiceFilter(serviceId),
+                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
             },
             _sum: {
                 totalInputTokens: true,
@@ -935,9 +1399,28 @@ adminRoutes.get('/stats/model-daily-trend', async (req, res) => {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
-        // Get all models (optionally filtered by service)
+        // Get models that were actually USED
+        let modelIds;
+        if (serviceId) {
+            const usedModels = await prisma.$queryRaw `
+        SELECT DISTINCT model_id
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+          AND service_id::text = ${serviceId}
+      `;
+            modelIds = usedModels.map((m) => m.model_id);
+        }
+        else {
+            const usedModels = await prisma.$queryRaw `
+        SELECT DISTINCT model_id
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+      `;
+            modelIds = usedModels.map((m) => m.model_id);
+        }
+        // Get model details for the used models
         const models = await prisma.model.findMany({
-            where: getServiceFilter(serviceId),
+            where: { id: { in: modelIds } },
             select: { id: true, name: true, displayName: true },
         });
         // Get daily stats grouped by model and date
@@ -963,11 +1446,11 @@ adminRoutes.get('/stats/model-daily-trend', async (req, res) => {
         }
         // Process into date-keyed structure
         const dateMap = new Map();
-        const modelIds = models.map((m) => m.id);
+        const existingModelIds = models.map((m) => m.id);
         for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const initialData = {};
-            for (const modelId of modelIds) {
+            for (const modelId of existingModelIds) {
                 initialData[modelId] = 0;
             }
             dateMap.set(dateStr, initialData);
@@ -1034,7 +1517,7 @@ adminRoutes.get('/stats/model-user-trend', async (req, res) => {
             },
             take: topN,
         });
-        const topUserIds = topUsers.map((u) => u.userId);
+        const topUserIds = topUsers.map((u) => u.userId).filter((id) => id !== null);
         // Get user details
         const users = await prisma.user.findMany({
             where: { id: { in: topUserIds } },
@@ -1071,7 +1554,8 @@ adminRoutes.get('/stats/model-user-trend', async (req, res) => {
             const dateStr = d.toISOString().split('T')[0];
             const initialData = {};
             for (const userId of topUserIds) {
-                initialData[userId] = 0;
+                if (userId)
+                    initialData[userId] = 0;
             }
             dateMap.set(dateStr, initialData);
         }
@@ -1102,6 +1586,143 @@ adminRoutes.get('/stats/model-user-trend', async (req, res) => {
         res.status(500).json({ error: 'Failed to get model user trend' });
     }
 });
+// ==================== LLM Latency Statistics ====================
+/**
+ * GET /admin/stats/latency
+ * LLM 응답 지연시간 통계 (서비스+모델별)
+ * - 10분/30분/1시간/일평균
+ */
+adminRoutes.get('/stats/latency', async (req, res) => {
+    try {
+        const now = new Date();
+        const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+        const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        // 서비스+모델별 latency 집계 쿼리
+        const latencyStats = await prisma.$queryRaw `
+      SELECT
+        s.id as service_id,
+        s."displayName" as service_name,
+        m.id as model_id,
+        m."displayName" as model_name,
+        AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
+        AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
+        AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
+        AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
+        COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
+        COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
+        COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
+        COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
+      FROM usage_logs ul
+      INNER JOIN services s ON ul.service_id = s.id
+      INNER JOIN models m ON ul.model_id = m.id
+      WHERE ul.latency_ms IS NOT NULL
+        AND ul.timestamp >= ${oneDayAgo}
+      GROUP BY s.id, s."displayName", m.id, m."displayName"
+      ORDER BY s."displayName", m."displayName"
+    `;
+        // 결과 포맷팅
+        const stats = latencyStats.map(row => ({
+            serviceId: row.service_id,
+            serviceName: row.service_name,
+            modelId: row.model_id,
+            modelName: row.model_name,
+            avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
+            avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
+            avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
+            avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
+            count10m: Number(row.count_10m),
+            count30m: Number(row.count_30m),
+            count1h: Number(row.count_1h),
+            count24h: Number(row.count_24h),
+        }));
+        res.json({ stats, timestamp: now.toISOString() });
+    }
+    catch (error) {
+        console.error('Get latency stats error:', error);
+        res.status(500).json({ error: 'Failed to get latency statistics' });
+    }
+});
+/**
+ * GET /admin/stats/latency/history
+ * LLM 응답 지연시간 시계열 데이터 (차트용)
+ * Query: ?hours=24 (기본 24시간), ?interval=10 (분 단위, 기본 10분)
+ */
+adminRoutes.get('/stats/latency/history', async (req, res) => {
+    try {
+        const hours = Math.min(72, Math.max(1, parseInt(req.query['hours']) || 24));
+        const interval = Math.min(60, Math.max(5, parseInt(req.query['interval']) || 10));
+        const now = new Date();
+        const startTime = new Date();
+        startTime.setHours(startTime.getHours() - hours);
+        // Generate all time buckets for the range
+        const allBuckets = [];
+        const bucketStart = new Date(startTime);
+        bucketStart.setMinutes(Math.floor(bucketStart.getMinutes() / interval) * interval, 0, 0);
+        while (bucketStart <= now) {
+            allBuckets.push(new Date(bucketStart));
+            bucketStart.setMinutes(bucketStart.getMinutes() + interval);
+        }
+        // interval 분 단위로 집계
+        const historyData = await prisma.$queryRaw `
+      SELECT
+        date_trunc('hour', ul.timestamp) +
+          (EXTRACT(minute FROM ul.timestamp)::int / ${interval}) * interval '${interval} minutes' as time_bucket,
+        s.id as service_id,
+        s."displayName" as service_name,
+        m.id as model_id,
+        m."displayName" as model_name,
+        AVG(ul.latency_ms) as avg_latency,
+        COUNT(*) as request_count
+      FROM usage_logs ul
+      INNER JOIN services s ON ul.service_id = s.id
+      INNER JOIN models m ON ul.model_id = m.id
+      WHERE ul.latency_ms IS NOT NULL
+        AND ul.timestamp >= ${startTime}
+      GROUP BY time_bucket, s.id, s."displayName", m.id, m."displayName"
+      ORDER BY time_bucket ASC, s."displayName", m."displayName"
+    `;
+        // Get unique service/model combinations that have any data in the period
+        const uniqueKeys = new Set();
+        const dataMap = new Map();
+        for (const row of historyData) {
+            const key = `${row.service_name} / ${row.model_name}`;
+            uniqueKeys.add(key);
+            if (!dataMap.has(key)) {
+                dataMap.set(key, new Map());
+            }
+            dataMap.get(key).set(row.time_bucket.toISOString(), {
+                avgLatency: Math.round(row.avg_latency),
+                count: Number(row.request_count),
+            });
+        }
+        // Build complete history with 0 for missing time buckets
+        const groupedData = {};
+        for (const key of uniqueKeys) {
+            const keyDataMap = dataMap.get(key);
+            groupedData[key] = allBuckets.map(bucket => {
+                const bucketTime = bucket.toISOString();
+                const data = keyDataMap.get(bucketTime);
+                return {
+                    time: bucketTime,
+                    avgLatency: data?.avgLatency ?? 0,
+                    count: data?.count ?? 0,
+                };
+            });
+        }
+        res.json({
+            history: groupedData,
+            startTime: startTime.toISOString(),
+            endTime: now.toISOString(),
+            intervalMinutes: interval,
+        });
+    }
+    catch (error) {
+        console.error('Get latency history error:', error);
+        res.status(500).json({ error: 'Failed to get latency history' });
+    }
+});
 // ==================== Global Statistics (전체 서비스 통합) ====================
 /**
  * GET /admin/stats/global/overview
@@ -1118,7 +1739,6 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
                 displayName: true,
                 _count: {
                     select: {
-                        models: true,
                         usageLogs: true,
                     },
                 },
@@ -1126,7 +1746,8 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
         });
         // Get per-service statistics
         const serviceStats = await Promise.all(services.map(async (service) => {
-            const [totalUsers, todayRequests, avgDailyUsers, totalTokens] = await Promise.all([
+            const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+            const [totalUsers, todayRequests, todayActiveUsers, avgDailyUsers, avgDailyUsersExcluding, totalTokens, totalRequests] = await Promise.all([
                 // Total unique users for this service
                 prisma.usageLog.groupBy({
                     by: ['userId'],
@@ -1139,9 +1760,18 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
                 prisma.usageLog.count({
                     where: {
                         serviceId: service.id,
-                        timestamp: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+                        timestamp: { gte: todayStart },
                     },
                 }),
+                // Today's active users (distinct)
+                prisma.$queryRaw `
+            SELECT COUNT(DISTINCT ul.user_id) as count
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.service_id::text = ${service.id}
+              AND ul.timestamp >= ${todayStart}
+              AND u.loginid != 'anonymous'
+          `.then((r) => Number(r[0]?.count || 0)),
                 // Average daily active users (last 30 days, excluding anonymous)
                 prisma.$queryRaw `
             SELECT COALESCE(AVG(user_count), 0)::float as avg_users
@@ -1155,11 +1785,33 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
               GROUP BY DATE(ul.timestamp)
             ) daily_counts
           `.then((r) => Math.round(r[0]?.avg_users || 0)),
+                // Average daily active users EXCLUDING weekends and holidays
+                prisma.$queryRaw `
+            SELECT COALESCE(AVG(user_count), 0)::float as avg_users
+            FROM (
+              SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as user_count
+              FROM usage_logs ul
+              INNER JOIN users u ON ul.user_id = u.id
+              WHERE ul.service_id::text = ${service.id}
+                AND ul.timestamp >= NOW() - INTERVAL '30 days'
+                AND u.loginid != 'anonymous'
+                AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+                AND NOT EXISTS (
+                  SELECT 1 FROM holidays h
+                  WHERE h.date = DATE(ul.timestamp)
+                )
+              GROUP BY DATE(ul.timestamp)
+            ) daily_counts
+          `.then((r) => Math.round(r[0]?.avg_users || 0)),
                 // Total tokens
                 prisma.usageLog.aggregate({
                     where: { serviceId: service.id },
                     _sum: { totalTokens: true },
                 }).then((r) => r._sum.totalTokens || 0),
+                // Total requests (cumulative)
+                prisma.usageLog.count({
+                    where: { serviceId: service.id },
+                }),
             ]);
             return {
                 serviceId: service.id,
@@ -1167,20 +1819,29 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
                 serviceDisplayName: service.displayName,
                 totalUsers,
                 todayRequests,
-                avgDailyActiveUsers: avgDailyUsers, // Fixed: renamed to match frontend
+                todayActiveUsers,
+                avgDailyActiveUsers: avgDailyUsers,
+                avgDailyActiveUsersExcluding: avgDailyUsersExcluding,
                 totalTokens,
-                totalModels: service._count.models,
+                totalRequests,
             };
         }));
         // Overall totals - deduplicate users across services
-        const [uniqueUsersResult, avgDailyActiveResult] = await Promise.all([
+        const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+        const [uniqueUsersResult, todayActiveResult, avgDailyActiveResult, avgDailyActiveExcludingResult] = await Promise.all([
             prisma.$queryRaw `
         SELECT COUNT(DISTINCT user_id) as count
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
         WHERE u.loginid != 'anonymous'
       `,
-            // Average daily active users (deduplicated across all services)
+            prisma.$queryRaw `
+        SELECT COUNT(DISTINCT ul.user_id) as count
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous'
+          AND ul.timestamp >= ${todayStart}
+      `,
             prisma.$queryRaw `
         SELECT COALESCE(AVG(user_count), 0)::float as avg_users
         FROM (
@@ -1192,14 +1853,34 @@ adminRoutes.get('/stats/global/overview', async (_req, res) => {
           GROUP BY DATE(ul.timestamp)
         ) daily_counts
       `,
+            prisma.$queryRaw `
+        SELECT COALESCE(AVG(user_count), 0)::float as avg_users
+        FROM (
+          SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous'
+            AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (
+              SELECT 1 FROM holidays h
+              WHERE h.date = DATE(ul.timestamp)
+            )
+          GROUP BY DATE(ul.timestamp)
+        ) daily_counts
+      `,
         ]);
         const uniqueTotalUsers = Number(uniqueUsersResult[0]?.count || 0);
+        const todayActive = Number(todayActiveResult[0]?.count || 0);
         const avgDailyActive = Math.round(avgDailyActiveResult[0]?.avg_users || 0);
+        const avgDailyActiveExcluding = Math.round(avgDailyActiveExcludingResult[0]?.avg_users || 0);
         const totals = {
             totalServices: services.length,
-            totalUsers: uniqueTotalUsers, // Deduplicated across all services
-            avgDailyActiveUsers: avgDailyActive, // Deduplicated daily active users
-            totalRequests: serviceStats.reduce((sum, s) => sum + s.todayRequests, 0),
+            totalUsers: uniqueTotalUsers,
+            todayActiveUsers: todayActive,
+            avgDailyActiveUsers: avgDailyActive,
+            avgDailyActiveUsersExcluding: avgDailyActiveExcluding,
+            totalRequests: serviceStats.reduce((sum, s) => sum + Number(s.totalRequests), 0),
             totalTokens: serviceStats.reduce((sum, s) => sum + Number(s.totalTokens), 0),
         };
         res.json({
@@ -1272,12 +1953,143 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
     }
 });
 /**
+ * GET /admin/stats/weekly-business-dau
+ * 서비스별 DAU (주말/휴일 제외)
+ * Query: ?days= (14-365, default 90), ?granularity= ('daily' | 'weekly', default 'weekly')
+ */
+adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
+    try {
+        const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 90));
+        const granularity = req.query['granularity'] === 'daily' ? 'daily' : 'weekly';
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        startDate.setHours(0, 0, 0, 0);
+        // Get all enabled services
+        const services = await prisma.service.findMany({
+            where: { enabled: true },
+            select: { id: true, name: true, displayName: true },
+        });
+        const serviceIds = services.map((s) => s.id);
+        if (granularity === 'daily') {
+            // Daily DAU per service (business days only)
+            const dailyStats = await prisma.$queryRaw `
+        SELECT
+          ul.service_id::text as service_id,
+          DATE(ul.timestamp) as log_date,
+          COUNT(DISTINCT ul.user_id) as user_count
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${startDate}
+          AND u.loginid != 'anonymous'
+          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (
+            SELECT 1 FROM holidays h
+            WHERE h.date = DATE(ul.timestamp)
+          )
+        GROUP BY ul.service_id, DATE(ul.timestamp)
+        ORDER BY log_date ASC, service_id
+      `;
+            // Process into chart data format
+            const dateMap = new Map();
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.log_date);
+                if (!dateMap.has(dateStr)) {
+                    const initialData = {};
+                    for (const serviceId of serviceIds) {
+                        initialData[serviceId] = 0;
+                    }
+                    dateMap.set(dateStr, initialData);
+                }
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.log_date);
+                const existing = dateMap.get(dateStr);
+                if (existing && serviceIds.includes(stat.service_id)) {
+                    existing[stat.service_id] = Number(stat.user_count);
+                }
+            }
+            const chartData = Array.from(dateMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, serviceUsage]) => ({
+                week: date,
+                ...serviceUsage,
+            }));
+            res.json({
+                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+                chartData,
+                granularity,
+            });
+        }
+        else {
+            // Weekly average DAU
+            const weeklyStats = await prisma.$queryRaw `
+        WITH business_day_users AS (
+          SELECT
+            ul.service_id::text as service_id,
+            DATE(ul.timestamp) as log_date,
+            DATE_TRUNC('week', ul.timestamp)::date as week_start,
+            COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous'
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (
+              SELECT 1 FROM holidays h
+              WHERE h.date = DATE(ul.timestamp)
+            )
+          GROUP BY ul.service_id, DATE(ul.timestamp), DATE_TRUNC('week', ul.timestamp)
+        )
+        SELECT
+          service_id,
+          week_start,
+          COALESCE(AVG(user_count), 0)::float as avg_daily_users,
+          COUNT(DISTINCT log_date) as business_days
+        FROM business_day_users
+        GROUP BY service_id, week_start
+        ORDER BY week_start ASC, service_id
+      `;
+            // Process into chart data format
+            const weekMap = new Map();
+            for (const stat of weeklyStats) {
+                const weekStr = formatDateToString(stat.week_start);
+                if (!weekMap.has(weekStr)) {
+                    const initialData = {};
+                    for (const serviceId of serviceIds) {
+                        initialData[serviceId] = 0;
+                    }
+                    weekMap.set(weekStr, initialData);
+                }
+            }
+            for (const stat of weeklyStats) {
+                const weekStr = formatDateToString(stat.week_start);
+                const existing = weekMap.get(weekStr);
+                if (existing && serviceIds.includes(stat.service_id)) {
+                    existing[stat.service_id] = Math.round(stat.avg_daily_users);
+                }
+            }
+            const chartData = Array.from(weekMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([week, serviceUsage]) => ({
+                week,
+                ...serviceUsage,
+            }));
+            res.json({
+                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+                chartData,
+                granularity,
+            });
+        }
+    }
+    catch (error) {
+        console.error('Get weekly business DAU error:', error);
+        res.status(500).json({ error: 'Failed to get weekly business DAU' });
+    }
+});
+/**
  * GET /admin/stats/global/by-dept
  * 사업부별 통합 통계 (Main Dashboard용)
  * Query: ?days= (30), ?serviceId= (optional)
- *
- * 집계 기준: business_unit (deptname에서 추출된 사업부명)
- * 예: "AI플랫폼팀(DS)" → business_unit = "DS"
  */
 adminRoutes.get('/stats/global/by-dept', async (req, res) => {
     try {
@@ -1286,7 +2098,7 @@ adminRoutes.get('/stats/global/by-dept', async (req, res) => {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
-        // Get business unit statistics (using business_unit field)
+        // Get business unit statistics
         let buUsers;
         let buDailyAvg;
         let buModelTokens;
@@ -1398,7 +2210,7 @@ adminRoutes.get('/stats/global/by-dept', async (req, res) => {
                 .map(([modelName, tokens]) => ({ modelName, tokens }))
                 .sort((a, b) => b.tokens - a.tokens);
             return {
-                deptname: businessUnit, // Keep field name for frontend compatibility
+                deptname: businessUnit,
                 cumulativeUsers: buUserMap.get(businessUnit) || 0,
                 avgDailyActiveUsers: buAvgMap.get(businessUnit) || 0,
                 tokensByModel,
@@ -1492,7 +2304,6 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req, res) => {
         }
         // 3. Build response with CUMULATIVE data
         const dailyMap = new Map();
-        // Initialize all dates with 0 for all BUs
         for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const initialData = {};
@@ -1501,7 +2312,6 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req, res) => {
             }
             dailyMap.set(dateStr, initialData);
         }
-        // Fill in daily data first
         for (const stat of dailyStats) {
             const dateStr = formatDateToString(stat.date);
             const existing = dailyMap.get(dateStr);
@@ -1574,8 +2384,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req, res) => {
       ORDER BY date ASC
     `;
         // 3. Build response with cumulative users
-        const cumulativeUsers = new Map(); // Track unique users per BU
-        // Initialize
+        const cumulativeUsers = new Map();
         for (const bu of topBUNames) {
             cumulativeUsers.set(bu, new Set());
         }
@@ -1622,7 +2431,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req, res) => {
             const item = { date: dateStr };
             for (const bu of topBUNames) {
                 item[`${bu}_cumulative`] = cumulativeUsers.get(bu)?.size || 0;
-                item[`${bu}_active`] = 0; // Will be filled below
+                item[`${bu}_active`] = 0;
             }
             chartData.push(item);
         }
@@ -1731,563 +2540,27 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
         res.status(500).json({ error: 'Failed to get department-service requests daily statistics' });
     }
 });
-// ==================== User Promotion ====================
+// ==================== Business Units ====================
 /**
- * GET /admin/users/:id/admin-status
- * 사용자의 admin 상태 조회
+ * GET /admin/business-units
+ * Get distinct business units from users table
  */
-adminRoutes.get('/users/:id/admin-status', async (req, res) => {
+adminRoutes.get('/business-units', async (_req, res) => {
     try {
-        const { id } = req.params;
-        const user = await prisma.user.findUnique({
-            where: { id },
-            select: { loginid: true, username: true },
-        });
-        if (!user) {
-            res.status(404).json({ error: 'User not found' });
-            return;
-        }
-        // 환경변수 개발자 체크
-        const isEnvDeveloper = isDeveloper(user.loginid);
-        if (isEnvDeveloper) {
-            res.json({
-                isAdmin: true,
-                adminRole: 'SUPER_ADMIN',
-                isDeveloper: true,
-                canModify: false,
-            });
-            return;
-        }
-        // DB admin 체크
-        const admin = await prisma.admin.findUnique({
-            where: { loginid: user.loginid },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
+        const units = await prisma.user.findMany({
+            where: {
+                businessUnit: { not: null },
+                NOT: { businessUnit: '' },
             },
+            select: { businessUnit: true },
+            distinct: ['businessUnit'],
+            orderBy: { businessUnit: 'asc' },
         });
-        res.json({
-            isAdmin: !!admin,
-            adminRole: admin?.role || null,
-            isDeveloper: false,
-            canModify: true,
-            adminServices: admin?.adminServices || [],
-        });
+        res.json({ businessUnits: units.map((u) => u.businessUnit).filter(Boolean) });
     }
     catch (error) {
-        console.error('Get user admin status error:', error);
-        res.status(500).json({ error: 'Failed to get admin status' });
-    }
-});
-/**
- * POST /admin/users/:id/promote
- * 사용자를 Admin으로 승격 (SUPER_ADMIN만)
- * Body: { role: 'ADMIN' | 'VIEWER', serviceId?: string }
- */
-adminRoutes.post('/users/:id/promote', requireSuperAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { role, serviceId } = req.body;
-        if (!role || !['ADMIN', 'VIEWER'].includes(role)) {
-            res.status(400).json({ error: 'role must be ADMIN or VIEWER' });
-            return;
-        }
-        // Get user
-        const user = await prisma.user.findUnique({
-            where: { id },
-            select: { loginid: true, username: true },
-        });
-        if (!user) {
-            res.status(404).json({ error: 'User not found' });
-            return;
-        }
-        // 환경변수 개발자는 승격 불가
-        if (isDeveloper(user.loginid)) {
-            res.status(400).json({ error: 'Environment developers are already SUPER_ADMIN' });
-            return;
-        }
-        // Upsert admin record
-        const admin = await prisma.admin.upsert({
-            where: { loginid: user.loginid },
-            update: { role },
-            create: {
-                loginid: user.loginid,
-                role,
-            },
-        });
-        // If serviceId provided, add service-specific permission
-        if (serviceId) {
-            await prisma.adminService.upsert({
-                where: {
-                    adminId_serviceId: { adminId: admin.id, serviceId },
-                },
-                update: { role },
-                create: { adminId: admin.id, serviceId, role },
-            });
-        }
-        res.json({
-            success: true,
-            admin,
-            message: `${user.username} promoted to ${role}${serviceId ? ' for service' : ''}`,
-        });
-    }
-    catch (error) {
-        console.error('Promote user error:', error);
-        res.status(500).json({ error: 'Failed to promote user' });
-    }
-});
-/**
- * DELETE /admin/users/:id/demote
- * Admin 권한 해제 (SUPER_ADMIN만)
- * Query: ?serviceId= (optional - 특정 서비스만 해제)
- */
-adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const serviceId = req.query['serviceId'];
-        // Get user
-        const user = await prisma.user.findUnique({
-            where: { id },
-            select: { loginid: true, username: true },
-        });
-        if (!user) {
-            res.status(404).json({ error: 'User not found' });
-            return;
-        }
-        // 환경변수 개발자는 해제 불가
-        if (isDeveloper(user.loginid)) {
-            res.status(400).json({ error: 'Cannot demote environment developers' });
-            return;
-        }
-        const admin = await prisma.admin.findUnique({
-            where: { loginid: user.loginid },
-        });
-        if (!admin) {
-            res.status(400).json({ error: 'User is not an admin' });
-            return;
-        }
-        if (serviceId) {
-            // Remove only service-specific permission
-            await prisma.adminService.deleteMany({
-                where: { adminId: admin.id, serviceId },
-            });
-            res.json({
-                success: true,
-                message: `${user.username} removed from service admin`,
-            });
-        }
-        else {
-            // Remove entire admin record (and all service permissions)
-            await prisma.admin.delete({
-                where: { loginid: user.loginid },
-            });
-            res.json({
-                success: true,
-                message: `${user.username} demoted from admin`,
-            });
-        }
-    }
-    catch (error) {
-        console.error('Demote user error:', error);
-        res.status(500).json({ error: 'Failed to demote user' });
-    }
-});
-// ==================== Unified Users Management ====================
-/**
- * GET /admin/unified-users
- * 통합 사용자 관리 목록 (SUPER_ADMIN만)
- * Query: ?page=, ?limit=, ?serviceId=, ?businessUnit=, ?deptname=, ?role=, ?search=
- */
-adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
-    try {
-        const page = parseInt(req.query['page']) || 1;
-        const limit = parseInt(req.query['limit']) || 50;
-        const skip = (page - 1) * limit;
-        const serviceId = req.query['serviceId'];
-        const businessUnit = req.query['businessUnit'];
-        const deptname = req.query['deptname'];
-        const role = req.query['role'];
-        const search = req.query['search'];
-        // Build where clause
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const whereClause = {
-            loginid: { not: 'anonymous' },
-        };
-        if (businessUnit) {
-            whereClause['businessUnit'] = businessUnit;
-        }
-        if (deptname) {
-            whereClause['deptname'] = { contains: deptname, mode: 'insensitive' };
-        }
-        if (search) {
-            whereClause['OR'] = [
-                { loginid: { contains: search, mode: 'insensitive' } },
-                { username: { contains: search, mode: 'insensitive' } },
-                { deptname: { contains: search, mode: 'insensitive' } },
-            ];
-        }
-        // If serviceId filter, only users with activity in that service
-        if (serviceId) {
-            whereClause['userServices'] = {
-                some: { serviceId },
-            };
-        }
-        // Get users with pagination
-        const [users, total] = await Promise.all([
-            prisma.user.findMany({
-                where: whereClause,
-                skip,
-                take: limit,
-                orderBy: { lastActive: 'desc' },
-                include: {
-                    userServices: {
-                        include: {
-                            service: {
-                                select: { id: true, name: true, displayName: true },
-                            },
-                        },
-                    },
-                },
-            }),
-            prisma.user.count({ where: whereClause }),
-        ]);
-        // Get admin info for all users
-        const loginids = users.map((u) => u.loginid);
-        const admins = await prisma.admin.findMany({
-            where: { loginid: { in: loginids } },
-            include: {
-                adminServices: {
-                    include: {
-                        service: {
-                            select: { id: true, name: true, displayName: true },
-                        },
-                    },
-                },
-            },
-        });
-        const adminMap = new Map(admins.map((a) => [a.loginid, a]));
-        // Get developers from env
-        const developers = (process.env['DEVELOPERS'] || '').split(',').map((d) => d.trim()).filter(Boolean);
-        // Map users with role info
-        const usersWithRoles = users.map((user) => {
-            const admin = adminMap.get(user.loginid);
-            const isEnvDeveloper = developers.includes(user.loginid);
-            let globalRole = null;
-            let servicePermissions = [];
-            if (isEnvDeveloper) {
-                globalRole = 'SUPER_ADMIN';
-            }
-            else if (admin) {
-                globalRole = admin.role;
-                servicePermissions = admin.adminServices.map((as) => ({
-                    serviceId: as.serviceId,
-                    serviceName: as.service.displayName,
-                    role: as.role,
-                }));
-            }
-            // Service stats from userServices
-            const serviceStats = user.userServices.map((us) => ({
-                serviceId: us.serviceId,
-                serviceName: us.service.displayName,
-                firstSeen: us.firstSeen,
-                lastActive: us.lastActive,
-                requestCount: us.requestCount,
-            }));
-            const totalRequests = serviceStats.reduce((sum, s) => sum + s.requestCount, 0);
-            return {
-                id: user.id,
-                loginid: user.loginid,
-                username: user.username,
-                deptname: user.deptname,
-                businessUnit: user.businessUnit,
-                globalRole,
-                isEnvDeveloper,
-                servicePermissions,
-                serviceStats,
-                totalRequests,
-                firstSeen: user.firstSeen,
-                lastActive: user.lastActive,
-            };
-        });
-        // Filter by role if specified
-        let filteredUsers = usersWithRoles;
-        if (role) {
-            if (role === 'USER') {
-                filteredUsers = usersWithRoles.filter((u) => !u.globalRole);
-            }
-            else {
-                filteredUsers = usersWithRoles.filter((u) => u.globalRole === role);
-            }
-        }
-        // Get filter options
-        const [services, businessUnits, deptnames] = await Promise.all([
-            prisma.service.findMany({
-                where: { enabled: true },
-                select: { id: true, name: true, displayName: true },
-            }),
-            prisma.user.groupBy({
-                by: ['businessUnit'],
-                where: {
-                    businessUnit: { not: null },
-                    loginid: { not: 'anonymous' },
-                },
-                _count: true,
-            }),
-            prisma.user.groupBy({
-                by: ['deptname'],
-                where: {
-                    deptname: { not: '' },
-                    loginid: { not: 'anonymous' },
-                },
-                _count: true,
-                orderBy: { _count: { deptname: 'desc' } },
-                take: 50,
-            }),
-        ]);
-        res.json({
-            users: filteredUsers,
-            pagination: {
-                page,
-                limit,
-                total: role ? filteredUsers.length : total,
-                totalPages: Math.ceil((role ? filteredUsers.length : total) / limit),
-            },
-            filterOptions: {
-                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
-                businessUnits: businessUnits
-                    .filter((b) => b.businessUnit)
-                    .map((b) => b.businessUnit)
-                    .sort(),
-                deptnames: deptnames.map((d) => d.deptname).sort(),
-                roles: ['SUPER_ADMIN', 'SERVICE_ADMIN', 'VIEWER', 'SERVICE_VIEWER', 'USER'],
-            },
-        });
-    }
-    catch (error) {
-        console.error('Get unified users error:', error);
-        res.status(500).json({ error: 'Failed to get unified users' });
-    }
-});
-/**
- * PUT /admin/unified-users/:id/permissions
- * 사용자 권한 변경 (SUPER_ADMIN만)
- * Body: { globalRole?: string, servicePermissions?: [{ serviceId, role }] }
- */
-adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { globalRole, servicePermissions } = req.body;
-        // Get user
-        const user = await prisma.user.findUnique({
-            where: { id },
-            select: { loginid: true, username: true },
-        });
-        if (!user) {
-            res.status(404).json({ error: 'User not found' });
-            return;
-        }
-        // Check if env developer
-        if (isDeveloper(user.loginid)) {
-            res.status(400).json({ error: 'Cannot modify environment developer permissions' });
-            return;
-        }
-        // Validate role
-        const validRoles = ['SUPER_ADMIN', 'SERVICE_ADMIN', 'VIEWER', 'SERVICE_VIEWER'];
-        if (globalRole && !validRoles.includes(globalRole)) {
-            res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` });
-            return;
-        }
-        // Get or create admin record
-        let admin = await prisma.admin.findUnique({
-            where: { loginid: user.loginid },
-        });
-        if (globalRole) {
-            // Update or create admin with global role
-            admin = await prisma.admin.upsert({
-                where: { loginid: user.loginid },
-                update: { role: globalRole },
-                create: {
-                    loginid: user.loginid,
-                    role: globalRole,
-                },
-            });
-        }
-        else if (admin && !servicePermissions?.length) {
-            // Remove admin entirely if no role and no service permissions
-            await prisma.admin.delete({
-                where: { loginid: user.loginid },
-            });
-            admin = null;
-        }
-        // Update service permissions
-        if (admin && servicePermissions && Array.isArray(servicePermissions)) {
-            // Remove existing service permissions
-            await prisma.adminService.deleteMany({
-                where: { adminId: admin.id },
-            });
-            // Add new service permissions
-            for (const sp of servicePermissions) {
-                if (sp.serviceId && sp.role) {
-                    await prisma.adminService.create({
-                        data: {
-                            adminId: admin.id,
-                            serviceId: sp.serviceId,
-                            role: sp.role,
-                        },
-                    });
-                }
-            }
-        }
-        // Get updated admin with services
-        const updatedAdmin = admin
-            ? await prisma.admin.findUnique({
-                where: { id: admin.id },
-                include: {
-                    adminServices: {
-                        include: {
-                            service: {
-                                select: { id: true, name: true, displayName: true },
-                            },
-                        },
-                    },
-                },
-            })
-            : null;
-        res.json({
-            success: true,
-            user: {
-                id: user.loginid,
-                username: user.username,
-                globalRole: updatedAdmin?.role || null,
-                servicePermissions: updatedAdmin?.adminServices.map((as) => ({
-                    serviceId: as.serviceId,
-                    serviceName: as.service.displayName,
-                    role: as.role,
-                })) || [],
-            },
-        });
-    }
-    catch (error) {
-        console.error('Update user permissions error:', error);
-        res.status(500).json({ error: 'Failed to update permissions' });
-    }
-});
-// ==================== LLM Latency Statistics ====================
-/**
- * GET /admin/stats/latency
- * LLM 응답 지연시간 통계 (서비스+모델별)
- * - 10분/30분/1시간/일평균
- */
-adminRoutes.get('/stats/latency', async (req, res) => {
-    try {
-        const now = new Date();
-        const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-        const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        // 서비스+모델별 latency 집계 쿼리
-        const latencyStats = await prisma.$queryRaw `
-      SELECT
-        s.id as service_id,
-        s.display_name as service_name,
-        m.id as model_id,
-        m.display_name as model_name,
-        AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
-        AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
-        AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
-        AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
-        COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
-        COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
-        COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
-        COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
-      FROM usage_logs ul
-      INNER JOIN services s ON ul.service_id = s.id
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= ${oneDayAgo}
-      GROUP BY s.id, s.display_name, m.id, m.display_name
-      ORDER BY s.display_name, m.display_name
-    `;
-        // 결과 포맷팅
-        const stats = latencyStats.map(row => ({
-            serviceId: row.service_id,
-            serviceName: row.service_name,
-            modelId: row.model_id,
-            modelName: row.model_name,
-            avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
-            avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
-            avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
-            avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
-            count10m: Number(row.count_10m),
-            count30m: Number(row.count_30m),
-            count1h: Number(row.count_1h),
-            count24h: Number(row.count_24h),
-        }));
-        res.json({ stats, timestamp: now.toISOString() });
-    }
-    catch (error) {
-        console.error('Get latency stats error:', error);
-        res.status(500).json({ error: 'Failed to get latency statistics' });
-    }
-});
-/**
- * GET /admin/stats/latency/history
- * LLM 응답 지연시간 시계열 데이터 (차트용)
- * Query: ?hours=24 (기본 24시간), ?interval=10 (분 단위, 기본 10분)
- */
-adminRoutes.get('/stats/latency/history', async (req, res) => {
-    try {
-        const hours = Math.min(72, Math.max(1, parseInt(req.query['hours']) || 24));
-        const interval = Math.min(60, Math.max(5, parseInt(req.query['interval']) || 10));
-        const startTime = new Date();
-        startTime.setHours(startTime.getHours() - hours);
-        // interval 분 단위로 집계
-        const historyData = await prisma.$queryRaw `
-      SELECT
-        date_trunc('hour', ul.timestamp) +
-          (EXTRACT(minute FROM ul.timestamp)::int / ${interval}) * interval '${interval} minutes' as time_bucket,
-        s.id as service_id,
-        s.display_name as service_name,
-        m.id as model_id,
-        m.display_name as model_name,
-        AVG(ul.latency_ms) as avg_latency,
-        COUNT(*) as request_count
-      FROM usage_logs ul
-      INNER JOIN services s ON ul.service_id = s.id
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= ${startTime}
-      GROUP BY time_bucket, s.id, s.display_name, m.id, m.display_name
-      ORDER BY time_bucket ASC, s.display_name, m.display_name
-    `;
-        // 서비스+모델 조합별로 그룹화
-        const groupedData = {};
-        for (const row of historyData) {
-            const key = `${row.service_name} / ${row.model_name}`;
-            if (!groupedData[key]) {
-                groupedData[key] = [];
-            }
-            groupedData[key].push({
-                time: row.time_bucket.toISOString(),
-                avgLatency: Math.round(row.avg_latency),
-                count: Number(row.request_count),
-            });
-        }
-        res.json({
-            history: groupedData,
-            startTime: startTime.toISOString(),
-            endTime: new Date().toISOString(),
-            intervalMinutes: interval,
-        });
-    }
-    catch (error) {
-        console.error('Get latency history error:', error);
-        res.status(500).json({ error: 'Failed to get latency history' });
+        console.error('Get business units error:', error);
+        res.status(500).json({ error: 'Failed to get business units' });
     }
 });
 //# sourceMappingURL=admin.routes.js.map

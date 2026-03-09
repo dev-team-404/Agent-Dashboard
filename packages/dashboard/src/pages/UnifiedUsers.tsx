@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Filter, ChevronDown, Shield, Clock, Activity, Users, Building2, X, GripVertical } from 'lucide-react';
-import { unifiedUsersApi, serviceApi } from '../services/api';
+import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, GripVertical } from 'lucide-react';
+import { unifiedUsersApi } from '../services/api';
 
 interface ServiceStat {
   serviceId: string;
@@ -10,12 +10,6 @@ interface ServiceStat {
   requestCount: number;
 }
 
-interface ServicePermission {
-  serviceId: string;
-  serviceName: string;
-  role: string;
-}
-
 interface UnifiedUser {
   id: string;
   loginid: string;
@@ -23,8 +17,6 @@ interface UnifiedUser {
   deptname: string;
   businessUnit: string | null;
   globalRole: string | null;
-  isEnvDeveloper: boolean;
-  servicePermissions: ServicePermission[];
   serviceStats: ServiceStat[];
   totalRequests: number;
   firstSeen: string;
@@ -38,26 +30,16 @@ interface FilterOptions {
   roles: string[];
 }
 
-interface Service {
-  id: string;
-  name: string;
-  displayName: string;
-}
-
 const roleColors: Record<string, string> = {
   SUPER_ADMIN: 'bg-red-100 text-red-700 border-red-200',
-  SERVICE_ADMIN: 'bg-orange-100 text-orange-700 border-orange-200',
-  VIEWER: 'bg-blue-100 text-blue-700 border-blue-200',
-  SERVICE_VIEWER: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  ADMIN: 'bg-blue-100 text-blue-700 border-blue-200',
   USER: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
 const roleLabels: Record<string, string> = {
   SUPER_ADMIN: '슈퍼관리자',
-  SERVICE_ADMIN: '서비스관리자',
-  VIEWER: '뷰어',
-  SERVICE_VIEWER: '서비스뷰어',
-  USER: '일반사용자',
+  ADMIN: '관리자',
+  USER: '사용자',
 };
 
 export default function UnifiedUsers() {
@@ -75,9 +57,7 @@ export default function UnifiedUsers() {
 
   // Permission edit modal
   const [editingUser, setEditingUser] = useState<UnifiedUser | null>(null);
-  const [editRole, setEditRole] = useState<string>('');
-  const [editServicePermissions, setEditServicePermissions] = useState<{ serviceId: string; role: string }[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
+  const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Column resize state
@@ -98,7 +78,6 @@ export default function UnifiedUsers() {
 
   useEffect(() => {
     loadUsers();
-    loadServices();
   }, [pagination.page, serviceFilter, businessUnitFilter, roleFilter]);
 
   // Debounced search
@@ -134,43 +113,14 @@ export default function UnifiedUsers() {
     }
   };
 
-  const loadServices = async () => {
-    try {
-      const res = await serviceApi.list();
-      setServices(res.data.services || []);
-    } catch (error) {
-      console.error('Failed to load services:', error);
-    }
-  };
-
   const openEditModal = (user: UnifiedUser) => {
     setEditingUser(user);
-    setEditRole(user.globalRole || '');
-    setEditServicePermissions(
-      user.servicePermissions.map(sp => ({ serviceId: sp.serviceId, role: sp.role }))
-    );
+    setEditIsAdmin(user.globalRole === 'ADMIN');
   };
 
   const closeEditModal = () => {
     setEditingUser(null);
-    setEditRole('');
-    setEditServicePermissions([]);
-  };
-
-  const addServicePermission = () => {
-    if (services.length > 0) {
-      setEditServicePermissions(prev => [...prev, { serviceId: '', role: 'SERVICE_VIEWER' }]);
-    }
-  };
-
-  const removeServicePermission = (index: number) => {
-    setEditServicePermissions(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const updateServicePermission = (index: number, field: 'serviceId' | 'role', value: string) => {
-    setEditServicePermissions(prev =>
-      prev.map((sp, i) => (i === index ? { ...sp, [field]: value } : sp))
-    );
+    setEditIsAdmin(false);
   };
 
   const savePermissions = async () => {
@@ -179,8 +129,7 @@ export default function UnifiedUsers() {
     try {
       setSaving(true);
       await unifiedUsersApi.updatePermissions(editingUser.id, {
-        globalRole: editRole || undefined,
-        servicePermissions: editServicePermissions.filter(sp => sp.serviceId),
+        globalRole: editIsAdmin ? 'ADMIN' : undefined,
       });
       closeEditModal();
       loadUsers();
@@ -261,6 +210,14 @@ export default function UnifiedUsers() {
       }
       return next;
     });
+  };
+
+  const getRoleFilterOptions = () => {
+    return [
+      { value: 'SUPER_ADMIN', label: '슈퍼관리자' },
+      { value: 'ADMIN', label: '관리자' },
+      { value: 'USER', label: '사용자' },
+    ];
   };
 
   return (
@@ -353,8 +310,8 @@ export default function UnifiedUsers() {
                 className="w-full px-3 py-2 bg-pastel-50 border border-pastel-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
               >
                 <option value="">전체</option>
-                {filterOptions?.roles.map(r => (
-                  <option key={r} value={r}>{roleLabels[r] || r}</option>
+                {getRoleFilterOptions().map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
             </div>
@@ -483,32 +440,16 @@ export default function UnifiedUsers() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
-                        {user.globalRole ? (
-                          <>
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded border ${roleColors[user.globalRole]}`}>
-                              <Shield className="w-3 h-3" />
-                              {roleLabels[user.globalRole]}
-                              {user.isEnvDeveloper && ' (ENV)'}
-                            </span>
-                            {/* SERVICE_ADMIN/SERVICE_VIEWER의 경우 서비스 목록 표시 */}
-                            {(user.globalRole === 'SERVICE_ADMIN' || user.globalRole === 'SERVICE_VIEWER') && user.servicePermissions.length > 0 && (
-                              <div className="w-full mt-1 flex flex-wrap gap-1">
-                                {user.servicePermissions.map(sp => (
-                                  <span key={sp.serviceId} className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${
-                                    sp.role === 'SERVICE_ADMIN' ? 'bg-orange-50 text-orange-600 border-orange-200' : 'bg-cyan-50 text-cyan-600 border-cyan-200'
-                                  }`}>
-                                    {sp.serviceName}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {/* SERVICE_ADMIN/SERVICE_VIEWER인데 서비스가 없으면 경고 표시 */}
-                            {(user.globalRole === 'SERVICE_ADMIN' || user.globalRole === 'SERVICE_VIEWER') && user.servicePermissions.length === 0 && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-yellow-50 text-yellow-600 rounded border border-yellow-200">
-                                ⚠️ 서비스 미지정
-                              </span>
-                            )}
-                          </>
+                        {user.globalRole === 'SUPER_ADMIN' ? (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded border ${roleColors.SUPER_ADMIN}`}>
+                            <ShieldCheck className="w-3 h-3" />
+                            {roleLabels.SUPER_ADMIN}
+                          </span>
+                        ) : user.globalRole === 'ADMIN' ? (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded border ${roleColors.ADMIN}`}>
+                            <Shield className="w-3 h-3" />
+                            {roleLabels.ADMIN}
+                          </span>
                         ) : (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded border ${roleColors.USER}`}>
                             {roleLabels.USER}
@@ -567,7 +508,7 @@ export default function UnifiedUsers() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {!user.isEnvDeveloper && (
+                      {user.globalRole !== 'SUPER_ADMIN' && (
                         <button
                           onClick={() => openEditModal(user)}
                           className="px-3 py-1.5 text-sm bg-pastel-100 text-pastel-600 hover:bg-pastel-200 rounded-lg transition-colors"
@@ -613,10 +554,10 @@ export default function UnifiedUsers() {
         )}
       </div>
 
-      {/* Edit Permission Modal */}
+      {/* Edit Permission Modal - Simplified: toggle ADMIN on/off */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl max-w-md w-full">
             <div className="p-6 border-b border-pastel-100 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-pastel-800">권한 변경</h2>
@@ -630,81 +571,31 @@ export default function UnifiedUsers() {
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Global Role */}
-              <div>
-                <label className="block text-sm font-medium text-pastel-700 mb-2">
-                  전역 권한
-                </label>
-                <select
-                  value={editRole}
-                  onChange={e => setEditRole(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-pastel-50 border border-pastel-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
-                >
-                  <option value="">권한 없음 (일반 사용자)</option>
-                  <option value="SUPER_ADMIN">슈퍼관리자 (모든 서비스)</option>
-                  <option value="SERVICE_ADMIN">서비스관리자 (특정 서비스)</option>
-                  <option value="VIEWER">뷰어 (모든 서비스 읽기)</option>
-                  <option value="SERVICE_VIEWER">서비스뷰어 (특정 서비스 읽기)</option>
-                </select>
-                <p className="mt-1 text-xs text-pastel-500">
-                  SERVICE_ADMIN, SERVICE_VIEWER는 아래에서 서비스별 권한을 설정해야 합니다
-                </p>
-              </div>
-
-              {/* Service-specific Permissions */}
-              {(editRole === 'SERVICE_ADMIN' || editRole === 'SERVICE_VIEWER' || editRole === '') && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-pastel-700">
-                      서비스별 권한
-                    </label>
-                    <button
-                      onClick={addServicePermission}
-                      className="text-sm text-samsung-blue hover:underline"
-                    >
-                      + 추가
-                    </button>
+            <div className="p-6">
+              <label className="flex items-center justify-between p-4 bg-pastel-50 rounded-lg border border-pastel-200 cursor-pointer hover:bg-pastel-100 transition-colors">
+                <div className="flex items-center gap-3">
+                  <Shield className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <p className="font-medium text-pastel-800">관리자 권한</p>
+                    <p className="text-sm text-pastel-500">대시보드 및 사용자 관리 기능에 접근할 수 있습니다</p>
                   </div>
-
-                  {editServicePermissions.length === 0 ? (
-                    <p className="text-sm text-pastel-500 py-4 text-center bg-pastel-50 rounded-lg">
-                      서비스별 권한이 없습니다
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {editServicePermissions.map((sp, index) => (
-                        <div key={index} className="flex gap-2 items-center">
-                          <select
-                            value={sp.serviceId}
-                            onChange={e => updateServicePermission(index, 'serviceId', e.target.value)}
-                            className="flex-1 px-3 py-2 bg-pastel-50 border border-pastel-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 text-sm"
-                          >
-                            <option value="">서비스 선택</option>
-                            {services.map(s => (
-                              <option key={s.id} value={s.id}>{s.displayName}</option>
-                            ))}
-                          </select>
-                          <select
-                            value={sp.role}
-                            onChange={e => updateServicePermission(index, 'role', e.target.value)}
-                            className="px-3 py-2 bg-pastel-50 border border-pastel-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 text-sm"
-                          >
-                            <option value="SERVICE_ADMIN">관리자</option>
-                            <option value="SERVICE_VIEWER">뷰어</option>
-                          </select>
-                          <button
-                            onClick={() => removeServicePermission(index)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              )}
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={editIsAdmin}
+                    onChange={e => setEditIsAdmin(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-pastel-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-samsung-blue/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-pastel-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-samsung-blue"></div>
+                </div>
+              </label>
+
+              <p className="mt-3 text-xs text-pastel-500">
+                {editIsAdmin
+                  ? '이 사용자는 관리자로 설정됩니다. 대시보드 접근 및 서비스 관리가 가능합니다.'
+                  : '이 사용자는 일반 사용자입니다. 자신의 사용 현황만 확인할 수 있습니다.'}
+              </p>
             </div>
 
             <div className="p-6 border-t border-pastel-100 flex justify-end gap-3">

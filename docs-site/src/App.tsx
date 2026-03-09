@@ -4,8 +4,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import DocLayout from './components/DocLayout';
 import Home from './pages/Home';
-import ServicePage from './pages/ServicePage';
-import { services } from './data/services';
+import { guideSections } from './data/guides';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -13,53 +12,34 @@ function ScrollToTop() {
   return null;
 }
 
-// Lookup content path for doc routes
+// Map route paths to content file paths
 function guideContentPath(path: string): string {
-  // Map route paths to content file paths
   const map: Record<string, string> = {
-    '/guide/getting-started': 'guide/getting-started.md',
-    '/guide/basic-usage': 'guide/basic-usage.md',
-    '/guide/advanced-usage': 'guide/advanced-usage.md',
-    '/guide/browser-tools': 'guide/browser-tools.md',
-    '/guide/office-tools': 'guide/office-tools.md',
-    '/guide/compact': 'guide/compact.md',
-    '/guide/wsl-setup': 'guide/wsl-setup.md',
-    '/guide-windows/getting-started': 'guide-windows/getting-started.md',
-    '/guide-windows/basic-usage': 'guide-windows/basic-usage.md',
-    '/guide-windows/faq': 'guide-windows/faq.md',
-    '/once/guide/getting-started': 'once/guide/getting-started.md',
-    '/once/guide/basic-usage': 'once/guide/basic-usage.md',
-    '/once/guide/collaboration': 'once/guide/collaboration.md',
-    '/once/guide/advanced': 'once/guide/advanced.md',
-    '/once/faq': 'once/faq.md',
-    '/free/guide/getting-started': 'free/guide/getting-started.md',
-    '/free/guide/basic-usage': 'free/guide/basic-usage.md',
-    '/free/guide/reports': 'free/guide/reports.md',
-    '/free/guide/admin': 'free/guide/admin.md',
-    '/free/faq': 'free/faq.md',
+    '/admin/getting-started': 'admin/getting-started.md',
+    '/admin/service-management': 'admin/service-management.md',
+    '/admin/llm-management': 'admin/llm-management.md',
+    '/admin/user-management': 'admin/user-management.md',
+    '/admin/stats': 'admin/stats.md',
+    '/user/getting-started': 'user/getting-started.md',
+    '/user/my-usage': 'user/my-usage.md',
+    '/api/authentication': 'api/authentication.md',
+    '/api/chat-completions': 'api/chat-completions.md',
+    '/api/models': 'api/models.md',
+    '/api/service-registration': 'api/service-registration.md',
   };
   return map[path] || '';
 }
 
 function DocRoute({ sectionTitle, path }: { sectionTitle: string; path: string }) {
-  const service = services.find((s) =>
-    s.guides.some((g) => g.path === path) ||
-    path.startsWith(s.path.replace(/^\//, '') + '/')
+  // Find the matching guide section for sidebar
+  const section = guideSections.find((s) =>
+    s.items.some((item) => item.path === path)
   );
 
-  // Build sidebar from the matching service's guides
-  let sidebarItems = service?.guides || [];
-
-  // For CLI guide, also include the guide/* items
-  if (path.startsWith('/guide/') && !path.startsWith('/guide-windows/')) {
-    sidebarItems = services[0].guides;
-  } else if (path.startsWith('/guide-windows/')) {
-    sidebarItems = services[1].guides;
-  } else if (path.startsWith('/once/')) {
-    sidebarItems = services[2].guides;
-  } else if (path.startsWith('/free/')) {
-    sidebarItems = services[3].guides;
-  }
+  const sidebarItems = section?.items.map((item) => ({
+    path: item.path,
+    label: item.label,
+  })) || [];
 
   const contentPath = guideContentPath(path);
 
@@ -74,39 +54,22 @@ export default function App() {
       <Routes>
         <Route path="/" element={<><Home /><Footer /></>} />
 
-        {/* Service pages */}
-        <Route path="/nexus-coder" element={<><ServicePage /><Footer /></>} />
-        <Route path="/nexus-bot" element={<><ServicePage /><Footer /></>} />
-        <Route path="/once" element={<><ServicePage /><Footer /></>} />
-        <Route path="/free" element={<><ServicePage /><Footer /></>} />
+        {/* Admin Guide */}
+        <Route path="/admin/getting-started" element={<DocRoute sectionTitle="Admin Guide" path="/admin/getting-started" />} />
+        <Route path="/admin/service-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/service-management" />} />
+        <Route path="/admin/llm-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/llm-management" />} />
+        <Route path="/admin/user-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/user-management" />} />
+        <Route path="/admin/stats" element={<DocRoute sectionTitle="Admin Guide" path="/admin/stats" />} />
 
-        {/* CLI Guide docs */}
-        <Route path="/guide/getting-started" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/getting-started" />} />
-        <Route path="/guide/basic-usage" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/basic-usage" />} />
-        <Route path="/guide/advanced-usage" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/advanced-usage" />} />
-        <Route path="/guide/browser-tools" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/browser-tools" />} />
-        <Route path="/guide/office-tools" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/office-tools" />} />
-        <Route path="/guide/compact" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/compact" />} />
-        <Route path="/guide/wsl-setup" element={<DocRoute sectionTitle="Nexus Coder 가이드" path="/guide/wsl-setup" />} />
+        {/* User Guide */}
+        <Route path="/user/getting-started" element={<DocRoute sectionTitle="User Guide" path="/user/getting-started" />} />
+        <Route path="/user/my-usage" element={<DocRoute sectionTitle="User Guide" path="/user/my-usage" />} />
 
-        {/* Nexus Bot Guide docs */}
-        <Route path="/guide-windows/getting-started" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/getting-started" />} />
-        <Route path="/guide-windows/basic-usage" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/basic-usage" />} />
-        <Route path="/guide-windows/faq" element={<DocRoute sectionTitle="Nexus Bot 가이드" path="/guide-windows/faq" />} />
-
-        {/* ONCE docs */}
-        <Route path="/once/guide/getting-started" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/guide/getting-started" />} />
-        <Route path="/once/guide/basic-usage" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/guide/basic-usage" />} />
-        <Route path="/once/guide/collaboration" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/guide/collaboration" />} />
-        <Route path="/once/guide/advanced" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/guide/advanced" />} />
-        <Route path="/once/faq" element={<DocRoute sectionTitle="ONCE 가이드" path="/once/faq" />} />
-
-        {/* FREE docs */}
-        <Route path="/free/guide/getting-started" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/getting-started" />} />
-        <Route path="/free/guide/basic-usage" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/basic-usage" />} />
-        <Route path="/free/guide/reports" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/reports" />} />
-        <Route path="/free/guide/admin" element={<DocRoute sectionTitle="FREE 가이드" path="/free/guide/admin" />} />
-        <Route path="/free/faq" element={<DocRoute sectionTitle="FREE 가이드" path="/free/faq" />} />
+        {/* API Guide */}
+        <Route path="/api/authentication" element={<DocRoute sectionTitle="API Guide" path="/api/authentication" />} />
+        <Route path="/api/chat-completions" element={<DocRoute sectionTitle="API Guide" path="/api/chat-completions" />} />
+        <Route path="/api/models" element={<DocRoute sectionTitle="API Guide" path="/api/models" />} />
+        <Route path="/api/service-registration" element={<DocRoute sectionTitle="API Guide" path="/api/service-registration" />} />
 
         {/* Fallback */}
         <Route path="*" element={

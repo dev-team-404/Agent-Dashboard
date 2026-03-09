@@ -1,26 +1,56 @@
 /**
- * Authentication Middleware
+ * Authentication Middleware (v2)
  *
- * Verifies JWT tokens and checks admin permissions
- * - DEVELOPERS 환경변수: 쉼표로 구분된 개발자 loginid 목록 (SUPER_ADMIN 권한)
- * - DB admins 테이블: 동적으로 관리되는 관리자 목록
+ * 3단계 권한 체계:
+ * - SUPER_ADMIN: 하드코딩(syngha.han, young87.kim, byeongju.lee) + DB 지정자
+ * - ADMIN: super admin이 지정, dept 내 권한
+ * - USER: 일반 사용자 (대시보드: 본인 사용량만)
+ *
+ * Dashboard 인증: JWT/SSO 토큰 (기존 유지)
+ * API 프록시 인증: x-service-id, x-user-id, x-dept-name 헤더 기반
  */
 import jwt from 'jsonwebtoken';
 import { prisma } from '../index.js';
 const JWT_SECRET = process.env['JWT_SECRET'] || 'your-jwt-secret-change-in-production';
+// 하드코딩된 Super Admin 목록
+const HARDCODED_SUPER_ADMINS = ['syngha.han', 'young87.kim', 'byeongju.lee'];
 /**
- * 환경변수에서 개발자 목록 가져오기
+ * 하드코딩 Super Admin인지 확인
  */
-function getDevelopers() {
-    const developers = process.env['DEVELOPERS'] || '';
-    return developers.split(',').map(d => d.trim()).filter(Boolean);
+export function isHardcodedSuperAdmin(loginid) {
+    return HARDCODED_SUPER_ADMINS.includes(loginid);
 }
 /**
- * 개발자인지 확인 (환경변수 기반)
+ * 환경변수 + 하드코딩 Super Admin인지 확인
  */
-export function isDeveloper(loginid) {
-    const developers = getDevelopers();
+export function isSuperAdminByEnv(loginid) {
+    if (isHardcodedSuperAdmin(loginid))
+        return true;
+    const developers = (process.env['DEVELOPERS'] || '').split(',').map(d => d.trim()).filter(Boolean);
     return developers.includes(loginid);
+}
+/**
+ * deptname에서 businessUnit 추출
+ * "SW혁신팀(S.LSI)" → "S.LSI"
+ */
+export function extractBusinessUnit(deptname) {
+    if (!deptname)
+        return '';
+    const match = deptname.match(/\(([^)]+)\)/);
+    if (match)
+        return match[1];
+    const parts = deptname.split('/');
+    return parts[0]?.trim() || '';
+}
+/**
+ * deptname에서 팀명 추출
+ * "SW혁신팀(S.LSI)" → "SW혁신팀"
+ */
+export function extractTeamName(deptname) {
+    if (!deptname)
+        return '';
+    const match = deptname.match(/^([^(]+)/);
+    return match ? match[1].trim() : deptname.trim();
 }
 /**
  * Verify JWT token and attach user to request
@@ -33,14 +63,12 @@ export function authenticateToken(req, res, next) {
         return;
     }
     try {
-        // First try to verify as internally signed token (from admin-login or session)
         const internalPayload = verifyInternalToken(token);
         if (internalPayload && internalPayload.loginid) {
             req.user = internalPayload;
             next();
             return;
         }
-        // Check for SSO token format (sso.base64EncodedData)
         if (token.startsWith('sso.')) {
             const ssoData = decodeSSOToken(token.substring(4));
             if (ssoData && ssoData.loginid) {
@@ -49,7 +77,6 @@ export function authenticateToken(req, res, next) {
                 return;
             }
         }
-        // If not internal token, try decoding as SSO token (base64 decode)
         const decoded = decodeJWT(token);
         if (!decoded || !decoded.loginid) {
             res.status(403).json({ error: 'Invalid token' });
@@ -64,9 +91,7 @@ export function authenticateToken(req, res, next) {
     }
 }
 /**
- * Check if user is an admin (any role)
- * 1. 환경변수 DEVELOPERS에 있으면 → SUPER_ADMIN
- * 2. DB admins 테이블에 있으면 → 해당 역할 (SUPER_ADMIN, SERVICE_ADMIN, VIEWER, SERVICE_VIEWER)
+ * Check if user is an admin (SUPER_ADMIN or ADMIN)
  */
 export async function requireAdmin(req, res, next) {
     if (!req.user) {
@@ -74,11 +99,13 @@ export async function requireAdmin(req, res, next) {
         return;
     }
     try {
-        // 1. 환경변수 개발자 체크 (SUPER_ADMIN)
-        if (isDeveloper(req.user.loginid)) {
+        // 1. 하드코딩/환경변수 Super Admin 체크
+        if (isSuperAdminByEnv(req.user.loginid)) {
             req.isAdmin = true;
-            req.isDeveloper = true;
+            req.isSuperAdmin = true;
             req.adminRole = 'SUPER_ADMIN';
+            req.adminDept = req.user.deptname;
+            req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
             next();
             return;
         }
@@ -91,9 +118,11 @@ export async function requireAdmin(req, res, next) {
             return;
         }
         req.isAdmin = true;
-        req.isDeveloper = false;
+        req.isSuperAdmin = admin.role === 'SUPER_ADMIN';
         req.adminRole = admin.role;
         req.adminId = admin.id;
+        req.adminDept = admin.deptname || req.user.deptname;
+        req.adminBusinessUnit = admin.businessUnit || extractBusinessUnit(req.user.deptname);
         next();
     }
     catch (error) {
@@ -103,7 +132,6 @@ export async function requireAdmin(req, res, next) {
 }
 /**
  * Check if user is a super admin
- * 환경변수 개발자 또는 DB SUPER_ADMIN만 허용
  */
 export async function requireSuperAdmin(req, res, next) {
     if (!req.user) {
@@ -111,15 +139,13 @@ export async function requireSuperAdmin(req, res, next) {
         return;
     }
     try {
-        // 1. 환경변수 개발자 체크 (항상 SUPER_ADMIN)
-        if (isDeveloper(req.user.loginid)) {
+        if (isSuperAdminByEnv(req.user.loginid)) {
             req.isAdmin = true;
-            req.isDeveloper = true;
+            req.isSuperAdmin = true;
             req.adminRole = 'SUPER_ADMIN';
             next();
             return;
         }
-        // 2. DB admin 체크 (SUPER_ADMIN만)
         const admin = await prisma.admin.findUnique({
             where: { loginid: req.user.loginid },
         });
@@ -128,8 +154,9 @@ export async function requireSuperAdmin(req, res, next) {
             return;
         }
         req.isAdmin = true;
-        req.isDeveloper = false;
-        req.adminRole = admin.role;
+        req.isSuperAdmin = true;
+        req.adminRole = 'SUPER_ADMIN';
+        req.adminId = admin.id;
         next();
     }
     catch (error) {
@@ -138,35 +165,42 @@ export async function requireSuperAdmin(req, res, next) {
     }
 }
 /**
- * Safely decode URL-encoded string
+ * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
  */
+export function isModelVisibleTo(model, userDept, userBU, isAdmin) {
+    switch (model.visibility) {
+        case 'PUBLIC':
+            return true;
+        case 'BUSINESS_UNIT':
+            return model.visibilityScope.includes(userBU);
+        case 'TEAM':
+            return model.visibilityScope.includes(userDept);
+        case 'ADMIN_ONLY':
+            return isAdmin;
+        default:
+            return false;
+    }
+}
+// ============================================
+// Token utility functions
+// ============================================
 function safeDecodeURIComponent(str) {
     if (!str)
         return '';
     try {
-        // Check if string contains URL-encoded characters
-        if (str.includes('%')) {
+        if (str.includes('%'))
             return decodeURIComponent(str);
-        }
         return str;
     }
     catch {
         return str;
     }
 }
-/**
- * Decode SSO token (Unicode-safe base64 decode)
- * Frontend encodes: btoa(unescape(encodeURIComponent(json)))
- * Backend decodes: decodeURIComponent(escape(base64Decode))
- */
 function decodeSSOToken(base64Token) {
     try {
-        // Decode base64 to binary string
         const binaryString = Buffer.from(base64Token, 'base64').toString('binary');
-        // Convert binary string to UTF-8 (reverse of unescape(encodeURIComponent()))
         const jsonString = decodeURIComponent(binaryString.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
         const payload = JSON.parse(jsonString);
-        console.log('SSO token payload:', JSON.stringify(payload, null, 2));
         return {
             loginid: safeDecodeURIComponent(payload.loginid || ''),
             deptname: safeDecodeURIComponent(payload.deptname || ''),
@@ -178,21 +212,13 @@ function decodeSSOToken(base64Token) {
         return null;
     }
 }
-/**
- * Decode JWT token (base64url decode)
- */
 function decodeJWT(token) {
     try {
         const parts = token.split('.');
         if (parts.length !== 3)
             return null;
-        const payloadBase64 = parts[1]
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
+        const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
-        // Debug: log actual payload fields
-        console.log('JWT payload fields:', Object.keys(payload));
-        console.log('JWT payload:', JSON.stringify(payload, null, 2));
         const loginid = payload.loginid || payload.sub || payload.user_id || payload.userId || payload.id || '';
         const deptname = payload.deptname || payload.department || payload.dept || payload.deptName || '';
         const username = payload.username || payload.name || payload.display_name || payload.userName || payload.displayName || '';
@@ -209,15 +235,9 @@ function decodeJWT(token) {
         return null;
     }
 }
-/**
- * Sign a JWT token (for internal session management)
- */
 export function signToken(payload) {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
 }
-/**
- * Verify internally signed token
- */
 export function verifyInternalToken(token) {
     try {
         return jwt.verify(token, JWT_SECRET);
@@ -225,84 +245,5 @@ export function verifyInternalToken(token) {
     catch {
         return null;
     }
-}
-/**
- * Check if user has write access (not VIEWER or SERVICE_VIEWER)
- * Must be used after requireAdmin middleware
- */
-export function requireWriteAccess(req, res, next) {
-    if (['VIEWER', 'SERVICE_VIEWER'].includes(req.adminRole || '')) {
-        res.status(403).json({ error: 'Read-only access. Write operations are not permitted.' });
-        return;
-    }
-    next();
-}
-/**
- * Check if user has access to a specific service
- * SUPER_ADMIN/VIEWER → all services
- * SERVICE_ADMIN/SERVICE_VIEWER → only assigned services
- * Must be used after requireAdmin middleware
- */
-export function requireServiceAccess(serviceIdParam = 'serviceId') {
-    return async (req, res, next) => {
-        try {
-            // SUPER_ADMIN and VIEWER have global access
-            if (req.adminRole === 'SUPER_ADMIN' || req.adminRole === 'VIEWER') {
-                next();
-                return;
-            }
-            // Get serviceId from query, params, or body
-            const serviceId = req.query[serviceIdParam]
-                || req.params[serviceIdParam]
-                || req.body?.[serviceIdParam];
-            if (!serviceId) {
-                // If no specific service requested, allow (will show all accessible services)
-                next();
-                return;
-            }
-            // SERVICE_ADMIN and SERVICE_VIEWER need specific permission
-            if (!req.adminId) {
-                res.status(403).json({ error: 'Admin ID not found' });
-                return;
-            }
-            const permission = await prisma.adminService.findUnique({
-                where: {
-                    adminId_serviceId: {
-                        adminId: req.adminId,
-                        serviceId,
-                    },
-                },
-            });
-            if (!permission) {
-                res.status(403).json({ error: 'No access to this service' });
-                return;
-            }
-            next();
-        }
-        catch (error) {
-            console.error('Service access check error:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
-    };
-}
-/**
- * Get list of service IDs accessible by the current admin
- * SUPER_ADMIN/VIEWER → null (all services)
- * SERVICE_ADMIN/SERVICE_VIEWER → list of assigned service IDs
- */
-export async function getAccessibleServiceIds(req) {
-    // Global roles can access all services
-    if (req.adminRole === 'SUPER_ADMIN' || req.adminRole === 'VIEWER') {
-        return null; // null means all services
-    }
-    // Service-specific roles need to check AdminService
-    if (!req.adminId) {
-        return [];
-    }
-    const adminServices = await prisma.adminService.findMany({
-        where: { adminId: req.adminId },
-        select: { serviceId: true },
-    });
-    return adminServices.map(as => as.serviceId);
 }
 //# sourceMappingURL=auth.js.map

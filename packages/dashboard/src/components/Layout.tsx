@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Server, Users, LogOut, Menu, X, ChevronRight, ChevronDown, MessageSquare, Shield, BookOpen, BarChart3, Home, Layers, CalendarDays, FlaskConical, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, Menu, X, ChevronRight, ChevronDown, Shield, BookOpen, BarChart3, Home, Layers, CalendarDays, Cpu } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -35,7 +35,7 @@ function decodeUnicodeEscape(str: string): string {
   }
 }
 
-type AdminRole = 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER' | null;
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -48,7 +48,6 @@ interface LayoutProps {
 // 모든 사용자 메뉴
 const userNavItems = [
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
-  { path: '/feedback', label: '피드백', icon: MessageSquare },
 ];
 
 export default function Layout({ children, user, isAdmin, adminRole, onLogout }: LayoutProps) {
@@ -109,15 +108,12 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   // Determine current page label
   const getCurrentPageLabel = () => {
     if (location.pathname === '/') return '통합 대시보드';
+    if (location.pathname === '/models') return 'LLM 모델 관리';
     if (location.pathname === '/users') return '사용자 관리';
     if (location.pathname === '/holidays') return '휴일 관리';
-    if (location.pathname === '/llm-test') return 'LLM 테스트';
-    if (location.pathname === '/error-telemetry') return '에러 텔레메트리';
     if (location.pathname === '/my-usage') return '내 사용량';
-    if (location.pathname === '/feedback') return '피드백';
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
-      if (location.pathname.includes('/models')) return `${service?.displayName || ''} 모델 관리`;
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
       return `${service?.displayName || ''} 대시보드`;
     }
@@ -126,9 +122,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
 
   // 역할 표시 텍스트
   const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
-                    adminRole === 'SERVICE_ADMIN' ? '서비스관리자' :
-                    adminRole === 'VIEWER' ? '뷰어' :
-                    adminRole === 'SERVICE_VIEWER' ? '서비스뷰어' : '사용자';
+                    adminRole === 'ADMIN' ? '관리자' : '사용자';
 
   return (
     <div className="min-h-screen bg-pastel-50">
@@ -184,6 +178,20 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <span className="font-medium">통합 대시보드</span>
                 {location.pathname === '/' && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
               </Link>
+              {/* LLM 모델 관리 (서비스 독립) */}
+              <Link
+                to="/models"
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group ${
+                  location.pathname === '/models'
+                    ? 'bg-pastel-100 text-pastel-700 shadow-sm'
+                    : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
+                }`}
+              >
+                <Cpu className={`w-5 h-5 ${location.pathname === '/models' ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
+                <span className="font-medium">LLM 모델</span>
+                {location.pathname === '/models' && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
+              </Link>
               {/* SUPER_ADMIN만 통합 사용자 관리 */}
               {adminRole === 'SUPER_ADMIN' && (
                 <Link
@@ -216,38 +224,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                   {location.pathname === '/holidays' && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
                 </Link>
               )}
-              {/* SUPER_ADMIN만 LLM 테스트 */}
-              {adminRole === 'SUPER_ADMIN' && (
-                <Link
-                  to="/llm-test"
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group ${
-                    location.pathname === '/llm-test'
-                      ? 'bg-pastel-100 text-pastel-700 shadow-sm'
-                      : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
-                  }`}
-                >
-                  <FlaskConical className={`w-5 h-5 ${location.pathname === '/llm-test' ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
-                  <span className="font-medium">LLM 테스트</span>
-                  {location.pathname === '/llm-test' && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
-                </Link>
-              )}
-              {/* SUPER_ADMIN만 에러 텔레메트리 */}
-              {adminRole === 'SUPER_ADMIN' && (
-                <Link
-                  to="/error-telemetry"
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group ${
-                    location.pathname === '/error-telemetry'
-                      ? 'bg-pastel-100 text-pastel-700 shadow-sm'
-                      : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
-                  }`}
-                >
-                  <AlertTriangle className={`w-5 h-5 ${location.pathname === '/error-telemetry' ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
-                  <span className="font-medium">에러 텔레메트리</span>
-                  {location.pathname === '/error-telemetry' && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
-                </Link>
-              )}
             </div>
           )}
 
@@ -262,7 +238,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 const isServiceActive = location.pathname.startsWith(`/service/${service.id}`);
                 const servicePaths = [
                   { path: `/service/${service.id}`, label: '대시보드', icon: LayoutDashboard },
-                  { path: `/service/${service.id}/models`, label: '모델 관리', icon: Server },
                   { path: `/service/${service.id}/users`, label: '사용자', icon: Users },
                 ];
 
@@ -322,7 +297,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
           {/* 일반 섹션 */}
           <div className="mb-4">
             <p className="px-4 mb-2 text-xs font-semibold text-pastel-500 uppercase tracking-wider">
-              {isAdmin ? '커뮤니티' : '메뉴'}
+              개인
             </p>
             {userNavItems.map(({ path, label, icon: Icon }) => {
               const isActive = location.pathname === path;

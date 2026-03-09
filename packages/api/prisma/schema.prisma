@@ -10,25 +10,32 @@ datasource db {
 // ============================================
 // 서비스 (멀티 서비스 지원)
 // ============================================
+enum ServiceType {
+  STANDARD    // 일반 서비스: x-service-id, x-user-id, x-dept-name 필수
+  BACKGROUND  // 백그라운드 서비스: x-service-id, x-dept-name만 필수
+}
+
 model Service {
-  id          String   @id @default(uuid())
-  name        String   @unique              // "nexus-coder", "other-service"
-  displayName String                        // "Nexus Coder", "Other Service"
+  id          String      @id @default(uuid())
+  name        String      @unique              // "my-service" (유니크, 등록시 중복체크)
+  displayName String                           // "My Service"
   description String?
-  iconUrl     String?  @map("icon_url")
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  iconUrl     String?     @map("icon_url")
+  enabled     Boolean     @default(true)
+  type        ServiceType @default(STANDARD)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  // 등록한 admin 정보 (서비스는 등록 admin의 LLM 권한을 계승)
+  registeredBy             String?  @map("registered_by")              // admin loginid
+  registeredByDept         String?  @map("registered_by_dept")         // admin deptname
+  registeredByBusinessUnit String?  @map("registered_by_business_unit") // admin BU
 
   // Relations
-  models          Model[]
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
-  feedbacks       Feedback[]
   ratingFeedbacks RatingFeedback[]
-  adminServices   AdminService[]
-  userServices    UserService[]  // 서비스별 사용자 활동
-  errorLogs       ErrorLog[]
+  userServices    UserService[]
 
   @@map("services")
 }
@@ -41,29 +48,27 @@ model User {
   loginid      String   @unique
   username     String
   deptname     String   @default("")
-  businessUnit String?  @map("business_unit")  // deptname에서 추출 (예: "DS/AI팀" → "DS")
+  businessUnit String?  @map("business_unit")
   firstSeen    DateTime @default(now())
   lastActive   DateTime @default(now())
   isActive     Boolean  @default(true)
 
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
-  feedbacks       Feedback[]
-  userServices    UserService[]  // 서비스별 활동 추적
-  errorLogs       ErrorLog[]
+  userServices    UserService[]
 
   @@map("users")
 }
 
 // ============================================
-// 사용자-서비스 활동 추적 (서비스별 가입일/마지막활동)
+// 사용자-서비스 활동 추적
 // ============================================
 model UserService {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   serviceId    String   @map("service_id")
-  firstSeen    DateTime @map("first_seen")      // 첫 활동일 (가입일)
-  lastActive   DateTime @map("last_active")     // 마지막 활동일
+  firstSeen    DateTime @map("first_seen")
+  lastActive   DateTime @map("last_active")
   requestCount Int      @default(0) @map("request_count")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -77,43 +82,48 @@ model UserService {
 }
 
 // ============================================
-// LLM 모델 설정
+// LLM 모델 설정 (서비스와 독립)
 // ============================================
+enum LlmVisibility {
+  PUBLIC         // 전체공개
+  BUSINESS_UNIT  // 특정 사업부 공개
+  TEAM           // 특정 팀 공개
+  ADMIN_ONLY     // admin/super admin만
+}
+
 model Model {
   id          String   @id @default(uuid())
-  name        String                         // 서비스 내에서 유니크
+  name        String   @unique                // 전역 유니크
   displayName String
   endpointUrl String
   apiKey      String?
   maxTokens   Int      @default(128000)
   enabled     Boolean  @default(true)
-  sortOrder   Int      @default(0) @map("sort_order")  // 정렬 순서 (낮을수록 먼저)
+  sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now())
-  createdBy   String?
+  createdBy   String?                          // FK to Admin.id
 
-  // 사업부 제한 (빈 배열 = 제한 없음, 모든 사업부 허용)
-  allowedBusinessUnits String[] @default([]) @map("allowed_business_units")
-
-  // 슈퍼 관리자 전용 (true면 SUPER_ADMIN만 사용 가능)
-  superAdminOnly Boolean @default(false) @map("super_admin_only")
-
-  // LLM 호출 시 추가 헤더 (JSON object, e.g. {"X-Custom": "value"})
-  extraHeaders Json?   @map("extra_headers")
+  // LLM 호출 시 추가 헤더 (JSON object)
+  extraHeaders Json? @map("extra_headers")
 
   // Vision Language Model 지원 여부
   supportsVision Boolean @default(false) @map("supports_vision")
 
-  // 서비스 연결 (nullable for migration, then required)
-  serviceId   String?  @map("service_id")
-  service     Service? @relation(fields: [serviceId], references: [id])
+  // 공개 범위 (4단계)
+  visibility      LlmVisibility @default(PUBLIC)
+  visibilityScope String[]      @default([]) @map("visibility_scope")
+  // PUBLIC: [] (전체), BUSINESS_UNIT: ["S.LSI","DS"], TEAM: ["SW혁신팀(S.LSI)"], ADMIN_ONLY: []
+
+  // 등록한 admin 정보 (수정/삭제 권한 판단용)
+  createdByDept         String? @map("created_by_dept")
+  createdByBusinessUnit String? @map("created_by_business_unit")
+  createdBySuperAdmin   Boolean @default(false) @map("created_by_super_admin")
 
   creator         Admin?           @relation(fields: [createdBy], references: [id])
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
   subModels       SubModel[]
 
-  // 서비스 내에서 이름 유니크 (serviceId가 NOT NULL이 되면 활성화)
-  // @@unique([serviceId, name])
   @@map("models")
 }
 
@@ -123,61 +133,40 @@ model Model {
 model SubModel {
   id          String   @id @default(uuid())
   parentId    String   @map("parent_id")
-  modelName   String?  @map("model_name")  // 엔드포인트별 모델명 (null이면 parent.name 사용)
+  modelName   String?  @map("model_name")
   endpointUrl String   @map("endpoint_url")
   apiKey      String?  @map("api_key")
-  extraHeaders Json?   @map("extra_headers")  // LLM 호출 시 추가 헤더
+  extraHeaders Json?   @map("extra_headers")
   enabled     Boolean  @default(true)
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  parent      Model    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  parent Model @relation(fields: [parentId], references: [id], onDelete: Cascade)
 
   @@index([parentId])
   @@map("sub_models")
 }
 
 // ============================================
-// 관리자
+// 관리자 (3단계: SUPER_ADMIN / ADMIN)
 // ============================================
-model Admin {
-  id        String    @id @default(uuid())
-  loginid   String    @unique
-  role      AdminRole @default(SERVICE_ADMIN)        // 전역 역할 (레거시 호환)
-  createdAt DateTime  @default(now())
+enum AdminRole {
+  SUPER_ADMIN  // 모든 권한
+  ADMIN        // dept 내 권한
+}
 
-  models        Model[]
-  responses     Feedback[]         // 답변한 피드백들 (레거시)
-  comments      FeedbackComment[]  // 피드백 댓글들
-  adminServices AdminService[]     // 서비스별 권한
+model Admin {
+  id           String    @id @default(uuid())
+  loginid      String    @unique
+  role         AdminRole @default(ADMIN)
+  deptname     String    @default("")
+  businessUnit String?   @map("business_unit")
+  designatedBy String?   @map("designated_by")  // 지정한 super admin loginid
+  createdAt    DateTime  @default(now())
+
+  models Model[]  // 등록한 모델들
 
   @@map("admins")
-}
-
-// ============================================
-// 관리자-서비스 권한 (다대다 관계)
-// ============================================
-model AdminService {
-  id        String    @id @default(uuid())
-  adminId   String    @map("admin_id")
-  serviceId String    @map("service_id")
-  role      AdminRole @default(SERVICE_ADMIN)        // 서비스별 역할
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  admin   Admin   @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-
-  @@unique([adminId, serviceId])
-  @@index([adminId])
-  @@index([serviceId])
-  @@map("admin_services")
-}
-
-enum AdminRole {
-  SUPER_ADMIN      // 모든 서비스 접근 (모델/대시보드/사용자 관리)
-  SERVICE_ADMIN    // 특정 서비스(들) 접근 (여러 서비스 가능)
-  VIEWER           // 모든 대시보드 읽기 전용
-  SERVICE_VIEWER   // 특정 서비스 대시보드만 읽기 전용
 }
 
 // ============================================
@@ -185,25 +174,27 @@ enum AdminRole {
 // ============================================
 model UsageLog {
   id           String   @id @default(uuid())
-  userId       String   @map("user_id")
+  userId       String?  @map("user_id")        // nullable: background 서비스는 user 없음
   modelId      String   @map("model_id")
   inputTokens  Int      @default(0)
   outputTokens Int      @default(0)
   totalTokens  Int      @default(0)
-  latencyMs    Int?     @map("latency_ms")  // LLM 응답 시간 (밀리초), NULL = 기존 데이터
+  latencyMs    Int?     @map("latency_ms")
   timestamp    DateTime @default(now())
+  deptname     String?                          // 요청 dept 추적
 
-  // 서비스 연결 (nullable for migration, then required)
-  serviceId    String?  @map("service_id")
-  service      Service? @relation(fields: [serviceId], references: [id])
+  // 서비스 연결
+  serviceId String? @map("service_id")
+  service   Service? @relation(fields: [serviceId], references: [id])
 
-  user  User  @relation(fields: [userId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id])
   model Model @relation(fields: [modelId], references: [id])
 
   @@index([userId])
   @@index([modelId])
   @@index([timestamp])
   @@index([serviceId])
+  @@index([deptname])
   @@map("usage_logs")
 }
 
@@ -213,22 +204,20 @@ model UsageLog {
 model DailyUsageStat {
   id                String   @id @default(uuid())
   date              DateTime @db.Date
-  userId            String   @map("user_id")
+  userId            String?  @map("user_id")    // nullable: background
   modelId           String   @map("model_id")
   deptname          String   @default("")
   totalInputTokens  Int      @default(0)
   totalOutputTokens Int      @default(0)
   requestCount      Int      @default(0)
 
-  // 서비스 연결 (nullable for migration, then required)
-  serviceId         String?  @map("service_id")
-  service           Service? @relation(fields: [serviceId], references: [id])
+  serviceId String?  @map("service_id")
+  service   Service? @relation(fields: [serviceId], references: [id])
 
-  user  User  @relation(fields: [userId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id])
   model Model @relation(fields: [modelId], references: [id])
 
-  // unique 제약: serviceId가 NOT NULL이 되면 변경 필요
-  @@unique([date, userId, modelId])
+  @@unique([date, userId, modelId, serviceId])
   @@index([date])
   @@index([userId])
   @@index([modelId])
@@ -237,92 +226,18 @@ model DailyUsageStat {
 }
 
 // ============================================
-// 피드백 카테고리
-// ============================================
-enum FeedbackCategory {
-  ISSUE           // 버그/문제 신고
-  FEATURE         // 기능 제안
-  QUESTION        // 질문/도움
-  DOCS            // 문서 개선
-  PERFORMANCE     // 성능 이슈
-  OTHER           // 기타
-}
-
-// ============================================
-// 피드백 상태
-// ============================================
-enum FeedbackStatus {
-  OPEN            // 새 피드백
-  IN_PROGRESS     // 검토 중
-  RESOLVED        // 해결됨
-  CLOSED          // 종료
-}
-
-// ============================================
-// 피드백
-// ============================================
-model Feedback {
-  id          String           @id @default(uuid())
-  userId      String           @map("user_id")
-  category    FeedbackCategory
-  title       String
-  content     String
-  images      String[]         @default([])  // 이미지 데이터 (base64)
-  status      FeedbackStatus   @default(OPEN)
-  response    String?          // 관리자 답변 (레거시, 첫 댓글로 마이그레이션 예정)
-  respondedBy String?          @map("responded_by")  // 답변한 관리자 ID (레거시)
-  respondedAt DateTime?        @map("responded_at")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
-
-  // 서비스 연결 (nullable for migration, then required)
-  serviceId   String?          @map("service_id")
-  service     Service?         @relation(fields: [serviceId], references: [id])
-
-  user      User              @relation(fields: [userId], references: [id])
-  responder Admin?            @relation(fields: [respondedBy], references: [id])
-  comments  FeedbackComment[]
-
-  @@index([userId])
-  @@index([status])
-  @@index([category])
-  @@index([createdAt])
-  @@index([serviceId])
-  @@map("feedbacks")
-}
-
-// ============================================
-// 피드백 댓글
-// ============================================
-model FeedbackComment {
-  id         String   @id @default(uuid())
-  feedbackId String   @map("feedback_id")
-  adminId    String   @map("admin_id")
-  content    String
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
-  admin    Admin    @relation(fields: [adminId], references: [id])
-
-  @@index([feedbackId])
-  @@index([adminId])
-  @@map("feedback_comments")
-}
-
-// ============================================
-// 휴일 관리 (주말/휴일 제외 DAU 계산용)
+// 휴일 관리
 // ============================================
 enum HolidayType {
-  NATIONAL        // 국경일/공휴일
-  COMPANY         // 회사 휴일
-  CUSTOM          // 사용자 정의
+  NATIONAL
+  COMPANY
+  CUSTOM
 }
 
 model Holiday {
   id        String      @id @default(uuid())
   date      DateTime    @db.Date @unique
-  name      String                          // 휴일 이름 (예: "설날", "추석")
+  name      String
   type      HolidayType @default(NATIONAL)
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
@@ -336,11 +251,10 @@ model Holiday {
 // ============================================
 model RatingFeedback {
   id        String   @id @default(uuid())
-  modelName String   @map("model_name")  // 모델 이름
-  rating    Int                          // 1-5 점수
+  modelName String   @map("model_name")
+  rating    Int
   timestamp DateTime @default(now())
 
-  // 서비스 연결 (nullable for migration, then required)
   serviceId String?  @map("service_id")
   service   Service? @relation(fields: [serviceId], references: [id])
 
@@ -348,99 +262,4 @@ model RatingFeedback {
   @@index([timestamp])
   @@index([serviceId])
   @@map("rating_feedbacks")
-}
-
-// ============================================
-// LLM 테스트 쌍 (질문자 LLM + 테스트 LLM)
-// ============================================
-model LLMTestPair {
-  id              String   @id @default(uuid())
-  name            String                          // 테스트 쌍 이름
-  enabled         Boolean  @default(true)
-  intervalMinutes Int      @default(5) @map("interval_minutes")  // 테스트 주기 (분)
-
-  // 질문자 LLM 설정
-  questionerModelName String  @map("questioner_model_name")
-  questionerEndpoint  String  @map("questioner_endpoint")
-  questionerApiKey    String? @map("questioner_api_key")
-  questionerExtraHeaders Json? @map("questioner_extra_headers")
-
-  // 테스트 대상 LLM 설정
-  testModelName String  @map("test_model_name")
-  testEndpoint  String  @map("test_endpoint")
-  testApiKey    String? @map("test_api_key")
-  testExtraHeaders       Json? @map("test_extra_headers")
-
-  // 질문 생성 프롬프트 (질문자에게 보낼 프롬프트)
-  questionPrompt String @default("Generate a short, creative question that tests the AI's knowledge, reasoning, or problem-solving ability. The question should be clear and answerable.") @map("question_prompt")
-
-  // 평가 프롬프트 (질문자가 응답을 평가할 때 사용)
-  evaluationPrompt String @default("Evaluate the AI response based on: accuracy (is it correct?), helpfulness (does it answer the question?), and clarity (is it well-explained?). Score from 1-100.") @map("evaluation_prompt")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  lastRunAt DateTime? @map("last_run_at")
-
-  // Relations
-  results LLMTestResult[]
-
-  @@index([enabled])
-  @@map("llm_test_pairs")
-}
-
-// ============================================
-// LLM 테스트 결과
-// ============================================
-model LLMTestResult {
-  id        String   @id @default(uuid())
-  pairId    String   @map("pair_id")
-  timestamp DateTime @default(now())
-
-  // 테스트 결과
-  latencyMs Int      @map("latency_ms")   // 테스트 LLM 응답 시간 (ms)
-  score     Int?                          // 질문자가 매긴 점수 (1-100)
-
-  // 상태
-  status    String   @default("SUCCESS")  // SUCCESS, ERROR, TIMEOUT
-
-  // 오류 메시지 (실패 시)
-  errorMessage String? @map("error_message")
-
-  // Relations
-  pair LLMTestPair @relation(fields: [pairId], references: [id], onDelete: Cascade)
-
-  @@index([pairId])
-  @@index([timestamp])
-  @@map("llm_test_results")
-}
-
-// ============================================
-// 에러 로그 (CLI/Electron 에러 텔레메트리)
-// ============================================
-model ErrorLog {
-  id            String   @id @default(uuid())
-  userId        String   @map("user_id")
-  serviceId     String?  @map("service_id")
-
-  source        String                          // "cli" | "electron"
-  appVersion    String   @map("app_version")
-  platform      String?                         // "win32" | "linux" | "darwin"
-
-  errorName     String   @map("error_name")     // "APIError", "TokenLimitError"
-  errorCode     String   @map("error_code")     // "API_ERROR", "TOKEN_LIMIT_ERROR"
-  errorMessage  String   @map("error_message") @db.Text
-  stackTrace    String?  @map("stack_trace")   @db.Text
-  isRecoverable Boolean  @default(false) @map("is_recoverable")
-  context       Json?                           // { statusCode, endpoint, modelId, ... }
-
-  timestamp     DateTime @default(now())
-
-  user    User     @relation(fields: [userId], references: [id])
-  service Service? @relation(fields: [serviceId], references: [id])
-
-  @@index([userId])
-  @@index([serviceId])
-  @@index([errorCode])
-  @@index([timestamp])
-  @@map("error_logs")
 }

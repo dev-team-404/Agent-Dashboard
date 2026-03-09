@@ -1,9 +1,13 @@
 /**
- * Authentication Middleware
+ * Authentication Middleware (v2)
  *
- * Verifies JWT tokens and checks admin permissions
- * - DEVELOPERS 환경변수: 쉼표로 구분된 개발자 loginid 목록 (SUPER_ADMIN 권한)
- * - DB admins 테이블: 동적으로 관리되는 관리자 목록
+ * 3단계 권한 체계:
+ * - SUPER_ADMIN: 하드코딩(syngha.han, young87.kim, byeongju.lee) + DB 지정자
+ * - ADMIN: super admin이 지정, dept 내 권한
+ * - USER: 일반 사용자 (대시보드: 본인 사용량만)
+ *
+ * Dashboard 인증: JWT/SSO 토큰 (기존 유지)
+ * API 프록시 인증: x-service-id, x-user-id, x-dept-name 헤더 기반
  */
 import { Request, Response, NextFunction } from 'express';
 export interface JWTPayload {
@@ -17,53 +21,49 @@ export interface AuthenticatedRequest extends Request {
     user?: JWTPayload;
     userId?: string;
     isAdmin?: boolean;
-    adminRole?: 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER';
-    isDeveloper?: boolean;
+    adminRole?: 'SUPER_ADMIN' | 'ADMIN' | null;
+    isSuperAdmin?: boolean;
     adminId?: string;
+    adminDept?: string;
+    adminBusinessUnit?: string;
 }
 /**
- * 개발자인지 확인 (환경변수 기반)
+ * 하드코딩 Super Admin인지 확인
  */
-export declare function isDeveloper(loginid: string): boolean;
+export declare function isHardcodedSuperAdmin(loginid: string): boolean;
+/**
+ * 환경변수 + 하드코딩 Super Admin인지 확인
+ */
+export declare function isSuperAdminByEnv(loginid: string): boolean;
+/**
+ * deptname에서 businessUnit 추출
+ * "SW혁신팀(S.LSI)" → "S.LSI"
+ */
+export declare function extractBusinessUnit(deptname: string): string;
+/**
+ * deptname에서 팀명 추출
+ * "SW혁신팀(S.LSI)" → "SW혁신팀"
+ */
+export declare function extractTeamName(deptname: string): string;
 /**
  * Verify JWT token and attach user to request
  */
 export declare function authenticateToken(req: AuthenticatedRequest, res: Response, next: NextFunction): void;
 /**
- * Check if user is an admin (any role)
- * 1. 환경변수 DEVELOPERS에 있으면 → SUPER_ADMIN
- * 2. DB admins 테이블에 있으면 → 해당 역할 (SUPER_ADMIN, SERVICE_ADMIN, VIEWER, SERVICE_VIEWER)
+ * Check if user is an admin (SUPER_ADMIN or ADMIN)
  */
 export declare function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void>;
 /**
  * Check if user is a super admin
- * 환경변수 개발자 또는 DB SUPER_ADMIN만 허용
  */
 export declare function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void>;
 /**
- * Sign a JWT token (for internal session management)
+ * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
  */
+export declare function isModelVisibleTo(model: {
+    visibility: string;
+    visibilityScope: string[];
+}, userDept: string, userBU: string, isAdmin: boolean): boolean;
 export declare function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string;
-/**
- * Verify internally signed token
- */
 export declare function verifyInternalToken(token: string): JWTPayload | null;
-/**
- * Check if user has write access (not VIEWER or SERVICE_VIEWER)
- * Must be used after requireAdmin middleware
- */
-export declare function requireWriteAccess(req: AuthenticatedRequest, res: Response, next: NextFunction): void;
-/**
- * Check if user has access to a specific service
- * SUPER_ADMIN/VIEWER → all services
- * SERVICE_ADMIN/SERVICE_VIEWER → only assigned services
- * Must be used after requireAdmin middleware
- */
-export declare function requireServiceAccess(serviceIdParam?: string): (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<void>;
-/**
- * Get list of service IDs accessible by the current admin
- * SUPER_ADMIN/VIEWER → null (all services)
- * SERVICE_ADMIN/SERVICE_VIEWER → list of assigned service IDs
- */
-export declare function getAccessibleServiceIds(req: AuthenticatedRequest): Promise<string[] | null>;
 //# sourceMappingURL=auth.d.ts.map

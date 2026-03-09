@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LogIn, AlertCircle } from 'lucide-react';
+import { LogIn, AlertCircle, Shield, Cpu, ArrowRight } from 'lucide-react';
 import { authApi } from '../services/api';
 
 interface User {
@@ -13,7 +13,6 @@ interface LoginProps {
   onLogin: (user: User, token: string, isAdmin: boolean, adminRole: string | null) => void;
 }
 
-// SSO 설정 (환경변수로 오버라이드 가능)
 const SSO_BASE_URL = import.meta.env.VITE_SSO_URL || 'https://genai.samsungds.net:36810';
 const SSO_PATH = '/direct_sso';
 
@@ -22,21 +21,17 @@ export default function Login({ onLogin }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [processingCallback, setProcessingCallback] = useState(false);
 
-  // SSO 콜백 처리 (URL에서 data 파라미터 확인)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const data = urlParams.get('data');
-
     if (data) {
       setProcessingCallback(true);
       handleSSOCallback(data);
     }
   }, []);
 
-  // SSO 콜백 데이터 처리
   const handleSSOCallback = async (dataString: string) => {
     try {
-      // Parse SSO data (decode URL-encoded string first)
       const decodedData = decodeURIComponent(dataString);
       const ssoData = JSON.parse(decodedData);
 
@@ -44,9 +39,6 @@ export default function Login({ onLogin }: LoginProps) {
         throw new Error('Invalid SSO data');
       }
 
-      // Generate a temporary token from SSO data for backend verification
-      // Backend will decode this and create a proper session
-      // Use encodeURIComponent + unescape for Unicode-safe base64 encoding
       const jsonData = JSON.stringify({
         loginid: ssoData.loginid,
         username: ssoData.username,
@@ -55,111 +47,131 @@ export default function Login({ onLogin }: LoginProps) {
       });
       const ssoToken = btoa(unescape(encodeURIComponent(jsonData)));
 
-      // Exchange SSO data for session token
       const response = await authApi.login(`sso.${ssoToken}`);
-      const { user, sessionToken, isAdmin, adminRole } = response.data;
+      const { user, sessionToken, isAdmin, adminRole, isSuperAdmin } = response.data;
 
-      // Clear URL params
       window.history.replaceState({}, document.title, window.location.pathname);
 
-      // Complete login
-      onLogin(user, sessionToken, isAdmin, adminRole);
+      const resolvedRole: 'SUPER_ADMIN' | 'ADMIN' | null =
+        adminRole ?? (isSuperAdmin ? 'SUPER_ADMIN' : isAdmin ? 'ADMIN' : null);
+
+      onLogin(user, sessionToken, isAdmin, resolvedRole);
     } catch (err) {
       console.error('SSO callback error:', err);
       setError('SSO 인증 처리 중 오류가 발생했습니다.');
-      // Clear URL params
       window.history.replaceState({}, document.title, window.location.pathname);
     } finally {
       setProcessingCallback(false);
     }
   };
 
-  // SSO 로그인 시작
   const handleSSOLogin = () => {
     setLoading(true);
     setError('');
-
-    // Build redirect URL (current page)
     const redirectUrl = window.location.origin + window.location.pathname;
-
-    // Build SSO URL
     const ssoUrl = new URL(SSO_PATH, SSO_BASE_URL);
     ssoUrl.searchParams.set('redirect_url', redirectUrl);
-
-    // Redirect to SSO
     window.location.href = ssoUrl.toString();
   };
 
-  // 로딩 중 (SSO 콜백 처리)
   if (processingCallback) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-pastel-50 via-white to-pastel-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-6 text-lg text-pastel-800">SSO 인증 처리 중...</p>
-          <p className="mt-2 text-sm text-pastel-500">잠시만 기다려주세요</p>
+      <div className="min-h-screen bg-[#F5F5F7] flex items-center justify-center p-4">
+        <div className="text-center animate-fade-in">
+          <div className="w-16 h-16 border-[3px] border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="mt-6 text-lg font-medium text-gray-800">인증 처리 중</p>
+          <p className="mt-1 text-sm text-gray-500">잠시만 기다려주세요</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pastel-50 via-white to-pastel-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-24 h-24 bg-white rounded-2xl mb-6 border border-pastel-200 shadow-lg overflow-hidden">
-            <img src="/logo.png" alt="AX Portal" className="w-20 h-20 object-contain" />
-          </div>
-          <h1 className="text-3xl font-bold text-pastel-800 tracking-tight">AX Portal</h1>
-          <p className="text-pastel-500 mt-2 text-sm">Portal</p>
-        </div>
+    <div className="min-h-screen bg-[#F5F5F7] flex flex-col">
+      {/* Top accent bar */}
+      <div className="h-1 bg-gradient-to-r from-samsung-blue via-pastel-300 to-samsung-blue-dark" />
 
-        {/* Login Card */}
-        <div className="bg-white rounded-2xl shadow-xl border border-pastel-100 p-8">
-          <h2 className="text-xl font-semibold text-pastel-800 mb-2">로그인</h2>
-          <p className="text-sm text-pastel-500 mb-6">SSO를 통해 로그인하세요</p>
-
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-600">{error}</p>
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="w-full max-w-[420px] animate-slide-up">
+          {/* Logo Section */}
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-[22px] mb-5 shadow-ios-lg overflow-hidden">
+              <img src="/logo.png" alt="AX Portal" className="w-16 h-16 object-contain" />
             </div>
-          )}
+            <h1 className="text-[28px] font-bold text-gray-900 tracking-tight leading-tight">
+              AX Portal
+            </h1>
+            <p className="text-gray-500 mt-1.5 text-[15px]">LLM Gateway & Analytics</p>
+          </div>
 
-          <button
-            onClick={handleSSOLogin}
-            disabled={loading}
-            className="w-full py-4 px-4 bg-gradient-to-r from-pastel-400 to-samsung-blue text-white font-semibold rounded-xl hover:from-pastel-500 hover:to-samsung-blue-dark focus:ring-4 focus:ring-pastel-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 shadow-lg shadow-pastel-300/50"
-          >
-            {loading ? (
-              <>
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                SSO 페이지로 이동 중...
-              </>
-            ) : (
-              <>
-                <LogIn className="w-5 h-5" />
-                SSO로 로그인
-              </>
+          {/* Login Card */}
+          <div className="bg-white rounded-ios-xl shadow-ios-lg p-8">
+            {error && (
+              <div className="mb-5 p-3.5 bg-red-50 border border-red-100 rounded-ios flex items-start gap-2.5 animate-scale-in">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-[13px] text-red-600 leading-relaxed">{error}</p>
+              </div>
             )}
-          </button>
 
-          <div className="mt-6 pt-6 border-t border-pastel-100">
-            <div className="text-center text-xs text-pastel-500 space-y-1">
-              <p>Samsung DS 계정으로 로그인됩니다</p>
-              <p>관리자 권한이 있는 경우 전체 기능에 접근할 수 있습니다</p>
+            <button
+              onClick={handleSSOLogin}
+              disabled={loading}
+              className="w-full py-3.5 px-5 bg-samsung-blue text-white font-semibold rounded-ios-lg
+                         hover:bg-samsung-blue-dark
+                         focus:outline-none focus:ring-4 focus:ring-samsung-blue/20
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-all duration-200 ease-ios
+                         transform active:scale-[0.98]
+                         flex items-center justify-center gap-2.5 text-[15px]
+                         shadow-lg shadow-samsung-blue/25"
+            >
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  SSO 페이지로 이동 중...
+                </>
+              ) : (
+                <>
+                  <LogIn className="w-[18px] h-[18px]" />
+                  SSO로 로그인
+                  <ArrowRight className="w-4 h-4 ml-auto opacity-60" />
+                </>
+              )}
+            </button>
+
+            {/* Features */}
+            <div className="mt-7 pt-6 border-t border-gray-100">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center">
+                  <div className="w-10 h-10 rounded-ios bg-blue-50 flex items-center justify-center mx-auto mb-2">
+                    <Cpu className="w-5 h-5 text-samsung-blue" />
+                  </div>
+                  <p className="text-[11px] text-gray-500 font-medium">LLM 관리</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-10 h-10 rounded-ios bg-purple-50 flex items-center justify-center mx-auto mb-2">
+                    <Shield className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <p className="text-[11px] text-gray-500 font-medium">3-Tier 권한</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-10 h-10 rounded-ios bg-green-50 flex items-center justify-center mx-auto mb-2">
+                    <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  <p className="text-[11px] text-gray-500 font-medium">실시간 통계</p>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <p className="text-center text-xs text-pastel-500 mt-8">
-          &copy; 2026 AX Portal. Samsung DS Internal Use Only.
-        </p>
+          {/* Footer */}
+          <div className="text-center mt-8 space-y-1">
+            <p className="text-[12px] text-gray-400">Samsung DS 계정으로 로그인됩니다</p>
+            <p className="text-[11px] text-gray-400">&copy; 2026 AX Portal</p>
+          </div>
+        </div>
       </div>
     </div>
   );

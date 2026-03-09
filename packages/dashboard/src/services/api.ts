@@ -18,11 +18,11 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors (401 only — 403 is permission denied, not token expiry)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    if (error.response?.status === 401) {
       localStorage.removeItem('nexus_token');
       window.location.href = '/';
     }
@@ -48,21 +48,24 @@ export const authApi = {
 export const serviceApi = {
   list: () => api.get('/services'),
   listAll: () => api.get('/services/all'),
+  listNames: () => api.get('/services/names'),
   get: (id: string) => api.get(`/services/${id}`),
   create: (data: CreateServiceData) => api.post('/services', data),
   update: (id: string, data: Partial<CreateServiceData>) => api.put(`/services/${id}`, data),
   delete: (id: string) => api.delete(`/services/${id}`),
   resetData: (id: string) => api.post(`/services/${id}/reset-data`),
   stats: (id: string) => api.get(`/services/${id}/stats`),
+  checkName: (name: string) => api.get(`/services/check-name/${name}`),
 };
 
 export const modelsApi = {
-  list: (serviceId?: string) => api.get('/admin/models', { params: { serviceId } }),
-  create: (data: CreateModelData) => api.post('/admin/models', data),
-  update: (id: string, data: Partial<CreateModelData>) => api.put(`/admin/models/${id}`, data),
-  delete: (id: string, force = false) => api.delete(`/admin/models/${id}`, { params: { force } }),
+  list: () => api.get('/models'),
+  get: (id: string) => api.get(`/models/${id}`),
+  create: (data: CreateModelData) => api.post('/models', data),
+  update: (id: string, data: Partial<CreateModelData>) => api.put(`/models/${id}`, data),
+  delete: (id: string, force = false) => api.delete(`/models/${id}`, { params: { force } }),
+  toggle: (id: string) => api.patch(`/models/${id}/toggle`),
   reorder: (modelIds: string[]) => api.put('/admin/models/reorder', { modelIds }),
-  businessUnits: () => api.get('/admin/business-units'),
   // SubModel API (로드밸런싱)
   listSubModels: (modelId: string) => api.get(`/admin/models/${modelId}/sub-models`),
   createSubModel: (modelId: string, data: CreateSubModelData) => api.post(`/admin/models/${modelId}/sub-models`, data),
@@ -70,7 +73,7 @@ export const modelsApi = {
     api.put(`/admin/models/${modelId}/sub-models/${subModelId}`, data),
   deleteSubModel: (modelId: string, subModelId: string) =>
     api.delete(`/admin/models/${modelId}/sub-models/${subModelId}`),
-  // 엔드포인트 테스트 (call test + tool call test)
+  // 엔드포인트 테스트
   testEndpoint: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
     api.post('/admin/models/test', data),
 };
@@ -80,34 +83,10 @@ export const usersApi = {
     api.get('/admin/users', { params: { page, limit, serviceId } }),
   get: (id: string) => api.get(`/admin/users/${id}`),
   getAdminStatus: (id: string) => api.get(`/admin/users/${id}/admin-status`),
-  promote: (id: string, role: 'ADMIN' | 'VIEWER', serviceId?: string) =>
+  promote: (id: string, role: 'ADMIN', serviceId?: string) =>
     api.post(`/admin/users/${id}/promote`, { role, serviceId }),
   demote: (id: string, serviceId?: string) =>
     api.delete(`/admin/users/${id}/demote`, { data: { serviceId } }),
-};
-
-export const feedbackApi = {
-  list: (params?: { status?: string; category?: string; page?: number; limit?: number; serviceId?: string }) =>
-    api.get('/feedback', { params }),
-  byService: () => api.get('/feedback/by-service'),
-  get: (id: string) => api.get(`/feedback/${id}`),
-  create: (data: { category: string; title: string; content: string; serviceId?: string }) =>
-    api.post('/feedback', data),
-  update: (id: string, data: { category?: string; title?: string; content?: string; serviceId?: string }) =>
-    api.put(`/feedback/${id}`, data),
-  delete: (id: string) => api.delete(`/feedback/${id}`),
-  respond: (id: string, data: { response: string; status?: string }) =>
-    api.post(`/feedback/${id}/respond`, data),
-  updateStatus: (id: string, status: string) =>
-    api.patch(`/feedback/${id}/status`, { status }),
-  stats: (serviceId?: string) => api.get('/feedback/stats/overview', { params: { serviceId } }),
-  // 댓글 API
-  addComment: (feedbackId: string, content: string) =>
-    api.post(`/feedback/${feedbackId}/comments`, { content }),
-  updateComment: (feedbackId: string, commentId: string, content: string) =>
-    api.put(`/feedback/${feedbackId}/comments/${commentId}`, { content }),
-  deleteComment: (feedbackId: string, commentId: string) =>
-    api.delete(`/feedback/${feedbackId}/comments/${commentId}`),
 };
 
 export const statsApi = {
@@ -185,8 +164,10 @@ interface CreateModelData {
   extraHeaders?: Record<string, string>;
   maxTokens?: number;
   enabled?: boolean;
-  serviceId?: string;
-  allowedBusinessUnits?: string[];
+  supportsVision?: boolean;
+  visibility?: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY';
+  visibilityScope?: string[];
+  sortOrder?: number;
 }
 
 interface CreateSubModelData {
@@ -204,130 +185,7 @@ interface CreateServiceData {
   description?: string;
   iconUrl?: string;
   enabled?: boolean;
-}
-
-// LLM 테스트 API
-export interface LLMTestPair {
-  id: string;
-  name: string;
-  enabled: boolean;
-  intervalMinutes: number;
-  questionerModelName: string;
-  questionerEndpoint: string;
-  questionerApiKey: string | null;
-  questionerExtraHeaders?: Record<string, string> | null;
-  testModelName: string;
-  testEndpoint: string;
-  testApiKey: string | null;
-  testExtraHeaders?: Record<string, string> | null;
-  questionPrompt: string;
-  evaluationPrompt: string;
-  createdAt: string;
-  updatedAt: string;
-  lastRunAt: string | null;
-  _count?: { results: number };
-}
-
-export interface LLMTestResult {
-  id: string;
-  pairId: string;
-  timestamp: string;
-  latencyMs: number;
-  score: number | null;
-  status: string;
-  errorMessage: string | null;
-  pair?: {
-    id: string;
-    name: string;
-    testModelName: string;
-  };
-}
-
-export interface CreateLLMTestPairData {
-  name: string;
-  enabled?: boolean;
-  intervalMinutes?: number;
-  questionerModelName: string;
-  questionerEndpoint: string;
-  questionerApiKey?: string;
-  questionerExtraHeaders?: Record<string, string>;
-  testModelName: string;
-  testEndpoint: string;
-  testApiKey?: string;
-  testExtraHeaders?: Record<string, string>;
-  questionPrompt?: string;
-  evaluationPrompt?: string;
-}
-
-export const llmTestApi = {
-  // 테스트 쌍 관리
-  listPairs: () =>
-    api.get<{ pairs: LLMTestPair[] }>('/llm-test/pairs'),
-  getPair: (id: string) =>
-    api.get<{ pair: LLMTestPair }>(`/llm-test/pairs/${id}`),
-  createPair: (data: CreateLLMTestPairData) =>
-    api.post<{ pair: LLMTestPair }>('/llm-test/pairs', data),
-  updatePair: (id: string, data: Partial<CreateLLMTestPairData>) =>
-    api.put<{ pair: LLMTestPair }>(`/llm-test/pairs/${id}`, data),
-  deletePair: (id: string) =>
-    api.delete<{ message: string }>(`/llm-test/pairs/${id}`),
-
-  // 테스트 실행
-  runTest: (pairId: string) =>
-    api.post<{ result: LLMTestResult }>(`/llm-test/pairs/${pairId}/run`),
-
-  // 결과 조회
-  getResults: (pairId: string, params?: { limit?: number; offset?: number; days?: number }) =>
-    api.get<{ results: LLMTestResult[]; total: number }>(`/llm-test/pairs/${pairId}/results`, { params }),
-  getChartData: (params?: { pairIds?: string[]; days?: number }) =>
-    api.get<{ results: LLMTestResult[]; pairs: { id: string; name: string; testModelName: string }[] }>(
-      '/llm-test/results/chart',
-      { params: { ...params, pairIds: params?.pairIds?.join(',') } }
-    ),
-
-  // 통계
-  getStats: () =>
-    api.get<{
-      totalPairs: number;
-      enabledPairs: number;
-      recentTestCount: number;
-      successRate: number;
-      avgLatency: number;
-      avgScore: number | null;
-    }>('/llm-test/stats'),
-};
-
-// 에러 텔레메트리 API
-export const errorTelemetryApi = {
-  logs: (params?: { page?: number; limit?: number; source?: string; errorCode?: string; userId?: string; serviceId?: string; days?: number }) =>
-    api.get<{ logs: ErrorLogItem[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>('/error-telemetry/logs', { params }),
-  stats: (days = 30) =>
-    api.get<{
-      totalErrors: number;
-      affectedUsers: number;
-      errorsByCode: Array<{ errorCode: string; count: number }>;
-      errorsBySource: Array<{ source: string; count: number }>;
-      dailyTrend: Array<{ date: string; count: number }>;
-    }>('/error-telemetry/stats', { params: { days } }),
-  delete: (id: string) => api.delete(`/error-telemetry/logs/${id}`),
-  bulkDelete: (ids: string[]) => api.post<{ deleted: number }>('/error-telemetry/logs/bulk-delete', { ids }),
-  cleanup: () => api.post<{ deleted: number }>('/error-telemetry/cleanup'),
-};
-
-export interface ErrorLogItem {
-  id: string;
-  source: string;
-  appVersion: string;
-  platform: string | null;
-  errorName: string;
-  errorCode: string;
-  errorMessage: string;
-  stackTrace: string | null;
-  isRecoverable: boolean;
-  context: Record<string, unknown> | null;
-  timestamp: string;
-  user: { id: string; loginid: string; username: string; deptname: string };
-  service: { id: string; name: string; displayName: string } | null;
+  type?: 'STANDARD' | 'BACKGROUND';
 }
 
 // 휴일 관리 API

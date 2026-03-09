@@ -111,6 +111,7 @@ usageRoutes.get('/by-user', async (req, res) => {
       by: ['userId'],
       where: {
         timestamp: { gte: startDate },
+        userId: { not: null },
       },
       _sum: {
         inputTokens: true,
@@ -121,7 +122,7 @@ usageRoutes.get('/by-user', async (req, res) => {
     });
 
     // Get user names
-    const userIds = usage.map(u => u.userId);
+    const userIds = usage.map(u => u.userId).filter((id): id is string => id !== null);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, username: true, loginid: true },
@@ -131,8 +132,8 @@ usageRoutes.get('/by-user', async (req, res) => {
 
     const result = usage.map(u => ({
       userId: u.userId,
-      username: userMap.get(u.userId)?.username || 'Unknown',
-      loginid: userMap.get(u.userId)?.loginid || 'unknown',
+      username: u.userId ? (userMap.get(u.userId)?.username || 'Unknown') : 'Background',
+      loginid: u.userId ? (userMap.get(u.userId)?.loginid || 'unknown') : 'background',
       requests: u._count,
       inputTokens: u._sum?.inputTokens ?? 0,
       outputTokens: u._sum?.outputTokens ?? 0,

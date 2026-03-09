@@ -1,11 +1,10 @@
 /**
- * Nexus Coder Admin API Server
+ * Agent Dashboard API Server (v2)
  *
- * Express server for managing models, users, and usage statistics
+ * 3단계 권한 체계 + 헤더 기반 프록시 인증
  */
 
-// Force noproxy: 모든 LLM 호출이 프록시를 우회하도록 환경변수 제거
-// Docker Compose에서 빌드용으로 주입된 프록시 설정이 런타임 fetch()에 영향을 주지 않도록 함
+// Force noproxy
 delete process.env['HTTP_PROXY'];
 delete process.env['HTTPS_PROXY'];
 delete process.env['http_proxy'];
@@ -23,31 +22,20 @@ import { modelsRoutes } from './routes/models.routes.js';
 import { usageRoutes } from './routes/usage.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { proxyRoutes } from './routes/proxy.routes.js';
-import { feedbackRoutes } from './routes/feedback.routes.js';
 import { myUsageRoutes } from './routes/my-usage.routes.js';
 import { ratingRoutes } from './routes/rating.routes.js';
 import { serviceRoutes } from './routes/service.routes.js';
 import { holidaysRoutes } from './routes/holidays.routes.js';
-import { llmTestRoutes } from './routes/llm-test.routes.js';
-import { startLLMTestScheduler, stopLLMTestScheduler } from './services/llm-test.service.js';
-import { errorTelemetryRoutes } from './routes/error-telemetry.routes.js';
-import { startErrorCleanupScheduler } from './services/error-cleanup.service.js';
 import { requestLogger } from './middleware/requestLogger.js';
 
-// Load environment variables
 import 'dotenv/config';
 
 const app = express();
 const PORT = process.env['PORT'] || 3000;
 
-// Trust first proxy (nginx)
-// Required for express-rate-limit to work correctly behind reverse proxy
 app.set('trust proxy', 1);
 
-// Initialize Prisma
 export const prisma = new PrismaClient();
-
-// Initialize Redis
 export const redis = createRedisClient();
 
 // Middleware
@@ -62,34 +50,31 @@ app.use(morgan('combined'));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Limit each IP to 1000 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: { error: 'Too many requests, please try again later.' },
 });
 app.use(limiter);
 
-// Health check endpoint
+// Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// API Routes
+// API Routes (Dashboard - JWT/SSO auth)
 app.use('/auth', authRoutes);
 app.use('/services', serviceRoutes);
 app.use('/models', modelsRoutes);
 app.use('/usage', usageRoutes);
 app.use('/admin', adminRoutes);
-app.use('/feedback', feedbackRoutes);
 app.use('/my-usage', myUsageRoutes);
 app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
-app.use('/llm-test', llmTestRoutes);
-app.use('/error-telemetry', errorTelemetryRoutes);
 
-// LLM Proxy Routes (OpenAI-compatible)
+// LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
 
-// Error handling middleware
+// Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Error:', err);
   if (!res.headersSent) {
@@ -100,12 +85,12 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   }
 });
 
-// 404 handler
+// 404
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Crash protection - prevent single error from killing the process
+// Crash protection
 process.on('uncaughtException', (err) => {
   console.error(`[PID ${process.pid}] Uncaught exception:`, err);
   setTimeout(() => process.exit(1), 3000);
@@ -117,7 +102,6 @@ process.on('unhandledRejection', (reason) => {
 // Graceful shutdown
 async function shutdown() {
   console.log('Shutting down gracefully...');
-  stopLLMTestScheduler();
   await prisma.$disconnect();
   await redis.quit();
   process.exit(0);
@@ -126,56 +110,20 @@ async function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-// Ensure default service exists (without auto-migration)
-async function ensureDefaultService() {
-  const DEFAULT_SERVICE_NAME = process.env['DEFAULT_SERVICE_NAME'] || 'nexus-coder';
-  const DEFAULT_SERVICE_DISPLAY_NAME = process.env['DEFAULT_SERVICE_DISPLAY_NAME'] || 'Nexus Coder';
-
-  const existing = await prisma.service.findUnique({
-    where: { name: DEFAULT_SERVICE_NAME },
-  });
-
-  if (!existing) {
-    await prisma.service.create({
-      data: {
-        name: DEFAULT_SERVICE_NAME,
-        displayName: DEFAULT_SERVICE_DISPLAY_NAME,
-        description: 'Default service (auto-created)',
-        enabled: true,
-      },
-    });
-    console.log(`[Service] Default service '${DEFAULT_SERVICE_NAME}' created`);
-  } else {
-    console.log(`[Service] Default service '${DEFAULT_SERVICE_NAME}' exists (id: ${existing.id})`);
-  }
-}
-
 // Start server
 async function main() {
   try {
-    // Test database connection
     await prisma.$connect();
     console.log('Database connected');
 
-    // Test Redis connection
     await redis.ping();
     console.log('Redis connected');
 
-    // Ensure default service exists
-    await ensureDefaultService();
-
     const server = app.listen(PORT, () => {
-      console.log(`AX Portal API server running on port ${PORT}`);
+      console.log(`Agent Dashboard API server running on port ${PORT}`);
     });
-    // Must be > nginx keepalive_timeout (60s) to prevent "connection reset by peer"
     server.keepAliveTimeout = 65000;
     server.headersTimeout = 66000;
-
-    // Start LLM test scheduler
-    startLLMTestScheduler();
-
-    // Start error log cleanup scheduler
-    startErrorCleanupScheduler(prisma);
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

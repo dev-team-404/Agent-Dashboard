@@ -1,16 +1,12 @@
 version: '3.8'
 
 # ============================================
-# AI Services Dashboard - Docker Compose
+# Agent Dashboard - Docker Compose (v2)
 # ============================================
-# 환경 변수는 .env 파일에서 설정합니다
-# cp .env.example .env
 
-# 타임존 설정 (KST)
 x-timezone: &timezone
   TZ: Asia/Seoul
 
-# 사내 네트워크 프록시 설정
 x-proxy-env: &proxy-env
   <<: *timezone
   HTTP_PROXY: "${HTTP_PROXY:-}"
@@ -61,7 +57,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # API Server (internal only, accessed via Nginx)
+  # API Server
   api:
     build:
       context: ./packages/api
@@ -77,16 +73,10 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
       SSO_CERT_PATH: /app/cert/cert.cer
-      # 개발자 목록 (쉼표로 구분, SUPER_ADMIN 권한)
-      DEVELOPERS: ${DEVELOPERS:-syngha.han}
+      DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
       PORT: ${API_PORT:-3000}
-      # 기본 서비스 설정
-      DEFAULT_SERVICE_ID: ${DEFAULT_SERVICE_ID:-nexus-coder}
-      DEFAULT_SERVICE_NAME: ${DEFAULT_SERVICE_NAME:-nexus-coder}
-      DEFAULT_SERVICE_DISPLAY_NAME: ${DEFAULT_SERVICE_DISPLAY_NAME:-Nexus Coder}
     volumes:
       - ./cert:/app/cert:ro
-    # No external port - accessed via Nginx only
     expose:
       - "3000"
     depends_on:
@@ -95,7 +85,7 @@ services:
       redis:
         condition: service_healthy
 
-  # React Dashboard (internal only, accessed via Nginx)
+  # React Dashboard
   dashboard:
     build:
       context: ./packages/dashboard
@@ -107,7 +97,6 @@ services:
     environment:
       <<: *proxy-env
       VITE_API_URL: /api
-    # No external port - accessed via Nginx only
     expose:
       - "80"
     depends_on:
@@ -122,7 +111,6 @@ services:
       <<: *timezone
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # React docs-site 빌드 결과물
       - ./docs-site/dist:/var/www/docs:ro
     ports:
       - "${PROXY_PORT:-4090}:4090"

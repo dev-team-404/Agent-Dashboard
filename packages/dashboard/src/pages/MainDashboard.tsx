@@ -1,43 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Activity, Zap, Building2, TrendingUp, ArrowRight, Server, Plus, X, Clock, Star, Trash2 } from 'lucide-react';
-import { statsApi, serviceApi, ratingApi } from '../services/api';
+import {
+  Users, Activity, Zap, Building2, TrendingUp, ArrowRight, Server,
+  Plus, X, Clock, Trash2, BarChart3, Globe, Layers,
+} from 'lucide-react';
+import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
+import {
+  AreaChart, Area, LineChart, Line as RechartsLine, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  ComposedChart,
+} from 'recharts';
 
-type AdminRole = 'SUPER_ADMIN' | 'SERVICE_ADMIN' | 'VIEWER' | 'SERVICE_VIEWER' | null;
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 interface MainDashboardProps {
   adminRole: AdminRole;
 }
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  BarController,
-  LineController,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-} from 'chart.js';
-import { Line, Chart } from 'react-chartjs-2';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  BarController,
-  LineController,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement
-);
 
 interface Service {
   id: string;
@@ -45,9 +24,9 @@ interface Service {
   displayName: string;
   description?: string;
   iconUrl?: string;
+  type?: string;
   enabled: boolean;
   _count: {
-    models: number;
     usageLogs: number;
   };
 }
@@ -86,12 +65,12 @@ interface DeptDailyData {
 
 interface DeptUsersDaily {
   date: string;
-  [key: string]: string | number; // BU_active, BU_cumulative
+  [key: string]: string | number;
 }
 
 interface DeptServiceRequestsDaily {
   date: string;
-  [key: string]: string | number; // "BU/Service" combinations
+  [key: string]: string | number;
 }
 
 interface GlobalTotals {
@@ -129,20 +108,120 @@ interface LatencyHistory {
   [key: string]: LatencyHistoryPoint[];
 }
 
-interface RatingDailyData {
-  date: string;
-  modelName: string;
-  serviceName: string | null;
-  averageRating: number;
-  ratingCount: number;
+// ── Animated Counter Hook ──
+function useAnimatedCounter(target: number, duration = 1200) {
+  const [value, setValue] = useState(0);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const start = performance.now();
+    const from = 0;
+    const animate = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // easeOutExpo
+      const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setValue(Math.round(from + (target - from) * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, duration]);
+
+  return value;
 }
 
-interface RatingByModel {
-  modelName: string;
-  serviceName: string | null;
-  averageRating: number | null;
-  totalRatings: number;
+// ── Stat Card with Animated Counter ──
+function StatCard({
+  label, value, icon: Icon, gradient, description, highlight, delay,
+}: {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  gradient: string;
+  description: string;
+  highlight?: boolean;
+  delay: number;
+}) {
+  const animatedValue = useAnimatedCounter(value);
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  };
+
+  return (
+    <div
+      className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      {/* Gradient accent bar at top */}
+      <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
+
+      {/* Glass shimmer on hover */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+
+      <div className="relative p-5">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-500">{label}</p>
+            <p className={`text-3xl font-bold tracking-tight ${highlight ? 'text-orange-600' : 'text-gray-900'}`}>
+              {formatNumber(animatedValue)}
+            </p>
+            <p className="text-xs text-gray-400">{description}</p>
+          </div>
+          <div className={`p-3 rounded-xl ${gradient} shadow-lg`}>
+            <Icon className="w-5 h-5 text-white" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
+
+// ── Sparkline mini-chart for service cards ──
+function Sparkline({ data, color }: { data: number[]; color: string }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const width = 120;
+  const height = 32;
+  const points = data.map((v, i) => ({
+    x: (i / (data.length - 1)) * width,
+    y: height - ((v - min) / range) * height,
+  }));
+  const pathD = points.map((p, i) => (i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`)).join(' ');
+  const areaD = `${pathD} L${width},${height} L0,${height} Z`;
+
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <defs>
+        <linearGradient id={`spark-${color}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path d={areaD} fill={`url(#spark-${color})`} />
+      <path d={pathD} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={2.5} fill={color} />
+    </svg>
+  );
+}
+
+// ── Chart Tab Section ──
+type ChartTab = 'service' | 'dept-users' | 'dept-requests' | 'dept-tokens' | 'latency';
+
+// ── Color palette ──
+const CHART_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
+  '#06b6d4', '#ea580c', '#6366f1', '#22c55e', '#ef4444',
+  '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
+];
 
 export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const [services, setServices] = useState<Service[]>([]);
@@ -158,16 +237,11 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const [deptServiceCombos, setDeptServiceCombos] = useState<string[]>([]);
   const [latencyStats, setLatencyStats] = useState<LatencyStat[]>([]);
   const [latencyHistory, setLatencyHistory] = useState<LatencyHistory>({});
-  const [ratingDailyData, setRatingDailyData] = useState<RatingDailyData[]>([]);
-  const [ratingByModel, setRatingByModel] = useState<RatingByModel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<ChartTab>('service');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [newService, setNewService] = useState({
-    name: '',
-    displayName: '',
-    description: '',
-  });
+  const [newService, setNewService] = useState({ name: '', displayName: '', description: '', serviceType: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -178,7 +252,11 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
   const loadData = async () => {
     try {
-      const [servicesRes, globalRes, serviceDailyRes, deptRes, deptDailyRes, deptUsersDailyRes, deptServiceReqsRes, latencyRes, latencyHistoryRes, ratingRes] = await Promise.all([
+      const [
+        servicesRes, globalRes, serviceDailyRes, deptRes,
+        deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
+        latencyRes, latencyHistoryRes,
+      ] = await Promise.all([
         serviceApi.list(),
         statsApi.globalOverview(),
         statsApi.globalByService(30),
@@ -188,7 +266,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         statsApi.globalByDeptServiceRequestsDaily(30, 10),
         statsApi.latency(),
         statsApi.latencyHistory(24, 10),
-        ratingApi.stats(30),
       ]);
 
       setServices(servicesRes.data.services || []);
@@ -204,8 +281,6 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
       setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
       setLatencyStats(latencyRes.data.stats || []);
       setLatencyHistory(latencyHistoryRes.data.history || {});
-      setRatingDailyData(ratingRes.data.daily || []);
-      setRatingByModel(ratingRes.data.byModel || []);
     } catch (error) {
       console.error('Failed to load main dashboard data:', error);
     } finally {
@@ -216,22 +291,20 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newService.name || !newService.displayName) return;
-
     setCreating(true);
     try {
       await serviceApi.create({
         name: newService.name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
         displayName: newService.displayName,
         description: newService.description || undefined,
+        type: newService.serviceType,
         enabled: true,
       });
       setShowCreateModal(false);
-      setNewService({ name: '', displayName: '', description: '' });
+      setNewService({ name: '', displayName: '', description: '', serviceType: 'STANDARD' });
       loadData();
-      // Notify sidebar to refresh services
       window.dispatchEvent(new CustomEvent('services-updated'));
-    } catch (error) {
-      console.error('Failed to create service:', error);
+    } catch {
       alert('서비스 생성에 실패했습니다. 이미 존재하는 이름인지 확인해주세요.');
     } finally {
       setCreating(false);
@@ -248,12 +321,12 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
       loadData();
       window.dispatchEvent(new CustomEvent('services-updated'));
     } catch (error: unknown) {
-      const err = error as { response?: { status?: number; data?: { details?: { models?: number; usageLogs?: number; feedbacks?: number } } } };
+      const err = error as { response?: { status?: number; data?: { details?: { usageLogs?: number } } } };
       if (err.response?.status === 409) {
         const d = err.response.data?.details;
         setDeleteError(
           `연결된 데이터가 있어 삭제할 수 없습니다.\n` +
-          `모델: ${d?.models ?? 0}개 / 사용 기록: ${d?.usageLogs ?? 0}개 / 피드백: ${d?.feedbacks ?? 0}개\n` +
+          `사용 기록: ${d?.usageLogs ?? 0}개\n` +
           `먼저 연결된 데이터를 삭제해주세요.`
         );
       } else {
@@ -264,13 +337,21 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     }
   };
 
-  // Merge services with globalOverview data (to show services with no data)
+  const formatNumber = useCallback((num: number): string => {
+    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  }, []);
+
+  // ── Merge services with globalOverview ──
   const mergedServiceStats = services.map((service) => {
     const stats = globalOverview.find((s) => s.serviceId === service.id);
     return {
       serviceId: service.id,
       serviceName: service.name,
       serviceDisplayName: service.displayName,
+      type: service.type || 'STANDARD',
       iconUrl: service.iconUrl,
       totalUsers: stats?.totalUsers || 0,
       todayActiveUsers: stats?.todayActiveUsers || 0,
@@ -281,420 +362,563 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     };
   });
 
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  };
-
-  // Use deduplicated totals from API (users/avgDailyActiveUsers are deduplicated across services)
+  // ── Derived totals ──
   const totalUsers = globalTotals?.totalUsers ?? 0;
   const todayActive = globalTotals?.todayActiveUsers ?? 0;
-  const avgDailyActive = globalTotals?.avgDailyActiveUsers ?? 0;
   const avgDailyActiveExcluding = globalTotals?.avgDailyActiveUsersExcluding ?? 0;
   const totalTokens = globalTotals?.totalTokens ?? globalOverview.reduce((sum, s) => sum + s.totalTokens, 0);
   const totalRequests = globalTotals?.totalRequests ?? globalOverview.reduce((sum, s) => sum + s.totalRequests, 0);
 
-  // Prepare chart data for service daily usage
+  // ── Chart data transforms ──
   const uniqueDates = [...new Set(serviceDaily.map(d => d.date))].sort();
   const uniqueServices = [...new Set(serviceDaily.map(d => d.serviceName))];
 
-  const colors = [
-    { bg: 'rgba(59, 130, 246, 0.5)', border: 'rgb(59, 130, 246)' },
-    { bg: 'rgba(16, 185, 129, 0.5)', border: 'rgb(16, 185, 129)' },
-    { bg: 'rgba(245, 158, 11, 0.5)', border: 'rgb(245, 158, 11)' },
-    { bg: 'rgba(139, 92, 246, 0.5)', border: 'rgb(139, 92, 246)' },
-    { bg: 'rgba(236, 72, 153, 0.5)', border: 'rgb(236, 72, 153)' },
-  ];
+  // Recharts: transform service daily data to row-based format
+  const serviceRechartsData = uniqueDates.map(date => {
+    const row: Record<string, string | number> = { date: date.slice(5) };
+    uniqueServices.forEach(svc => {
+      const entry = serviceDaily.find(d => d.date === date && d.serviceName === svc);
+      row[svc] = entry?.requests || 0;
+    });
+    return row;
+  });
 
-  const serviceChartData = {
-    labels: uniqueDates.map(d => d.slice(5)), // MM-DD format
-    datasets: uniqueServices.map((serviceName, index) => ({
-      label: serviceName,
-      data: uniqueDates.map(date => {
-        const entry = serviceDaily.find(d => d.date === date && d.serviceName === serviceName);
-        return entry?.requests || 0;
-      }),
-      backgroundColor: colors[index % colors.length].bg,
-      borderColor: colors[index % colors.length].border,
-      borderWidth: 2,
-      fill: false,
-      tension: 0.3,
-    })),
-  };
+  // Dept daily token data for recharts
+  const deptTokenRechartsData = deptDailyData.map(d => ({
+    ...d,
+    date: (d.date as string).slice(5),
+  }));
 
-  // Prepare dept daily token usage line chart data
-  const deptLineChartData = {
-    labels: deptDailyData.map(d => (d.date as string).slice(5)), // MM-DD format
-    datasets: deptBusinessUnits.map((bu, index) => ({
-      label: bu,
-      data: deptDailyData.map(d => (d[bu] as number) || 0),
-      borderColor: colors[index % colors.length].border,
-      backgroundColor: colors[index % colors.length].bg,
-      borderWidth: 2,
-      fill: false,
-      tension: 0.3,
-      pointRadius: 2,
-      pointHoverRadius: 5,
-    })),
-  };
+  // Dept users daily data for recharts
+  const deptUsersRechartsData = deptUsersDailyData.map(d => ({
+    ...d,
+    date: (d.date as string).slice(5),
+  }));
 
-  // Prepare dept users daily chart data (cumulative line + active bar)
-  const deptUsersChartData = {
-    labels: deptUsersDailyData.map(d => (d.date as string).slice(5)),
-    datasets: deptUsersBUs.flatMap((bu, index) => [
-      {
-        type: 'line' as const,
-        label: `${bu} (누적)`,
-        data: deptUsersDailyData.map(d => (d[`${bu}_cumulative`] as number) || 0),
-        borderColor: colors[index % colors.length].border,
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        yAxisID: 'y',
-        order: 1, // Draw lines on top
-      },
-      {
-        type: 'bar' as const,
-        label: `${bu} (활성)`,
-        data: deptUsersDailyData.map(d => (d[`${bu}_active`] as number) || 0),
-        backgroundColor: colors[index % colors.length].bg,
-        borderColor: colors[index % colors.length].border,
-        borderWidth: 1,
-        yAxisID: 'y1',
-        order: 2, // Draw bars behind lines
-      },
-    ]),
-  };
+  // Dept+service requests daily data
+  const deptServiceRechartsData = deptServiceRequestsData.map(d => ({
+    ...d,
+    date: (d.date as string).slice(5),
+  }));
 
-  // Extended color palette for distinct colors
-  const extendedColors = [
-    { bg: 'rgba(59, 130, 246, 0.5)', border: 'rgb(59, 130, 246)' },   // Blue
-    { bg: 'rgba(16, 185, 129, 0.5)', border: 'rgb(16, 185, 129)' },   // Emerald
-    { bg: 'rgba(245, 158, 11, 0.5)', border: 'rgb(245, 158, 11)' },   // Amber
-    { bg: 'rgba(139, 92, 246, 0.5)', border: 'rgb(139, 92, 246)' },   // Violet
-    { bg: 'rgba(236, 72, 153, 0.5)', border: 'rgb(236, 72, 153)' },   // Pink
-    { bg: 'rgba(6, 182, 212, 0.5)', border: 'rgb(6, 182, 212)' },     // Cyan
-    { bg: 'rgba(234, 88, 12, 0.5)', border: 'rgb(234, 88, 12)' },     // Orange
-    { bg: 'rgba(99, 102, 241, 0.5)', border: 'rgb(99, 102, 241)' },   // Indigo
-    { bg: 'rgba(34, 197, 94, 0.5)', border: 'rgb(34, 197, 94)' },     // Green
-    { bg: 'rgba(239, 68, 68, 0.5)', border: 'rgb(239, 68, 68)' },     // Red
-    { bg: 'rgba(168, 85, 247, 0.5)', border: 'rgb(168, 85, 247)' },   // Purple
-    { bg: 'rgba(14, 165, 233, 0.5)', border: 'rgb(14, 165, 233)' },   // Sky
-    { bg: 'rgba(251, 146, 60, 0.5)', border: 'rgb(251, 146, 60)' },   // Orange-light
-    { bg: 'rgba(132, 204, 22, 0.5)', border: 'rgb(132, 204, 22)' },   // Lime
-    { bg: 'rgba(244, 63, 94, 0.5)', border: 'rgb(244, 63, 94)' },     // Rose
-  ];
-
-  // Prepare dept+service API requests chart data (distinct colors)
-  const deptServiceRequestsChartData = {
-    labels: deptServiceRequestsData.map(d => (d.date as string).slice(5)),
-    datasets: deptServiceCombos.map((combo, index) => {
-      const color = extendedColors[index % extendedColors.length];
-      return {
-        label: combo,
-        data: deptServiceRequestsData.map(d => (d[combo] as number) || 0),
-        borderColor: color.border,
-        backgroundColor: color.bg,
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-      };
-    }),
-  };
-
-  // Prepare latency chart data (distinct colors)
+  // Latency history for recharts
   const latencyKeys = Object.keys(latencyHistory);
-  const latencyChartData = {
-    labels: latencyKeys.length > 0
-      ? latencyHistory[latencyKeys[0]]?.map(p => {
-          const time = new Date(p.time);
-          return `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
-        }) || []
-      : [],
-    datasets: latencyKeys.map((key, index) => {
-      const color = extendedColors[index % extendedColors.length];
-      return {
-        label: key,
-        data: latencyHistory[key]?.map(p => p.avgLatency) || [],
-        borderColor: color.border,
-        backgroundColor: color.bg,
-        borderWidth: 2,
-        fill: false,
-        tension: 0.3,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-      };
-    }),
-  };
-
-  // Prepare rating chart data (Line: cumulative average, Bar: daily average)
-  const ratingDates = [...new Set(ratingDailyData.map(d => typeof d.date === 'string' ? d.date.slice(0, 10) : new Date(d.date).toISOString().slice(0, 10)))].sort();
-  // Create unique service/model combinations
-  const ratingCombos = [...new Set(ratingDailyData.map(d => `${d.serviceName || 'unknown'}/${d.modelName}`))];
-  const ratingChartData = {
-    labels: ratingDates.map(d => d.slice(5)), // MM-DD format
-    datasets: ratingCombos.flatMap((combo, index) => {
-      const [serviceName, modelName] = combo.split('/');
-      const color = extendedColors[index % extendedColors.length];
-      const label = combo === 'unknown/' + modelName ? modelName : combo;
-
-      // Track cumulative sum and count for cumulative average
-      let cumulativeSum = 0;
-      let cumulativeCount = 0;
-      let lastCumulativeAvg: number | null = null;
-
-      // Build daily and cumulative data arrays
-      const dailyData: (number | null)[] = [];
-      const cumulativeData: (number | null)[] = [];
-
-      ratingDates.forEach(date => {
-        const entry = ratingDailyData.find(d => {
-          const entryDate = typeof d.date === 'string' ? d.date.slice(0, 10) : new Date(d.date).toISOString().slice(0, 10);
-          return entryDate === date && d.modelName === modelName && (d.serviceName || 'unknown') === serviceName;
+  const latencyRechartsData = latencyKeys.length > 0
+    ? (latencyHistory[latencyKeys[0]] || []).map((point, idx) => {
+        const time = new Date(point.time);
+        const row: Record<string, string | number> = {
+          time: `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`,
+        };
+        latencyKeys.forEach(key => {
+          row[key] = latencyHistory[key]?.[idx]?.avgLatency || 0;
         });
+        return row;
+      })
+    : [];
 
-        if (entry) {
-          // Daily average for this date
-          dailyData.push(entry.averageRating);
-          // Update cumulative (weighted by count)
-          cumulativeSum += entry.averageRating * entry.ratingCount;
-          cumulativeCount += entry.ratingCount;
-          lastCumulativeAvg = cumulativeSum / cumulativeCount;
-          cumulativeData.push(lastCumulativeAvg);
-        } else {
-          // No data for this date
-          dailyData.push(null);
-          // Forward-fill cumulative average
-          cumulativeData.push(lastCumulativeAvg);
-        }
-      });
+  // Per-service sparkline data
+  const serviceSparklines: Record<string, number[]> = {};
+  uniqueServices.forEach(svc => {
+    serviceSparklines[svc] = uniqueDates.slice(-14).map(date => {
+      const entry = serviceDaily.find(d => d.date === date && d.serviceName === svc);
+      return entry?.requests || 0;
+    });
+  });
 
-      return [
-        // Line: Cumulative average
-        {
-          type: 'line' as const,
-          label: `${label} (누적)`,
-          data: cumulativeData,
-          borderColor: color.border,
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.3,
-          pointRadius: 2,
-          pointHoverRadius: 5,
-          yAxisID: 'y',
-          order: 1, // Draw lines on top
-        },
-        // Bar: Daily average
-        {
-          type: 'bar' as const,
-          label: `${label} (일별)`,
-          data: dailyData,
-          backgroundColor: color.bg,
-          borderColor: color.border,
-          borderWidth: 1,
-          yAxisID: 'y',
-          order: 2, // Draw bars behind
-        },
-      ];
-    }),
-  };
-
+  // ── Loading skeleton ──
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin"></div>
+      <div className="space-y-6 animate-fade-in">
+        {/* Skeleton stat cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-5">
+              <div className="animate-pulse space-y-3">
+                <div className="h-3 bg-gray-200 rounded w-20" />
+                <div className="h-8 bg-gray-200 rounded w-16" />
+                <div className="h-2 bg-gray-100 rounded w-24" />
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Skeleton service cards */}
+        <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-40" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="rounded-xl border border-gray-100 p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gray-200 rounded-lg" />
+                    <div className="space-y-1.5">
+                      <div className="h-4 bg-gray-200 rounded w-24" />
+                      <div className="h-3 bg-gray-100 rounded w-16" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[...Array(3)].map((_, j) => (
+                      <div key={j} className="h-12 bg-gray-100 rounded-lg" />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        {/* Skeleton chart area */}
+        <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+          <div className="animate-pulse space-y-4">
+            <div className="h-6 bg-gray-200 rounded w-48" />
+            <div className="h-72 bg-gray-100 rounded-xl" />
+          </div>
+        </div>
       </div>
     );
   }
 
+  // ── Chart tab rendering ──
+  const renderChartContent = () => {
+    switch (activeTab) {
+      case 'service':
+        return serviceRechartsData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <AreaChart data={serviceRechartsData}>
+              <defs>
+                {uniqueServices.map((svc, i) => (
+                  <linearGradient key={svc} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.25} />
+                    <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.02} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+              <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+              <Tooltip
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                formatter={(value: number) => [formatNumber(value), undefined]}
+              />
+              <Legend />
+              {uniqueServices.map((svc, i) => (
+                <Area
+                  key={svc}
+                  type="monotone"
+                  dataKey={svc}
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={`url(#grad-${i})`}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-72 text-gray-400">데이터가 없습니다</div>
+        );
+
+      case 'dept-users':
+        return deptUsersRechartsData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <ComposedChart data={deptUsersRechartsData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+              <YAxis yAxisId="left" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+              <Tooltip
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                formatter={(value: number, name: string) => [formatNumber(value) + '명', name]}
+              />
+              <Legend />
+              {deptUsersBUs.map((bu, i) => (
+                <RechartsLine
+                  key={`${bu}_cumulative`}
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey={`${bu}_cumulative`}
+                  name={`${bu} (누적)`}
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              ))}
+              {deptUsersBUs.map((bu, i) => (
+                <Bar
+                  key={`${bu}_active`}
+                  yAxisId="right"
+                  dataKey={`${bu}_active`}
+                  name={`${bu} (활성)`}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  fillOpacity={0.4}
+                  radius={[2, 2, 0, 0]}
+                />
+              ))}
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-72 text-gray-400">데이터가 없습니다</div>
+        );
+
+      case 'dept-requests':
+        return deptServiceRechartsData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={deptServiceRechartsData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+              <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+              <Tooltip
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                formatter={(value: number) => [formatNumber(value), undefined]}
+              />
+              <Legend />
+              {deptServiceCombos.map((combo, i) => (
+                <RechartsLine
+                  key={combo}
+                  type="monotone"
+                  dataKey={combo}
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 3 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-72 text-gray-400">데이터가 없습니다</div>
+        );
+
+      case 'dept-tokens':
+        return deptTokenRechartsData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <AreaChart data={deptTokenRechartsData}>
+              <defs>
+                {deptBusinessUnits.map((bu, i) => (
+                  <linearGradient key={bu} id={`dept-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.2} />
+                    <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.02} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+              <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+              <Tooltip
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                formatter={(value: number) => [formatNumber(value), undefined]}
+              />
+              <Legend />
+              {deptBusinessUnits.map((bu, i) => (
+                <Area
+                  key={bu}
+                  type="monotone"
+                  dataKey={bu}
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={`url(#dept-grad-${i})`}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-72 text-gray-400">데이터가 없습니다</div>
+        );
+
+      case 'latency':
+        return latencyRechartsData.length > 0 ? (
+          <>
+            {/* Current latency summary cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              {latencyStats.slice(0, 4).map((stat) => (
+                <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gradient-to-br from-gray-50 to-white rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-500 truncate" title={`${stat.serviceName} / ${stat.modelName}`}>
+                    {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                    <div><span className="text-gray-400">10분:</span> <span className="font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span></div>
+                    <div><span className="text-gray-400">30분:</span> <span className="font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span></div>
+                    <div><span className="text-gray-400">1시간:</span> <span className="font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span></div>
+                    <div><span className="text-gray-400">24시간:</span> <span className="font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={latencyRechartsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+                <YAxis
+                  tick={{ fontSize: 12 }}
+                  stroke="#9ca3af"
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`}
+                />
+                <Tooltip
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                  formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]}
+                />
+                <Legend />
+                {latencyKeys.map((key, i) => (
+                  <RechartsLine
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 3 }}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </>
+        ) : (
+          <div className="flex items-center justify-center h-72 text-gray-400">지연 시간 데이터가 없습니다</div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // ── Chart tabs config ──
+  const chartTabs: { key: ChartTab; label: string; icon: React.ElementType }[] = [
+    { key: 'service', label: '서비스별 요청', icon: BarChart3 },
+    { key: 'dept-users', label: '사업부 사용자', icon: Users },
+    { key: 'dept-requests', label: '사업부 API 요청', icon: Zap },
+    { key: 'dept-tokens', label: '사업부 토큰', icon: Layers },
+    { key: 'latency', label: '응답 지연', icon: Clock },
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Global Stats Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
-        <div className="bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">전체 사용자</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(totalUsers)}</p>
-              <p className="text-xs text-gray-400 mt-1">모든 서비스 합계</p>
-            </div>
-            <div className="p-3 rounded-xl bg-blue-50">
-              <Users className="w-5 h-5 text-samsung-blue" />
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300 border-l-4 border-emerald-400">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">오늘 DAU</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">{formatNumber(todayActive)}</p>
-              <p className="text-xs text-gray-400 mt-1">30일 평균: {formatNumber(Math.round(avgDailyActive))}명</p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-50">
-              <Activity className="w-5 h-5 text-emerald-500" />
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300 border-l-4 border-orange-400">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">영업일 평균 DAU</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{formatNumber(Math.round(avgDailyActiveExcluding))}</p>
-              <p className="text-xs text-gray-400 mt-1">최근 30일, 주말/휴일 제외</p>
-            </div>
-            <div className="p-3 rounded-xl bg-orange-50">
-              <Activity className="w-5 h-5 text-orange-500" />
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">총 토큰 사용량</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(totalTokens)}</p>
-              <p className="text-xs text-gray-400 mt-1">누적 합계</p>
-            </div>
-            <div className="p-3 rounded-xl bg-violet-50">
-              <TrendingUp className="w-5 h-5 text-violet-500" />
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl shadow-card p-5 hover:shadow-soft transition-shadow duration-300">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-500">총 API 요청</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{formatNumber(totalRequests)}</p>
-              <p className="text-xs text-gray-400 mt-1">누적 합계</p>
-            </div>
-            <div className="p-3 rounded-xl bg-amber-50">
-              <Zap className="w-5 h-5 text-amber-500" />
-            </div>
-          </div>
-        </div>
+    <div className="space-y-8 animate-fade-in">
+      {/* ════════ Hero Stats Section ════════ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
+        <StatCard
+          label="전체 사용자"
+          value={totalUsers}
+          icon={Users}
+          gradient="bg-gradient-to-r from-blue-500 to-blue-600"
+          description="모든 서비스 합계"
+          delay={0}
+        />
+        <StatCard
+          label="오늘 DAU"
+          value={todayActive}
+          icon={Activity}
+          gradient="bg-gradient-to-r from-emerald-500 to-teal-500"
+          description="실시간 활성 사용자"
+          delay={80}
+        />
+        <StatCard
+          label="영업일 평균 DAU"
+          value={Math.round(avgDailyActiveExcluding)}
+          icon={Activity}
+          gradient="bg-gradient-to-r from-orange-500 to-amber-500"
+          description="최근 30일, 주말/휴일 제외"
+          highlight
+          delay={160}
+        />
+        <StatCard
+          label="총 토큰 사용"
+          value={totalTokens}
+          icon={TrendingUp}
+          gradient="bg-gradient-to-r from-violet-500 to-purple-500"
+          description="누적 합계"
+          delay={240}
+        />
+        <StatCard
+          label="총 API 요청"
+          value={totalRequests}
+          icon={Zap}
+          gradient="bg-gradient-to-r from-amber-500 to-yellow-500"
+          description="누적 합계"
+          delay={320}
+        />
       </div>
 
-      {/* Service Cards */}
-      <div className="bg-white rounded-2xl shadow-card p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">서비스별 현황</h2>
+      {/* ════════ Real-time Active Users Indicator ════════ */}
+      {todayActive > 0 && (
+        <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+          </span>
+          <span className="text-sm font-medium text-emerald-700">
+            현재 <span className="font-bold text-emerald-800">{todayActive}명</span>이 오늘 서비스를 사용했습니다
+          </span>
+          <span className="text-xs text-emerald-500 ml-auto">실시간</span>
+        </div>
+      )}
+
+      {/* ════════ Service Cards Section ════════ */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">{services.length}개 서비스</span>
-            {adminRole === 'SUPER_ADMIN' && (
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-samsung-blue text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            <div className="p-2 rounded-lg bg-gradient-to-br from-samsung-blue to-blue-600 shadow-lg">
+              <Globe className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">서비스별 현황</h2>
+              <p className="text-xs text-gray-500">{services.length}개 서비스 운영 중</p>
+            </div>
+          </div>
+          {adminRole === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-samsung-blue to-blue-600 text-white text-sm font-medium rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+            >
+              <Plus className="w-4 h-4" />
+              서비스 추가
+            </button>
+          )}
+        </div>
+
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {mergedServiceStats.map((service, idx) => (
+              <Link
+                key={service.serviceId}
+                to={`/service/${service.serviceId}`}
+                className={`group relative overflow-hidden rounded-xl border transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${
+                  service.hasData
+                    ? 'border-gray-100 bg-white'
+                    : 'border-dashed border-gray-200 bg-gray-50/30'
+                }`}
+                style={{ animationDelay: `${idx * 60}ms` }}
               >
-                <Plus className="w-4 h-4" />
-                서비스 추가
-              </button>
+                {/* Top accent */}
+                <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${
+                  service.hasData
+                    ? 'from-samsung-blue to-blue-400 opacity-100'
+                    : 'from-gray-300 to-gray-200 opacity-50'
+                }`} />
+
+                <div className="p-5">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      {service.iconUrl ? (
+                        <img
+                          src={service.iconUrl}
+                          alt={service.serviceDisplayName}
+                          className="w-10 h-10 rounded-xl shadow-sm"
+                        />
+                      ) : (
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${
+                          service.hasData
+                            ? 'bg-gradient-to-br from-samsung-blue to-blue-600'
+                            : 'bg-gray-300'
+                        }`}>
+                          <Server className="w-5 h-5 text-white" />
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="font-semibold text-gray-900 group-hover:text-samsung-blue transition-colors">
+                          {service.serviceDisplayName}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-xs text-gray-500">{service.serviceName}</p>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full ${
+                            service.type === 'BACKGROUND'
+                              ? 'bg-purple-50 text-purple-600'
+                              : 'bg-blue-50 text-blue-600'
+                          }`}>
+                            {service.type === 'BACKGROUND' ? 'BACKGROUND' : 'STANDARD'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {adminRole === 'SUPER_ADMIN' && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDeleteError(null);
+                            setDeleteTarget({ id: service.serviceId, name: service.serviceDisplayName });
+                          }}
+                          className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          title="서비스 삭제"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <ArrowRight className="w-5 h-5 text-gray-300 group-hover:text-samsung-blue group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </div>
+
+                  {service.hasData ? (
+                    <>
+                      {/* Sparkline */}
+                      {serviceSparklines[service.serviceName]?.some(v => v > 0) && (
+                        <div className="mb-3 flex justify-center">
+                          <Sparkline
+                            data={serviceSparklines[service.serviceName]}
+                            color="#5BA4D9"
+                          />
+                        </div>
+                      )}
+
+                      {/* Stats grid */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="text-center p-2.5 bg-gray-50/80 rounded-lg">
+                          <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalUsers)}</p>
+                          <p className="text-[11px] text-gray-500">사용자</p>
+                        </div>
+                        <div className={`text-center p-2.5 rounded-lg ${
+                          service.todayActiveUsers > 0 ? 'bg-emerald-50' : 'bg-gray-50/80'
+                        }`}>
+                          <p className={`text-lg font-bold ${
+                            service.todayActiveUsers > 0 ? 'text-emerald-600' : 'text-gray-900'
+                          }`}>
+                            {formatNumber(service.todayActiveUsers)}
+                          </p>
+                          <p className="text-[11px] text-gray-500">오늘 DAU</p>
+                        </div>
+                        <div className="text-center p-2.5 bg-gray-50/80 rounded-lg">
+                          <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalRequests)}</p>
+                          <p className="text-[11px] text-gray-500">요청</p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-4 text-sm text-gray-400">
+                      <p>아직 요청이 없습니다</p>
+                      <p className="text-xs mt-1 text-gray-300">X-Service-Id 헤더를 포함하여 요청하세요</p>
+                    </div>
+                  )}
+                </div>
+              </Link>
+            ))}
+
+            {services.length === 0 && (
+              <div className="col-span-full text-center py-12 text-gray-500">
+                등록된 서비스가 없습니다.
+                {adminRole === 'SUPER_ADMIN' && (
+                  <button onClick={() => setShowCreateModal(true)} className="ml-2 text-samsung-blue hover:underline font-medium">
+                    서비스 추가하기
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {mergedServiceStats.map((service) => (
-            <Link
-              key={service.serviceId}
-              to={`/service/${service.serviceId}`}
-              className={`block p-4 border rounded-xl hover:border-samsung-blue/30 hover:shadow-md transition-all duration-200 group ${
-                service.hasData ? 'border-gray-100' : 'border-dashed border-gray-200 bg-gray-50/50'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  {service.iconUrl ? (
-                    <img src={service.iconUrl} alt={service.serviceDisplayName} className="w-10 h-10 rounded-lg" />
-                  ) : (
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      service.hasData ? 'bg-gradient-to-br from-samsung-blue to-blue-600' : 'bg-gray-300'
-                    }`}>
-                      <Server className="w-5 h-5 text-white" />
-                    </div>
-                  )}
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{service.serviceDisplayName}</h3>
-                    <p className="text-xs text-gray-500">{service.serviceName}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {adminRole === 'SUPER_ADMIN' && (
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDeleteError(null);
-                        setDeleteTarget({ id: service.serviceId, name: service.serviceDisplayName });
-                      }}
-                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                      title="서비스 삭제"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                  <ArrowRight className="w-5 h-5 text-gray-300 group-hover:text-samsung-blue transition-colors" />
-                </div>
-              </div>
-              {service.hasData ? (
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="p-2 bg-gray-50 rounded-lg">
-                    <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalUsers)}</p>
-                    <p className="text-xs text-gray-500">사용자</p>
-                  </div>
-                  <div className={`p-2 rounded-lg ${service.todayActiveUsers > 0 ? 'bg-emerald-50' : 'bg-gray-50'}`}>
-                    <p className={`text-lg font-bold ${service.todayActiveUsers > 0 ? 'text-emerald-600' : 'text-gray-900'}`}>
-                      {formatNumber(service.todayActiveUsers)}
-                    </p>
-                    <p className="text-xs text-gray-500">오늘 DAU</p>
-                  </div>
-                  <div className="p-2 bg-gray-50 rounded-lg">
-                    <p className="text-lg font-bold text-gray-900">{formatNumber(service.totalTokens)}</p>
-                    <p className="text-xs text-gray-500">토큰</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-3 text-sm text-gray-400">
-                  <p>아직 요청이 없습니다</p>
-                  <p className="text-xs mt-1">LLM 모델을 등록하고 X-Service-Id 헤더로 요청하세요</p>
-                </div>
-              )}
-            </Link>
-          ))}
-          {services.length === 0 && (
-            <div className="col-span-full text-center py-8 text-gray-500">
-              등록된 서비스가 없습니다.
-              {adminRole === 'SUPER_ADMIN' && (
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="ml-2 text-samsung-blue hover:underline"
-                >
-                  서비스 추가하기
-                </button>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Service Creation Modal */}
+      {/* ════════ Service Creation Modal ════════ */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">새 서비스 등록</h3>
-              <button onClick={() => setShowCreateModal(false)} className="p-1 text-gray-400 hover:text-gray-600">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900">새 서비스 등록</h3>
+              <button onClick={() => setShowCreateModal(false)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleCreateService} className="p-4 space-y-4">
+            <form onSubmit={handleCreateService} className="p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   서비스 ID <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -702,13 +926,13 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   value={newService.name}
                   onChange={(e) => setNewService({ ...newService, name: e.target.value })}
                   placeholder="my-service (영문 소문자, 숫자, 하이픈)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
                   required
                 />
-                <p className="mt-1 text-xs text-gray-500">X-Service-Id 헤더에 사용할 ID</p>
+                <p className="mt-1 text-xs text-gray-400">X-Service-Id 헤더에 사용할 ID</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   표시 이름 <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -716,32 +940,46 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   value={newService.displayName}
                   onChange={(e) => setNewService({ ...newService, displayName: e.target.value })}
                   placeholder="My Service"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명</label>
                 <textarea
                   value={newService.description}
                   onChange={(e) => setNewService({ ...newService, description: e.target.value })}
                   placeholder="서비스에 대한 간단한 설명"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all resize-none"
                   rows={3}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  서비스 타입 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newService.serviceType}
+                  onChange={(e) => setNewService({ ...newService, serviceType: e.target.value as 'STANDARD' | 'BACKGROUND' })}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all bg-white"
+                >
+                  <option value="STANDARD">STANDARD</option>
+                  <option value="BACKGROUND">BACKGROUND</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-400">STANDARD: 사용자 대면 서비스 / BACKGROUND: 백그라운드 서비스</p>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
                   disabled={creating || !newService.name || !newService.displayName}
-                  className="px-4 py-2 bg-samsung-blue text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 font-medium"
                 >
                   {creating ? '생성 중...' : '생성'}
                 </button>
@@ -751,23 +989,26 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         </div>
       )}
 
-      {/* Service Delete Confirmation Modal */}
+      {/* ════════ Service Delete Modal ════════ */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">서비스 삭제</h3>
-              <button onClick={() => { if (!deleting) setDeleteTarget(null); }} className={`p-1 transition-colors ${deleting ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900">서비스 삭제</h3>
+              <button
+                onClick={() => { if (!deleting) setDeleteTarget(null); }}
+                className={`p-1.5 transition-colors rounded-lg ${deleting ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-4">
+            <div className="p-5 space-y-4">
               <p className="text-sm text-gray-700">
                 <span className="font-semibold text-gray-900">{deleteTarget.name}</span> 서비스를 삭제하시겠습니까?
               </p>
               <p className="text-xs text-gray-500">이 작업은 되돌릴 수 없습니다.</p>
               {deleteError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
                   <p className="text-sm text-red-600 whitespace-pre-line">{deleteError}</p>
                 </div>
               )}
@@ -776,7 +1017,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   type="button"
                   onClick={() => setDeleteTarget(null)}
                   disabled={deleting}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+                  className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 font-medium"
                 >
                   취소
                 </button>
@@ -784,7 +1025,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   type="button"
                   onClick={handleDeleteService}
                   disabled={deleting}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                  className="px-5 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 font-medium"
                 >
                   {deleting ? '삭제 중...' : '삭제'}
                 </button>
@@ -794,306 +1035,184 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         </div>
       )}
 
-      {/* Service Daily Usage Chart */}
-      {serviceDaily.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">서비스별 일일 요청 추이</h2>
-          <div className="h-80">
-            <Line
-              data={serviceChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    position: 'top',
-                  },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    ticks: {
-                      callback: (value: string | number) => formatNumber(Number(value)),
-                    },
-                  },
-                },
-              }}
-            />
+      {/* ════════ Charts Section with Tabs ════════ */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+        <div className="px-6 pt-5 pb-0">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">상세 분석</h2>
+          {/* Tab navigation */}
+          <div className="flex gap-1 overflow-x-auto pb-0 -mb-px scrollbar-hide">
+            {chartTabs.map(({ key, label, icon: TabIcon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl border border-b-0 whitespace-nowrap transition-all ${
+                  activeTab === key
+                    ? 'bg-white text-samsung-blue border-gray-200 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700 border-transparent hover:bg-gray-50'
+                }`}
+              >
+                <TabIcon className="w-4 h-4" />
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-      )}
 
-      {/* Weekly Business DAU Chart */}
-      <WeeklyBusinessDAUChart />
-
-      {/* 1. Department Users Chart (Cumulative Line + Active Bar) */}
-      {deptUsersDailyData.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Users className="w-5 h-5 text-samsung-blue" />
-            <h2 className="text-lg font-semibold text-gray-900">사업부별 사용자 추이</h2>
-            <span className="text-xs text-gray-500">(최근 30일, Top 5 사업부 - 선: 누적, 막대: 일별 활성)</span>
-          </div>
-          <div className="h-72 mb-6">
-            <Chart
-              type="bar"
-              data={deptUsersChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                  mode: 'index',
-                  intersect: false,
-                },
-                plugins: {
-                  legend: {
-                    position: 'top',
-                    labels: {
-                      usePointStyle: true,
-                      padding: 10,
-                    },
-                  },
-                  tooltip: {
-                    callbacks: {
-                      label: (context) => {
-                        const value = context.parsed.y ?? 0;
-                        return `${context.dataset.label}: ${value.toLocaleString()}명`;
-                      },
-                    },
-                  },
-                },
-                scales: {
-                  y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    beginAtZero: true,
-                    title: {
-                      display: true,
-                      text: '누적 사용자',
-                    },
-                    ticks: {
-                      callback: (value: string | number) => formatNumber(Number(value)),
-                    },
-                  },
-                  y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    beginAtZero: true,
-                    title: {
-                      display: true,
-                      text: '일별 활성',
-                    },
-                    grid: {
-                      drawOnChartArea: false,
-                    },
-                    ticks: {
-                      callback: (value: string | number) => formatNumber(Number(value)),
-                    },
-                  },
-                },
-              }}
-            />
-          </div>
-          {/* Users Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-2 font-semibold text-gray-700">사업부</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">누적 사용자</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">일평균 활성</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deptUsersBUs.map((bu, index) => {
-                  const lastData = deptUsersDailyData[deptUsersDailyData.length - 1];
-                  const cumulative = lastData ? (lastData[`${bu}_cumulative`] as number) || 0 : 0;
-                  const activeSum = deptUsersDailyData.reduce((sum, d) => sum + ((d[`${bu}_active`] as number) || 0), 0);
-                  const avgActive = deptUsersDailyData.length > 0 ? activeSum / deptUsersDailyData.length : 0;
-                  return (
-                    <tr key={bu} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="py-3 px-2 font-medium text-gray-900">{bu}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(cumulative)}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{avgActive.toFixed(1)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Department + Service API Requests Chart */}
-      {deptServiceRequestsData.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Zap className="w-5 h-5 text-amber-500" />
-            <h2 className="text-lg font-semibold text-gray-900">사업부+서비스별 API 요청 추이</h2>
-            <span className="text-xs text-gray-500">(최근 30일, Top 10 조합)</span>
-          </div>
-          <div className="h-72 mb-6">
-            <Line
-              data={deptServiceRequestsChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                  mode: 'index',
-                  intersect: false,
-                },
-                plugins: {
-                  legend: {
-                    position: 'top',
-                    labels: {
-                      usePointStyle: true,
-                      padding: 10,
-                    },
-                  },
-                  tooltip: {
-                    callbacks: {
-                      label: (context) => {
-                        const value = context.parsed.y ?? 0;
-                        if (value >= 1000000) return `${context.dataset.label}: ${(value / 1000000).toFixed(1)}M`;
-                        if (value >= 1000) return `${context.dataset.label}: ${(value / 1000).toFixed(1)}K`;
-                        return `${context.dataset.label}: ${value}`;
-                      },
-                    },
-                  },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    ticks: {
-                      callback: (value: string | number) => {
-                        if (typeof value === 'number') {
-                          if (value >= 1000000) return (value / 1000000).toFixed(0) + 'M';
-                          if (value >= 1000) return (value / 1000).toFixed(0) + 'K';
-                        }
-                        return value;
-                      },
-                    },
-                  },
-                },
-              }}
-            />
-          </div>
-          {/* API Requests Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-2 font-semibold text-gray-700">사업부</th>
-                  <th className="text-left py-3 px-2 font-semibold text-gray-700">서비스</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">총 요청수</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deptServiceCombos.map((combo, index) => {
-                  const [bu, service] = combo.split('/');
-                  const lastData = deptServiceRequestsData[deptServiceRequestsData.length - 1];
-                  const totalRequests = lastData ? (lastData[combo] as number) || 0 : 0;
-                  return (
-                    <tr key={combo} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="py-3 px-2 font-medium text-gray-900">{bu}</td>
-                      <td className="py-3 px-2 text-gray-700">{service}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(totalRequests)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Department Token Usage Stats */}
-      <div className="bg-white rounded-2xl shadow-card p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Building2 className="w-5 h-5 text-samsung-blue" />
-          <h2 className="text-lg font-semibold text-gray-900">사업부별 토큰 사용량 추이</h2>
-          <span className="text-xs text-gray-500">(최근 30일, Top 5 사업부)</span>
+        <div className="p-6 border-t border-gray-100">
+          {renderChartContent()}
         </div>
 
-        {deptDailyData.length > 0 ? (
-          <>
-            {/* Department Line Chart */}
-            <div className="h-72 mb-6">
-              <Line
-                data={deptLineChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  interaction: {
-                    mode: 'index',
-                    intersect: false,
-                  },
-                  plugins: {
-                    legend: {
-                      position: 'top',
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: (context) => {
-                          const value = context.parsed.y ?? 0;
-                          if (value >= 1000000) return `${context.dataset.label}: ${(value / 1000000).toFixed(1)}M`;
-                          if (value >= 1000) return `${context.dataset.label}: ${(value / 1000).toFixed(1)}K`;
-                          return `${context.dataset.label}: ${value}`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    y: {
-                      beginAtZero: true,
-                      ticks: {
-                        callback: (value: string | number) => {
-                          if (typeof value === 'number') {
-                            if (value >= 1000000) return (value / 1000000).toFixed(0) + 'M';
-                            if (value >= 1000) return (value / 1000).toFixed(0) + 'K';
-                          }
-                          return value;
-                        },
-                      },
-                    },
-                  },
-                }}
-              />
-            </div>
-
-            {/* Department Table */}
-            <div className="overflow-x-auto">
+        {/* ── Data tables below charts ── */}
+        {activeTab === 'dept-users' && deptUsersBUs.length > 0 && (
+          <div className="px-6 pb-6">
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-2 font-semibold text-gray-700">사업부</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">누적 사용자</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">일평균 활성</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">총 토큰</th>
-                    <th className="text-left py-3 px-2 font-semibold text-gray-700">모델별 토큰</th>
+                  <tr className="bg-gray-50/80">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptUsersBUs.map((bu, index) => {
+                    const lastData = deptUsersDailyData[deptUsersDailyData.length - 1];
+                    const cumulative = lastData ? (lastData[`${bu}_cumulative`] as number) || 0 : 0;
+                    const activeSum = deptUsersDailyData.reduce((sum, d) => sum + ((d[`${bu}_active`] as number) || 0), 0);
+                    const avgActive = deptUsersDailyData.length > 0 ? activeSum / deptUsersDailyData.length : 0;
+                    return (
+                      <tr key={bu} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                        <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
+                        <td className="text-right py-3 px-4 text-gray-700">{formatNumber(cumulative)}</td>
+                        <td className="text-right py-3 px-4 text-gray-700">{avgActive.toFixed(1)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'dept-requests' && deptServiceCombos.length > 0 && (
+          <div className="px-6 pb-6">
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50/80">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 요청수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptServiceCombos.map((combo, index) => {
+                    const [bu, svc] = combo.split('/');
+                    const total = deptServiceRequestsData.reduce((sum, d) => sum + ((d[combo] as number) || 0), 0);
+                    return (
+                      <tr key={combo} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                        <td className="py-3 px-4 font-medium text-gray-900">{bu}</td>
+                        <td className="py-3 px-4 text-gray-700">{svc}</td>
+                        <td className="text-right py-3 px-4 text-gray-700">{formatNumber(total)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'latency' && latencyStats.length > 0 && (
+          <div className="px-6 pb-6">
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50/80">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">10분 평균</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">30분 평균</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">1시간 평균</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">24시간 평균</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">요청수 (24h)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {latencyStats.map((stat, index) => (
+                    <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                      <td className="py-3 px-4 font-medium text-gray-900">{stat.serviceName} / {stat.modelName}</td>
+                      <td className="text-right py-3 px-4 text-gray-700">
+                        {stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}
+                        {stat.count10m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count10m})</span>}
+                      </td>
+                      <td className="text-right py-3 px-4 text-gray-700">
+                        {stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}
+                        {stat.count30m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count30m})</span>}
+                      </td>
+                      <td className="text-right py-3 px-4 text-gray-700">
+                        {stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}
+                        {stat.count1h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count1h})</span>}
+                      </td>
+                      <td className="text-right py-3 px-4 text-gray-700">
+                        {stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}
+                        {stat.count24h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count24h})</span>}
+                      </td>
+                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(stat.count24h)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ════════ Weekly Business DAU Chart ════════ */}
+      <WeeklyBusinessDAUChart />
+
+      {/* ════════ Department Token Table ════════ */}
+      <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/80">
+          <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
+            <Building2 className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">사업부별 상세 통계</h2>
+            <p className="text-xs text-gray-500">최근 30일 기준</p>
+          </div>
+        </div>
+        <div className="p-6">
+          {deptStats.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-gray-100">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50/80">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">사업부</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">누적 사용자</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">일평균 활성</th>
+                    <th className="text-right py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">총 토큰</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-600 text-xs uppercase tracking-wide">모델별 토큰</th>
                   </tr>
                 </thead>
                 <tbody>
                   {deptStats.slice(0, 15).map((dept, index) => (
-                    <tr key={dept.deptname} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="py-3 px-2 font-medium text-gray-900">{dept.deptname}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(dept.cumulativeUsers)}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{dept.avgDailyActiveUsers.toFixed(1)}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(dept.totalTokens)}</td>
-                      <td className="py-3 px-2">
+                    <tr key={dept.deptname} className={`border-t border-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                      <td className="py-3 px-4 font-medium text-gray-900">{dept.deptname}</td>
+                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.cumulativeUsers)}</td>
+                      <td className="text-right py-3 px-4 text-gray-700">{dept.avgDailyActiveUsers.toFixed(1)}</td>
+                      <td className="text-right py-3 px-4 text-gray-700">{formatNumber(dept.totalTokens)}</td>
+                      <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
                           {(dept.tokensByModel || []).slice(0, 3).map((model) => (
                             <span
                               key={model.modelName}
-                              className="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded"
+                              className="inline-flex items-center px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded-full"
                             >
                               {model.modelName.length > 12 ? model.modelName.slice(0, 12) + '...' : model.modelName}: {formatNumber(model.tokens)}
                             </span>
                           ))}
                           {(dept.tokensByModel || []).length > 3 && (
-                            <span className="text-xs text-gray-500">+{dept.tokensByModel.length - 3}</span>
+                            <span className="text-xs text-gray-400">+{dept.tokensByModel.length - 3}</span>
                           )}
                         </div>
                       </td>
@@ -1102,287 +1221,18 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 </tbody>
               </table>
               {deptStats.length > 15 && (
-                <p className="text-center text-sm text-gray-500 mt-4">
+                <p className="text-center text-sm text-gray-400 py-3 border-t border-gray-50">
                   {deptStats.length - 15}개 사업부 더 있음
                 </p>
               )}
             </div>
-          </>
-        ) : deptStats.length > 0 ? (
-          /* Show table only if we have deptStats but no deptDailyData */
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-2 font-semibold text-gray-700">사업부</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">누적 사용자</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">일평균 활성</th>
-                  <th className="text-right py-3 px-2 font-semibold text-gray-700">총 토큰</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deptStats.slice(0, 15).map((dept, index) => (
-                  <tr key={dept.deptname} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                    <td className="py-3 px-2 font-medium text-gray-900">{dept.deptname}</td>
-                    <td className="text-right py-3 px-2 text-gray-700">{formatNumber(dept.cumulativeUsers)}</td>
-                    <td className="text-right py-3 px-2 text-gray-700">{dept.avgDailyActiveUsers.toFixed(1)}</td>
-                    <td className="text-right py-3 px-2 text-gray-700">{formatNumber(dept.totalTokens)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            사업부별 통계 데이터가 없습니다.
-          </div>
-        )}
+          ) : (
+            <div className="text-center py-12 text-gray-400">
+              사업부별 통계 데이터가 없습니다.
+            </div>
+          )}
+        </div>
       </div>
-
-      {/* LLM Latency Chart - admin/viewer only */}
-      {latencyKeys.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold text-gray-900">LLM 응답 지연 시간</h2>
-            <span className="text-xs text-gray-500">(최근 24시간, 10분 간격 평균)</span>
-          </div>
-
-          {/* Current Latency Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            {latencyStats.slice(0, 4).map((stat) => (
-              <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs text-gray-500 truncate" title={`${stat.serviceName} / ${stat.modelName}`}>
-                  {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
-                </p>
-                <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                  <div>
-                    <span className="text-gray-400">10분:</span>
-                    <span className="ml-1 font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">30분:</span>
-                    <span className="ml-1 font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">1시간:</span>
-                    <span className="ml-1 font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">24시간:</span>
-                    <span className="ml-1 font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Latency Line Chart */}
-          <div className="h-72">
-            <Line
-              data={latencyChartData}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                  mode: 'index',
-                  intersect: false,
-                },
-                plugins: {
-                  legend: {
-                    position: 'top',
-                    labels: {
-                      usePointStyle: true,
-                      padding: 10,
-                    },
-                  },
-                  tooltip: {
-                    callbacks: {
-                      label: (context) => {
-                        const value = context.parsed.y ?? 0;
-                        return `${context.dataset.label}: ${(value / 1000).toFixed(2)}s`;
-                      },
-                    },
-                  },
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    title: {
-                      display: true,
-                      text: '응답 시간 (ms)',
-                    },
-                    ticks: {
-                      callback: (value: string | number) => {
-                        const v = Number(value);
-                        if (v >= 1000) return (v / 1000).toFixed(1) + 's';
-                        return v + 'ms';
-                      },
-                    },
-                  },
-                },
-              }}
-            />
-          </div>
-
-          {/* Latency Stats Table */}
-          {latencyStats.length > 0 && (
-            <div className="mt-6 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-2 font-semibold text-gray-700">서비스 / 모델</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">10분 평균</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">30분 평균</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">1시간 평균</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">24시간 평균</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">요청수 (24h)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latencyStats.map((stat, index) => (
-                    <tr key={`${stat.serviceId}-${stat.modelId}`} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="py-3 px-2 font-medium text-gray-900">
-                        {stat.serviceName} / {stat.modelName}
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">
-                        {stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}
-                        {stat.count10m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count10m})</span>}
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">
-                        {stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}
-                        {stat.count30m > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count30m})</span>}
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">
-                        {stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}
-                        {stat.count1h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count1h})</span>}
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">
-                        {stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}
-                        {stat.count24h > 0 && <span className="text-xs text-gray-400 ml-1">({stat.count24h})</span>}
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(stat.count24h)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Model Ratings Chart */}
-      {(ratingByModel.length > 0 || ratingDailyData.length > 0) && (
-        <div className="bg-white rounded-2xl shadow-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Star className="w-5 h-5 text-yellow-500" />
-            <h2 className="text-lg font-semibold text-gray-900">모델 평점</h2>
-            <span className="text-xs text-gray-500">(최근 30일)</span>
-          </div>
-
-          {/* Model Rating Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
-            {ratingByModel.slice(0, 6).map((model, idx) => (
-              <div key={`${model.serviceName}-${model.modelName}-${idx}`} className="p-3 bg-gray-50 rounded-lg text-center">
-                {model.serviceName && (
-                  <p className="text-[10px] text-gray-400 truncate mb-0.5">{model.serviceName}</p>
-                )}
-                <p className="text-xs text-gray-500 truncate mb-1" title={model.modelName}>
-                  {model.modelName.length > 15 ? model.modelName.slice(0, 15) + '...' : model.modelName}
-                </p>
-                <div className="flex items-center justify-center gap-1">
-                  <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  <span className="text-lg font-bold text-gray-900">
-                    {model.averageRating ? model.averageRating.toFixed(1) : '-'}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400">{model.totalRatings}개 평가</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Rating Mixed Chart (Line: cumulative, Bar: daily) */}
-          {ratingDailyData.length > 0 && (
-            <div className="h-72">
-              <Chart
-                type="bar"
-                data={ratingChartData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  interaction: {
-                    mode: 'index',
-                    intersect: false,
-                  },
-                  plugins: {
-                    legend: {
-                      position: 'top',
-                      labels: {
-                        usePointStyle: true,
-                        padding: 10,
-                      },
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: (context) => {
-                          const value = context.parsed.y;
-                          if (value === null) return `${context.dataset.label}: 데이터 없음`;
-                          return `${context.dataset.label}: ${value.toFixed(2)}점`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    y: {
-                      min: 1,
-                      max: 5,
-                      beginAtZero: false,
-                      title: {
-                        display: true,
-                        text: '평균 평점',
-                      },
-                      ticks: {
-                        stepSize: 1,
-                      },
-                    },
-                  },
-                }}
-              />
-            </div>
-          )}
-
-          {/* Rating Table */}
-          {ratingByModel.length > 0 && (
-            <div className="mt-6 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-2 font-semibold text-gray-700">서비스</th>
-                    <th className="text-left py-3 px-2 font-semibold text-gray-700">모델</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">평균 평점</th>
-                    <th className="text-right py-3 px-2 font-semibold text-gray-700">평가 수</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ratingByModel.map((model, index) => (
-                    <tr key={`${model.serviceName}-${model.modelName}-${index}`} className={index % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="py-3 px-2 text-gray-600">{model.serviceName || '-'}</td>
-                      <td className="py-3 px-2 font-medium text-gray-900">{model.modelName}</td>
-                      <td className="text-right py-3 px-2 text-gray-700">
-                        <div className="flex items-center justify-end gap-1">
-                          <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                          {model.averageRating ? model.averageRating.toFixed(2) : '-'}
-                        </div>
-                      </td>
-                      <td className="text-right py-3 px-2 text-gray-700">{formatNumber(model.totalRatings)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

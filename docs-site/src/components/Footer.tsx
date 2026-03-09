@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom';
-import { services } from '../data/services';
 
 export default function Footer() {
   return (
@@ -8,49 +7,51 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
-              <img src="/docs/images/logo.png" alt="Nexus" className="w-8 h-8 rounded-lg" />
-              <span className="text-white font-bold">Nexus Coder</span>
+              <img src="/docs/images/logo.png" alt="Dashboard" className="w-8 h-8 rounded-lg" />
+              <span className="text-white font-bold">Agent Dashboard</span>
             </div>
             <p className="text-sm text-gray-500 leading-relaxed">
-              삼성 DS를 위한<br />AI 코딩 자동화 플랫폼
+              Agent Dashboard<br />사용 가이드
             </p>
-            <p className="text-xs text-gray-600 mt-4">v5.0.2</p>
           </div>
 
           <div>
-            <h4 className="text-sm font-semibold text-gray-300 mb-4">서비스</h4>
+            <h4 className="text-sm font-semibold text-gray-300 mb-4">Admin Guide</h4>
             <ul className="space-y-2.5">
-              {services.map((s) => (
-                <li key={s.id}>
-                  <Link to={s.path} className="text-sm text-gray-500 hover:text-brand-400 transition-colors">
-                    {s.name}
-                  </Link>
-                </li>
-              ))}
+              <li><Link to="/admin/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Admin 시작하기</Link></li>
+              <li><Link to="/admin/service-management" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">서비스 관리</Link></li>
+              <li><Link to="/admin/llm-management" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">LLM 관리</Link></li>
+              <li><Link to="/admin/user-management" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">사용자/권한 관리</Link></li>
+              <li><Link to="/admin/stats" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">통계 활용</Link></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="text-sm font-semibold text-gray-300 mb-4">가이드</h4>
+            <h4 className="text-sm font-semibold text-gray-300 mb-4">User Guide</h4>
             <ul className="space-y-2.5">
-              <li><Link to="/guide/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">CLI 시작하기</Link></li>
-              <li><Link to="/guide-windows/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Windows 시작하기</Link></li>
+              <li><Link to="/user/getting-started" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">사용자 시작하기</Link></li>
+              <li><Link to="/user/my-usage" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">사용량 확인</Link></li>
+            </ul>
+
+            <h4 className="text-sm font-semibold text-gray-300 mb-4 mt-8">API Guide</h4>
+            <ul className="space-y-2.5">
+              <li><Link to="/api/authentication" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">API 인증</Link></li>
+              <li><Link to="/api/chat-completions" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Chat Completions</Link></li>
+              <li><Link to="/api/models" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Models API</Link></li>
+              <li><Link to="/api/service-registration" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">서비스 등록</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-semibold text-gray-300 mb-4">Links</h4>
+            <ul className="space-y-2.5">
               <li><a href="/feedback" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">피드백</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="text-sm font-semibold text-gray-300 mb-4">리소스</h4>
-            <ul className="space-y-2.5">
-              <li><Link to="/guide/browser-tools" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Browser Tools</Link></li>
-              <li><Link to="/guide/office-tools" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Office Tools</Link></li>
-              <li><Link to="/guide/compact" className="text-sm text-gray-500 hover:text-brand-400 transition-colors">Context 관리</Link></li>
             </ul>
           </div>
         </div>
 
         <div className="mt-12 pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-gray-600">© {new Date().getFullYear()} A2G Dev Space. Samsung DS Internal Use Only.</p>
+          <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} A2G Dev Space. Samsung DS Internal Use Only.</p>
           <p className="text-xs text-gray-600">Contact: syngha.han</p>
         </div>
       </div>
