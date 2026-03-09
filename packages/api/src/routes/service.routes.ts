@@ -21,6 +21,7 @@ const createServiceSchema = z.object({
   displayName: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
   iconUrl: z.string().url().optional().nullable(),
+  docsUrl: z.string().url().optional().nullable(),
   enabled: z.boolean().default(true),
   type: z.enum(['STANDARD', 'BACKGROUND']).default('STANDARD'),
 });
@@ -29,6 +30,7 @@ const updateServiceSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional().nullable(),
   iconUrl: z.string().url().optional().nullable(),
+  docsUrl: z.string().url().optional().nullable(),
   enabled: z.boolean().optional(),
   type: z.enum(['STANDARD', 'BACKGROUND']).optional(),
 });
@@ -57,6 +59,7 @@ serviceRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async 
         displayName: true,
         description: true,
         iconUrl: true,
+        docsUrl: true,
         enabled: true,
         type: true,
         registeredBy: true,
@@ -94,6 +97,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         displayName: true,
         description: true,
         iconUrl: true,
+        docsUrl: true,
         enabled: true,
         type: true,
         registeredBy: true,
@@ -126,6 +130,10 @@ serviceRoutes.get('/names', authenticateToken, async (_req: AuthenticatedRequest
         id: true,
         name: true,
         displayName: true,
+        description: true,
+        iconUrl: true,
+        docsUrl: true,
+        type: true,
       },
     });
     res.json({ services });

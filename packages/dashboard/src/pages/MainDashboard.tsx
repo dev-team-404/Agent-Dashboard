@@ -25,6 +25,7 @@ interface Service {
   displayName: string;
   description?: string;
   iconUrl?: string;
+  docsUrl?: string;
   type?: string;
   enabled: boolean;
   _count: {
@@ -241,12 +242,12 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [newService, setNewService] = useState({ name: '', displayName: '', description: '', serviceType: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
+  const [newService, setNewService] = useState({ name: '', displayName: '', description: '', docsUrl: '', serviceType: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Service | null>(null);
-  const [editForm, setEditForm] = useState({ displayName: '', description: '', enabled: true, type: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
+  const [editForm, setEditForm] = useState({ displayName: '', description: '', docsUrl: '', enabled: true, type: 'STANDARD' as 'STANDARD' | 'BACKGROUND' });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -300,11 +301,12 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         name: newService.name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
         displayName: newService.displayName,
         description: newService.description || undefined,
+        docsUrl: newService.docsUrl || undefined,
         type: newService.serviceType,
         enabled: true,
       });
       setShowCreateModal(false);
-      setNewService({ name: '', displayName: '', description: '', serviceType: 'STANDARD' });
+      setNewService({ name: '', displayName: '', description: '', docsUrl: '', serviceType: 'STANDARD' });
       loadData();
       window.dispatchEvent(new CustomEvent('services-updated'));
     } catch {
@@ -345,6 +347,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     setEditForm({
       displayName: service.displayName,
       description: service.description || '',
+      docsUrl: service.docsUrl || '',
       enabled: service.enabled,
       type: (service.type || 'STANDARD') as 'STANDARD' | 'BACKGROUND',
     });
@@ -358,6 +361,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
       await serviceApi.update(editTarget.id, {
         displayName: editForm.displayName,
         description: editForm.description || undefined,
+        docsUrl: editForm.docsUrl || undefined,
         enabled: editForm.enabled,
         type: editForm.type,
       });
@@ -1111,6 +1115,17 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명서 URL</label>
+                <input
+                  type="url"
+                  value={newService.docsUrl}
+                  onChange={(e) => setNewService({ ...newService, docsUrl: e.target.value })}
+                  placeholder="https://docs.example.com/my-service"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
+                />
+                <p className="mt-1 text-xs text-gray-400">서비스 사용 가이드 페이지 URL (선택)</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">서비스 타입</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
@@ -1193,6 +1208,17 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all resize-none"
                   rows={3}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명서 URL</label>
+                <input
+                  type="url"
+                  value={editForm.docsUrl}
+                  onChange={(e) => setEditForm({ ...editForm, docsUrl: e.target.value })}
+                  placeholder="https://docs.example.com/my-service"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all"
+                />
+                <p className="mt-1 text-xs text-gray-400">서비스 사용 가이드 페이지 URL (선택)</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">서비스 타입</label>

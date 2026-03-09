@@ -12,6 +12,7 @@ const Users = lazy(() => import('./pages/Users'));
 const UnifiedUsers = lazy(() => import('./pages/UnifiedUsers'));
 const MyUsage = lazy(() => import('./pages/MyUsage'));
 const Holidays = lazy(() => import('./pages/Holidays'));
+const ServiceMarket = lazy(() => import('./pages/ServiceMarket'));
 
 interface User {
   id: string;
@@ -106,6 +107,7 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* All users */}
+          <Route path="/services" element={<ServiceMarket />} />
           <Route path="/my-usage" element={<MyUsage />} />
 
           {/* Admin only */}
@@ -132,7 +134,7 @@ function App() {
 
           <Route
             path="*"
-            element={<Navigate to={isAdmin ? '/' : '/my-usage'} replace />}
+            element={<Navigate to={isAdmin ? '/' : '/services'} replace />}
           />
         </Routes>
       </Suspense>

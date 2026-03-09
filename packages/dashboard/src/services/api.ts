@@ -196,6 +196,7 @@ interface CreateServiceData {
   displayName: string;
   description?: string;
   iconUrl?: string;
+  docsUrl?: string;
   enabled?: boolean;
   type?: 'STANDARD' | 'BACKGROUND';
 }
