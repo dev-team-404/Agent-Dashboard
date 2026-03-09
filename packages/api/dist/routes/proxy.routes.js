@@ -9,9 +9,12 @@
  * LLM visibility: PUBLIC / BUSINESS_UNIT / TEAM / ADMIN_ONLY
  */
 import { Router } from 'express';
+import path from 'node:path';
 import { prisma, redis } from '../index.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
 import { validateProxyHeaders, canServiceAccessModel } from '../middleware/proxyAuth.js';
+import { generateImages } from '../services/imageProviders.service.js';
+import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
 export const proxyRoutes = Router();
 // 모든 /v1/* 요청에 헤더 검증 미들웨어 적용
 proxyRoutes.use(validateProxyHeaders);
@@ -165,20 +168,10 @@ proxyRoutes.get('/models', async (req, res) => {
         res.json({
             object: 'list',
             data: filtered.map(model => ({
-                id: model.name,
+                id: model.displayName || model.name,
                 object: 'model',
                 created: Date.now(),
                 owned_by: 'agent-dashboard',
-                permission: [],
-                root: model.name,
-                parent: null,
-                _nexus: {
-                    id: model.id,
-                    modelName: model.name,
-                    displayName: model.displayName,
-                    maxTokens: model.maxTokens,
-                    supportsVision: model.supportsVision,
-                },
             })),
         });
     }
@@ -196,7 +189,7 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
         const { modelName } = req.params;
         const model = await prisma.model.findFirst({
             where: {
-                OR: [{ name: modelName }, { id: modelName }],
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
                 enabled: true,
             },
             select: {
@@ -219,20 +212,10 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
             return;
         }
         res.json({
-            id: model.name,
+            id: model.displayName || model.name,
             object: 'model',
             created: Date.now(),
             owned_by: 'agent-dashboard',
-            permission: [],
-            root: model.name,
-            parent: null,
-            _nexus: {
-                id: model.id,
-                modelName: model.name,
-                displayName: model.displayName,
-                maxTokens: model.maxTokens,
-                supportsVision: model.supportsVision,
-            },
         });
     }
     catch (error) {
@@ -251,10 +234,10 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
             res.status(400).json({ error: 'model and messages are required' });
             return;
         }
-        // 모델 조회
+        // 모델 조회 (name, id, displayName 모두 매칭)
         const model = await prisma.model.findFirst({
             where: {
-                OR: [{ name: modelName }, { id: modelName }],
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
                 enabled: true,
             },
         });
@@ -272,6 +255,50 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
         }
         // 사용자 upsert (background가 아닌 경우)
         const user = await getOrCreateUser(proxyReq);
+        // Rate limit 체크 (user가 있는 경우만)
+        if (user) {
+            const rateLimit = await prisma.userRateLimit.findUnique({
+                where: { userId_serviceId: { userId: user.id, serviceId: proxyReq.serviceId } },
+            });
+            if (rateLimit && rateLimit.enabled) {
+                const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+                const windowStart = new Date(Date.now() - windowMs);
+                const usage = await prisma.usageLog.aggregate({
+                    where: {
+                        userId: user.id,
+                        serviceId: proxyReq.serviceId,
+                        timestamp: { gte: windowStart },
+                    },
+                    _sum: { totalTokens: true },
+                });
+                const usedTokens = usage._sum.totalTokens || 0;
+                if (usedTokens >= rateLimit.maxTokens) {
+                    // 가장 오래된 로그가 윈도우에서 빠지는 시점 계산
+                    const oldestLog = await prisma.usageLog.findFirst({
+                        where: {
+                            userId: user.id,
+                            serviceId: proxyReq.serviceId,
+                            timestamp: { gte: windowStart },
+                        },
+                        orderBy: { timestamp: 'asc' },
+                        select: { timestamp: true },
+                    });
+                    const retryAfterSec = oldestLog
+                        ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
+                        : Math.ceil(windowMs / 1000);
+                    const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
+                    res.status(429).json({
+                        error: 'Rate limit exceeded',
+                        message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
+                        limit: rateLimit.maxTokens,
+                        used: usedTokens,
+                        window: rateLimit.window,
+                        retryAfter: retryAfterSec,
+                    });
+                    return;
+                }
+            }
+        }
         // 라운드로빈 + Failover
         const endpoints = await getModelEndpoints(model.id, {
             endpointUrl: model.endpointUrl,
@@ -601,6 +628,476 @@ async function handleStreamingRequest(res, model, requestBody, headers, user, pr
         return false;
     }
 }
+// ============================================
+// POST /v1/embeddings
+// ============================================
+const EMBEDDING_TIMEOUT_MS = 1800000; // 30 minutes
+function buildEmbeddingsUrl(endpointUrl) {
+    let url = endpointUrl.trim();
+    if (url.endsWith('/embeddings'))
+        return url;
+    if (url.endsWith('/'))
+        url = url.slice(0, -1);
+    if (url.endsWith('/v1'))
+        return `${url}/embeddings`;
+    if (url.endsWith('/chat/completions')) {
+        url = url.replace(/\/chat\/completions$/, '');
+    }
+    return `${url}/embeddings`;
+}
+proxyRoutes.post('/embeddings', async (req, res) => {
+    const proxyReq = req;
+    const startTime = Date.now();
+    try {
+        const { model: modelName, input, ...otherParams } = req.body;
+        if (!modelName || !input) {
+            res.status(400).json({ error: 'model and input are required' });
+            return;
+        }
+        // 모델 조회 (name, id, displayName 모두 매칭)
+        const model = await prisma.model.findFirst({
+            where: {
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+                enabled: true,
+            },
+        });
+        if (!model) {
+            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            return;
+        }
+        // 서비스 접근 권한 확인
+        if (!canServiceAccessModel(proxyReq, model)) {
+            res.status(403).json({
+                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
+            });
+            return;
+        }
+        // 사용자 upsert
+        const user = await getOrCreateUser(proxyReq);
+        // 라운드로빈 + Failover
+        const endpoints = await getModelEndpoints(model.id, {
+            endpointUrl: model.endpointUrl,
+            apiKey: model.apiKey,
+            modelName: model.name,
+            extraHeaders: model.extraHeaders,
+        });
+        const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        let lastError;
+        for (let attempt = 0; attempt < endpoints.length; attempt++) {
+            const idx = (startIdx + attempt) % endpoints.length;
+            const endpoint = endpoints[idx];
+            if (attempt > 0) {
+                console.log(`[Failover] Embeddings model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+            }
+            const url = buildEmbeddingsUrl(endpoint.endpointUrl);
+            const loginid = user?.loginid || proxyReq.serviceName;
+            console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (embeddings)`);
+            const embeddingsBody = {
+                model: endpoint.modelName,
+                input,
+                ...otherParams,
+            };
+            const headers = { 'Content-Type': 'application/json' };
+            if (endpoint.apiKey)
+                headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
+            if (endpoint.extraHeaders) {
+                for (const [key, value] of Object.entries(endpoint.extraHeaders)) {
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                        headers[key] = value;
+                    }
+                }
+            }
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT_MS);
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(embeddingsBody),
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+                const latencyMs = Date.now() - startTime;
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[LLM-Error] Embeddings | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
+                    if (response.status >= 400 && response.status < 500) {
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            res.status(response.status).json(errorJson);
+                        }
+                        catch {
+                            res.status(response.status).send(errorText);
+                        }
+                        return;
+                    }
+                    console.error(`[Failover] Embeddings endpoint ${url} returned ${response.status}`);
+                    lastError = errorText;
+                    continue;
+                }
+                // 성공 — raw text 그대로 전달 (대용량 임베딩 응답 JSON 재파싱 방지)
+                const responseText = await response.text();
+                // regex로 usage 추출 (full JSON parse 없이)
+                let inputTokens = 0;
+                const promptMatch = responseText.match(/"prompt_tokens"\s*:\s*(\d+)/);
+                if (promptMatch) {
+                    inputTokens = parseInt(promptMatch[1], 10);
+                }
+                else {
+                    const totalMatch = responseText.match(/"total_tokens"\s*:\s*(\d+)/);
+                    if (totalMatch)
+                        inputTokens = parseInt(totalMatch[1], 10);
+                }
+                if (inputTokens > 0) {
+                    recordUsage(user?.id || null, user?.loginid || null, model.id, inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                }
+                res.setHeader('Content-Type', 'application/json');
+                res.status(200).send(responseText);
+                return;
+            }
+            catch (error) {
+                console.error(`[Failover] Embeddings endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
+                lastError = error instanceof Error ? error.message : 'Connection failed';
+                continue;
+            }
+        }
+        // 모든 엔드포인트 실패
+        console.error(`[Failover] All ${endpoints.length} endpoints failed for embeddings model "${model.name}"`);
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            message: `All ${endpoints.length} endpoint(s) failed. Please try again later.`,
+        });
+    }
+    catch (error) {
+        console.error('Embeddings proxy error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process embeddings request' });
+        }
+    }
+});
+// ============================================
+// POST /v1/rerank
+// ============================================
+function buildRerankUrl(endpointUrl) {
+    let url = endpointUrl.trim();
+    if (url.endsWith('/rerank'))
+        return url;
+    if (url.endsWith('/'))
+        url = url.slice(0, -1);
+    if (url.endsWith('/v1'))
+        return `${url}/rerank`;
+    if (url.endsWith('/chat/completions')) {
+        url = url.replace(/\/chat\/completions$/, '');
+    }
+    else if (url.endsWith('/embeddings')) {
+        url = url.replace(/\/embeddings$/, '');
+    }
+    return `${url}/rerank`;
+}
+proxyRoutes.post('/rerank', async (req, res) => {
+    const proxyReq = req;
+    const startTime = Date.now();
+    try {
+        const { model: modelName, query, documents, top_n, return_documents, ...otherParams } = req.body;
+        if (!modelName) {
+            res.status(400).json({ error: 'model is required' });
+            return;
+        }
+        if (!query || typeof query !== 'string') {
+            res.status(400).json({ error: 'query is required and must be a string' });
+            return;
+        }
+        if (!documents || !Array.isArray(documents) || documents.length === 0) {
+            res.status(400).json({ error: 'documents is required and must be a non-empty array' });
+            return;
+        }
+        // 모델 조회 (name, id, displayName 모두 매칭)
+        const model = await prisma.model.findFirst({
+            where: {
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+                enabled: true,
+            },
+        });
+        if (!model) {
+            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            return;
+        }
+        // 서비스 접근 권한 확인
+        if (!canServiceAccessModel(proxyReq, model)) {
+            res.status(403).json({
+                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
+            });
+            return;
+        }
+        // 사용자 upsert
+        const user = await getOrCreateUser(proxyReq);
+        // 라운드로빈 + Failover
+        const endpoints = await getModelEndpoints(model.id, {
+            endpointUrl: model.endpointUrl,
+            apiKey: model.apiKey,
+            modelName: model.name,
+            extraHeaders: model.extraHeaders,
+        });
+        const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        let lastError = null;
+        for (let attempt = 0; attempt < endpoints.length; attempt++) {
+            const idx = (startIdx + attempt) % endpoints.length;
+            const endpoint = endpoints[idx];
+            if (attempt > 0) {
+                console.log(`[Failover] Rerank model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+            }
+            const url = buildRerankUrl(endpoint.endpointUrl);
+            const loginid = user?.loginid || proxyReq.serviceName;
+            console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (rerank)`);
+            const rerankBody = {
+                model: endpoint.modelName,
+                query,
+                documents,
+            };
+            if (top_n !== undefined)
+                rerankBody.top_n = top_n;
+            if (return_documents !== undefined)
+                rerankBody.return_documents = return_documents;
+            for (const [key, value] of Object.entries(otherParams)) {
+                if (!(key in rerankBody))
+                    rerankBody[key] = value;
+            }
+            const headers = { 'Content-Type': 'application/json' };
+            if (endpoint.apiKey)
+                headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
+            if (endpoint.extraHeaders) {
+                for (const [key, value] of Object.entries(endpoint.extraHeaders)) {
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                        headers[key] = value;
+                    }
+                }
+            }
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(rerankBody),
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+                const latencyMs = Date.now() - startTime;
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[LLM-Error] Rerank | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
+                    if (response.status >= 400 && response.status < 500) {
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            res.status(response.status).json(errorJson);
+                        }
+                        catch {
+                            res.status(response.status).send(errorText);
+                        }
+                        return;
+                    }
+                    console.error(`[Failover] Rerank endpoint ${url} returned ${response.status}`);
+                    lastError = errorText;
+                    continue;
+                }
+                // 성공 — raw text 그대로 전달
+                const responseText = await response.text();
+                // regex로 usage 추출
+                let inputTokens = 0;
+                const promptMatch = responseText.match(/"prompt_tokens"\s*:\s*(\d+)/);
+                if (promptMatch) {
+                    inputTokens = parseInt(promptMatch[1], 10);
+                }
+                else {
+                    const totalMatch = responseText.match(/"total_tokens"\s*:\s*(\d+)/);
+                    if (totalMatch)
+                        inputTokens = parseInt(totalMatch[1], 10);
+                }
+                if (inputTokens > 0) {
+                    recordUsage(user?.id || null, user?.loginid || null, model.id, inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                }
+                res.setHeader('Content-Type', 'application/json');
+                res.status(200).send(responseText);
+                return;
+            }
+            catch (error) {
+                console.error(`[Failover] Rerank endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
+                lastError = error instanceof Error ? error.message : 'Connection failed';
+                continue;
+            }
+        }
+        // 모든 엔드포인트 실패
+        console.error(`[Failover] All ${endpoints.length} endpoints failed for rerank model "${model.name}"`);
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            message: `All ${endpoints.length} endpoint(s) failed. Please try again later.`,
+        });
+    }
+    catch (error) {
+        console.error('Rerank proxy error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process rerank request' });
+        }
+    }
+});
+// ============================================
+// POST /v1/images/generations
+// ============================================
+proxyRoutes.post('/images/generations', async (req, res) => {
+    const proxyReq = req;
+    const startTime = Date.now();
+    try {
+        const { model: modelName, prompt, n, size, quality, style, ...otherParams } = req.body;
+        if (!modelName || !prompt) {
+            res.status(400).json({ error: 'model and prompt are required' });
+            return;
+        }
+        // 모델 조회 (name, id, displayName 모두 매칭)
+        const model = await prisma.model.findFirst({
+            where: {
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+                enabled: true,
+            },
+        });
+        if (!model) {
+            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            return;
+        }
+        if (model.type !== 'IMAGE') {
+            res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
+            return;
+        }
+        // 서비스 접근 권한 확인
+        if (!canServiceAccessModel(proxyReq, model)) {
+            res.status(403).json({
+                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
+            });
+            return;
+        }
+        // 사용자 upsert
+        const user = await getOrCreateUser(proxyReq);
+        // 저장 디렉토리 확인
+        ensureStorageDir();
+        // 라운드로빈 + Failover
+        const endpoints = await getModelEndpoints(model.id, {
+            endpointUrl: model.endpointUrl,
+            apiKey: model.apiKey,
+            modelName: model.name,
+            extraHeaders: model.extraHeaders,
+        });
+        const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        let lastError;
+        for (let attempt = 0; attempt < endpoints.length; attempt++) {
+            const idx = (startIdx + attempt) % endpoints.length;
+            const endpoint = endpoints[idx];
+            if (attempt > 0) {
+                console.log(`[Failover] Image model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+            }
+            const provider = model.imageProvider || 'OPENAI';
+            const loginid = user?.loginid || proxyReq.serviceName;
+            console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${endpoint.endpointUrl} (image/${provider})`);
+            try {
+                const providerResults = await generateImages(provider, {
+                    endpointUrl: endpoint.endpointUrl,
+                    apiKey: endpoint.apiKey,
+                    modelName: endpoint.modelName,
+                    extraHeaders: endpoint.extraHeaders,
+                    extraBody: model.extraBody,
+                }, {
+                    prompt,
+                    n: n || undefined,
+                    size: size || undefined,
+                    quality: quality || undefined,
+                    style: style || undefined,
+                    negativePrompt: otherParams.negative_prompt || undefined,
+                });
+                // 이미지 로컬 저장 + URL 재작성
+                const reqHost = req.headers['host'] || undefined;
+                const reqProtocol = req.protocol || 'http';
+                const rewrittenData = [];
+                for (const result of providerResults) {
+                    const saved = await saveImage(result.imageBuffer, {
+                        mimeType: result.mimeType,
+                        modelId: model.id,
+                        userId: user?.id || undefined,
+                        serviceId: proxyReq.serviceId,
+                        prompt,
+                    });
+                    rewrittenData.push({
+                        url: buildImageUrl(saved.fileName, reqHost, reqProtocol),
+                        revised_prompt: result.revisedPrompt,
+                    });
+                }
+                const latencyMs = Date.now() - startTime;
+                res.json({
+                    created: Math.floor(Date.now() / 1000),
+                    data: rewrittenData,
+                });
+                // Usage 기록 (이미지는 토큰 0, 요청 횟수만 트래킹)
+                recordUsage(user?.id || null, user?.loginid || null, model.id, 0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                return;
+            }
+            catch (fetchError) {
+                const errMsg = fetchError.message || 'Unknown error';
+                console.error(`[ImageProxy] Provider ${model.imageProvider || 'OPENAI'} failed for ${endpoint.endpointUrl}: ${errMsg}`);
+                lastError = errMsg;
+                continue;
+            }
+        }
+        // 모든 엔드포인트 실패
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            message: `All ${endpoints.length} endpoint(s) failed. Last error: ${lastError || 'unknown'}`,
+        });
+    }
+    catch (error) {
+        console.error('Image generation proxy error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process image generation request' });
+        }
+    }
+});
+// ============================================
+// GET /v1/images/files/:fileName
+// ============================================
+proxyRoutes.get('/images/files/:fileName', async (req, res) => {
+    try {
+        const { fileName } = req.params;
+        if (!fileName || fileName.includes('..') || fileName.includes('/')) {
+            res.status(400).json({ error: 'Invalid file name' });
+            return;
+        }
+        const record = await prisma.generatedImage.findUnique({
+            where: { fileName },
+            select: { mimeType: true, expiresAt: true },
+        });
+        if (!record) {
+            res.status(404).json({ error: 'Image not found' });
+            return;
+        }
+        if (record.expiresAt < new Date()) {
+            res.status(410).json({ error: 'Image has expired' });
+            return;
+        }
+        const filePath = path.resolve(IMAGE_STORAGE_PATH, fileName);
+        res.setHeader('Content-Type', record.mimeType);
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.sendFile(filePath, (err) => {
+            if (err && !res.headersSent) {
+                console.error(`[ImageServe] Failed to send file ${fileName}:`, err);
+                res.status(404).json({ error: 'Image file not found on disk' });
+            }
+        });
+    }
+    catch (error) {
+        console.error('Image file serve error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to serve image' });
+        }
+    }
+});
 // Legacy completions
 proxyRoutes.post('/completions', async (_req, res) => {
     res.status(501).json({ error: 'Legacy completions endpoint not implemented. Use /v1/chat/completions instead.' });

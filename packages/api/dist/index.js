@@ -24,7 +24,10 @@ import { myUsageRoutes } from './routes/my-usage.routes.js';
 import { ratingRoutes } from './routes/rating.routes.js';
 import { serviceRoutes } from './routes/service.routes.js';
 import { holidaysRoutes } from './routes/holidays.routes.js';
+import { publicStatsRoutes } from './routes/public-stats.routes.js';
+import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { startImageCleanupCron } from './services/imageStorage.service.js';
 import 'dotenv/config';
 const app = express();
 const PORT = process.env['PORT'] || 3000;
@@ -32,7 +35,14 @@ app.set('trust proxy', 1);
 export const prisma = new PrismaClient();
 export const redis = createRedisClient();
 // Middleware
-app.use(helmet());
+// HTTP 환경 (사내망) — HTTPS 전용 헤더 전부 비활성화
+app.use(helmet({
+    contentSecurityPolicy: false, // CSP 비활성화 (upgrade-insecure-requests 방지)
+    strictTransportSecurity: false, // HSTS 비활성화 (브라우저 HTTPS 강제 캐시 방지)
+    crossOriginOpenerPolicy: false, // HTTP에서 무의미
+    originAgentCluster: false, // HTTP에서 무의미
+    crossOriginEmbedderPolicy: false, // HTTP에서 무의미
+}));
 app.use(cors({
     origin: process.env['CORS_ORIGIN'] || '*',
     credentials: true,
@@ -62,6 +72,16 @@ app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
+// Public Stats API (인증 불필요)
+app.use('/api/public/stats', publicStatsRoutes);
+// Swagger / OpenAPI documentation
+app.get('/api-docs', (_req, res) => {
+    res.json(swaggerSpec);
+});
+app.get('/api-docs/ui', (_req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(getSwaggerUiHtml());
+});
 // Error handling
 app.use((err, _req, res, _next) => {
     console.error('Error:', err);
@@ -100,6 +120,8 @@ async function main() {
         console.log('Database connected');
         await redis.ping();
         console.log('Redis connected');
+        // 만료 이미지 자동 삭제 (1시간마다)
+        startImageCleanupCron();
         const server = app.listen(PORT, () => {
             console.log(`Agent Dashboard API server running on port ${PORT}`);
         });

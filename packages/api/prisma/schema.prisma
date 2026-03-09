@@ -310,3 +310,24 @@ model RatingFeedback {
   @@index([serviceId])
   @@map("rating_feedbacks")
 }
+
+// ============================================
+// 이미지 생성 결과 (로컬 저장 + 자동 만료)
+// ============================================
+model GeneratedImage {
+  id         String   @id @default(uuid())
+  fileName   String   @unique @map("file_name")
+  mimeType   String   @default("image/png") @map("mime_type")
+  sizeBytes  Int      @default(0) @map("size_bytes")
+  modelId    String?  @map("model_id")
+  userId     String?  @map("user_id")
+  serviceId  String?  @map("service_id")
+  prompt     String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@index([modelId])
+  @@map("generated_images")
+}

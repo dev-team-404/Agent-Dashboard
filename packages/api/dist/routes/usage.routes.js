@@ -31,7 +31,7 @@ usageRoutes.get('/summary', async (_req, res) => {
  */
 usageRoutes.get('/daily', async (req, res) => {
     try {
-        const days = parseInt(req.query['days']) || 7;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 7));
         const stats = await prisma.dailyUsageStat.findMany({
             orderBy: { date: 'desc' },
             take: days,
@@ -49,7 +49,7 @@ usageRoutes.get('/daily', async (req, res) => {
  */
 usageRoutes.get('/by-model', async (req, res) => {
     try {
-        const days = parseInt(req.query['days']) || 7;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 7));
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         const usage = await prisma.usageLog.groupBy({
@@ -92,7 +92,7 @@ usageRoutes.get('/by-model', async (req, res) => {
  */
 usageRoutes.get('/by-user', async (req, res) => {
     try {
-        const days = parseInt(req.query['days']) || 7;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 7));
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         const usage = await prisma.usageLog.groupBy({
@@ -137,8 +137,8 @@ usageRoutes.get('/by-user', async (req, res) => {
  */
 usageRoutes.get('/logs', async (req, res) => {
     try {
-        const limit = parseInt(req.query['limit']) || 100;
-        const offset = parseInt(req.query['offset']) || 0;
+        const limit = Math.min(100, Math.max(1, parseInt(req.query['limit']) || 100));
+        const offset = Math.max(0, parseInt(req.query['offset']) || 0);
         const logs = await prisma.usageLog.findMany({
             orderBy: { timestamp: 'desc' },
             take: limit,

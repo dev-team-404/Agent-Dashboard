@@ -10,7 +10,13 @@ import { Request, Response, NextFunction } from 'express';
 function safeDecode(value: string | undefined): string {
   if (!value) return '';
   try {
+    // URL-encoded (%XX) → decode
     if (value.includes('%')) return decodeURIComponent(value);
+    // Raw UTF-8 bytes in header → Node.js reads as latin1 → convert back to UTF-8
+    const buf = Buffer.from(value, 'latin1');
+    const decoded = buf.toString('utf8');
+    // 유효한 UTF-8이면 변환된 값 사용, 아니면 원본
+    if (decoded !== value && !decoded.includes('\ufffd')) return decoded;
     return value;
   } catch {
     return value;

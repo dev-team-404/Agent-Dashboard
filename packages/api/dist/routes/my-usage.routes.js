@@ -130,7 +130,7 @@ myUsageRoutes.get('/daily', async (req, res) => {
             return;
         }
         const serviceId = req.query['serviceId'];
-        const days = parseInt(req.query['days']) || 30;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
@@ -203,7 +203,7 @@ myUsageRoutes.get('/by-model', async (req, res) => {
             return;
         }
         const serviceId = req.query['serviceId'];
-        const days = parseInt(req.query['days']) || 30;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         const usage = await prisma.usageLog.groupBy({
@@ -259,7 +259,7 @@ myUsageRoutes.get('/by-service', async (req, res) => {
             res.status(404).json({ error: 'User not found' });
             return;
         }
-        const days = parseInt(req.query['days']) || 30;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         // 서비스별 집계
@@ -319,8 +319,8 @@ myUsageRoutes.get('/recent', async (req, res) => {
             return;
         }
         const serviceId = req.query['serviceId'];
-        const limit = Math.min(parseInt(req.query['limit']) || 50, 100);
-        const offset = parseInt(req.query['offset']) || 0;
+        const limit = Math.min(100, Math.max(1, parseInt(req.query['limit']) || 50));
+        const offset = Math.max(0, parseInt(req.query['offset']) || 0);
         const whereClause = {
             userId: user.id,
             ...getServiceFilter(serviceId),

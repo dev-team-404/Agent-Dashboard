@@ -15,12 +15,24 @@ import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js'
 import { z } from 'zod';
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
+ * (PG DATE는 midnight UTC로 반환되므로 toISOString 사용 OK)
  */
 function formatDateToString(date) {
     if (typeof date === 'string') {
         return date.split('T')[0] || date;
     }
     return date.toISOString().split('T')[0];
+}
+/**
+ * Helper: JS Date를 로컬(KST) 기준 YYYY-MM-DD 문자열로 변환
+ * toISOString()은 UTC 기반이라 KST에서 날짜가 1일 밀릴 수 있으므로
+ * getFullYear/getMonth/getDate (로컬 TZ 기준) 사용
+ */
+function toLocalDateString(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 }
 /**
  * Helper: serviceId 필터 조건 생성
@@ -41,7 +53,10 @@ const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초 (실제 LLM 응답 대기)
 /**
  * endpointUrl에서 chat completions URL 구성
  */
-function buildHealthCheckUrl(endpointUrl) {
+/**
+ * endpointUrl → /chat/completions URL
+ */
+function buildChatCompletionsUrl(endpointUrl) {
     let url = endpointUrl.trim().replace(/\/+$/, '');
     if (url.endsWith('/chat/completions'))
         return url;
@@ -51,6 +66,45 @@ function buildHealthCheckUrl(endpointUrl) {
         return `${url}/chat/completions`;
     return `${url}/chat/completions`;
 }
+/**
+ * endpointUrl → /embeddings URL
+ */
+function buildEmbeddingsUrl(endpointUrl) {
+    let url = endpointUrl.trim().replace(/\/+$/, '');
+    if (url.endsWith('/embeddings'))
+        return url;
+    if (url.endsWith('/v1'))
+        return `${url}/embeddings`;
+    // Strip known suffixes
+    url = url.replace(/\/(chat\/completions|rerank|images\/generations)$/, '');
+    return `${url}/embeddings`;
+}
+/**
+ * endpointUrl → /rerank URL
+ */
+function buildRerankUrl(endpointUrl) {
+    let url = endpointUrl.trim().replace(/\/+$/, '');
+    if (url.endsWith('/rerank'))
+        return url;
+    if (url.endsWith('/v1'))
+        return `${url}/rerank`;
+    url = url.replace(/\/(chat\/completions|embeddings|images\/generations)$/, '');
+    return `${url}/rerank`;
+}
+/**
+ * endpointUrl → /images/generations URL
+ */
+function buildImagesGenerationsUrl(endpointUrl) {
+    let url = endpointUrl.trim().replace(/\/+$/, '');
+    if (url.endsWith('/images/generations'))
+        return url;
+    if (url.endsWith('/v1'))
+        return `${url}/images/generations`;
+    url = url.replace(/\/(chat\/completions|embeddings|rerank)$/, '');
+    return `${url}/images/generations`;
+}
+// backward compat alias
+const buildHealthCheckUrl = buildChatCompletionsUrl;
 /**
  * fetch 요청 with timeout
  */
@@ -257,11 +311,14 @@ const modelSchema = z.object({
     endpointUrl: z.string().url(),
     apiKey: z.string().optional(),
     extraHeaders: z.record(z.string()).optional(),
+    extraBody: z.any().optional(),
     maxTokens: z.number().int().min(1).max(1000000).default(128000),
     enabled: z.boolean().default(true),
     supportsVision: z.boolean().default(false),
-    visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY']).default('PUBLIC'),
+    visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY']).default('PUBLIC'),
     visibilityScope: z.array(z.string()).default([]),
+    type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING']).optional(),
+    imageProvider: z.string().optional(),
 });
 /**
  * GET /admin/models
@@ -289,7 +346,12 @@ adminRoutes.get('/models', async (req, res) => {
         // For non-super admins, filter by visibility
         let filteredModels = models;
         if (!req.isSuperAdmin) {
-            filteredModels = models.filter((m) => isModelVisibleTo({ visibility: m.visibility, visibilityScope: m.visibilityScope }, req.adminDept || '', req.adminBusinessUnit || '', true));
+            filteredModels = models.filter((m) => {
+                // SUPER_ADMIN_ONLY models are only visible to super admins
+                if (m.visibility === 'SUPER_ADMIN_ONLY')
+                    return false;
+                return isModelVisibleTo({ visibility: m.visibility, visibilityScope: m.visibilityScope }, req.adminDept || '', req.adminBusinessUnit || '', true);
+            });
         }
         // Mask API keys (parent and subModels)
         const maskedModels = filteredModels.map((m) => ({
@@ -714,6 +776,7 @@ adminRoutes.delete('/models/:modelId/sub-models/:subModelId', async (req, res) =
 /**
  * POST /admin/models/test
  * 모델 엔드포인트 테스트 (저장 전 독립 테스트용)
+ * chatCompletion + 4개 toolCall 시나리오 (A/B/C/D)
  * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
  */
 adminRoutes.post('/models/test', async (req, res) => {
@@ -730,13 +793,574 @@ adminRoutes.post('/models/test', async (req, res) => {
             return;
         }
         const { endpointUrl, modelName, apiKey, extraHeaders } = validation.data;
-        const healthResult = await checkModelEndpointHealth(endpointUrl, modelName, apiKey, extraHeaders);
-        console.log(`[Test] Model "${modelName}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
-        res.json({ healthCheck: healthResult });
+        const totalStart = Date.now();
+        const url = buildHealthCheckUrl(endpointUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        if (extraHeaders) {
+            for (const [key, value] of Object.entries(extraHeaders)) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                    headers[key] = value;
+                }
+            }
+        }
+        // Tool definition for tool call tests
+        const weatherTool = {
+            type: 'function',
+            function: {
+                name: 'get_weather',
+                description: 'Get the current weather in a location',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        location: { type: 'string', description: 'City name' },
+                        unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+                    },
+                    required: ['location'],
+                },
+            },
+        };
+        const toolCallPrompt = "What's the weather in Seoul?";
+        // Helper: run a single tool call test scenario
+        async function runToolCallTest(label, opts) {
+            const startTime = Date.now();
+            const requestBody = {
+                model: modelName,
+                messages: [{ role: 'user', content: toolCallPrompt }],
+                tools: [weatherTool],
+                tool_choice: opts.tool_choice,
+            };
+            if (opts.temperature !== undefined) {
+                requestBody.temperature = opts.temperature;
+            }
+            try {
+                const response = await fetchWithTimeout(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(requestBody),
+                }, HEALTH_CHECK_TIMEOUT_MS);
+                const latencyMs = Date.now() - startTime;
+                const responseText = await response.text();
+                if (!response.ok) {
+                    const result = { passed: false, status: response.status, message: `${label} failed with status ${response.status}`, latencyMs };
+                    logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                    return result;
+                }
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                }
+                catch {
+                    const result = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                    logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                    return result;
+                }
+                // Validate tool_calls
+                const toolCalls = data.choices?.[0]?.message?.tool_calls;
+                if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
+                    const result = { passed: false, status: response.status, message: 'No tool_calls in response', latencyMs };
+                    logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                    return result;
+                }
+                // Validate each tool call has function.name and function.arguments (valid JSON)
+                for (const tc of toolCalls) {
+                    if (!tc.function?.name) {
+                        const result = { passed: false, status: response.status, message: 'tool_call missing function.name', latencyMs };
+                        logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                        return result;
+                    }
+                    if (!tc.function?.arguments) {
+                        const result = { passed: false, status: response.status, message: 'tool_call missing function.arguments', latencyMs };
+                        logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                        return result;
+                    }
+                    try {
+                        JSON.parse(tc.function.arguments);
+                    }
+                    catch {
+                        const result = { passed: false, status: response.status, message: `tool_call arguments is not valid JSON: ${tc.function.arguments}`, latencyMs };
+                        logHealthCheckDetail(label, modelName, url, requestBody, result, responseText);
+                        return result;
+                    }
+                }
+                const toolName = toolCalls[0]?.function?.name || 'unknown';
+                const result = { passed: true, status: response.status, message: `OK: called "${toolName}"`, latencyMs };
+                logHealthCheckDetail(label, modelName, url, requestBody, result, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+                return result;
+            }
+            catch (error) {
+                const latencyMs = Date.now() - startTime;
+                const errMsg = error instanceof Error
+                    ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+                    : 'Unknown error';
+                const result = { passed: false, message: errMsg, latencyMs };
+                logHealthCheckDetail(label, modelName, url, requestBody, result, errMsg);
+                return result;
+            }
+        }
+        // 1. Chat Completion test
+        const chatResult = await testChatCompletion(url, modelName, headers);
+        console.log(`[Test] Chat Completion: ${chatResult.passed ? 'PASS' : 'FAIL'} (${chatResult.latencyMs}ms) ${chatResult.message}`);
+        // 2. Tool Call tests (A/B/C/D) - run even if chat fails (for diagnostic info)
+        const [toolCallA, toolCallB, toolCallC, toolCallD] = await Promise.all([
+            runToolCallTest('toolCallA', { temperature: 0, tool_choice: 'required' }),
+            runToolCallTest('toolCallB', { temperature: 0, tool_choice: 'auto' }),
+            runToolCallTest('toolCallC', { tool_choice: 'required' }),
+            runToolCallTest('toolCallD', { tool_choice: 'auto' }),
+        ]);
+        console.log(`[Test] toolCallA: ${toolCallA.passed ? 'PASS' : 'FAIL'} (${toolCallA.latencyMs}ms)`);
+        console.log(`[Test] toolCallB: ${toolCallB.passed ? 'PASS' : 'FAIL'} (${toolCallB.latencyMs}ms)`);
+        console.log(`[Test] toolCallC: ${toolCallC.passed ? 'PASS' : 'FAIL'} (${toolCallC.latencyMs}ms)`);
+        console.log(`[Test] toolCallD: ${toolCallD.passed ? 'PASS' : 'FAIL'} (${toolCallD.latencyMs}ms)`);
+        const toolCallPassCount = [toolCallA, toolCallB, toolCallC, toolCallD].filter(r => r.passed).length;
+        const allPassed = chatResult.passed && toolCallPassCount >= 2;
+        const totalLatencyMs = Date.now() - totalStart;
+        res.json({
+            healthCheck: {
+                healthy: allPassed,
+                checks: {
+                    chatCompletion: chatResult,
+                    toolCallA,
+                    toolCallB,
+                    toolCallC,
+                    toolCallD,
+                },
+                toolCallPassCount,
+                allPassed,
+                message: allPassed
+                    ? 'All checks passed'
+                    : chatResult.passed
+                        ? `Tool call: ${toolCallPassCount}/4 passed (need 2+)`
+                        : `Chat completion failed: ${chatResult.message}`,
+                totalLatencyMs,
+            },
+        });
     }
     catch (error) {
         console.error('Model test error:', error);
         res.status(500).json({ error: 'Failed to test model' });
+    }
+});
+/**
+ * POST /admin/models/test-vl
+ * Vision Language Model 테스트
+ * Step 1 (visionDescribe): 테스트 이미지를 보내고 설명 요청
+ * Step 2 (visionJudge): 설명이 이미지 내용을 정확히 묘사하는지 판정
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-vl', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders } = validation.data;
+        const url = buildHealthCheckUrl(endpointUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        if (extraHeaders) {
+            for (const [key, value] of Object.entries(extraHeaders)) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                    headers[key] = value;
+                }
+            }
+        }
+        // 1x1 red pixel PNG base64
+        const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+        // Step 1: visionDescribe - ask the model to describe the test image
+        let visionDescribe;
+        let description = '';
+        const describeStart = Date.now();
+        const describeBody = {
+            model: modelName,
+            messages: [{
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: 'Describe this image in detail.' },
+                        { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                    ],
+                }],
+            temperature: 0,
+        };
+        try {
+            const response = await fetchWithTimeout(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(describeBody),
+            }, HEALTH_CHECK_TIMEOUT_MS);
+            const latencyMs = Date.now() - describeStart;
+            const responseText = await response.text();
+            if (!response.ok) {
+                visionDescribe = { passed: false, status: response.status, message: `Vision describe failed with status ${response.status}`, latencyMs };
+                logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+            }
+            else {
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                }
+                catch {
+                    visionDescribe = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                    logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+                }
+                if (!visionDescribe) {
+                    const content = data?.choices?.[0]?.message?.content;
+                    if (content && typeof content === 'string' && content.length > 0) {
+                        description = content;
+                        visionDescribe = { passed: true, status: response.status, message: `OK: "${content.slice(0, 200)}"`, latencyMs };
+                        logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+                    }
+                    else {
+                        visionDescribe = { passed: false, status: response.status, message: 'No content in response', latencyMs };
+                        logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, responseText);
+                    }
+                }
+            }
+        }
+        catch (error) {
+            const latencyMs = Date.now() - describeStart;
+            const errMsg = error instanceof Error
+                ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+                : 'Unknown error';
+            visionDescribe = { passed: false, message: errMsg, latencyMs };
+            logHealthCheckDetail('Vision Describe', modelName, url, describeBody, visionDescribe, errMsg);
+        }
+        // Step 2: visionJudge - ask if description accurately describes the image
+        let visionJudge;
+        if (!visionDescribe.passed || !description) {
+            visionJudge = { passed: false, message: 'Skipped (vision describe failed)', latencyMs: 0 };
+        }
+        else {
+            const judgeStart = Date.now();
+            const judgeBody = {
+                model: modelName,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                            {
+                                type: 'text',
+                                text: `Here is a description of the image above: "${description}"\n\nDoes this description accurately describe the image content? Does it mention any visual element (color, shape, size, pixel, etc.)? Answer with "YES" or "NO" and briefly explain.`,
+                            },
+                        ],
+                    },
+                ],
+                temperature: 0,
+            };
+            try {
+                const response = await fetchWithTimeout(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(judgeBody),
+                }, HEALTH_CHECK_TIMEOUT_MS);
+                const latencyMs = Date.now() - judgeStart;
+                const responseText = await response.text();
+                if (!response.ok) {
+                    visionJudge = { passed: false, status: response.status, message: `Vision judge failed with status ${response.status}`, latencyMs };
+                    logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, responseText);
+                }
+                else {
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    }
+                    catch {
+                        visionJudge = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                        logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, responseText);
+                    }
+                    if (!visionJudge) {
+                        const content = data?.choices?.[0]?.message?.content || '';
+                        // Check if the judge response mentions any visual element
+                        const mentionsVisual = /yes|color|red|pixel|image|square|small|dot|point/i.test(content);
+                        if (mentionsVisual) {
+                            visionJudge = { passed: true, status: response.status, message: `OK: "${content.slice(0, 200)}"`, latencyMs };
+                        }
+                        else {
+                            visionJudge = { passed: false, status: response.status, message: `Description did not mention visual elements: "${content.slice(0, 200)}"`, latencyMs };
+                        }
+                        logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+                    }
+                }
+            }
+            catch (error) {
+                const latencyMs = Date.now() - judgeStart;
+                const errMsg = error instanceof Error
+                    ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+                    : 'Unknown error';
+                visionJudge = { passed: false, message: errMsg, latencyMs };
+                logHealthCheckDetail('Vision Judge', modelName, url, judgeBody, visionJudge, errMsg);
+            }
+        }
+        const passed = visionDescribe.passed && visionJudge.passed;
+        console.log(`[Test-VL] Model "${modelName}" -> visionDescribe: ${visionDescribe.passed ? 'PASS' : 'FAIL'}, visionJudge: ${visionJudge.passed ? 'PASS' : 'FAIL'}, overall: ${passed ? 'PASS' : 'FAIL'}`);
+        res.json({
+            visionDescribe: visionDescribe,
+            visionJudge: visionJudge,
+            passed,
+        });
+    }
+    catch (error) {
+        console.error('Model test-vl error:', error);
+        res.status(500).json({ error: 'Failed to test vision model' });
+    }
+});
+/**
+ * POST /admin/models/test-image
+ * 이미지 생성 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders?, extraBody?, imageProvider? }
+ */
+adminRoutes.post('/models/test-image', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+            extraBody: z.any().optional(),
+            imageProvider: z.string().optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, extraBody, imageProvider } = validation.data;
+        // Build URL - append /images/generations
+        const url = buildImagesGenerationsUrl(endpointUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        if (extraHdrs) {
+            for (const [key, value] of Object.entries(extraHdrs)) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                    headers[key] = value;
+                }
+            }
+        }
+        let imageGen;
+        const startTime = Date.now();
+        // OpenAI-style image generation request
+        const requestBody = {
+            model: modelName,
+            prompt: 'A simple red circle on white background',
+            n: 1,
+            size: '256x256',
+            ...(extraBody && typeof extraBody === 'object' ? extraBody : {}),
+        };
+        try {
+            const response = await fetchWithTimeout(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(requestBody),
+            }, HEALTH_CHECK_TIMEOUT_MS);
+            const latencyMs = Date.now() - startTime;
+            const responseText = await response.text();
+            if (!response.ok) {
+                imageGen = { passed: false, status: response.status, message: `Image generation failed with status ${response.status}`, latencyMs };
+                logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+            }
+            else {
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                }
+                catch {
+                    imageGen = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                    logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+                }
+                if (!imageGen) {
+                    // Check for image data in response (OpenAI format: data[0].url or data[0].b64_json)
+                    const imageData = data?.data?.[0];
+                    if (imageData && (imageData.url || imageData.b64_json)) {
+                        imageGen = { passed: true, status: response.status, message: `OK: image generated successfully`, latencyMs };
+                    }
+                    else {
+                        imageGen = { passed: false, status: response.status, message: 'No image data in response (expected data[0].url or data[0].b64_json)', latencyMs };
+                    }
+                    logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+                }
+            }
+        }
+        catch (error) {
+            const latencyMs = Date.now() - startTime;
+            const errMsg = error instanceof Error
+                ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+                : 'Unknown error';
+            imageGen = { passed: false, message: errMsg, latencyMs };
+            logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, errMsg);
+        }
+        console.log(`[Test-Image] Model "${modelName}" (provider: ${imageProvider || 'default'}) -> ${imageGen.passed ? 'PASS' : 'FAIL'} (${imageGen.latencyMs}ms)`);
+        res.json({
+            imageGen: imageGen,
+            passed: imageGen.passed,
+        });
+    }
+    catch (error) {
+        console.error('Model test-image error:', error);
+        res.status(500).json({ error: 'Failed to test image model' });
+    }
+});
+/**
+ * POST /admin/models/test-embedding
+ * 임베딩 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-embedding', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs } = validation.data;
+        const url = buildEmbeddingsUrl(endpointUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey)
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        if (extraHdrs) {
+            for (const [key, value] of Object.entries(extraHdrs)) {
+                const lk = key.toLowerCase();
+                if (lk !== 'content-type' && lk !== 'authorization')
+                    headers[key] = value;
+            }
+        }
+        const startTime = Date.now();
+        const requestBody = { model: modelName, input: 'Hello world, this is a test embedding request.' };
+        let embedding;
+        try {
+            const response = await fetchWithTimeout(url, {
+                method: 'POST', headers, body: JSON.stringify(requestBody),
+            }, HEALTH_CHECK_TIMEOUT_MS);
+            const latencyMs = Date.now() - startTime;
+            const responseText = await response.text();
+            if (!response.ok) {
+                embedding = { passed: false, status: response.status, message: `Embedding request failed (${response.status})`, latencyMs };
+            }
+            else {
+                try {
+                    const data = JSON.parse(responseText);
+                    const vec = data?.data?.[0]?.embedding;
+                    if (Array.isArray(vec) && vec.length > 0) {
+                        embedding = { passed: true, status: response.status, message: `OK: ${vec.length}-dim embedding`, latencyMs, dimensions: vec.length };
+                    }
+                    else {
+                        embedding = { passed: false, status: response.status, message: 'No embedding vector in response (expected data[0].embedding)', latencyMs };
+                    }
+                }
+                catch {
+                    embedding = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                }
+            }
+        }
+        catch (err) {
+            embedding = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+        }
+        console.log(`[Test-Embedding] Model "${modelName}" -> ${embedding.passed ? 'PASS' : 'FAIL'} (${embedding.latencyMs}ms)`);
+        res.json({ embedding, passed: embedding.passed });
+    }
+    catch (error) {
+        console.error('Model test-embedding error:', error);
+        res.status(500).json({ error: 'Failed to test embedding model' });
+    }
+});
+/**
+ * POST /admin/models/test-rerank
+ * 리랭킹 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders? }
+ */
+adminRoutes.post('/models/test-rerank', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs } = validation.data;
+        const url = buildRerankUrl(endpointUrl);
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey)
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        if (extraHdrs) {
+            for (const [key, value] of Object.entries(extraHdrs)) {
+                const lk = key.toLowerCase();
+                if (lk !== 'content-type' && lk !== 'authorization')
+                    headers[key] = value;
+            }
+        }
+        const startTime = Date.now();
+        const requestBody = {
+            model: modelName,
+            query: 'What is machine learning?',
+            documents: [
+                'Machine learning is a subset of artificial intelligence.',
+                'The weather today is sunny and warm.',
+                'Deep learning uses neural networks with many layers.',
+            ],
+        };
+        let rerank;
+        try {
+            const response = await fetchWithTimeout(url, {
+                method: 'POST', headers, body: JSON.stringify(requestBody),
+            }, HEALTH_CHECK_TIMEOUT_MS);
+            const latencyMs = Date.now() - startTime;
+            const responseText = await response.text();
+            if (!response.ok) {
+                rerank = { passed: false, status: response.status, message: `Rerank request failed (${response.status})`, latencyMs };
+            }
+            else {
+                try {
+                    const data = JSON.parse(responseText);
+                    // Jina/vLLM rerank format: { results: [{ index, relevance_score }] }
+                    const results = data?.results || data?.data;
+                    if (Array.isArray(results) && results.length > 0 && results[0].relevance_score !== undefined) {
+                        rerank = { passed: true, status: response.status, message: `OK: ${results.length} results reranked`, latencyMs };
+                    }
+                    else {
+                        rerank = { passed: false, status: response.status, message: 'No rerank results in response (expected results[].relevance_score)', latencyMs };
+                    }
+                }
+                catch {
+                    rerank = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                }
+            }
+        }
+        catch (err) {
+            rerank = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+        }
+        console.log(`[Test-Rerank] Model "${modelName}" -> ${rerank.passed ? 'PASS' : 'FAIL'} (${rerank.latencyMs}ms)`);
+        res.json({ rerank, passed: rerank.passed });
+    }
+    catch (error) {
+        console.error('Model test-rerank error:', error);
+        res.status(500).json({ error: 'Failed to test rerank model' });
     }
 });
 // ==================== Users Management ====================
@@ -748,8 +1372,8 @@ adminRoutes.post('/models/test', async (req, res) => {
  */
 adminRoutes.get('/users', async (req, res) => {
     try {
-        const page = parseInt(req.query['page']) || 1;
-        const limit = parseInt(req.query['limit']) || 50;
+        const page = Math.max(1, parseInt(req.query['page']) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query['limit']) || 50));
         const skip = (page - 1) * limit;
         const serviceId = req.query['serviceId'];
         // Build where clause
@@ -980,6 +1604,345 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
     catch (error) {
         console.error('Demote user error:', error);
         res.status(500).json({ error: 'Failed to demote user' });
+    }
+});
+// ==================== Unified Users (SUPER_ADMIN) ====================
+/**
+ * GET /admin/unified-users
+ * 전체 사용자 통합 관리 (서비스별 통계 포함)
+ * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
+ */
+adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
+    try {
+        const page = parseInt(req.query['page']) || 1;
+        const limit = Math.min(100, parseInt(req.query['limit']) || 50);
+        const skip = (page - 1) * limit;
+        const search = req.query['search'];
+        const serviceId = req.query['serviceId'];
+        const businessUnit = req.query['businessUnit'];
+        const role = req.query['role'];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const whereClause = {
+            loginid: { not: 'anonymous' },
+        };
+        if (search) {
+            whereClause.OR = [
+                { loginid: { contains: search, mode: 'insensitive' } },
+                { username: { contains: search, mode: 'insensitive' } },
+                { deptname: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+        if (businessUnit) {
+            whereClause.businessUnit = businessUnit;
+        }
+        if (serviceId) {
+            whereClause.userServices = { some: { serviceId } };
+        }
+        // Role filter: need to check admin table
+        let adminLoginIds;
+        if (role === 'SUPER_ADMIN') {
+            const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+            const dbSuperAdmins = await prisma.admin.findMany({
+                where: { role: 'SUPER_ADMIN' },
+                select: { loginid: true },
+            });
+            adminLoginIds = [...developers, ...dbSuperAdmins.map(a => a.loginid)];
+            whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+        }
+        else if (role === 'ADMIN') {
+            const dbAdmins = await prisma.admin.findMany({
+                where: { role: 'ADMIN' },
+                select: { loginid: true },
+            });
+            adminLoginIds = dbAdmins.map(a => a.loginid);
+            whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+        }
+        else if (role === 'USER') {
+            const allAdmins = await prisma.admin.findMany({ select: { loginid: true } });
+            const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+            const adminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
+            whereClause.loginid = { notIn: [...adminIds], not: 'anonymous' };
+        }
+        const [users, total] = await Promise.all([
+            prisma.user.findMany({
+                where: whereClause,
+                skip,
+                take: limit,
+                orderBy: { lastActive: 'desc' },
+                include: {
+                    userServices: {
+                        include: {
+                            service: { select: { id: true, name: true, displayName: true } },
+                        },
+                    },
+                    _count: { select: { usageLogs: true } },
+                },
+            }),
+            prisma.user.count({ where: whereClause }),
+        ]);
+        // Admin lookup
+        const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
+        const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
+        const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+        const mappedUsers = users.map(u => {
+            let globalRole = 'USER';
+            if (developers.includes(u.loginid)) {
+                globalRole = 'SUPER_ADMIN';
+            }
+            else if (adminMap.has(u.loginid)) {
+                globalRole = adminMap.get(u.loginid);
+            }
+            return {
+                id: u.id,
+                loginid: u.loginid,
+                username: u.username,
+                deptname: u.deptname,
+                businessUnit: u.businessUnit,
+                globalRole,
+                firstSeen: u.firstSeen,
+                lastActive: u.lastActive,
+                totalRequests: u._count.usageLogs,
+                serviceStats: u.userServices.map(us => ({
+                    serviceId: us.service.id,
+                    serviceName: us.service.displayName,
+                    firstSeen: us.firstSeen,
+                    lastActive: us.lastActive,
+                    requestCount: us.requestCount,
+                })),
+            };
+        });
+        // Filter options
+        const [services, businessUnits] = await Promise.all([
+            prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+                orderBy: { displayName: 'asc' },
+            }),
+            prisma.user.findMany({
+                where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
+                select: { businessUnit: true },
+                distinct: ['businessUnit'],
+            }),
+        ]);
+        res.json({
+            users: mappedUsers,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+            filterOptions: {
+                services,
+                businessUnits: businessUnits.map(b => b.businessUnit).filter(Boolean),
+                deptnames: [],
+                roles: ['SUPER_ADMIN', 'ADMIN', 'USER'],
+            },
+        });
+    }
+    catch (error) {
+        console.error('Get unified users error:', error);
+        res.status(500).json({ error: 'Failed to get unified users' });
+    }
+});
+/**
+ * PUT /admin/unified-users/:id/permissions
+ * 사용자 권한 변경 (SUPER_ADMIN만)
+ * Body: { globalRole?: 'ADMIN' }
+ */
+adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { globalRole } = req.body;
+        const user = await prisma.user.findUnique({
+            where: { id },
+            select: { loginid: true, username: true, deptname: true, businessUnit: true },
+        });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        if (isSuperAdminByEnv(user.loginid)) {
+            res.status(400).json({ error: 'Cannot modify environment super admin' });
+            return;
+        }
+        if (globalRole === 'ADMIN') {
+            await prisma.admin.upsert({
+                where: { loginid: user.loginid },
+                update: {
+                    role: 'ADMIN',
+                    deptname: user.deptname || '',
+                    businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+                    designatedBy: req.user.loginid,
+                },
+                create: {
+                    loginid: user.loginid,
+                    role: 'ADMIN',
+                    deptname: user.deptname || '',
+                    businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
+                    designatedBy: req.user.loginid,
+                },
+            });
+        }
+        else {
+            // globalRole undefined or not ADMIN → demote
+            await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
+        }
+        res.json({ success: true, message: `${user.username} permissions updated` });
+    }
+    catch (error) {
+        console.error('Update unified user permissions error:', error);
+        res.status(500).json({ error: 'Failed to update permissions' });
+    }
+});
+// ==================== Rate Limit Management ====================
+/**
+ * GET /admin/users/:id/rate-limit?serviceId=
+ * 사용자의 서비스별 rate limit 조회
+ */
+adminRoutes.get('/users/:id/rate-limit', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const serviceId = req.query['serviceId'];
+        if (!serviceId) {
+            res.status(400).json({ error: 'serviceId is required' });
+            return;
+        }
+        // Dept-scoped admin check
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            const user = await prisma.user.findUnique({ where: { id }, select: { businessUnit: true } });
+            if (user && user.businessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to this user' });
+                return;
+            }
+        }
+        const rateLimit = await prisma.userRateLimit.findUnique({
+            where: { userId_serviceId: { userId: id, serviceId } },
+        });
+        res.json({ rateLimit: rateLimit || null });
+    }
+    catch (error) {
+        console.error('Get rate limit error:', error);
+        res.status(500).json({ error: 'Failed to get rate limit' });
+    }
+});
+/**
+ * GET /admin/rate-limits?serviceId=
+ * 서비스의 전체 rate limit 목록 조회
+ */
+adminRoutes.get('/rate-limits', async (req, res) => {
+    try {
+        const serviceId = req.query['serviceId'];
+        if (!serviceId) {
+            res.status(400).json({ error: 'serviceId is required' });
+            return;
+        }
+        const rateLimits = await prisma.userRateLimit.findMany({
+            where: { serviceId },
+            include: {
+                user: { select: { id: true, loginid: true, username: true, deptname: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        res.json({ rateLimits });
+    }
+    catch (error) {
+        console.error('Get rate limits error:', error);
+        res.status(500).json({ error: 'Failed to get rate limits' });
+    }
+});
+/**
+ * PUT /admin/users/:id/rate-limit
+ * 사용자의 서비스별 rate limit 설정/수정
+ * Body: { serviceId, maxTokens, window: 'FIVE_HOURS' | 'DAY', enabled? }
+ */
+adminRoutes.put('/users/:id/rate-limit', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { serviceId, maxTokens, window: windowType, enabled } = req.body;
+        if (!serviceId || maxTokens === undefined || maxTokens === null || !windowType) {
+            res.status(400).json({ error: 'serviceId, maxTokens, and window are required' });
+            return;
+        }
+        if (!['FIVE_HOURS', 'DAY'].includes(windowType)) {
+            res.status(400).json({ error: 'window must be FIVE_HOURS or DAY' });
+            return;
+        }
+        if (typeof maxTokens !== 'number' || maxTokens < 1) {
+            res.status(400).json({ error: 'maxTokens must be at least 1' });
+            return;
+        }
+        // Verify user exists
+        const user = await prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        // Dept-scoped admin check
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            if (user.businessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to this user' });
+                return;
+            }
+        }
+        const rateLimit = await prisma.userRateLimit.upsert({
+            where: { userId_serviceId: { userId: id, serviceId } },
+            update: {
+                maxTokens,
+                window: windowType,
+                enabled: enabled !== undefined ? enabled : true,
+                createdBy: req.user.loginid,
+            },
+            create: {
+                userId: id,
+                serviceId,
+                maxTokens,
+                window: windowType,
+                enabled: enabled !== undefined ? enabled : true,
+                createdBy: req.user.loginid,
+            },
+        });
+        res.json({ rateLimit, message: 'Rate limit updated' });
+    }
+    catch (error) {
+        console.error('Set rate limit error:', error);
+        res.status(500).json({ error: 'Failed to set rate limit' });
+    }
+});
+/**
+ * DELETE /admin/users/:id/rate-limit?serviceId=
+ * 사용자의 서비스별 rate limit 삭제 (무제한으로 복원)
+ */
+adminRoutes.delete('/users/:id/rate-limit', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const serviceId = req.query['serviceId'] || req.body?.serviceId;
+        if (!serviceId) {
+            res.status(400).json({ error: 'serviceId is required' });
+            return;
+        }
+        // Dept-scoped admin check
+        const user = await prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            res.status(404).json({ error: 'User not found' });
+            return;
+        }
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            if (user.businessUnit !== req.adminBusinessUnit) {
+                res.status(403).json({ error: 'No access to this user' });
+                return;
+            }
+        }
+        const existing = await prisma.userRateLimit.findUnique({
+            where: { userId_serviceId: { userId: id, serviceId } },
+        });
+        if (!existing) {
+            res.status(404).json({ error: 'Rate limit not found' });
+            return;
+        }
+        await prisma.userRateLimit.delete({
+            where: { userId_serviceId: { userId: id, serviceId } },
+        });
+        res.json({ success: true, message: 'Rate limit removed (unlimited)' });
+    }
+    catch (error) {
+        console.error('Delete rate limit error:', error);
+        res.status(500).json({ error: 'Failed to delete rate limit' });
     }
 });
 // ==================== Statistics (서비스별 필터링 지원) ====================
@@ -1367,8 +2330,9 @@ adminRoutes.get('/stats/cumulative-users', async (req, res) => {
             Number(item.new_users),
         ]));
         const chartData = [];
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate = new Date();
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const newUsers = newUsersMap.get(dateStr) || 0;
             cumulativeCount += newUsers;
             chartData.push({
@@ -1447,8 +2411,9 @@ adminRoutes.get('/stats/model-daily-trend', async (req, res) => {
         // Process into date-keyed structure
         const dateMap = new Map();
         const existingModelIds = models.map((m) => m.id);
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate1 = new Date();
+        for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const initialData = {};
             for (const modelId of existingModelIds) {
                 initialData[modelId] = 0;
@@ -1550,8 +2515,9 @@ adminRoutes.get('/stats/model-user-trend', async (req, res) => {
         }
         // Process into date-keyed structure
         const dateMap = new Map();
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate2 = new Date();
+        for (let d = new Date(startDate); d <= endDate2; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const initialData = {};
             for (const userId of topUserIds) {
                 if (userId)
@@ -1921,8 +2887,9 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
         // Process into chart data
         const dateMap = new Map();
         const serviceIds = services.map((s) => s.id);
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate3 = new Date();
+        for (let d = new Date(startDate); d <= endDate3; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const initialData = {};
             for (const serviceId of serviceIds) {
                 initialData[serviceId] = 0;
@@ -2304,8 +3271,9 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req, res) => {
         }
         // 3. Build response with CUMULATIVE data
         const dailyMap = new Map();
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate4 = new Date();
+        for (let d = new Date(startDate); d <= endDate4; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const initialData = {};
             for (const bu of topBUNames) {
                 initialData[bu] = 0;
@@ -2413,8 +3381,9 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req, res) => {
         }
         // Build chart data with proper cumulative calculation
         const chartData = [];
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate5 = new Date();
+        for (let d = new Date(startDate); d <= endDate5; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const dayData = usersByDateBU.get(dateStr);
             // Add users from this day to cumulative sets
             if (dayData) {
@@ -2498,8 +3467,9 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
     `;
         // 3. Build response with CUMULATIVE data
         const dailyMap = new Map();
-        for (let d = new Date(startDate); d <= new Date(); d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
+        const endDate6 = new Date();
+        for (let d = new Date(startDate); d <= endDate6; d.setDate(d.getDate() + 1)) {
+            const dateStr = toLocalDateString(d);
             const initialData = {};
             for (const combo of comboNames) {
                 initialData[combo] = 0;
@@ -2561,6 +3531,54 @@ adminRoutes.get('/business-units', async (_req, res) => {
     catch (error) {
         console.error('Get business units error:', error);
         res.status(500).json({ error: 'Failed to get business units' });
+    }
+});
+// ==================== Scope Endpoints ====================
+/**
+ * GET /admin/scope/business-units
+ * Get distinct business units for visibility scope selection
+ */
+adminRoutes.get('/scope/business-units', async (_req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: { businessUnit: true },
+            distinct: ['businessUnit'],
+            where: {
+                AND: [
+                    { businessUnit: { not: null } },
+                    { businessUnit: { not: '' } },
+                ],
+            },
+            orderBy: { businessUnit: 'asc' },
+        });
+        const businessUnits = users.map(u => u.businessUnit).filter(Boolean);
+        res.json({ businessUnits });
+    }
+    catch (error) {
+        console.error('Failed to get business units:', error);
+        res.status(500).json({ error: 'Failed to get business units' });
+    }
+});
+/**
+ * GET /admin/scope/departments
+ * Get distinct departments for visibility scope selection
+ */
+adminRoutes.get('/scope/departments', async (_req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: { deptname: true },
+            distinct: ['deptname'],
+            where: {
+                deptname: { not: '' },
+            },
+            orderBy: { deptname: 'asc' },
+        });
+        const departments = users.map(u => u.deptname).filter(Boolean);
+        res.json({ departments });
+    }
+    catch (error) {
+        console.error('Failed to get departments:', error);
+        res.status(500).json({ error: 'Failed to get departments' });
     }
 });
 //# sourceMappingURL=admin.routes.js.map

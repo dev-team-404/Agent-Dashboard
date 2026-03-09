@@ -29,6 +29,7 @@ import { holidaysRoutes } from './routes/holidays.routes.js';
 import { publicStatsRoutes } from './routes/public-stats.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { startImageCleanupCron } from './services/imageStorage.service.js';
 
 import 'dotenv/config';
 
@@ -139,6 +140,9 @@ async function main() {
 
     await redis.ping();
     console.log('Redis connected');
+
+    // 만료 이미지 자동 삭제 (1시간마다)
+    startImageCleanupCron();
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Dashboard API server running on port ${PORT}`);

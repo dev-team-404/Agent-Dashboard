@@ -70,6 +70,7 @@ my_service       (언더스코어 사용)
 ```bash
 # 일반 서비스 API 호출
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: hong.gildong" \
   -H "x-dept-name: SW혁신팀(S.LSI)" \
@@ -77,6 +78,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 
 # Background 서비스 API 호출
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -H "x-service-id: batch-pipeline" \
   -H "x-dept-name: SW혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[...]}'

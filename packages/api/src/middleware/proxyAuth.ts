@@ -34,8 +34,13 @@ export interface ProxyAuthRequest extends Request {
 function safeDecodeURIComponent(text: string): string {
   if (!text) return text;
   try {
-    if (!text.includes('%')) return text;
-    return decodeURIComponent(text);
+    // URL-encoded (%XX) → decode
+    if (text.includes('%')) return decodeURIComponent(text);
+    // Raw UTF-8 bytes in header → Node.js reads as latin1 → convert back to UTF-8
+    const buf = Buffer.from(text, 'latin1');
+    const decoded = buf.toString('utf8');
+    if (decoded !== text && !decoded.includes('\ufffd')) return decoded;
+    return text;
   } catch {
     return text;
   }

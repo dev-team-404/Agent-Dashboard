@@ -194,6 +194,7 @@ function QuickStartSection() {
             </div>
             <div className="p-6 font-mono text-sm leading-7">
               <div className="text-gray-500">$ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \</div>
+              <div className="text-brand-400 ml-4">-H "Content-Type: application/json" \</div>
               <div className="text-brand-400 ml-4">-H "x-service-id: my-service" \</div>
               <div className="text-brand-400 ml-4">-H "x-user-id: hong.gildong" \</div>
               <div className="text-brand-400 ml-4">-H "x-dept-name: SW혁신팀(S.LSI)" \</div>

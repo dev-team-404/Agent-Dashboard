@@ -43,10 +43,21 @@ export async function trackActiveUser(redis, userId) {
     await redis.zadd(key, Date.now(), userId);
 }
 /**
+ * Helper: 로컬(KST) 기준 오늘 날짜 (YYYY-MM-DD)
+ * toISOString()은 UTC 기반이라 KST 저녁에 날짜가 밀릴 수 있음
+ */
+function getTodayLocal() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+/**
  * Get today's usage stats
  */
 export async function getTodayUsage(redis) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const key = `daily_usage:${today}`;
     const data = await redis.hgetall(key);
     return {
@@ -59,7 +70,7 @@ export async function getTodayUsage(redis) {
  * Increment usage stats (per user/model and daily total)
  */
 export async function incrementUsage(redis, userId, modelId, inputTokens, outputTokens) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const dailyKey = `daily_usage:${today}`;
     const userKey = `user_usage:${userId}:${today}`;
     const modelKey = `model_usage:${modelId}:${today}`;
@@ -83,7 +94,7 @@ export async function incrementUsage(redis, userId, modelId, inputTokens, output
  * Increment today's usage stats (legacy function for compatibility)
  */
 export async function incrementTodayUsage(redis, inputTokens, outputTokens) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayLocal();
     const key = `daily_usage:${today}`;
     await redis.hincrby(key, 'requests', 1);
     await redis.hincrby(key, 'inputTokens', inputTokens);
