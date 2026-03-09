@@ -48,8 +48,13 @@ interface HealthCheckResult {
   healthy: boolean;
   checks: {
     chatCompletion: { passed: boolean; status?: number; message: string; latencyMs: number };
-    toolCall: { passed: boolean; status?: number; message: string; latencyMs: number };
+    toolCallA?: { passed: boolean; status?: number; message: string; latencyMs: number };
+    toolCallB?: { passed: boolean; status?: number; message: string; latencyMs: number };
+    toolCallC?: { passed: boolean; status?: number; message: string; latencyMs: number };
+    toolCallD?: { passed: boolean; status?: number; message: string; latencyMs: number };
   };
+  toolCallPassCount?: number;
+  allPassed: boolean;
   message: string;
   totalLatencyMs: number;
 }
@@ -364,7 +369,15 @@ export default function Models({ adminRole }: ModelsProps) {
     setFormError('');
     try {
       const res = await modelsApi.testEndpoint(buildTestPayload());
-      setTestResult(res.data);
+      const hc = res.data.healthCheck || res.data;
+      setTestResult({
+        chatCompletion: hc.checks?.chatCompletion?.passed ?? hc.chatCompletion ?? false,
+        toolCallA: hc.checks?.toolCallA?.passed ?? hc.toolCallA ?? false,
+        toolCallB: hc.checks?.toolCallB?.passed ?? hc.toolCallB ?? false,
+        toolCallC: hc.checks?.toolCallC?.passed ?? hc.toolCallC ?? false,
+        toolCallD: hc.checks?.toolCallD?.passed ?? hc.toolCallD ?? false,
+        allPassed: hc.allPassed ?? false,
+      });
     } catch (error: any) {
       setTestResult({
         chatCompletion: false,
@@ -610,7 +623,7 @@ export default function Models({ adminRole }: ModelsProps) {
         extraHeaders: model.extraHeaders || undefined,
         extraBody: model.extraBody || undefined,
       });
-      setHealthChecks(prev => ({ ...prev, [model.id]: res.data }));
+      setHealthChecks(prev => ({ ...prev, [model.id]: res.data.healthCheck || res.data }));
     } catch (error: any) {
       setHealthChecks(prev => ({
         ...prev,
@@ -944,12 +957,14 @@ export default function Models({ adminRole }: ModelsProps) {
                     <div className={`mt-3 p-3 rounded-ios text-xs ${
                       healthCheck.healthy ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
                     }`}>
-                      <div className="flex items-center gap-4">
-                        <span className={healthCheck.healthy ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
-                          {healthCheck.healthy ? 'Healthy' : 'Unhealthy'}
+                      <div className="flex items-center gap-4 flex-wrap">
+                        <span className={healthCheck.allPassed ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
+                          {healthCheck.allPassed ? 'Healthy' : 'Unhealthy'}
                         </span>
                         <span className="text-gray-500">Chat: {healthCheck.checks.chatCompletion.latencyMs}ms</span>
-                        <span className="text-gray-500">Tool: {healthCheck.checks.toolCall.latencyMs}ms</span>
+                        {healthCheck.toolCallPassCount !== undefined && (
+                          <span className="text-gray-500">Tool: {healthCheck.toolCallPassCount}/4</span>
+                        )}
                         <span className="text-gray-500">Total: {healthCheck.totalLatencyMs}ms</span>
                       </div>
                     </div>
