@@ -1,5 +1,9 @@
 # 프레임워크별 연동 가이드
 
+::: warning
+이 문서는 **2026년 3월 11일** 기준 각 프레임워크의 공식 문서 및 소스코드를 기반으로 작성되었습니다. 프레임워크 버전 업데이트에 따라 API가 변경될 수 있으니, 문제 발생 시 해당 프레임워크의 최신 공식 문서를 확인하세요.
+:::
+
 Agent Dashboard LLM Proxy는 **OpenAI 호환 API**를 제공합니다. 기존 OpenAI SDK를 그대로 사용하면서 `base_url`만 변경하고, 인증 헤더 3개를 추가하면 됩니다.
 
 ## 필수 인증 헤더
@@ -20,9 +24,231 @@ BASE_URL = http://a2g.samsungds.net:8090/v1
 
 ---
 
-## 1. Python — OpenAI SDK (직접 호출)
+## 1. 직접 HTTP 호출 (SDK 없이)
 
-> `pip install openai>=1.0`
+SDK를 사용하지 않고 OpenAI 호환 엔드포인트를 직접 호출하는 방법입니다.
+
+### Python — requests
+
+> 확인 버전: `requests 2.32.x` (2026-03-11 기준)
+
+```python
+import requests
+
+response = requests.post(
+    "http://a2g.samsungds.net:8090/v1/chat/completions",
+    headers={
+        "Content-Type": "application/json",
+        "x-service-id": "my-chatbot",
+        "x-user-id":    "hong.gildong",
+        "x-dept-name":  "SW혁신팀(S.LSI)",
+    },
+    json={
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "system", "content": "당신은 친절한 AI 어시스턴트입니다."},
+            {"role": "user", "content": "안녕하세요"}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024,
+    },
+)
+
+result = response.json()
+print(result["choices"][0]["message"]["content"])
+```
+
+#### 스트리밍 (requests + SSE)
+
+```python
+import requests
+import json
+
+response = requests.post(
+    "http://a2g.samsungds.net:8090/v1/chat/completions",
+    headers={
+        "Content-Type": "application/json",
+        "x-service-id": "my-chatbot",
+        "x-user-id":    "hong.gildong",
+        "x-dept-name":  "SW혁신팀(S.LSI)",
+    },
+    json={
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Python 장점을 알려주세요"}],
+        "stream": True,
+    },
+    stream=True,
+)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode("utf-8")
+        if line.startswith("data: ") and line != "data: [DONE]":
+            chunk = json.loads(line[6:])
+            content = chunk["choices"][0].get("delta", {}).get("content", "")
+            if content:
+                print(content, end="", flush=True)
+```
+
+#### 비동기 (httpx)
+
+```python
+import httpx
+import asyncio
+
+async def main():
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "http://a2g.samsungds.net:8090/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "x-service-id": "my-chatbot",
+                "x-user-id":    "hong.gildong",
+                "x-dept-name":  "SW혁신팀(S.LSI)",
+            },
+            json={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "안녕하세요"}],
+            },
+            timeout=60.0,
+        )
+        result = response.json()
+        print(result["choices"][0]["message"]["content"])
+
+asyncio.run(main())
+```
+
+### JavaScript / TypeScript — fetch
+
+```typescript
+const response = await fetch("http://a2g.samsungds.net:8090/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-service-id": "my-chatbot",
+    "x-user-id":    "hong.gildong",
+    "x-dept-name":  "SW혁신팀(S.LSI)",
+  },
+  body: JSON.stringify({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: "당신은 친절한 AI 어시스턴트입니다." },
+      { role: "user", content: "안녕하세요" },
+    ],
+    temperature: 0.7,
+    max_tokens: 1024,
+  }),
+});
+
+const result = await response.json();
+console.log(result.choices[0].message.content);
+```
+
+#### 스트리밍 (fetch + ReadableStream)
+
+```typescript
+const response = await fetch("http://a2g.samsungds.net:8090/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-service-id": "my-chatbot",
+    "x-user-id":    "hong.gildong",
+    "x-dept-name":  "SW혁신팀(S.LSI)",
+  },
+  body: JSON.stringify({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: "Python 장점을 알려주세요" }],
+    stream: true,
+  }),
+});
+
+const reader = response.body!.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+  for (const line of text.split("\n")) {
+    if (line.startsWith("data: ") && line !== "data: [DONE]") {
+      const chunk = JSON.parse(line.slice(6));
+      const content = chunk.choices[0]?.delta?.content || "";
+      process.stdout.write(content);
+    }
+  }
+}
+```
+
+### Go — net/http
+
+```go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+func main() {
+    body, _ := json.Marshal(map[string]any{
+        "model": "gpt-4o",
+        "messages": []map[string]string{
+            {"role": "user", "content": "안녕하세요"},
+        },
+    })
+
+    req, _ := http.NewRequest("POST",
+        "http://a2g.samsungds.net:8090/v1/chat/completions",
+        bytes.NewReader(body),
+    )
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("x-service-id", "my-chatbot")
+    req.Header.Set("x-user-id", "hong.gildong")
+    req.Header.Set("x-dept-name", "SW혁신팀(S.LSI)")
+
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    defer resp.Body.Close()
+
+    data, _ := io.ReadAll(resp.Body)
+
+    var result map[string]any
+    json.Unmarshal(data, &result)
+
+    choices := result["choices"].([]any)
+    msg := choices[0].(map[string]any)["message"].(map[string]any)
+    fmt.Println(msg["content"])
+}
+```
+
+### curl
+
+```bash
+curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "x-service-id: my-chatbot" \
+  -H "x-user-id: hong.gildong" \
+  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      {"role": "user", "content": "안녕하세요"}
+    ]
+  }'
+```
+
+---
+
+## 2. Python — OpenAI SDK
+
+> `pip install openai>=1.0` — 확인 버전: `openai 1.82.x` (2026-03-11 기준)
 
 ### 클라이언트 레벨 설정 (추천)
 
@@ -109,9 +335,9 @@ for chunk in stream:
 
 ---
 
-## 2. JavaScript / TypeScript — OpenAI SDK
+## 3. JavaScript / TypeScript — OpenAI SDK
 
-> `npm install openai`
+> `npm install openai` — 확인 버전: `openai 4.x` (2026-03-11 기준)
 
 ### Node.js / TypeScript
 
@@ -150,7 +376,7 @@ const response = await client.chat.completions.create(
 );
 ```
 
-### 스트리밍 (Node.js)
+### 스트리밍
 
 ```typescript
 const stream = await client.chat.completions.create({
@@ -167,11 +393,11 @@ for await (const chunk of stream) {
 
 ---
 
-## 3. Go — OpenAI SDK
+## 4. Go — OpenAI SDK
 
 ### 방법 A: 공식 SDK (추천)
 
-> `go get github.com/openai/openai-go`
+> `go get github.com/openai/openai-go` — 확인 버전: `openai-go v0.1.x` (2026-03-11 기준)
 
 공식 OpenAI Go SDK는 `option.WithHeader()`로 커스텀 헤더를 직접 지원합니다.
 
@@ -212,7 +438,7 @@ func main() {
 }
 ```
 
-요청별 헤더 오버라이드도 가능합니다:
+요청별 헤더 오버라이드:
 
 ```go
 response, err := client.Chat.Completions.New(
@@ -224,9 +450,9 @@ response, err := client.Chat.Completions.New(
 
 ### 방법 B: 커뮤니티 SDK (sashabaranov)
 
-> `go get github.com/sashabaranov/go-openai`
+> `go get github.com/sashabaranov/go-openai` — 확인 버전: `go-openai v1.36.x` (2026-03-11 기준)
 
-이 라이브러리는 `default_headers` 파라미터를 직접 지원하지 않으므로, **커스텀 HTTP Transport**를 사용합니다.
+이 라이브러리는 헤더 파라미터를 직접 지원하지 않으므로, **커스텀 HTTP Transport**를 사용합니다.
 
 ```go
 package main
@@ -239,7 +465,6 @@ import (
     openai "github.com/sashabaranov/go-openai"
 )
 
-// 커스텀 헤더를 자동 주입하는 Transport
 type headerTransport struct {
     base    http.RoundTripper
     headers map[string]string
@@ -253,7 +478,6 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func main() {
-    // 커스텀 헤더 설정
     transport := &headerTransport{
         base: http.DefaultTransport,
         headers: map[string]string{
@@ -278,49 +502,19 @@ func main() {
             },
         },
     )
-
     if err != nil {
         fmt.Printf("Error: %v\n", err)
         return
     }
-
     fmt.Println(resp.Choices[0].Message.Content)
-}
-```
-
-### Go 스트리밍
-
-```go
-stream, err := client.CreateChatCompletionStream(
-    context.Background(),
-    openai.ChatCompletionRequest{
-        Model: "gpt-4o",
-        Messages: []openai.ChatCompletionMessage{
-            {Role: openai.ChatMessageRoleUser, Content: "Python 장점을 알려주세요"},
-        },
-        Stream: true,
-    },
-)
-if err != nil {
-    fmt.Printf("Error: %v\n", err)
-    return
-}
-defer stream.Close()
-
-for {
-    resp, err := stream.Recv()
-    if err != nil {
-        break
-    }
-    fmt.Print(resp.Choices[0].Delta.Content)
 }
 ```
 
 ---
 
-## 4. LangChain (Python)
+## 5. LangChain (Python)
 
-> `pip install langchain-openai`
+> `pip install langchain-openai` — 확인 버전: `langchain-openai 0.3.x` (2026-03-11 기준)
 
 ### ChatOpenAI 기본 설정
 
@@ -367,9 +561,35 @@ for chunk in llm.stream("Python의 장점을 알려주세요"):
 
 ---
 
-## 5. LangGraph (Python)
+## 6. LangChain (JavaScript / TypeScript)
 
-> `pip install langgraph langchain-openai`
+> `npm install @langchain/openai` — 확인 버전: `@langchain/openai 0.4.x` (2026-03-11 기준)
+
+```typescript
+import { ChatOpenAI } from "@langchain/openai";
+
+const llm = new ChatOpenAI({
+  model: "gpt-4o",
+  configuration: {
+    baseURL: "http://a2g.samsungds.net:8090/v1",
+    defaultHeaders: {
+      "x-service-id": "my-chatbot",
+      "x-user-id":    "hong.gildong",
+      "x-dept-name":  "SW혁신팀(S.LSI)",
+    },
+  },
+  apiKey: "not-used",
+});
+
+const response = await llm.invoke("안녕하세요");
+console.log(response.content);
+```
+
+---
+
+## 7. LangGraph (Python)
+
+> `pip install langgraph langchain-openai` — 확인 버전: `langgraph 0.3.x` (2026-03-11 기준)
 
 LangGraph는 LangChain의 `ChatOpenAI`를 그대로 사용합니다. 위 LangChain 설정과 동일하게 `default_headers`를 전달하면 됩니다.
 
@@ -380,7 +600,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool
 
-# 동일한 헤더 설정
 llm = ChatOpenAI(
     model="gpt-4o",
     base_url="http://a2g.samsungds.net:8090/v1",
@@ -397,10 +616,7 @@ def get_weather(city: str) -> str:
     """도시의 날씨를 조회합니다."""
     return f"{city}의 현재 날씨: 맑음, 22°C"
 
-# ReAct Agent 생성
 agent = create_react_agent(llm, tools=[get_weather])
-
-# 실행
 result = agent.invoke(
     {"messages": [{"role": "user", "content": "서울 날씨 알려줘"}]}
 )
@@ -430,35 +646,9 @@ print(result["messages"][-1].content)
 
 ---
 
-## 6. LangChain (JavaScript / TypeScript)
+## 8. Google ADK — Python
 
-> `npm install @langchain/openai`
-
-```typescript
-import { ChatOpenAI } from "@langchain/openai";
-
-const llm = new ChatOpenAI({
-  model: "gpt-4o",
-  configuration: {
-    baseURL: "http://a2g.samsungds.net:8090/v1",
-    defaultHeaders: {
-      "x-service-id": "my-chatbot",
-      "x-user-id":    "hong.gildong",
-      "x-dept-name":  "SW혁신팀(S.LSI)",
-    },
-  },
-  apiKey: "not-used",
-});
-
-const response = await llm.invoke("안녕하세요");
-console.log(response.content);
-```
-
----
-
-## 7. Google ADK (Agent Development Kit)
-
-> `pip install google-adk`
+> `pip install google-adk` — 확인 버전: `google-adk 1.x` (2026-03-11 기준)
 
 Google ADK는 **LiteLLM 커넥터**를 통해 OpenAI 호환 엔드포인트에 연결합니다.
 
@@ -520,9 +710,105 @@ Google ADK에서 `model` 파라미터에 `openai/` 접두사를 붙여야 LiteLL
 
 ---
 
-## 8. Agno (구 Phidata)
+## 9. Google ADK — TypeScript
 
-> `pip install agno`
+> `npm install @google/adk` — 확인 버전: `@google/adk 0.x` (2026-03-11 기준, 2025-12 출시)
+
+TypeScript ADK도 Python과 동일하게 LiteLLM 래퍼를 사용합니다.
+
+```typescript
+import { LlmAgent } from "@google/adk";
+import { LiteLlm } from "@google/adk/models/lite_llm";
+
+const agent = new LlmAgent({
+  model: new LiteLlm({
+    model: "openai/gpt-4o",
+    api_base: "http://a2g.samsungds.net:8090/v1",
+    api_key: "not-used",
+    extra_headers: {
+      "x-service-id": "my-adk-agent",
+      "x-user-id":    "hong.gildong",
+      "x-dept-name":  "SW혁신팀(S.LSI)",
+    },
+  }),
+  name: "my_agent",
+  instruction: "당신은 친절한 AI 어시스턴트입니다.",
+});
+```
+
+::: info
+Google ADK TypeScript는 2025년 12월에 출시되었으며 빠르게 업데이트되고 있습니다. `LiteLlm` 임포트 경로가 변경될 수 있으니 공식 문서를 확인하세요: https://google.github.io/adk-docs/get-started/typescript/
+:::
+
+---
+
+## 10. Google ADK — Go
+
+> `go get google.golang.org/adk` — 확인 버전: `adk-go v0.x` (2026-03-11 기준)
+
+Go ADK는 `model.LLM` 인터페이스를 사용합니다. OpenAI 호환 엔드포인트 연동 시 **LiteLLM Proxy 서버**를 경유하거나, 직접 `model.LLM` 인터페이스를 구현해야 합니다.
+
+### 방법 A: LiteLLM Proxy 경유 (추천)
+
+LiteLLM Proxy 서버를 별도로 띄워 Agent Dashboard를 upstream으로 설정하면, ADK Go에서 Gemini처럼 자연스럽게 사용할 수 있습니다.
+
+### 방법 B: Go OpenAI SDK + ADK BeforeModelCallback
+
+ADK Go의 콜백 기능과 Go OpenAI SDK를 조합하는 방식입니다.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/openai/openai-go"
+    "github.com/openai/openai-go/option"
+)
+
+func main() {
+    // ADK Go는 현재 Gemini 모델에 최적화되어 있으므로,
+    // OpenAI 호환 프록시 직접 호출 시에는 Go OpenAI SDK를 사용하세요 (섹션 4 참고).
+
+    client := openai.NewClient(
+        option.WithBaseURL("http://a2g.samsungds.net:8090/v1"),
+        option.WithAPIKey("not-used"),
+        option.WithHeader("x-service-id", "my-chatbot"),
+        option.WithHeader("x-user-id", "hong.gildong"),
+        option.WithHeader("x-dept-name", "SW혁신팀(S.LSI)"),
+    )
+
+    response, err := client.Chat.Completions.New(
+        context.Background(),
+        openai.ChatCompletionNewParams{
+            Model: "gpt-4o",
+            Messages: []openai.ChatCompletionMessageParamUnion{
+                openai.UserMessage("안녕하세요"),
+            },
+        },
+    )
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Println(response.Choices[0].Message.Content)
+}
+```
+
+::: warning
+Google ADK Go는 현재 Gemini/Vertex AI 모델에 최적화되어 있으며, OpenAI 호환 엔드포인트에 대한 공식 LiteLLM 래퍼가 Go용으로는 아직 제공되지 않습니다 (2026-03-11 기준). OpenAI 호환 프록시를 직접 호출할 때는 **섹션 4의 Go OpenAI SDK**를 사용하세요.
+:::
+
+---
+
+## 11. Agno (구 Phidata) — Python
+
+> `pip install agno` — 확인 버전: `agno 1.x` (2026-03-11 기준, Python 전용)
+
+::: info
+Agno는 **Python 전용** 프레임워크입니다. JavaScript/Go SDK는 제공되지 않습니다 (2026-03-11 기준).
+:::
 
 ### OpenAILike 모델
 
@@ -597,17 +883,22 @@ agent.print_response("최신 AI 뉴스를 검색해주세요.")
 
 ## 빠른 비교표
 
-| 프레임워크 | 언어 | 헤더 설정 방법 | 핵심 파라미터 |
-|-----------|------|--------------|-------------|
-| **OpenAI SDK** | Python | `default_headers` / `extra_headers` | `OpenAI(base_url=..., default_headers=...)` |
-| **OpenAI SDK** | JS/TS | `defaultHeaders` | `new OpenAI({ baseURL, defaultHeaders })` |
-| **OpenAI SDK (공식)** | Go | `option.WithHeader()` | `openai.NewClient(option.WithHeader("key","val"))` |
-| **OpenAI SDK (커뮤니티)** | Go | 커스텀 Transport | `config.HTTPClient = &http.Client{Transport: ...}` |
-| **LangChain** | Python | `default_headers` | `ChatOpenAI(base_url=..., default_headers=...)` |
-| **LangChain** | JS/TS | `configuration.defaultHeaders` | `new ChatOpenAI({ configuration: { defaultHeaders } })` |
-| **LangGraph** | Python | LangChain과 동일 | `ChatOpenAI(default_headers=...)` |
-| **Google ADK** | Python | `extra_headers` (via LiteLLM) | `LiteLlm(api_base=..., extra_headers=...)` |
-| **Agno** | Python | `default_headers` | `OpenAILike(base_url=..., default_headers=...)` |
+| # | 프레임워크 | 언어 | 헤더 설정 방법 | 핵심 파라미터 |
+|---|-----------|------|--------------|-------------|
+| 1 | **직접 HTTP 호출** | Python | `headers={}` | `requests.post(url, headers=...)` |
+| 1 | **직접 HTTP 호출** | JS/TS | `headers: {}` | `fetch(url, { headers })` |
+| 1 | **직접 HTTP 호출** | Go | `req.Header.Set()` | `http.NewRequest` + `Header.Set` |
+| 2 | **OpenAI SDK** | Python | `default_headers` / `extra_headers` | `OpenAI(base_url=..., default_headers=...)` |
+| 3 | **OpenAI SDK** | JS/TS | `defaultHeaders` | `new OpenAI({ baseURL, defaultHeaders })` |
+| 4 | **OpenAI SDK (공식)** | Go | `option.WithHeader()` | `openai.NewClient(option.WithHeader(...))` |
+| 4 | **OpenAI SDK (커뮤니티)** | Go | 커스텀 Transport | `config.HTTPClient = &http.Client{...}` |
+| 5 | **LangChain** | Python | `default_headers` | `ChatOpenAI(base_url=..., default_headers=...)` |
+| 6 | **LangChain** | JS/TS | `configuration.defaultHeaders` | `new ChatOpenAI({ configuration: { defaultHeaders } })` |
+| 7 | **LangGraph** | Python | LangChain과 동일 | `ChatOpenAI(default_headers=...)` |
+| 8 | **Google ADK** | Python | `extra_headers` (via LiteLLM) | `LiteLlm(api_base=..., extra_headers=...)` |
+| 9 | **Google ADK** | JS/TS | `extra_headers` (via LiteLLM) | `new LiteLlm({ extra_headers })` |
+| 10 | **Google ADK** | Go | 공식 LiteLLM 래퍼 미지원 | Go OpenAI SDK 사용 권장 |
+| 11 | **Agno** | Python | `default_headers` | `OpenAILike(base_url=..., default_headers=...)` |
 
 ---
 
@@ -619,6 +910,22 @@ agent.print_response("최신 AI 뉴스를 검색해주세요.")
 - `x-dept-name`은 반드시 `팀명(사업부)` 형식이어야 합니다 (예: `SW혁신팀(S.LSI)`)
 - Background 서비스 타입으로 등록된 서비스만 `x-user-id`를 생략할 수 있습니다.
 :::
+
+## 참고 문서 (2026-03-11 기준)
+
+| 프레임워크 | 공식 문서 |
+|-----------|----------|
+| OpenAI Python SDK | https://github.com/openai/openai-python |
+| OpenAI Node.js SDK | https://github.com/openai/openai-node |
+| OpenAI Go SDK (공식) | https://github.com/openai/openai-go |
+| Go OpenAI (sashabaranov) | https://github.com/sashabaranov/go-openai |
+| LangChain Python | https://python.langchain.com |
+| LangChain JS | https://js.langchain.com |
+| LangGraph | https://langchain-ai.github.io/langgraph |
+| Google ADK | https://google.github.io/adk-docs |
+| Google ADK TypeScript | https://github.com/google/adk-js |
+| Google ADK Go | https://github.com/google/adk-go |
+| Agno (구 Phidata) | https://docs.agno.com |
 
 ## 다음 단계
 
