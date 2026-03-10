@@ -116,9 +116,8 @@ export default function MyUsage() {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center">
-          <div className="relative w-14 h-14 mx-auto mb-4">
-            <div className="absolute inset-0 rounded-full bg-samsung-blue/10 animate-ping" />
-            <div className="relative w-14 h-14 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
+          <div className="w-14 h-14 mx-auto mb-4">
+            <div className="w-14 h-14 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
           </div>
           <p className="text-sm font-medium text-pastel-500">데이터 불러오는 중...</p>
         </div>
@@ -127,9 +126,9 @@ export default function MyUsage() {
   }
 
   const summaryCards = summary ? [
-    { label: '오늘', icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, color: 'from-samsung-blue to-blue-600', iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },
-    { label: '이번 주', icon: Calendar, tokens: summary.week.totalTokens, requests: summary.week.requests, color: 'from-accent-indigo to-indigo-600', iconBg: 'bg-indigo-50', iconColor: 'text-accent-indigo' },
-    { label: '이번 달', icon: TrendingUp, tokens: summary.month.totalTokens, requests: summary.month.requests, color: 'from-accent-violet to-purple-600', iconBg: 'bg-violet-50', iconColor: 'text-accent-violet' },
+    { label: '오늘', icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },
+    { label: '이번 주', icon: Calendar, tokens: summary.week.totalTokens, requests: summary.week.requests, iconBg: 'bg-indigo-50', iconColor: 'text-accent-indigo' },
+    { label: '이번 달', icon: TrendingUp, tokens: summary.month.totalTokens, requests: summary.month.requests, iconBg: 'bg-violet-50', iconColor: 'text-accent-violet' },
   ] : [];
 
   return (
@@ -137,7 +136,7 @@ export default function MyUsage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
         <div>
-          <h1 className="text-2xl font-extrabold text-pastel-800 tracking-tight">내 사용량</h1>
+          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">내 사용량</h1>
           <p className="text-sm text-pastel-500 mt-1">나의 LLM API 사용 현황을 확인하세요</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -145,7 +144,7 @@ export default function MyUsage() {
             <select
               value={selectedServiceId}
               onChange={(e) => setSelectedServiceId(e.target.value)}
-              className="px-4 py-2.5 border border-gray-200/60 rounded-xl text-sm focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/40 bg-white shadow-depth font-medium text-pastel-700 transition-all"
+              className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/40 bg-white shadow-sm font-medium text-pastel-700 transition-all"
             >
               <option value="">전체 서비스</option>
               {services.map((service) => (
@@ -153,7 +152,7 @@ export default function MyUsage() {
               ))}
             </select>
           )}
-          <div className="flex bg-white border border-gray-200/60 rounded-xl shadow-depth overflow-hidden">
+          <div className="flex bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
             {[7, 14, 30].map((d) => (
               <button
                 key={d}
@@ -182,7 +181,7 @@ export default function MyUsage() {
                 </div>
                 <span className="text-xs font-semibold text-pastel-400 uppercase tracking-wider">{label}</span>
               </div>
-              <p className="text-3xl font-extrabold text-pastel-800 tracking-tight">{formatNumber(tokens)}</p>
+              <p className="text-3xl font-bold text-pastel-800 tracking-tight">{formatNumber(tokens)}</p>
               <div className="flex items-center gap-1.5 mt-2">
                 <Activity className="w-3.5 h-3.5 text-pastel-400" />
                 <p className="text-sm text-pastel-500 font-medium">{requests.toLocaleString()} 요청</p>
@@ -195,7 +194,7 @@ export default function MyUsage() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Daily Usage Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-4">
+        <div className="lg:col-span-2 bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-4">
           <div className="flex items-center gap-2.5 mb-6">
             <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
               <BarChart3 className="w-[18px] h-[18px] text-samsung-blue" />
@@ -215,7 +214,7 @@ export default function MyUsage() {
                 <XAxis dataKey="date" tickFormatter={formatDate} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis tickFormatter={formatNumber} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '16px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }}
+                  contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }}
                   formatter={(value: number) => [formatNumber(value), '토큰']}
                   labelFormatter={(label) => `날짜: ${label}`}
                 />
@@ -226,7 +225,7 @@ export default function MyUsage() {
         </div>
 
         {/* Model Usage Pie */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-5">
+        <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-5">
           <h2 className="font-bold text-pastel-800 text-[15px] mb-6">모델별 사용량</h2>
           {modelUsage.length > 0 ? (
             <div className="h-72">
@@ -269,7 +268,7 @@ export default function MyUsage() {
       </div>
 
       {/* Daily Requests Bar Chart */}
-      <div className="bg-white rounded-2xl p-6 border border-gray-100/80 shadow-depth animate-stagger-6">
+      <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-6">
         <h2 className="font-bold text-pastel-800 text-[15px] mb-6">일별 요청 수 및 토큰</h2>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -278,7 +277,7 @@ export default function MyUsage() {
               <XAxis dataKey="date" tickFormatter={formatDate} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
               <YAxis yAxisId="left" stroke="#4A90D9" fontSize={12} tickLine={false} axisLine={false} />
               <YAxis yAxisId="right" orientation="right" stroke="#6366F1" fontSize={12} tickFormatter={formatNumber} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '16px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }} />
+              <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }} />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
               <Bar yAxisId="left" dataKey="requests" fill="#4A90D9" name="요청 수" radius={[6, 6, 0, 0]} />
               <Bar yAxisId="right" dataKey="inputTokens" fill="#6366F1" name="입력 토큰" radius={[6, 6, 0, 0]} />
@@ -289,10 +288,10 @@ export default function MyUsage() {
       </div>
 
       {/* Recent Usage Table */}
-      <div className="bg-white rounded-2xl border border-gray-100/80 shadow-depth overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-100/80 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-100/80">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
               <Clock className="w-[18px] h-[18px] text-samsung-blue" />
             </div>
             <h2 className="font-bold text-pastel-800 text-[15px]">최근 사용 기록</h2>
@@ -301,7 +300,7 @@ export default function MyUsage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="bg-pastel-50/50">
+              <tr className="bg-gray-50">
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">시간</th>
                 <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
                 <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
@@ -309,13 +308,13 @@ export default function MyUsage() {
                 <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100/60">
+            <tbody className="divide-y divide-gray-100">
               {recentLogs.length > 0 ? (
                 recentLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-pastel-50/30 transition-colors">
+                  <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-sm text-pastel-600">{formatDateTime(log.timestamp)}</td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold bg-pastel-100/60 text-pastel-700">
+                      <span className="inline-flex items-center px-3 py-1 rounded-lg text-xs font-semibold bg-gray-100 text-pastel-700">
                         {log.modelName}
                       </span>
                     </td>
@@ -338,14 +337,14 @@ export default function MyUsage() {
 
       {/* Model Usage Detail Table */}
       {modelUsage.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100/80 shadow-depth overflow-hidden">
+        <div className="bg-white rounded-lg border border-gray-100/80 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-gray-100/80">
             <h2 className="font-bold text-pastel-800 text-[15px]">모델별 상세 사용량</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-pastel-50/50">
+                <tr className="bg-gray-50">
                   <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
                   <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">요청</th>
                   <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
@@ -353,9 +352,9 @@ export default function MyUsage() {
                   <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100/60">
+              <tbody className="divide-y divide-gray-100">
                 {modelUsage.map((model, i) => (
-                  <tr key={model.modelId} className="hover:bg-pastel-50/30 transition-colors">
+                  <tr key={model.modelId} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />

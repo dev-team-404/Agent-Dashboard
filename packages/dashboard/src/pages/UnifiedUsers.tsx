@@ -225,8 +225,8 @@ export default function UnifiedUsers() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-gradient-to-br from-samsung-blue to-accent-indigo shadow-depth">
-            <Users className="w-6 h-6 text-white" />
+          <div className="p-3 rounded-lg bg-gray-100">
+            <Users className="w-6 h-6 text-gray-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">통합 사용자 관리</h1>
@@ -235,7 +235,7 @@ export default function UnifiedUsers() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 px-4 py-2 bg-white/80 backdrop-blur rounded-2xl shadow-card border border-gray-100/80">
+        <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
           <span className="relative flex h-2.5 w-2.5">
             <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
@@ -245,7 +245,7 @@ export default function UnifiedUsers() {
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white/90 backdrop-blur rounded-3xl shadow-card border border-gray-100/80 p-6 animate-slide-up animate-stagger-1">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Search */}
           <div className="relative flex-1">
@@ -255,17 +255,17 @@ export default function UnifiedUsers() {
               placeholder="사용자명, 아이디, 부서 검색..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-2xl shadow-depth text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+              className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
             />
           </div>
 
           {/* Filter Toggle */}
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl border font-medium text-sm transition-all duration-200 ${
+            className={`flex items-center gap-2.5 px-5 py-3 rounded-lg border font-medium text-sm transition-all duration-200 ${
               hasActiveFilters
-                ? 'bg-gradient-to-r from-samsung-blue to-accent-indigo text-white border-transparent shadow-depth'
-                : 'bg-white text-pastel-600 border-gray-200/60 hover:bg-pastel-50 hover:border-pastel-300 shadow-depth'
+                ? 'bg-gray-900 text-white border-transparent'
+                : 'bg-white text-pastel-600 border-gray-200/60 hover:bg-pastel-50 hover:border-pastel-300'
             }`}
           >
             <Filter className="w-4 h-4" />
@@ -287,7 +287,7 @@ export default function UnifiedUsers() {
               <select
                 value={serviceFilter}
                 onChange={e => setServiceFilter(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-xl text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
                 <option value="">전체</option>
                 {filterOptions?.services.map(s => (
@@ -301,7 +301,7 @@ export default function UnifiedUsers() {
               <select
                 value={businessUnitFilter}
                 onChange={e => setBusinessUnitFilter(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-xl text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
                 <option value="">전체</option>
                 {filterOptions?.businessUnits.map(bu => (
@@ -315,7 +315,7 @@ export default function UnifiedUsers() {
               <select
                 value={roleFilter}
                 onChange={e => setRoleFilter(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-xl text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
                 <option value="">전체</option>
                 {getRoleFilterOptions().map(r => (
@@ -340,11 +340,11 @@ export default function UnifiedUsers() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-white rounded-3xl shadow-card border border-gray-100/80 overflow-hidden animate-slide-up animate-stagger-2">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full table-fixed" style={{ minWidth: Object.values(columnWidths).reduce((a, b) => a + b, 0) }}>
             <thead>
-              <tr className="bg-gradient-to-r from-pastel-50 to-white border-b border-gray-100/80">
+              <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.user }}
@@ -420,7 +420,7 @@ export default function UnifiedUsers() {
                 <tr>
                   <td colSpan={6} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="p-4 rounded-2xl bg-pastel-50">
+                      <div className="p-4 rounded-lg bg-pastel-50">
                         <Search className="w-8 h-8 text-pastel-300" />
                       </div>
                       <div>
@@ -556,7 +556,7 @@ export default function UnifiedUsers() {
 
         {/* Pagination */}
         {pagination.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gradient-to-r from-pastel-50/50 to-transparent">
+          <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
               <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>개 중{' '}
               <span className="font-medium text-pastel-600">
@@ -589,12 +589,12 @@ export default function UnifiedUsers() {
 
       {/* Edit Permission Modal - Simplified: toggle ADMIN on/off */}
       {editingUser && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-modal animate-scale-in">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full shadow-modal animate-scale-in">
             <div className="p-6 border-b border-gray-100/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-gradient-to-br from-samsung-blue to-accent-indigo">
-                  <Shield className="w-5 h-5 text-white" />
+                <div className="p-2.5 rounded-lg bg-gray-100">
+                  <Shield className="w-5 h-5 text-gray-600" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-pastel-800">권한 변경</h2>
@@ -610,7 +610,7 @@ export default function UnifiedUsers() {
             </div>
 
             <div className="p-6">
-              <label className="flex items-center justify-between p-5 bg-gradient-to-r from-pastel-50/80 to-white rounded-2xl border border-gray-200/60 cursor-pointer hover:border-samsung-blue/20 hover:shadow-depth transition-all duration-200">
+              <label className="flex items-center justify-between p-5 bg-gray-50 rounded-lg border border-gray-200/60 cursor-pointer hover:border-samsung-blue/20 transition-all duration-200">
                 <div className="flex items-center gap-3.5">
                   <div className="p-2 rounded-xl bg-samsung-blue/10">
                     <Shield className="w-5 h-5 text-samsung-blue" />
@@ -650,7 +650,7 @@ export default function UnifiedUsers() {
               <button
                 onClick={savePermissions}
                 disabled={saving}
-                className="px-6 py-2.5 text-sm font-semibold bg-gradient-to-r from-samsung-blue to-accent-indigo text-white rounded-xl hover:shadow-depth transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2.5 text-sm font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? '저장 중...' : '저장'}
               </button>

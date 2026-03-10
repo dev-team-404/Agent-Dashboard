@@ -1105,9 +1105,9 @@ export default function Models({ adminRole }: ModelsProps) {
           Create / Edit Modal
           ═══════════════════════════════════════════════ */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-ios-xl shadow-modal w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
-            <div className="sticky top-0 bg-white/95 backdrop-blur-[20px] border-b border-pastel-100 px-6 py-4 z-10 rounded-t-ios-xl">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-modal w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-scale-in">
+            <div className="sticky top-0 bg-white border-b border-pastel-100 px-6 py-4 z-10 rounded-t-xl">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-ios bg-samsung-blue/10 flex items-center justify-center">
@@ -1154,7 +1154,7 @@ export default function Models({ adminRole }: ModelsProps) {
                             setForm({ ...form, type: opt.value, supportsVision: opt.value === 'IMAGE' ? false : form.supportsVision });
                             resetTestStates();
                           }}
-                          className={`flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all duration-200
+                          className={`flex items-center gap-3 p-3.5 rounded-lg border-2 transition-all duration-200
                             ${isSelected
                               ? 'border-samsung-blue bg-samsung-blue/5 shadow-card'
                               : 'border-pastel-100 hover:border-pastel-300 bg-white'}`}
@@ -1403,9 +1403,9 @@ export default function Models({ adminRole }: ModelsProps) {
                         type="button"
                         onClick={runFormTest}
                         disabled={testRunning || !form.endpointUrl || !form.name}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
-                                   bg-gradient-to-r from-samsung-blue to-accent-indigo
-                                   hover:shadow-ios transition-all duration-200
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg
+                                   bg-gray-900
+                                   hover:bg-gray-800 transition-all duration-200
                                    disabled:opacity-50 disabled:cursor-not-allowed
                                    transform active:scale-[0.97]"
                       >
@@ -1417,7 +1417,7 @@ export default function Models({ adminRole }: ModelsProps) {
                     {testResult && (
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 animate-slide-down">
                         {/* Chat Completion */}
-                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                        <div className={`p-3 rounded-lg border text-center transition-all ${
                           testResult.chatCompletion
                             ? 'bg-green-50 border-green-200'
                             : 'bg-red-50 border-red-200'
@@ -1428,7 +1428,7 @@ export default function Models({ adminRole }: ModelsProps) {
                           <p className={`text-xs font-medium ${testResult.chatCompletion ? 'text-green-700' : 'text-red-700'}`}>Chat</p>
                         </div>
                         {/* Tool A */}
-                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                        <div className={`p-3 rounded-lg border text-center transition-all ${
                           testResult.toolCallA ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                         }`}>
                           {testResult.toolCallA
@@ -1437,7 +1437,7 @@ export default function Models({ adminRole }: ModelsProps) {
                           <p className={`text-xs font-medium ${testResult.toolCallA ? 'text-green-700' : 'text-red-700'}`}>Tool A</p>
                         </div>
                         {/* Tool B */}
-                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                        <div className={`p-3 rounded-lg border text-center transition-all ${
                           testResult.toolCallB ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                         }`}>
                           {testResult.toolCallB
@@ -1446,7 +1446,7 @@ export default function Models({ adminRole }: ModelsProps) {
                           <p className={`text-xs font-medium ${testResult.toolCallB ? 'text-green-700' : 'text-red-700'}`}>Tool B</p>
                         </div>
                         {/* Tool C */}
-                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                        <div className={`p-3 rounded-lg border text-center transition-all ${
                           testResult.toolCallC ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                         }`}>
                           {testResult.toolCallC
@@ -1455,7 +1455,7 @@ export default function Models({ adminRole }: ModelsProps) {
                           <p className={`text-xs font-medium ${testResult.toolCallC ? 'text-green-700' : 'text-red-700'}`}>Tool C</p>
                         </div>
                         {/* Tool D */}
-                        <div className={`p-3 rounded-2xl border text-center transition-all ${
+                        <div className={`p-3 rounded-lg border text-center transition-all ${
                           testResult.toolCallD ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                         }`}>
                           {testResult.toolCallD
@@ -1490,9 +1490,9 @@ export default function Models({ adminRole }: ModelsProps) {
                           type="button"
                           onClick={runVisionTest}
                           disabled={visionTestRunning || !form.endpointUrl || !form.name}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
-                                     bg-gradient-to-r from-samsung-blue to-accent-indigo
-                                     hover:shadow-ios transition-all duration-200
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg
+                                     bg-gray-900
+                                     hover:bg-gray-800 transition-all duration-200
                                      disabled:opacity-50 disabled:cursor-not-allowed
                                      transform active:scale-[0.97]"
                         >
@@ -1504,7 +1504,7 @@ export default function Models({ adminRole }: ModelsProps) {
                       {visionTestResult && (
                         <div className="space-y-2 animate-slide-down">
                           <div className="grid grid-cols-2 gap-2">
-                            <div className={`p-3 rounded-2xl border text-center ${
+                            <div className={`p-3 rounded-lg border text-center ${
                               visionTestResult.visionDescribe ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                             }`}>
                               {visionTestResult.visionDescribe
@@ -1514,7 +1514,7 @@ export default function Models({ adminRole }: ModelsProps) {
                                 Vision Describe
                               </p>
                             </div>
-                            <div className={`p-3 rounded-2xl border text-center ${
+                            <div className={`p-3 rounded-lg border text-center ${
                               visionTestResult.visionJudge ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                             }`}>
                               {visionTestResult.visionJudge
@@ -1553,9 +1553,9 @@ export default function Models({ adminRole }: ModelsProps) {
                       type="button"
                       onClick={runImageTest}
                       disabled={imageTestRunning || !form.endpointUrl || !form.name}
-                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-xl
-                                 bg-gradient-to-r from-samsung-blue to-accent-indigo
-                                 hover:shadow-ios transition-all duration-200
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg
+                                 bg-gray-900
+                                 hover:bg-gray-800 transition-all duration-200
                                  disabled:opacity-50 disabled:cursor-not-allowed
                                  transform active:scale-[0.97]"
                     >
@@ -1566,7 +1566,7 @@ export default function Models({ adminRole }: ModelsProps) {
 
                   {imageTestResult && (
                     <div className="space-y-2 animate-slide-down">
-                      <div className={`p-3 rounded-2xl border text-center ${
+                      <div className={`p-3 rounded-lg border text-center ${
                         imageTestResult.imageGen ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                       }`}>
                         {imageTestResult.imageGen
@@ -1664,7 +1664,7 @@ export default function Models({ adminRole }: ModelsProps) {
             </div>
 
             {/* ── Modal Footer ── */}
-            <div className="sticky bottom-0 bg-white/95 backdrop-blur-[20px] border-t border-pastel-100 px-6 py-4 rounded-b-ios-xl">
+            <div className="sticky bottom-0 bg-white border-t border-pastel-100 px-6 py-4 rounded-b-xl">
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setShowModal(false)}
@@ -1700,8 +1700,8 @@ export default function Models({ adminRole }: ModelsProps) {
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-ios-xl shadow-modal w-full max-w-md animate-scale-in">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-modal w-full max-w-md animate-scale-in">
             <div className="p-6">
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
                 <Trash2 className="w-6 h-6 text-red-500" />

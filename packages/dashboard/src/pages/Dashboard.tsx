@@ -177,16 +177,10 @@ function MetricCard({
 
   return (
     <div
-      className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
+      className="group relative overflow-hidden rounded-lg bg-white border border-gray-200 shadow-sm hover:shadow-md transition-all duration-500 hover:-translate-y-1"
       style={{ animationDelay: `${delay}ms` }}
     >
-      {/* Top gradient accent */}
-      <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
-
-      {/* Glass shimmer */}
-      <div className="absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-      <div className="relative p-5">
+      <div className="p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <p className="text-sm font-medium text-pastel-500">{label}</p>
@@ -195,7 +189,7 @@ function MetricCard({
             </p>
             <p className="text-xs text-pastel-400">{description}</p>
           </div>
-          <div className={`p-3 rounded-xl ${gradient} shadow-lg`}>
+          <div className={`p-3 rounded-xl ${gradient}`}>
             <Icon className="w-5 h-5 text-white" />
           </div>
         </div>
@@ -209,15 +203,15 @@ function DashboardSkeleton() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Service header skeleton */}
-      <div className="rounded-2xl bg-gradient-to-r from-gray-200 to-gray-300 p-6 animate-pulse">
-        <div className="h-8 bg-white/20 rounded w-48 mb-2" />
-        <div className="h-4 bg-white/10 rounded w-64" />
+      <div className="rounded-lg bg-gray-100 p-6 animate-pulse">
+        <div className="h-8 bg-gray-200 rounded w-48 mb-2" />
+        <div className="h-4 bg-gray-200 rounded w-64" />
       </div>
 
       {/* Metric cards skeleton */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-5">
+          <div key={i} className="rounded-lg bg-white border border-gray-200 shadow-sm p-5">
             <div className="animate-pulse space-y-3">
               <div className="h-3 bg-gray-200 rounded w-20" />
               <div className="h-8 bg-gray-200 rounded w-16" />
@@ -228,7 +222,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* Token donut skeleton */}
-      <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+      <div className="rounded-lg bg-white border border-gray-200 shadow-sm p-6">
         <div className="animate-pulse">
           <div className="h-6 bg-gray-200 rounded w-40 mb-6" />
           <div className="flex items-center gap-6">
@@ -245,7 +239,7 @@ function DashboardSkeleton() {
       {/* Charts skeleton */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card p-6">
+          <div key={i} className="rounded-lg bg-white border border-gray-200 shadow-sm p-6">
             <div className="animate-pulse">
               <div className="h-6 bg-gray-200 rounded w-48 mb-4" />
               <div className="h-64 bg-gray-100 rounded-xl" />
@@ -337,24 +331,19 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
     <div className="space-y-6 animate-fade-in">
       {/* ════════ Service Info Header ════════ */}
       {serviceInfo && (
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-samsung-blue via-accent-indigo to-accent-violet p-8 text-white shadow-elevated">
-          {/* Background decoration */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/[0.06] rounded-full -translate-y-32 translate-x-32 blur-2xl" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/[0.04] rounded-full translate-y-24 -translate-x-24 blur-xl" />
-          <div className="absolute right-1/4 bottom-0 w-32 h-32 bg-accent-violet/20 rounded-full blur-2xl" />
-
-          <div className="relative flex items-start justify-between">
+        <div className="rounded-lg bg-white border border-gray-200 p-6">
+          <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3.5 bg-white/10 backdrop-blur-sm rounded-2xl ring-1 ring-white/20">
-                <Server className="w-7 h-7" />
+              <div className="p-3.5 bg-gray-100 rounded-lg">
+                <Server className="w-7 h-7 text-gray-600" />
               </div>
               <div>
-                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">{serviceInfo.displayName}</h1>
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-gray-900">{serviceInfo.displayName}</h1>
                 {serviceInfo.description && (
-                  <p className="text-white/60 mt-1.5 text-sm font-medium">{serviceInfo.description}</p>
+                  <p className="text-gray-500 mt-1.5 text-sm font-medium">{serviceInfo.description}</p>
                 )}
                 <div className="flex items-center gap-2 mt-3">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm rounded-full ring-1 ring-white/10 text-xs font-medium text-white/80">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-medium text-gray-600">
                     <Hash className="w-3 h-3" />
                     {serviceInfo.name}
                   </span>
@@ -364,7 +353,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
             {adminRole === 'SUPER_ADMIN' && (
               <button
                 onClick={() => { setResetResult(null); setShowResetModal(true); }}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white text-sm rounded-2xl transition-all hover:shadow-lg font-medium ring-1 ring-white/10"
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg transition-all hover:bg-gray-50 font-medium"
               >
                 <RotateCcw className="w-4 h-4" />
                 기록 초기화
@@ -376,11 +365,11 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
 
       {/* ════════ Data Reset Modal ════════ */}
       {showResetModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={() => { if (!resetting) setShowResetModal(false); }}>
-          <div className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in" onClick={() => { if (!resetting) setShowResetModal(false); }}>
+          <div className="bg-white rounded-xl shadow-modal w-full max-w-md mx-4 animate-scale-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-6 border-b border-gray-100/60">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center ring-1 ring-red-100/50">
+                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center ring-1 ring-red-100/50">
                   <RotateCcw className="w-5 h-5 text-red-500" />
                 </div>
                 <h3 className="text-lg font-bold text-pastel-800">기록 초기화</h3>
@@ -396,13 +385,13 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
               <p className="text-sm text-pastel-600 leading-relaxed">
                 <span className="font-semibold text-pastel-800">{serviceInfo?.displayName}</span>의 모든 사용 기록을 초기화하시겠습니까?
               </p>
-              <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl">
+              <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-lg">
                 <p className="text-sm text-amber-700 leading-relaxed">
                   사용 기록, 일일 통계, 평가, 사용자 연결이 모두 삭제됩니다. 모델 설정은 유지됩니다.
                 </p>
               </div>
               {resetResult && (
-                <div className={`p-4 rounded-2xl border ${resetResult.startsWith('삭제 완료') ? 'bg-emerald-50 border-emerald-200/60' : 'bg-rose-50 border-rose-200/60'}`}>
+                <div className={`p-4 rounded-lg border ${resetResult.startsWith('삭제 완료') ? 'bg-emerald-50 border-emerald-200/60' : 'bg-rose-50 border-rose-200/60'}`}>
                   <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {resetResult}
                   </p>
@@ -413,7 +402,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                   type="button"
                   onClick={() => setShowResetModal(false)}
                   disabled={resetting}
-                  className="px-5 py-2.5 text-pastel-600 bg-pastel-50 rounded-2xl hover:bg-pastel-100 transition-colors disabled:opacity-50 font-semibold text-sm"
+                  className="px-5 py-2.5 text-pastel-600 bg-pastel-50 rounded-lg hover:bg-pastel-100 transition-colors disabled:opacity-50 font-semibold text-sm"
                 >
                   {resetResult?.startsWith('삭제 완료') ? '닫기' : '취소'}
                 </button>
@@ -422,7 +411,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                     type="button"
                     onClick={handleResetData}
                     disabled={resetting}
-                    className="px-5 py-2.5 bg-red-500 text-white rounded-2xl hover:bg-red-600 transition-colors disabled:opacity-50 font-semibold text-sm"
+                    className="px-5 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 font-semibold text-sm"
                   >
                     {resetting ? '초기화 중...' : '초기화'}
                   </button>
@@ -480,7 +469,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
 
       {/* ════════ Active Users Pulse ════════ */}
       {(overview?.activeUsers || 0) > 0 && (
-        <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
+        <div className="flex items-center gap-3 px-5 py-3 rounded-lg bg-emerald-50 border border-emerald-100 animate-slide-up">
           <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
@@ -493,10 +482,10 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       )}
 
       {/* ════════ Token Donut Chart ════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100/80 shadow-card overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-100/80 shadow-card overflow-hidden">
         <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100/60">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-accent-violet to-accent-indigo shadow-lg">
-            <Hash className="w-4 h-4 text-white" />
+          <div className="p-2.5 rounded-xl bg-violet-50">
+            <Hash className="w-4 h-4 text-violet-600" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-pastel-800">오늘의 토큰 사용량</h2>

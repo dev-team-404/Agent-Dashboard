@@ -286,10 +286,10 @@ export default function Holidays() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between animate-stagger-1">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-2xl flex items-center justify-center shadow-depth">
-            <CalendarDays className="w-6 h-6 text-white" />
+          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+            <CalendarDays className="w-6 h-6 text-gray-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">휴일 관리</h1>
@@ -299,7 +299,7 @@ export default function Holidays() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowBulkModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200/80 text-pastel-700 rounded-2xl shadow-depth hover:shadow-card-hover hover:border-gray-300 transition-all duration-200 font-medium text-sm"
+            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200/80 text-pastel-700 rounded-lg hover:border-gray-300 transition-all duration-200 font-medium text-sm"
           >
             <Upload className="w-4 h-4" />
             프리셋 가져오기
@@ -309,7 +309,7 @@ export default function Holidays() {
               setNewHoliday({ date: '', name: '', type: 'NATIONAL' });
               setShowAddModal(true);
             }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white rounded-2xl shadow-depth hover:shadow-card-hover transition-all duration-200 font-medium text-sm hover:brightness-110"
+            className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
             휴일 추가
@@ -319,7 +319,7 @@ export default function Holidays() {
 
       {/* Error notification */}
       {error && (
-        <div className="flex items-center justify-between px-5 py-4 bg-rose-50 border border-rose-200 rounded-2xl animate-slide-down">
+        <div className="flex items-center justify-between px-5 py-4 bg-rose-50 border border-rose-200 rounded-lg animate-slide-down">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-rose-100 rounded-xl flex items-center justify-center flex-shrink-0">
               <AlertCircle className="w-4 h-4 text-rose-500" />
@@ -336,7 +336,7 @@ export default function Holidays() {
       )}
 
       {/* Calendar */}
-      <div className="bg-white rounded-3xl shadow-card border border-gray-100/80 overflow-hidden animate-stagger-2">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         {/* Calendar Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100/80">
           <button
@@ -405,11 +405,7 @@ export default function Holidays() {
         {/* Calendar Grid */}
         {loading ? (
           <div className="h-96 flex items-center justify-center">
-            <div className="relative">
-              <div className="w-10 h-10 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
-              <div className="absolute inset-0 w-10 h-10 border-[3px] border-transparent border-t-accent-indigo/40 rounded-full animate-spin animate-pulse-soft" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
-              <div className="absolute -inset-2 w-14 h-14 rounded-full bg-samsung-blue/10 animate-ping" style={{ animationDuration: '2s' }} />
-            </div>
+            <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-900 rounded-full animate-spin" />
           </div>
         ) : (
           <div className="grid grid-cols-7">
@@ -431,7 +427,7 @@ export default function Holidays() {
                     <span
                       className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
                         todayClass
-                          ? 'bg-gradient-to-br from-samsung-blue to-accent-indigo text-white shadow-sm'
+                          ? 'bg-gray-900 text-white shadow-sm'
                           : !isCurrentMonth
                           ? 'text-pastel-300'
                           : dayOfWeek === 0 || dayHolidays.some(h => h.type === 'NATIONAL')
@@ -485,20 +481,20 @@ export default function Holidays() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-2 flex-wrap animate-stagger-3">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
           <span className="font-medium">공휴일</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
           <span className="font-medium">회사 휴일</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-600">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-purple-400" />
           <span className="font-medium">사용자 정의</span>
         </div>
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-400 ml-1">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-400 ml-1">
           <span className="text-red-500 font-semibold">일</span>
           <span className="text-blue-500 font-semibold">토</span>
           <span>= 주말 (자동 제외)</span>
@@ -506,11 +502,11 @@ export default function Holidays() {
       </div>
 
       {/* Holiday List */}
-      <div className="bg-white rounded-3xl shadow-card border border-gray-100/80 overflow-hidden animate-stagger-4">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100/80">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-samsung-blue/10 to-accent-indigo/10 rounded-xl flex items-center justify-center">
+              <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center">
                 <Calendar className="w-4 h-4 text-samsung-blue" />
               </div>
               <h3 className="font-semibold text-pastel-800 text-base">{currentYear}년 휴일 목록</h3>
@@ -521,7 +517,7 @@ export default function Holidays() {
         <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
           {holidays.length === 0 ? (
             <div className="px-6 py-12 text-center">
-              <div className="w-12 h-12 bg-pastel-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <div className="w-12 h-12 bg-pastel-50 rounded-lg flex items-center justify-center mx-auto mb-3">
                 <CalendarDays className="w-6 h-6 text-pastel-300" />
               </div>
               <p className="text-pastel-400 font-medium">등록된 휴일이 없습니다.</p>
@@ -556,16 +552,16 @@ export default function Holidays() {
       {/* Add Holiday Modal */}
       {showAddModal && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in"
           onClick={() => setShowAddModal(false)}
         >
           <div
-            className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
+            className="bg-white rounded-xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-xl flex items-center justify-center">
+                <div className="w-9 h-9 bg-gray-900 rounded-xl flex items-center justify-center">
                   <Plus className="w-4 h-4 text-white" />
                 </div>
                 <h3 className="text-lg font-semibold text-pastel-800">휴일 추가</h3>
@@ -584,7 +580,7 @@ export default function Holidays() {
                   type="date"
                   value={newHoliday.date}
                   onChange={(e) => setNewHoliday({ ...newHoliday, date: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-lg bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
                 />
               </div>
               <div>
@@ -594,7 +590,7 @@ export default function Holidays() {
                   value={newHoliday.name}
                   onChange={(e) => setNewHoliday({ ...newHoliday, name: e.target.value })}
                   placeholder="예: 설날, 추석"
-                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-lg bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
                 />
               </div>
               <div>
@@ -602,7 +598,7 @@ export default function Holidays() {
                 <select
                   value={newHoliday.type}
                   onChange={(e) => setNewHoliday({ ...newHoliday, type: e.target.value as HolidayType })}
-                  className="w-full px-4 py-3 border border-gray-200/80 rounded-xl bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 appearance-none cursor-pointer"
+                  className="w-full px-4 py-3 border border-gray-200/80 rounded-lg bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 appearance-none cursor-pointer"
                 >
                   <option value="NATIONAL">공휴일</option>
                   <option value="COMPANY">회사 휴일</option>
@@ -610,16 +606,16 @@ export default function Holidays() {
                 </select>
               </div>
             </div>
-            <div className="flex justify-end gap-3 px-6 py-5 border-t border-gray-100/80 bg-pastel-50/30">
+            <div className="flex justify-end gap-3 px-6 py-5 border-t border-gray-100/80 bg-gray-50">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-2xl transition-all duration-200"
+                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-lg transition-all duration-200"
               >
                 취소
               </button>
               <button
                 onClick={handleAddHoliday}
-                className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white font-medium rounded-2xl shadow-depth hover:shadow-card-hover transition-all duration-200 hover:brightness-110"
+                className="px-5 py-2.5 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
               >
                 추가
               </button>
@@ -631,16 +627,16 @@ export default function Holidays() {
       {/* Bulk Import Modal */}
       {showBulkModal && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in"
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in"
           onClick={() => setShowBulkModal(false)}
         >
           <div
-            className="bg-white rounded-3xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
+            className="bg-white rounded-xl shadow-modal w-full max-w-md mx-4 animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-xl flex items-center justify-center">
+                <div className="w-9 h-9 bg-gray-900 rounded-xl flex items-center justify-center">
                   <Upload className="w-4 h-4 text-white" />
                 </div>
                 <h3 className="text-lg font-semibold text-pastel-800">공휴일 프리셋 가져오기</h3>
@@ -661,7 +657,7 @@ export default function Holidays() {
                   <button
                     key={year}
                     onClick={() => handleBulkImport(parseInt(year))}
-                    className="group flex items-center justify-center gap-2.5 px-4 py-4 bg-white border border-gray-200/80 rounded-2xl hover:border-samsung-blue hover:shadow-depth hover:bg-samsung-blue/[0.02] transition-all duration-200 active:scale-[0.98]"
+                    className="group flex items-center justify-center gap-2.5 px-4 py-4 bg-white border border-gray-200/80 rounded-lg hover:border-samsung-blue hover:shadow-depth hover:bg-samsung-blue/[0.02] transition-all duration-200 active:scale-[0.98]"
                   >
                     <Calendar className="w-4 h-4 text-pastel-400 group-hover:text-samsung-blue transition-colors duration-200" />
                     <span className="font-semibold text-pastel-700 group-hover:text-samsung-blue transition-colors duration-200">{year}년</span>
@@ -672,10 +668,10 @@ export default function Holidays() {
                 ))}
               </div>
             </div>
-            <div className="flex justify-end px-6 py-5 border-t border-gray-100/80 bg-pastel-50/30">
+            <div className="flex justify-end px-6 py-5 border-t border-gray-100/80 bg-gray-50">
               <button
                 onClick={() => setShowBulkModal(false)}
-                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-2xl transition-all duration-200"
+                className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-lg transition-all duration-200"
               >
                 닫기
               </button>

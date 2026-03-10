@@ -236,10 +236,10 @@ export default function Users({ serviceId }: UsersProps) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4 animate-fade-in">
         <div className="relative">
-          <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200 border-t-samsung-blue animate-spin" />
+          <div className="w-12 h-12 rounded-full border-[3px] border-gray-200 border-t-samsung-blue animate-spin" />
           <div className="absolute inset-0 w-12 h-12 rounded-full border-[3px] border-transparent border-t-samsung-blue/30 animate-ping" />
         </div>
-        <p className="text-sm font-medium text-pastel-400">사용자 목록을 불러오는 중...</p>
+        <p className="text-sm font-medium text-gray-400">사용자 목록을 불러오는 중...</p>
       </div>
     );
   }
@@ -248,32 +248,23 @@ export default function Users({ serviceId }: UsersProps) {
     <div className="animate-fade-in">
       {/* Service Info Banner */}
       {serviceInfo && (
-        <div className="relative overflow-hidden rounded-2xl mb-8 animate-stagger-1">
-          {/* Gradient background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-samsung-blue via-pastel-500 to-accent-indigo" />
-          {/* Mesh pattern overlay */}
-          <div className="absolute inset-0 bg-mesh-1 opacity-40" />
-          {/* Decorative orbs */}
-          <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-2xl animate-float" />
-          <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-accent-violet/15 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 right-1/4 w-24 h-24 bg-accent-emerald/10 rounded-full blur-xl" />
-          {/* Content */}
-          <div className="relative z-10 px-8 py-7">
-            <h1 className="text-2xl font-bold text-white tracking-tight">{serviceInfo.displayName} - 사용자 관리</h1>
-            <p className="text-white/60 text-sm mt-1.5 font-medium">서비스 ID: {serviceInfo.name}</p>
+        <div className="bg-white border border-gray-200 rounded-lg mb-8">
+          <div className="px-8 py-7">
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{serviceInfo.displayName} - 사용자 관리</h1>
+            <p className="text-gray-500 text-sm mt-1.5 font-medium">서비스 ID: {serviceInfo.name}</p>
           </div>
         </div>
       )}
 
       {/* Page Header */}
-      <div className="mb-8 animate-stagger-2">
+      <div className="mb-8">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gradient-to-br from-samsung-blue to-accent-indigo rounded-ios-lg flex items-center justify-center shadow-glow-blue">
-            <User className="w-6 h-6 text-white" />
+          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+            <User className="w-6 h-6 text-gray-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-900 tracking-tight">사용자 관리</h1>
-            <p className="text-pastel-400 text-sm mt-0.5">
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">사용자 관리</h1>
+            <p className="text-gray-500 text-sm mt-0.5">
               {serviceInfo ? `${serviceInfo.displayName} 서비스의 사용자 목록` : '등록된 사용자 목록 및 권한 관리'}
             </p>
           </div>
@@ -281,42 +272,42 @@ export default function Users({ serviceId }: UsersProps) {
       </div>
 
       {/* Search */}
-      <div className="mb-6 animate-stagger-3">
+      <div className="mb-6">
         <div className="relative">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-300" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="이름, ID, 부서로 검색..."
-            className="w-full pl-14 pr-6 py-3.5 bg-white border border-gray-100/80 rounded-2xl shadow-depth text-sm text-pastel-800 placeholder:text-pastel-300 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-300 ease-ios-spring"
+            className="w-full pl-10 pr-6 py-3.5 bg-white border border-gray-100/80 rounded-lg text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300"
           />
         </div>
       </div>
 
       {/* Users Table */}
-      <div className="bg-white rounded-2xl border border-gray-100/80 shadow-card overflow-hidden animate-stagger-4">
+      <div className="bg-white rounded-lg border border-gray-100/80 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="bg-pastel-50/80">
-                <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+              <tr className="bg-gray-50">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   사용자
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   부서
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   권한
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   마지막 활동
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   요청 수
                 </th>
                 {serviceId && (
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Rate Limit
                   </th>
                 )}
@@ -327,36 +318,36 @@ export default function Users({ serviceId }: UsersProps) {
                 const status = adminStatuses[user.id];
 
                 return (
-                  <tr key={user.id} className="hover:bg-pastel-50/50 transition-all duration-300 ease-ios-spring group">
+                  <tr key={user.id} className="hover:bg-gray-50 transition-all duration-300 group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3.5">
-                        <div className="w-10 h-10 bg-gradient-to-br from-pastel-300 to-samsung-blue rounded-full flex items-center justify-center shadow-soft ring-2 ring-white">
-                          <User className="w-4.5 h-4.5 text-white" />
+                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center ring-2 ring-white">
+                          <User className="w-4.5 h-4.5 text-gray-600" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-pastel-800 group-hover:text-samsung-blue transition-colors duration-300">{decodeUsername(user.username)}</p>
-                          <p className="text-xs text-pastel-400 mt-0.5 font-medium">{user.loginid}</p>
+                          <p className="text-sm font-semibold text-gray-900 group-hover:text-samsung-blue transition-colors duration-300">{decodeUsername(user.username)}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 font-medium">{user.loginid}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <p className="text-sm text-pastel-600">{decodeUsername(user.deptname)}</p>
+                      <p className="text-sm text-gray-600">{decodeUsername(user.deptname)}</p>
                     </td>
                     <td className="px-6 py-4">
                       {getRoleBadge(status)}
                     </td>
                     <td className="px-6 py-4">
-                      <p className="text-sm text-pastel-500 tabular-nums">{formatDate(user.lastActive)}</p>
+                      <p className="text-sm text-gray-500 tabular-nums">{formatDate(user.lastActive)}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-pastel-700 tabular-nums">{user._count.usageLogs.toLocaleString()}</span>
+                      <span className="text-sm font-semibold text-gray-700 tabular-nums">{user._count.usageLogs.toLocaleString()}</span>
                     </td>
                     {serviceId && (
                       <td className="px-6 py-4">
                         {rateLimits[user.id] ? (
                           <button
                             onClick={() => openRateLimitModal(user)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-accent-amber/10 text-amber-700 ring-1 ring-accent-amber/20 hover:bg-accent-amber/20 hover:shadow-sm transition-all duration-300 ease-ios-spring"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-accent-amber/10 text-amber-700 ring-1 ring-accent-amber/20 hover:bg-accent-amber/20 hover:shadow-sm transition-all duration-300"
                           >
                             <Gauge className="w-3.5 h-3.5" />
                             {formatTokens(rateLimits[user.id].maxTokens)} / {rateLimits[user.id].window === 'FIVE_HOURS' ? '5h' : 'day'}
@@ -364,7 +355,7 @@ export default function Users({ serviceId }: UsersProps) {
                         ) : (
                           <button
                             onClick={() => openRateLimitModal(user)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-pastel-50 text-pastel-400 ring-1 ring-pastel-200/60 hover:bg-pastel-100 hover:text-pastel-500 hover:shadow-sm transition-all duration-300 ease-ios-spring"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gray-50 text-gray-400 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-500 hover:shadow-sm transition-all duration-300"
                           >
                             <Infinity className="w-3.5 h-3.5" />
                             무제한
@@ -379,10 +370,10 @@ export default function Users({ serviceId }: UsersProps) {
                 <tr>
                   <td colSpan={serviceId ? 6 : 5} className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-12 h-12 bg-pastel-50 rounded-full flex items-center justify-center">
-                        <Search className="w-5 h-5 text-pastel-300" />
+                      <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center">
+                        <Search className="w-5 h-5 text-gray-300" />
                       </div>
-                      <p className="text-sm font-medium text-pastel-400">
+                      <p className="text-sm font-medium text-gray-400">
                         {searchQuery ? '검색 결과가 없습니다.' : '사용자가 없습니다.'}
                       </p>
                     </div>
@@ -395,8 +386,8 @@ export default function Users({ serviceId }: UsersProps) {
 
         {/* Pagination */}
         {pagination.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-pastel-50/30">
-            <p className="text-sm text-pastel-400 font-medium tabular-nums">
+          <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50/30">
+            <p className="text-sm text-gray-400 font-medium tabular-nums">
               {(pagination.page - 1) * pagination.limit + 1} -{' '}
               {Math.min(pagination.page * pagination.limit, pagination.total)} / 총 {pagination.total}명
             </p>
@@ -404,17 +395,17 @@ export default function Users({ serviceId }: UsersProps) {
               <button
                 onClick={() => loadData(pagination.page - 1)}
                 disabled={pagination.page === 1}
-                className="p-2 text-pastel-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300 ease-ios-spring"
+                className="p-2 text-gray-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
-              <span className="px-3 py-1.5 text-sm font-semibold text-pastel-600 bg-white rounded-xl shadow-depth tabular-nums">
+              <span className="px-3 py-1.5 text-sm font-semibold text-gray-600 bg-white rounded-lg shadow-sm tabular-nums">
                 {pagination.page} / {pagination.totalPages}
               </span>
               <button
                 onClick={() => loadData(pagination.page + 1)}
                 disabled={pagination.page === pagination.totalPages}
-                className="p-2 text-pastel-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300 ease-ios-spring"
+                className="p-2 text-gray-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300"
               >
                 <ChevronRight className="w-5 h-5" />
               </button>
@@ -425,26 +416,26 @@ export default function Users({ serviceId }: UsersProps) {
 
       {/* Rate Limit Modal */}
       {rateLimitTarget && serviceId && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl shadow-modal max-w-md w-full animate-scale-in">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-modal max-w-md w-full animate-scale-in">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-100/80">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 bg-gradient-to-br from-accent-amber/20 to-accent-amber/5 rounded-ios flex items-center justify-center ring-1 ring-accent-amber/20">
+                <div className="w-10 h-10 bg-amber-50 rounded-lg flex items-center justify-center ring-1 ring-accent-amber/20">
                   <Gauge className="w-5 h-5 text-accent-amber" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-pastel-900 tracking-tight">Token Rate Limit</h3>
-                  <p className="text-xs text-pastel-400 mt-0.5 font-medium">
+                  <h3 className="text-lg font-bold text-gray-900 tracking-tight">Token Rate Limit</h3>
+                  <p className="text-xs text-gray-400 mt-0.5 font-medium">
                     {decodeUsername(rateLimitTarget.username)} ({rateLimitTarget.loginid})
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setRateLimitTarget(null)}
-                className="p-2 hover:bg-pastel-50 rounded-ios transition-all duration-300 ease-ios-spring group"
+                className="p-2 hover:bg-gray-50 rounded-lg transition-all duration-300 group"
               >
-                <X className="w-5 h-5 text-pastel-300 group-hover:text-pastel-500 transition-colors" />
+                <X className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" />
               </button>
             </div>
 
@@ -452,16 +443,16 @@ export default function Users({ serviceId }: UsersProps) {
             <div className="p-6 space-y-6">
               {/* Window selection */}
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-3">윈도우</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">윈도우</label>
                 <div className="grid grid-cols-2 gap-3">
                   {(['FIVE_HOURS', 'DAY'] as const).map((w) => (
                     <button
                       key={w}
                       onClick={() => setRateLimitForm(f => ({ ...f, window: w }))}
-                      className={`py-3 px-4 rounded-ios-lg text-sm font-semibold border-2 transition-all duration-300 ease-ios-spring ${
+                      className={`py-3 px-4 rounded-lg text-sm font-semibold border-2 transition-all duration-300 ${
                         rateLimitForm.window === w
-                          ? 'border-samsung-blue bg-samsung-blue/5 text-samsung-blue shadow-glow-blue'
-                          : 'border-gray-100 text-pastel-500 hover:border-pastel-200 hover:bg-pastel-50/50'
+                          ? 'border-samsung-blue bg-samsung-blue/5 text-samsung-blue'
+                          : 'border-gray-100 text-gray-500 hover:border-gray-200 hover:bg-gray-50'
                       }`}
                     >
                       {w === 'FIVE_HOURS' ? '5시간' : '24시간 (1일)'}
@@ -472,7 +463,7 @@ export default function Users({ serviceId }: UsersProps) {
 
               {/* Max tokens */}
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-3">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
                   최대 토큰 수
                 </label>
                 <input
@@ -480,7 +471,7 @@ export default function Users({ serviceId }: UsersProps) {
                   value={rateLimitForm.maxTokens}
                   onChange={(e) => setRateLimitForm(f => ({ ...f, maxTokens: parseInt(e.target.value) || 0 }))}
                   min={1}
-                  className="w-full px-4 py-3 bg-pastel-50/50 border border-gray-100/80 rounded-ios-lg text-sm text-pastel-800 placeholder:text-pastel-300 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 focus:bg-white transition-all duration-300 ease-ios-spring"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-100/80 rounded-lg text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all duration-300"
                   placeholder="예: 1000000"
                 />
                 <div className="flex gap-2 mt-3">
@@ -488,7 +479,7 @@ export default function Users({ serviceId }: UsersProps) {
                     <button
                       key={v}
                       onClick={() => setRateLimitForm(f => ({ ...f, maxTokens: v }))}
-                      className="px-3 py-1.5 text-xs font-semibold bg-pastel-50 hover:bg-pastel-100 rounded-ios text-pastel-500 hover:text-pastel-600 ring-1 ring-pastel-200/60 transition-all duration-300 ease-ios-spring"
+                      className="px-3 py-1.5 text-xs font-semibold bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-600 ring-1 ring-gray-200 transition-all duration-300"
                     >
                       {formatTokens(v)}
                     </button>
@@ -498,14 +489,14 @@ export default function Users({ serviceId }: UsersProps) {
 
               {/* Enabled toggle */}
               <div className="flex items-center justify-between py-1">
-                <span className="text-sm font-semibold text-pastel-700">활성화</span>
+                <span className="text-sm font-semibold text-gray-700">활성화</span>
                 <button
                   onClick={() => setRateLimitForm(f => ({ ...f, enabled: !f.enabled }))}
-                  className={`relative w-12 h-7 rounded-full transition-all duration-300 ease-ios-spring ${
-                    rateLimitForm.enabled ? 'bg-samsung-blue shadow-glow-blue' : 'bg-pastel-200'
+                  className={`relative w-12 h-7 rounded-full transition-all duration-300 ${
+                    rateLimitForm.enabled ? 'bg-samsung-blue' : 'bg-gray-200'
                   }`}
                 >
-                  <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-elevated transition-transform duration-300 ease-ios-spring ${
+                  <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full shadow-elevated transition-transform duration-300 ${
                     rateLimitForm.enabled ? 'translate-x-5' : ''
                   }`} />
                 </button>
@@ -513,12 +504,12 @@ export default function Users({ serviceId }: UsersProps) {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex items-center gap-3 p-6 border-t border-gray-100/80 bg-pastel-50/40 rounded-b-3xl">
+            <div className="flex items-center gap-3 p-6 border-t border-gray-100/80 bg-gray-50 rounded-b-xl">
               {rateLimits[rateLimitTarget.id] && (
                 <button
                   onClick={handleDeleteRateLimit}
                   disabled={savingRateLimit}
-                  className="px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-ios-lg transition-all duration-300 ease-ios-spring disabled:opacity-40"
+                  className="px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-lg transition-all duration-300 disabled:opacity-40"
                 >
                   제한 해제
                 </button>
@@ -526,14 +517,14 @@ export default function Users({ serviceId }: UsersProps) {
               <div className="flex-1" />
               <button
                 onClick={() => setRateLimitTarget(null)}
-                className="px-5 py-2.5 text-sm font-semibold text-pastel-500 hover:bg-pastel-100 rounded-ios-lg transition-all duration-300 ease-ios-spring"
+                className="px-5 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 rounded-lg transition-all duration-300"
               >
                 취소
               </button>
               <button
                 onClick={handleSaveRateLimit}
                 disabled={savingRateLimit || rateLimitForm.maxTokens < 1}
-                className="px-6 py-2.5 text-sm font-semibold bg-gradient-to-r from-samsung-blue to-pastel-500 text-white rounded-ios-lg hover:shadow-glow-blue transition-all duration-300 ease-ios-spring disabled:opacity-40 disabled:hover:shadow-none"
+                className="px-6 py-2.5 text-sm font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all duration-300 disabled:opacity-40"
               >
                 {savingRateLimit ? '저장 중...' : '저장'}
               </button>

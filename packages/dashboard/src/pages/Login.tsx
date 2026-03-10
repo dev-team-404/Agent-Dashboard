@@ -83,22 +83,12 @@ export default function Login({ onLogin }: LoginProps) {
   }
 
   return (
-    <div className="min-h-screen bg-pastel-50 flex flex-col relative overflow-hidden">
-      {/* Background mesh gradient */}
-      <div className="absolute inset-0 bg-mesh-1 pointer-events-none" />
-
-      {/* Decorative orbs */}
-      <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-samsung-blue/[0.03] rounded-full blur-3xl animate-float pointer-events-none" />
-      <div className="absolute bottom-[-15%] left-[-10%] w-[500px] h-[500px] bg-accent-indigo/[0.03] rounded-full blur-3xl animate-float pointer-events-none" style={{ animationDelay: '-3s' }} />
-
-      {/* Top accent */}
-      <div className="h-[3px] bg-gradient-to-r from-samsung-blue via-accent-indigo to-accent-violet" />
-
-      <div className="flex-1 flex items-center justify-center p-4 relative z-10">
+    <div className="min-h-screen bg-pastel-50 flex flex-col">
+      <div className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-[440px]">
           {/* Logo Section */}
           <div className="text-center mb-10 animate-fade-in">
-            <div className="inline-flex items-center justify-center w-[88px] h-[88px] bg-white rounded-3xl mb-6 shadow-elevated overflow-hidden ring-1 ring-black/[0.03]">
+            <div className="inline-flex items-center justify-center w-[88px] h-[88px] bg-white rounded-xl mb-6 shadow-sm overflow-hidden ring-1 ring-black/[0.03]">
               <img src="/logo.png" alt="Agent Stats" className="w-16 h-16 object-contain" />
             </div>
             <h1 className="text-[32px] font-extrabold text-pastel-800 tracking-tight leading-none">
@@ -112,9 +102,9 @@ export default function Login({ onLogin }: LoginProps) {
 
           {/* Login Card */}
           <div className="animate-slide-up">
-            <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-glass border border-white/60 p-8 ring-1 ring-black/[0.02]">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
               {error && (
-                <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3 animate-scale-in">
+                <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-lg flex items-start gap-3 animate-scale-in">
                   <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-rose-600 leading-relaxed">{error}</p>
                 </div>
@@ -123,17 +113,13 @@ export default function Login({ onLogin }: LoginProps) {
               <button
                 onClick={handleSSOLogin}
                 disabled={loading}
-                className="w-full group relative py-4 px-6 bg-gradient-to-r from-samsung-blue to-accent-indigo text-white font-semibold rounded-2xl
-                           hover:shadow-glow-blue
+                className="w-full group relative py-4 px-6 bg-gray-900 text-white font-semibold rounded-2xl
                            focus:outline-none focus:ring-4 focus:ring-samsung-blue/20
                            disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-all duration-300 ease-ios-spring
+                           transition-all duration-300
                            transform active:scale-[0.98]
                            flex items-center justify-center gap-3 text-[15px] overflow-hidden"
               >
-                {/* Button shimmer effect */}
-                <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
                 {loading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -159,10 +145,10 @@ export default function Login({ onLogin }: LoginProps) {
                   ].map(({ icon: Icon, label, desc, color, bg }, i) => (
                     <div
                       key={label}
-                      className="group p-3.5 rounded-2xl border border-gray-100/60 hover:border-gray-200/80 hover:bg-gray-50/50 transition-all duration-300 cursor-default"
+                      className="group p-3.5 rounded-lg border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-all duration-300 cursor-default"
                       style={{ animationDelay: `${i * 0.05 + 0.2}s` }}
                     >
-                      <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center mb-2.5`}>
+                      <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center mb-2.5`}>
                         <Icon className={`w-[18px] h-[18px] ${color}`} />
                       </div>
                       <p className="text-[13px] font-semibold text-pastel-800 leading-tight">{label}</p>

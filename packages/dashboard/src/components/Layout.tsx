@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, ChevronRight, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -19,9 +19,6 @@ interface Service {
   enabled: boolean;
 }
 
-/**
- * Decode unicode escape sequences (e.g., \uD55C\uAE00 → 한글)
- */
 function decodeUnicodeEscape(str: string): string {
   if (!str) return str;
   try {
@@ -44,7 +41,6 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
-// 모든 사용자 메뉴
 const userNavItems = [
   { path: '/services', label: '서비스', icon: Store },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
@@ -60,17 +56,11 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   const [services, setServices] = useState<Service[]>([]);
 
   useEffect(() => {
-    if (isAdmin) {
-      loadServices();
-    }
+    if (isAdmin) loadServices();
   }, [isAdmin]);
 
   useEffect(() => {
-    const handleServiceUpdate = () => {
-      if (isAdmin) {
-        loadServices();
-      }
-    };
+    const handleServiceUpdate = () => { if (isAdmin) loadServices(); };
     window.addEventListener('services-updated', handleServiceUpdate);
     return () => window.removeEventListener('services-updated', handleServiceUpdate);
   }, [isAdmin]);
@@ -110,228 +100,188 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
                     adminRole === 'ADMIN' ? '관리자' : '사용자';
 
-  const sidebarWidth = sidebarCollapsed ? 'w-[72px]' : 'w-64';
-  const mainMargin = sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-64';
+  const sidebarWidth = sidebarCollapsed ? 'w-[72px]' : 'w-60';
+  const mainMargin = sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-60';
 
-  const NavLink = ({ path, label, icon: Icon, onClick }: { path: string; label: string; icon: React.ElementType; onClick?: () => void }) => {
+  const NavLink = ({ path, label, icon: Icon }: { path: string; label: string; icon: React.ElementType }) => {
     const isActive = location.pathname === path;
     return (
       <Link
         to={path}
-        onClick={() => { setSidebarOpen(false); onClick?.(); }}
+        onClick={() => setSidebarOpen(false)}
         title={sidebarCollapsed ? label : undefined}
-        className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group ${
+        className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors ${
           isActive
-            ? 'bg-pastel-100 text-pastel-700 shadow-sm'
-            : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700'
-        } ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
+            ? 'bg-white/10 text-white font-medium'
+            : 'text-gray-400 hover:text-gray-200 hover:bg-white/[0.06]'
+        } ${sidebarCollapsed ? 'justify-center px-2' : ''}`}
       >
-        <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-samsung-blue' : 'text-pastel-400 group-hover:text-pastel-600'}`} />
-        {!sidebarCollapsed && <span className="font-medium">{label}</span>}
-        {!sidebarCollapsed && isActive && <ChevronRight className="w-4 h-4 ml-auto text-samsung-blue" />}
+        <Icon className={`w-[18px] h-[18px] flex-shrink-0 ${isActive ? 'text-white' : ''}`} />
+        {!sidebarCollapsed && <span>{label}</span>}
       </Link>
     );
   };
 
+  const ExternalNavLink = ({ href, label, icon: Icon }: { href: string; label: string; icon: React.ElementType }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={() => setSidebarOpen(false)}
+      title={sidebarCollapsed ? label : undefined}
+      className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] text-gray-400 hover:text-gray-200 hover:bg-white/[0.06] transition-colors ${sidebarCollapsed ? 'justify-center px-2' : ''}`}
+    >
+      <Icon className="w-[18px] h-[18px] flex-shrink-0" />
+      {!sidebarCollapsed && <span>{label}</span>}
+    </a>
+  );
+
   return (
-    <div className="min-h-screen bg-pastel-50">
-      {/* Mobile sidebar overlay */}
+    <div className="min-h-screen bg-[#F9FAFB]">
+      {/* Mobile overlay */}
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 ${sidebarWidth} bg-white border-r border-pastel-200 z-50 transform transition-all duration-300 ease-in-out lg:translate-x-0 overflow-y-auto overflow-x-hidden ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
+      {/* ── Sidebar (dark) ── */}
+      <aside className={`fixed inset-y-0 left-0 ${sidebarWidth} bg-[#0F1117] z-50 transform transition-all duration-200 lg:translate-x-0 overflow-y-auto overflow-x-hidden flex flex-col ${
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+
         {/* Logo */}
-        <div className={`flex items-center justify-between px-4 py-5 border-b border-pastel-100 sticky top-0 bg-white z-10 ${sidebarCollapsed ? 'px-3' : 'px-6'}`}>
-          <Link to={isAdmin ? '/' : '/services'} className="flex items-center gap-3" onClick={() => setSidebarOpen(false)}>
-            <img src="/logo.png" alt="Agent Stats" className="w-10 h-10 rounded-xl flex-shrink-0" />
+        <div className={`flex items-center justify-between h-14 shrink-0 border-b border-white/[0.06] ${sidebarCollapsed ? 'px-4' : 'px-5'}`}>
+          <Link to={isAdmin ? '/' : '/services'} className="flex items-center gap-2.5" onClick={() => setSidebarOpen(false)}>
+            <img src="/logo.png" alt="Agent Stats" className="w-7 h-7 rounded-md flex-shrink-0 bg-white" />
             {!sidebarCollapsed && (
-              <div className="min-w-0">
-                <h1 className="font-bold text-[15px] leading-tight tracking-tight text-pastel-800">
-                  <span className="text-samsung-blue">Agent</span> Stats
-                </h1>
-                <p className="text-[10px] text-pastel-400 tracking-wide mt-0.5">사용량 집계 시스템</p>
-              </div>
+              <span className="font-semibold text-[13px] text-white tracking-tight">Agent Stats</span>
             )}
           </Link>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 text-pastel-500 hover:text-pastel-700"
-          >
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1 text-gray-500 hover:text-white">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className={`mt-4 pb-4 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
-          {/* Admin 섹션: 통합 대시보드 */}
+        <nav className={`flex-1 py-4 ${sidebarCollapsed ? 'px-2' : 'px-3'} space-y-5`}>
+          {/* Admin */}
           {isAdmin && (
-            <div className="mb-4">
+            <div>
               {!sidebarCollapsed && (
-                <p className="px-4 mb-2 text-xs font-semibold text-pastel-500 uppercase tracking-wider">
-                  통합 관리
-                </p>
+                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">관리</p>
               )}
-              <NavLink path="/" label="통합 대시보드" icon={Home} />
-              <NavLink path="/models" label="LLM 모델" icon={Cpu} />
-              {adminRole === 'SUPER_ADMIN' && (
-                <NavLink path="/users" label="사용자 관리" icon={Users} />
-              )}
-              {adminRole === 'SUPER_ADMIN' && (
-                <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
-              )}
+              <div className="space-y-0.5">
+                <NavLink path="/" label="통합 대시보드" icon={Home} />
+                <NavLink path="/models" label="LLM 모델" icon={Cpu} />
+                {adminRole === 'SUPER_ADMIN' && <NavLink path="/users" label="사용자 관리" icon={Users} />}
+                {adminRole === 'SUPER_ADMIN' && <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />}
+              </div>
             </div>
           )}
 
-          {/* 일반 섹션 */}
-          <div className="mb-4">
+          {/* Personal */}
+          <div>
             {!sidebarCollapsed && (
-              <p className="px-4 mb-2 text-xs font-semibold text-pastel-500 uppercase tracking-wider">
-                개인
-              </p>
+              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">개인</p>
             )}
-            {userNavItems.map(({ path, label, icon }) => (
-              <NavLink key={path} path={path} label={label} icon={icon} />
-            ))}
+            <div className="space-y-0.5">
+              {userNavItems.map(({ path, label, icon }) => (
+                <NavLink key={path} path={path} label={label} icon={icon} />
+              ))}
+            </div>
           </div>
 
-          {/* 리소스 섹션 */}
-          <div className="mb-4">
+          {/* Resources */}
+          <div>
             {!sidebarCollapsed && (
-              <p className="px-4 mb-2 text-xs font-semibold text-pastel-500 uppercase tracking-wider">
-                리소스
-              </p>
+              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">리소스</p>
             )}
-            <a
-              href={import.meta.env.VITE_DOCS_URL || '/docs/'}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setSidebarOpen(false)}
-              title={sidebarCollapsed ? '문서' : undefined}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700 ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
-            >
-              <BookOpen className="w-5 h-5 text-pastel-400 group-hover:text-pastel-600 flex-shrink-0" />
-              {!sidebarCollapsed && <span className="font-medium">문서</span>}
-            </a>
-            {isAdmin && (
-              <a
-                href="/api/api-docs/ui"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setSidebarOpen(false)}
-                title={sidebarCollapsed ? 'API 문서' : undefined}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all duration-200 group text-pastel-600 hover:bg-pastel-50 hover:text-pastel-700 ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
-              >
-                <Code className="w-5 h-5 text-pastel-400 group-hover:text-pastel-600 flex-shrink-0" />
-                {!sidebarCollapsed && <span className="font-medium">API 문서</span>}
-              </a>
-            )}
+            <div className="space-y-0.5">
+              <ExternalNavLink href={import.meta.env.VITE_DOCS_URL || '/docs/'} label="문서" icon={BookOpen} />
+              {isAdmin && (
+                <ExternalNavLink href="/api/api-docs/ui" label="API 문서" icon={Code} />
+              )}
+            </div>
           </div>
 
-          {/* Collapse toggle (desktop only) */}
-          <div className="hidden lg:block">
+          {/* Collapse toggle */}
+          <div className="hidden lg:block pt-2">
             <button
               onClick={toggleCollapse}
-              title={sidebarCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl mb-1 w-full transition-all duration-200 text-pastel-500 hover:bg-pastel-50 hover:text-pastel-700 ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
+              title={sidebarCollapsed ? '펼치기' : '접기'}
+              className={`flex items-center gap-3 px-3 py-2 rounded-md w-full text-[13px] text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] transition-colors ${sidebarCollapsed ? 'justify-center px-2' : ''}`}
             >
               {sidebarCollapsed ? (
-                <PanelLeftOpen className="w-5 h-5 flex-shrink-0" />
+                <PanelLeftOpen className="w-[18px] h-[18px] flex-shrink-0" />
               ) : (
                 <>
-                  <PanelLeftClose className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-sm">사이드바 접기</span>
+                  <PanelLeftClose className="w-[18px] h-[18px] flex-shrink-0" />
+                  <span>접기</span>
                 </>
               )}
             </button>
           </div>
         </nav>
 
-        {/* User info */}
-        <div className={`p-4 border-t border-pastel-100 ${sidebarCollapsed ? 'px-2' : ''}`}>
+        {/* User — bottom */}
+        <div className={`shrink-0 p-3 border-t border-white/[0.06] ${sidebarCollapsed ? 'px-2' : ''}`}>
           {sidebarCollapsed ? (
             <div className="flex flex-col items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-pastel-300 to-samsung-blue rounded-full flex items-center justify-center shadow-sm">
-                <span className="text-xs font-bold text-white">
-                  {user.username.charAt(0).toUpperCase()}
-                </span>
+              <div className="w-7 h-7 bg-gray-700 rounded-full flex items-center justify-center">
+                <span className="text-[11px] font-medium text-gray-200">{user.username.charAt(0).toUpperCase()}</span>
               </div>
-              <button
-                onClick={onLogout}
-                className="p-2 text-pastel-500 hover:text-pastel-700 hover:bg-pastel-100 rounded-xl transition-all duration-200"
-                title="로그아웃"
-              >
-                <LogOut className="w-4 h-4" />
+              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title="로그아웃">
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-[11px] font-medium text-gray-200">{user.username.charAt(0).toUpperCase()}</span>
+              </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-pastel-800 truncate">{decodeUnicodeEscape(user.username)}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[13px] font-medium text-gray-200 truncate">{decodeUnicodeEscape(user.username)}</p>
                   {isAdmin && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium bg-pastel-200 text-pastel-700 rounded">
-                      <Shield className="w-2.5 h-2.5" />
-                      {roleLabel}
+                    <span className="px-1 py-0.5 text-[9px] font-medium bg-white/10 text-gray-400 rounded">
+                      <Shield className="w-2 h-2 inline mr-0.5" />{roleLabel}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-pastel-500 truncate">{decodeUnicodeEscape(user.deptname)}</p>
+                <p className="text-[11px] text-gray-500 truncate">{decodeUnicodeEscape(user.deptname)}</p>
               </div>
-              <button
-                onClick={onLogout}
-                className="p-2.5 text-pastel-500 hover:text-pastel-700 hover:bg-pastel-100 rounded-xl transition-all duration-200"
-                title="로그아웃"
-              >
-                <LogOut className="w-5 h-5" />
+              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title="로그아웃">
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className={`${mainMargin} transition-all duration-300`}>
-        {/* Top bar */}
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-lg border-b border-pastel-100">
-          <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 h-16">
-            <div className="flex items-center gap-4">
+      {/* ── Main content ── */}
+      <div className={`${mainMargin} transition-all duration-200`}>
+        {/* Topbar */}
+        <header className="sticky top-0 z-30 bg-white border-b border-gray-200">
+          <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 h-14">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 text-pastel-500 hover:text-pastel-700 hover:bg-pastel-100 rounded-lg transition-colors"
+                className="lg:hidden p-1.5 text-gray-500 hover:text-gray-700 rounded-md transition-colors"
               >
-                <Menu className="w-6 h-6" />
+                <Menu className="w-5 h-5" />
               </button>
-              <div>
-                <h2 className="text-lg font-semibold text-pastel-800">
-                  {getCurrentPageLabel()}
-                </h2>
-              </div>
+              <h2 className="text-sm font-medium text-gray-900">{getCurrentPageLabel()}</h2>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-pastel-100 rounded-full">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-xs text-pastel-600">온라인</span>
-              </div>
-              <div className="w-8 h-8 bg-gradient-to-br from-pastel-300 to-samsung-blue rounded-full flex items-center justify-center shadow-sm">
-                <span className="text-xs font-bold text-white">
-                  {user.username.charAt(0).toUpperCase()}
-                </span>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:block text-xs text-gray-400">{decodeUnicodeEscape(user.deptname)}</span>
+              <div className="w-7 h-7 bg-gray-900 rounded-full flex items-center justify-center">
+                <span className="text-[11px] font-medium text-white">{user.username.charAt(0).toUpperCase()}</span>
               </div>
             </div>
           </div>
         </header>
 
         {/* Page content */}
-        <main className="p-4 sm:p-6 lg:p-8 animate-fade-in">
+        <main className="p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>

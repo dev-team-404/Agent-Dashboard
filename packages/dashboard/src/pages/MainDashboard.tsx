@@ -161,11 +161,11 @@ function StatCard({
 
   return (
     <div
-      className="group relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/20 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
+      className="group relative overflow-hidden rounded-lg bg-white border border-gray-200 shadow-card hover:shadow-soft transition-all duration-500 hover:-translate-y-1"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className={`absolute top-0 left-0 right-0 h-1 ${gradient}`} />
-      <div className="absolute inset-0 bg-gradient-to-br from-white/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
       <div className="relative p-5">
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -460,7 +460,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="rounded-2xl bg-white border border-pastel-100 p-6">
+            <div key={i} className="rounded-lg bg-white border border-pastel-100 p-6">
               <div className="animate-pulse space-y-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-gray-200 rounded-xl" />
@@ -582,7 +582,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               {latencyStats.slice(0, 4).map((stat) => (
-                <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gradient-to-br from-pastel-50 to-white rounded-2xl border border-pastel-100">
+                <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gray-50 rounded-lg border border-pastel-100">
                   <p className="text-xs text-pastel-500 truncate" title={`${stat.serviceName} / ${stat.modelName}`}>
                     {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
                   </p>
@@ -877,7 +877,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
           {/* Real-time indicator */}
           {todayActive > 0 && (
-            <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 animate-slide-up">
+            <div className="flex items-center gap-3 px-5 py-3 rounded-lg bg-emerald-50 border border-emerald-100 animate-slide-up">
               <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
@@ -890,7 +890,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           )}
 
           {/* Charts Section with Tabs */}
-          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
             <div className="px-6 pt-5 pb-0">
               <h2 className="text-lg font-bold text-pastel-800 mb-4">상세 분석</h2>
               <div className="flex gap-1 overflow-x-auto pb-0 -mb-px scrollbar-hide">
@@ -918,7 +918,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
             {/* Data tables */}
             {activeTab === 'dept-users' && deptUsersBUs.length > 0 && (
               <div className="px-6 pb-6">
-                <div className="overflow-x-auto rounded-2xl border border-pastel-100">
+                <div className="overflow-x-auto rounded-lg border border-pastel-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-pastel-50/80">
@@ -949,7 +949,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
             {activeTab === 'dept-requests' && deptServiceCombos.length > 0 && (
               <div className="px-6 pb-6">
-                <div className="overflow-x-auto rounded-2xl border border-pastel-100">
+                <div className="overflow-x-auto rounded-lg border border-pastel-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-pastel-50/80">
@@ -978,7 +978,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
             {activeTab === 'latency' && latencyStats.length > 0 && (
               <div className="px-6 pb-6">
-                <div className="overflow-x-auto rounded-2xl border border-pastel-100">
+                <div className="overflow-x-auto rounded-lg border border-pastel-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-pastel-50/80">
@@ -1012,10 +1012,10 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           <WeeklyBusinessDAUChart />
 
           {/* Department Token Table */}
-          <div className="bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
             <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">
-              <div className="p-2 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 shadow-lg">
-                <Building2 className="w-4 h-4 text-white" />
+              <div className="p-2 rounded-lg bg-gray-100">
+                <Building2 className="w-4 h-4 text-gray-600" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-pastel-800">사업부별 상세 통계</h2>
@@ -1024,7 +1024,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
             </div>
             <div className="p-6">
               {deptStats.length > 0 ? (
-                <div className="overflow-x-auto rounded-2xl border border-pastel-100">
+                <div className="overflow-x-auto rounded-lg border border-pastel-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-pastel-50/80">
@@ -1076,11 +1076,11 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
       {/* ════════ Service Creation Modal ════════ */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-pastel-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-samsung-blue to-blue-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
                   <Plus className="w-5 h-5 text-white" />
                 </div>
                 <h3 className="text-lg font-bold text-pastel-800">새 서비스 등록</h3>
@@ -1174,7 +1174,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 <button
                   type="submit"
                   disabled={creating || !newService.name || !newService.displayName}
-                  className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 font-medium"
+                  className="px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 font-medium"
                 >
                   {creating ? '생성 중...' : '등록'}
                 </button>
@@ -1186,11 +1186,11 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
       {/* ════════ Service Edit Modal ════════ */}
       {editTarget && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-pastel-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-samsung-blue to-blue-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
                   <Settings className="w-5 h-5 text-white" />
                 </div>
                 <div>
@@ -1272,7 +1272,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white rounded-xl hover:shadow-lg transition-all disabled:opacity-50 font-medium"
+                  className="px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 font-medium"
                 >
                   {saving ? '저장 중...' : '저장'}
                 </button>
@@ -1284,8 +1284,8 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
       {/* ════════ Service Delete Modal ════════ */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-pastel-100">
               <h3 className="text-lg font-bold text-pastel-800">서비스 삭제</h3>
               <button
