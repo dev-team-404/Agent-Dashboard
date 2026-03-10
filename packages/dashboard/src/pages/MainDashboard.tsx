@@ -701,20 +701,22 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
             {mergedServiceStats.map((service, idx) => (
               <div
                 key={service.serviceId}
-                className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 bg-white ${
+                className={`group relative overflow-hidden rounded-2xl bg-white ${
                   service.enabled
-                    ? service.hasData ? 'border-pastel-100' : 'border-dashed border-gray-200'
-                    : 'border-gray-200 opacity-60'
-                }`}
-                style={{ animationDelay: `${idx * 50}ms` }}
+                    ? service.hasData
+                      ? (service.type === 'BACKGROUND' ? 'card-glow-violet' : 'card-glow')
+                      : 'card-glow border-dashed border border-gray-200'
+                    : 'border border-gray-200 opacity-60'
+                } ${!service.hasData && service.enabled ? '' : 'border border-gray-100/80'}`}
+                style={{ animation: `slideUp 0.45s cubic-bezier(0.16,1,0.3,1) ${idx * 60}ms both` }}
               >
                 {/* Status indicator */}
-                <div className={`absolute top-0 left-0 right-0 h-1 ${
+                <div className={`absolute top-0 left-0 right-0 h-0.5 ${
                   service.enabled
                     ? service.todayActiveUsers > 0
                       ? 'bg-gradient-to-r from-green-400 to-emerald-500'
-                      : 'bg-gradient-to-r from-samsung-blue to-blue-400'
-                    : 'bg-gray-300'
+                      : 'bg-gradient-to-r from-samsung-blue/60 to-blue-400/60'
+                    : 'bg-gray-200'
                 }`} />
 
                 {/* Card content */}
@@ -800,31 +802,28 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                     </div>
                   )}
 
-                  {/* Registration info */}
-                  <div className="space-y-1 mb-3 py-2.5 px-3 bg-gray-50/80 rounded-lg text-xs">
-                    <div className="flex items-center gap-2 text-pastel-500">
-                      <User className="w-3 h-3 text-pastel-400 flex-shrink-0" />
-                      <span className="font-medium text-pastel-600">{service.registeredBy || '알 수 없음'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-pastel-500">
-                      <Building2 className="w-3 h-3 text-pastel-400 flex-shrink-0" />
-                      <span className="truncate">
-                        {service.registeredByDept || '부서 미상'}
-                        {service.registeredByBusinessUnit && (
-                          <span className="text-pastel-400"> / {service.registeredByBusinessUnit}</span>
-                        )}
-                      </span>
-                    </div>
+                  {/* Registration meta — compact inline */}
+                  <div className="flex items-center gap-1.5 text-[11px] text-pastel-400 mb-4 flex-wrap">
+                    <User className="w-3 h-3 flex-shrink-0" />
+                    <span className="text-pastel-500 font-medium">{service.registeredBy || '알 수 없음'}</span>
+                    <span className="text-pastel-200">·</span>
+                    <Building2 className="w-3 h-3 flex-shrink-0" />
+                    <span className="truncate max-w-[120px]">
+                      {service.registeredByDept || '부서 미상'}
+                      {service.registeredByBusinessUnit && ` / ${service.registeredByBusinessUnit}`}
+                    </span>
                     {service.createdAt && (
-                      <div className="flex items-center gap-2 text-pastel-400">
+                      <>
+                        <span className="text-pastel-200">·</span>
                         <Calendar className="w-3 h-3 flex-shrink-0" />
-                        <span>{new Date(service.createdAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').replace(/\.$/, '')} 등록</span>
-                      </div>
+                        <span>{new Date(service.createdAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').replace(/\.$/, '')}</span>
+                      </>
                     )}
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex items-center gap-2 pt-3 border-t border-pastel-100">
+                  <div className="separator-gradient mb-0" />
+                  <div className="flex items-center gap-2 pt-3">
                     <Link
                       to={`/service/${service.serviceId}`}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-samsung-blue bg-samsung-blue/5 hover:bg-samsung-blue/10 rounded-lg transition-colors"
