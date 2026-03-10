@@ -13,6 +13,9 @@ const UnifiedUsers = lazy(() => import('./pages/UnifiedUsers'));
 const MyUsage = lazy(() => import('./pages/MyUsage'));
 const Holidays = lazy(() => import('./pages/Holidays'));
 const ServiceMarket = lazy(() => import('./pages/ServiceMarket'));
+const MyServices = lazy(() => import('./pages/MyServices'));
+const RequestLogs = lazy(() => import('./pages/RequestLogs'));
+const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 
 interface User {
   id: string;
@@ -108,6 +111,7 @@ function App() {
         <Routes>
           {/* All users */}
           <Route path="/services" element={<ServiceMarket />} />
+          <Route path="/my-services" element={<MyServices />} />
           <Route path="/my-usage" element={<MyUsage />} />
 
           {/* Admin only */}
@@ -125,6 +129,10 @@ function App() {
               {adminRole === 'SUPER_ADMIN' && (
                 <Route path="/holidays" element={<Holidays />} />
               )}
+
+              {/* Logs */}
+              <Route path="/request-logs" element={<RequestLogs />} />
+              <Route path="/audit-logs" element={<AuditLogs />} />
 
               {/* Service-specific routes */}
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />

@@ -1,0 +1,519 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Filter, ChevronDown, ChevronRight, X, Shield, Clock, Globe } from 'lucide-react';
+import { api } from '../services/api';
+
+interface AuditLog {
+  id: string;
+  adminId: string | null;
+  loginid: string;
+  action: string;
+  target: string | null;
+  targetType: string | null;
+  details: unknown;
+  ipAddress: string | null;
+  timestamp: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+// Format date as YYYY-MM-DD HH:mm:ss in KST
+function formatKST(dateStr: string): string {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const yyyy = kst.getUTCFullYear();
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kst.getUTCDate()).padStart(2, '0');
+  const hh = String(kst.getUTCHours()).padStart(2, '0');
+  const mi = String(kst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(kst.getUTCSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+const ACTION_OPTIONS = [
+  'CREATE_SERVICE',
+  'UPDATE_SERVICE',
+  'DELETE_SERVICE',
+  'DEPLOY_SERVICE',
+  'ADD_MODEL',
+  'UPDATE_MODEL',
+  'REMOVE_MODEL',
+  'TOGGLE_MODEL',
+  'REORDER_MODELS',
+  'ADD_SUB_MODEL',
+  'UPDATE_SUB_MODEL',
+  'REMOVE_SUB_MODEL',
+  'PROMOTE_USER',
+  'DEMOTE_USER',
+  'DELETE_USER',
+  'SET_RATE_LIMIT',
+  'DELETE_RATE_LIMIT',
+  'SET_SERVICE_RATE_LIMIT',
+  'DELETE_SERVICE_RATE_LIMIT',
+  'CLEANUP_REQUEST_LOGS',
+];
+
+const TARGET_TYPE_OPTIONS = ['Service', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog'];
+
+const ACTION_COLORS: Record<string, string> = {
+  CREATE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
+  ADD: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
+  UPDATE: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+  DEPLOY: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80',
+  DELETE: 'bg-red-50 text-red-700 ring-1 ring-red-200/80',
+  REMOVE: 'bg-red-50 text-red-700 ring-1 ring-red-200/80',
+  CLEANUP: 'bg-red-50 text-red-700 ring-1 ring-red-200/80',
+  TOGGLE: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
+  REORDER: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80',
+  PROMOTE: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+  DEMOTE: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
+  SET: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+};
+
+function getActionColor(action: string): string {
+  const prefix = action.split('_')[0];
+  return ACTION_COLORS[prefix] || 'bg-gray-50 text-gray-700 ring-1 ring-gray-200/80';
+}
+
+export default function AuditLogs() {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
+
+  // Filters
+  const [loginid, setLoginid] = useState('');
+  const [action, setAction] = useState('');
+  const [targetType, setTargetType] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Expanded rows
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    loadLogs();
+  }, [pagination.page, action, targetType, startDate, endDate]);
+
+  // Debounced loginid search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (pagination.page === 1) {
+        loadLogs();
+      } else {
+        setPagination(prev => ({ ...prev, page: 1 }));
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [loginid]);
+
+  const loadLogs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params: Record<string, string | number> = {
+        page: pagination.page,
+        limit: pagination.limit,
+      };
+      if (loginid) params.loginid = loginid;
+      if (action) params.action = action;
+      if (targetType) params.targetType = targetType;
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+
+      const res = await api.get('/admin/audit', { params });
+      setLogs(res.data.logs);
+      setPagination(prev => ({ ...prev, ...res.data.pagination }));
+    } catch (error) {
+      console.error('Failed to load audit logs:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [pagination.page, pagination.limit, loginid, action, targetType, startDate, endDate]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearFilters = () => {
+    setLoginid('');
+    setAction('');
+    setTargetType('');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const hasActiveFilters = loginid || action || targetType || startDate || endDate;
+
+  // Pagination helpers
+  const getPageNumbers = (): (number | string)[] => {
+    const total = pagination.totalPages;
+    const current = pagination.page;
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+
+    const pages: (number | string)[] = [1];
+    if (current > 3) pages.push('...');
+
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+
+    if (current < total - 2) pages.push('...');
+    pages.push(total);
+    return pages;
+  };
+
+  const formatDetails = (details: unknown): string => {
+    if (!details) return '-';
+    if (typeof details === 'string') return details;
+    try {
+      return JSON.stringify(details, null, 2);
+    } catch {
+      return String(details);
+    }
+  };
+
+  const getDetailsSummary = (details: unknown): string => {
+    if (!details) return '-';
+    if (typeof details === 'string') return details.length > 60 ? details.slice(0, 60) + '...' : details;
+    try {
+      const str = JSON.stringify(details);
+      return str.length > 60 ? str.slice(0, 60) + '...' : str;
+    } catch {
+      return '-';
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-blue-50">
+            <Shield className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">감사 로그</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">
+              관리자의 모든 설정 변경 이력을 추적합니다
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+          </span>
+          <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}건</span>
+        </div>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Login ID search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
+            <input
+              type="text"
+              placeholder="관리자 아이디 검색..."
+              value={loginid}
+              onChange={e => setLoginid(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+            />
+          </div>
+
+          {/* Filter Toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2.5 px-5 py-3 rounded-lg border font-medium text-sm transition-all duration-200 ${
+              hasActiveFilters
+                ? 'bg-blue-600 text-white border-transparent'
+                : 'bg-white text-pastel-600 border-gray-200/60 hover:bg-pastel-50 hover:border-pastel-300'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            <span>필터</span>
+            {hasActiveFilters && (
+              <span className="bg-white/25 text-xs font-bold px-2 py-0.5 rounded-full">
+                {[action, targetType, startDate, endDate].filter(Boolean).length}
+              </span>
+            )}
+            <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {/* Filter Options */}
+        {showFilters && (
+          <div className="mt-5 pt-5 border-t border-gray-100/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 animate-slide-down">
+            <div>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">작업</label>
+              <select
+                value={action}
+                onChange={e => { setAction(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+              >
+                <option value="">전체</option>
+                {ACTION_OPTIONS.map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">대상 유형</label>
+              <select
+                value={targetType}
+                onChange={e => { setTargetType(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+              >
+                <option value="">전체</option>
+                {TARGET_TYPE_OPTIONS.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">시작일</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => { setStartDate(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">종료일</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => { setEndDate(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
+                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+              />
+            </div>
+
+            {hasActiveFilters && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <button
+                  onClick={clearFilters}
+                  className="inline-flex items-center gap-1.5 text-sm text-pastel-500 hover:text-red-500 transition-colors duration-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  필터 초기화
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Audit Logs Table */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ minWidth: '1000px' }}>
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100/80">
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[30px]"></th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">시각</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">관리자</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">작업</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">대상</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">유형</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[200px]">상세</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">IP</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100/60">
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-20 text-center">
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200"></div>
+                        <div className="absolute inset-0 w-12 h-12 rounded-full border-[3px] border-samsung-blue border-t-transparent animate-spin"></div>
+                      </div>
+                      <p className="text-sm font-medium text-pastel-500">데이터를 불러오는 중...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : logs.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-20 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="p-4 rounded-lg bg-pastel-50">
+                        <Search className="w-8 h-8 text-pastel-300" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-pastel-600">검색 결과가 없습니다</p>
+                        <p className="text-xs text-pastel-400 mt-1">다른 검색어나 필터 조건을 시도해 보세요</p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                logs.map(log => {
+                  const isExpanded = expandedRows.has(log.id);
+                  const hasDetails = log.details && (typeof log.details === 'object' ? Object.keys(log.details as object).length > 0 : true);
+
+                  return (
+                    <tr key={log.id} className="group">
+                      {/* Main row */}
+                      <td className="px-4 py-3">
+                        {hasDetails ? (
+                          <button
+                            onClick={() => toggleExpanded(log.id)}
+                            className="p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
+                          >
+                            <ChevronRight
+                              className={`w-4 h-4 text-pastel-400 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                            />
+                          </button>
+                        ) : (
+                          <div className="w-6" />
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-3.5 h-3.5 text-pastel-400 flex-shrink-0" />
+                          <span className="text-xs text-pastel-600 font-mono tabular-nums">{formatKST(log.timestamp)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-pastel-100 to-pastel-200 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-bold text-pastel-600">{log.loginid.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <span className="text-sm text-pastel-700 font-medium truncate" title={log.loginid}>
+                            {log.loginid}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ${getActionColor(log.action)}`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm text-pastel-700 truncate block" title={log.target || '-'}>
+                          {log.target || '-'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {log.targetType ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full bg-pastel-50 text-pastel-600 ring-1 ring-pastel-200/80">
+                            {log.targetType}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-pastel-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-pastel-500 font-mono truncate block max-w-[200px]" title={typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}>
+                          {getDetailsSummary(log.details)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {log.ipAddress ? (
+                          <div className="flex items-center gap-1.5">
+                            <Globe className="w-3.5 h-3.5 text-pastel-400 flex-shrink-0" />
+                            <span className="text-xs text-pastel-600 font-mono">{log.ipAddress}</span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-pastel-400">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Expanded detail rows - rendered outside table for proper layout */}
+        {logs.some(log => expandedRows.has(log.id)) && (
+          <div className="border-t border-gray-100/80">
+            {logs.filter(log => expandedRows.has(log.id)).map(log => (
+              <div key={`detail-${log.id}`} className="px-6 py-4 bg-gray-50/50 border-b border-gray-100/60 animate-slide-down">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">상세 정보</span>
+                  <span className="text-xs text-pastel-400">-</span>
+                  <span className="text-xs text-pastel-400 font-mono">{log.action} / {log.loginid}</span>
+                  <button
+                    onClick={() => toggleExpanded(log.id)}
+                    className="ml-auto p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
+                  >
+                    <X className="w-3.5 h-3.5 text-pastel-400" />
+                  </button>
+                </div>
+                <pre className="p-4 bg-gray-900 text-gray-100 rounded-xl text-xs font-mono overflow-auto max-h-[300px] leading-relaxed">
+                  {formatDetails(log.details)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {pagination.totalPages > 1 && (
+          <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
+            <p className="text-sm text-pastel-500">
+              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>건 중{' '}
+              <span className="font-medium text-pastel-600">
+                {((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-
+                {Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}
+              </span>
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                disabled={pagination.page <= 1}
+                className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
+              >
+                이전
+              </button>
+              {getPageNumbers().map((p, idx) =>
+                typeof p === 'string' ? (
+                  <span key={`ellipsis-${idx}`} className="px-2 py-2 text-sm text-pastel-400">...</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPagination(prev => ({ ...prev, page: p as number }))}
+                    className={`min-w-[36px] px-2 py-2 text-sm font-medium rounded-xl border transition-all duration-200 shadow-sm tabular-nums ${
+                      p === pagination.page
+                        ? 'bg-samsung-blue text-white border-samsung-blue'
+                        : 'bg-white text-pastel-600 border-gray-200/60 hover:bg-pastel-50 hover:border-pastel-300'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                disabled={pagination.page >= pagination.totalPages}
+                className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
+              >
+                다음
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

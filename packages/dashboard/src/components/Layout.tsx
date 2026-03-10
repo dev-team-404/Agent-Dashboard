@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -42,7 +42,8 @@ interface LayoutProps {
 }
 
 const userNavItems = [
-  { path: '/services', label: '서비스', icon: Store },
+  { path: '/services', label: '서비스 마켓', icon: Store },
+  { path: '/my-services', label: '내 서비스', icon: Wrench },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
 ];
 
@@ -88,7 +89,10 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/users') return '사용자 관리';
     if (location.pathname === '/holidays') return '휴일 관리';
     if (location.pathname === '/my-usage') return '내 사용량';
-    if (location.pathname === '/services') return '서비스';
+    if (location.pathname === '/my-services') return '내 서비스';
+    if (location.pathname === '/services') return '서비스 마켓';
+    if (location.pathname === '/request-logs') return '요청 로그';
+    if (location.pathname === '/audit-logs') return '감사 로그';
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
@@ -173,6 +177,8 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/" label="통합 대시보드" icon={Home} />
                 <NavLink path="/models" label="LLM 모델" icon={Cpu} />
                 {adminRole === 'SUPER_ADMIN' && <NavLink path="/users" label="사용자 관리" icon={Users} />}
+                <NavLink path="/request-logs" label="요청 로그" icon={FileText} />
+                <NavLink path="/audit-logs" label="감사 로그" icon={ClipboardList} />
                 {adminRole === 'SUPER_ADMIN' && <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />}
               </div>
             </div>

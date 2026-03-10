@@ -3916,6 +3916,396 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
   }
 });
 
+// ==================== Enhanced Global Stats Endpoints ====================
+
+/**
+ * GET /admin/stats/global/cumulative-users-by-service
+ * 서비스별 누적 사용자 수 (시계열)
+ * Query: ?days= (default 30)
+ * 각 날짜별로 해당 날짜까지의 서비스별 고유 사용자 수를 반환
+ */
+adminRoutes.get('/stats/global/cumulative-users-by-service', async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
+
+    // KST 기준 오늘 날짜
+    const now = new Date();
+    const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const todayStr = kstNow.toISOString().split('T')[0]!;
+
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get all enabled services
+    const services = await prisma.service.findMany({
+      where: { enabled: true },
+      select: { id: true, name: true, displayName: true },
+    });
+
+    const serviceIdToDisplay = new Map(services.map(s => [s.id, s.displayName]));
+
+    // For each date in range, get cumulative distinct users per service up to that date
+    // Use a single efficient query: for each (service_id, date), get the first-seen date of each user
+    // Then compute cumulative counts from that
+    const firstSeenPerService = await prisma.$queryRaw<
+      Array<{ service_id: string; first_date: Date | string; user_count: bigint }>
+    >`
+      SELECT
+        service_id::text as service_id,
+        DATE(timestamp) as first_date,
+        COUNT(*) as user_count
+      FROM (
+        SELECT service_id, user_id, MIN(timestamp) as timestamp
+        FROM usage_logs
+        WHERE service_id IS NOT NULL
+          AND user_id IS NOT NULL
+        GROUP BY service_id, user_id
+      ) first_seen
+      WHERE DATE(timestamp) <= ${todayStr}::date
+      GROUP BY service_id, first_date
+      ORDER BY first_date ASC
+    `;
+
+    // Build date range
+    const dateRange: string[] = [];
+    const endDate = new Date(now);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dateRange.push(toLocalDateString(d));
+    }
+
+    // Organize first-seen counts: serviceId -> date -> newUserCount
+    const newUsersMap = new Map<string, Map<string, number>>();
+    for (const row of firstSeenPerService) {
+      const sid = row.service_id;
+      const dateStr = formatDateToString(row.first_date);
+      if (!newUsersMap.has(sid)) {
+        newUsersMap.set(sid, new Map());
+      }
+      newUsersMap.get(sid)!.set(dateStr, Number(row.user_count));
+    }
+
+    // Build cumulative data
+    const cumulativeCounts = new Map<string, number>();
+    for (const s of services) {
+      cumulativeCounts.set(s.id, 0);
+    }
+
+    // We need cumulative counts from the beginning of time, not just startDate
+    // First, compute the cumulative base before startDate
+    for (const s of services) {
+      const dateMap = newUsersMap.get(s.id);
+      if (!dateMap) continue;
+      for (const [dateStr, count] of dateMap) {
+        if (dateStr < dateRange[0]!) {
+          cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + count);
+        }
+      }
+    }
+
+    // Now iterate through the date range and build the chart data
+    const data = dateRange.map(date => {
+      const row: Record<string, string | number> = { date };
+      for (const s of services) {
+        const newUsers = newUsersMap.get(s.id)?.get(date) || 0;
+        cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + newUsers);
+        row[s.displayName] = cumulativeCounts.get(s.id) || 0;
+      }
+      return row;
+    });
+
+    res.json({
+      data,
+      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+    });
+  } catch (error) {
+    console.error('Get cumulative users by service error:', error);
+    res.status(500).json({ error: 'Failed to get cumulative users by service' });
+  }
+});
+
+/**
+ * GET /admin/stats/global/cumulative-tokens-by-service
+ * 서비스별 누적 토큰 사용량 (시계열)
+ * Query: ?days= (default 30)
+ * 각 날짜별로 해당 날짜까지의 서비스별 총 토큰 수를 반환
+ */
+adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get all enabled services
+    const services = await prisma.service.findMany({
+      where: { enabled: true },
+      select: { id: true, name: true, displayName: true },
+    });
+
+    // Get daily token sums per service from DailyUsageStat
+    const dailyTokens = await prisma.$queryRaw<
+      Array<{ date: Date | string; service_id: string; total_tokens: bigint }>
+    >`
+      SELECT
+        date,
+        service_id::text as service_id,
+        SUM("totalInputTokens" + "totalOutputTokens") as total_tokens
+      FROM daily_usage_stats
+      WHERE service_id IS NOT NULL
+      GROUP BY date, service_id
+      ORDER BY date ASC
+    `;
+
+    // Build date range
+    const dateRange: string[] = [];
+    const endDate = new Date(now);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dateRange.push(toLocalDateString(d));
+    }
+
+    // Organize daily tokens: serviceId -> date -> tokens
+    const dailyMap = new Map<string, Map<string, number>>();
+    for (const row of dailyTokens) {
+      const sid = row.service_id;
+      const dateStr = formatDateToString(row.date);
+      if (!dailyMap.has(sid)) {
+        dailyMap.set(sid, new Map());
+      }
+      dailyMap.get(sid)!.set(dateStr, Number(row.total_tokens));
+    }
+
+    // Compute cumulative base before startDate
+    const cumulativeCounts = new Map<string, number>();
+    for (const s of services) {
+      cumulativeCounts.set(s.id, 0);
+      const dateMap = dailyMap.get(s.id);
+      if (!dateMap) continue;
+      for (const [dateStr, tokens] of dateMap) {
+        if (dateStr < dateRange[0]!) {
+          cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + tokens);
+        }
+      }
+    }
+
+    // Build cumulative chart data
+    const data = dateRange.map(date => {
+      const row: Record<string, string | number> = { date };
+      for (const s of services) {
+        const dayTokens = dailyMap.get(s.id)?.get(date) || 0;
+        cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + dayTokens);
+        row[s.displayName] = cumulativeCounts.get(s.id) || 0;
+      }
+      return row;
+    });
+
+    res.json({
+      data,
+      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+    });
+  } catch (error) {
+    console.error('Get cumulative tokens by service error:', error);
+    res.status(500).json({ error: 'Failed to get cumulative tokens by service' });
+  }
+});
+
+/**
+ * GET /admin/stats/global/dau-by-service
+ * 서비스별 일별 활성 사용자 (DAU)
+ * Query: ?days= (default 30)
+ * 각 날짜별로 서비스별 고유 사용자 수를 반환
+ */
+adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get all enabled services
+    const services = await prisma.service.findMany({
+      where: { enabled: true },
+      select: { id: true, name: true, displayName: true },
+    });
+
+    // Count distinct userIds per (date, service) from DailyUsageStat
+    const dauStats = await prisma.$queryRaw<
+      Array<{ date: Date | string; service_id: string; dau: bigint }>
+    >`
+      SELECT
+        date,
+        service_id::text as service_id,
+        COUNT(DISTINCT user_id) as dau
+      FROM daily_usage_stats
+      WHERE service_id IS NOT NULL
+        AND user_id IS NOT NULL
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
+    `;
+
+    // Build date range
+    const dateRange: string[] = [];
+    const endDate = new Date(now);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dateRange.push(toLocalDateString(d));
+    }
+
+    // Build lookup: "serviceId|date" -> dau
+    const dauMap = new Map<string, number>();
+    for (const row of dauStats) {
+      const dateStr = formatDateToString(row.date);
+      dauMap.set(`${row.service_id}|${dateStr}`, Number(row.dau));
+    }
+
+    // Build chart data
+    const data = dateRange.map(date => {
+      const row: Record<string, string | number> = { date };
+      for (const s of services) {
+        row[s.displayName] = dauMap.get(`${s.id}|${date}`) || 0;
+      }
+      return row;
+    });
+
+    res.json({
+      data,
+      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+    });
+  } catch (error) {
+    console.error('Get DAU by service error:', error);
+    res.status(500).json({ error: 'Failed to get DAU by service' });
+  }
+});
+
+/**
+ * GET /admin/stats/global/dept-usage-by-service
+ * 서비스별 부서 사용량 (Bar Chart용)
+ * Query: ?days= (default 30), ?topN= (default 10)
+ * 서비스-부서별 토큰 사용량 및 요청 수를 반환
+ */
+adminRoutes.get('/stats/global/dept-usage-by-service', async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
+    const topN = Math.min(50, Math.max(1, parseInt(req.query['topN'] as string) || 10));
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Single query: group by serviceId + deptname, sum tokens and requests
+    const deptUsage = await prisma.$queryRaw<
+      Array<{
+        service_id: string;
+        service_display_name: string;
+        deptname: string;
+        total_tokens: bigint;
+        request_count: bigint;
+      }>
+    >`
+      SELECT
+        d.service_id::text as service_id,
+        s."displayName" as service_display_name,
+        d.deptname,
+        SUM(d."totalInputTokens" + d."totalOutputTokens") as total_tokens,
+        SUM(d."requestCount") as request_count
+      FROM daily_usage_stats d
+      INNER JOIN services s ON d.service_id = s.id
+      WHERE d.service_id IS NOT NULL
+        AND d.deptname IS NOT NULL
+        AND d.deptname != ''
+        AND d.date >= ${startDate}
+      GROUP BY d.service_id, s."displayName", d.deptname
+      ORDER BY total_tokens DESC
+      LIMIT ${topN}
+    `;
+
+    const data = deptUsage.map(row => ({
+      serviceName: row.service_display_name,
+      deptname: row.deptname,
+      totalTokens: Number(row.total_tokens),
+      requestCount: Number(row.request_count),
+    }));
+
+    res.json({ data });
+  } catch (error) {
+    console.error('Get dept usage by service error:', error);
+    res.status(500).json({ error: 'Failed to get department usage by service' });
+  }
+});
+
+/**
+ * GET /admin/stats/global/service-daily-requests
+ * 서비스별 일별 요청 수 (시계열)
+ * Query: ?days= (default 30)
+ * 각 날짜별로 서비스별 요청 수를 반환
+ */
+adminRoutes.get('/stats/global/service-daily-requests', async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // Get all enabled services
+    const services = await prisma.service.findMany({
+      where: { enabled: true },
+      select: { id: true, name: true, displayName: true },
+    });
+
+    // Sum requestCount per (date, service) from DailyUsageStat
+    const requestStats = await prisma.$queryRaw<
+      Array<{ date: Date | string; service_id: string; request_count: bigint }>
+    >`
+      SELECT
+        date,
+        service_id::text as service_id,
+        SUM("requestCount") as request_count
+      FROM daily_usage_stats
+      WHERE service_id IS NOT NULL
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
+    `;
+
+    // Build date range
+    const dateRange: string[] = [];
+    const endDate = new Date(now);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dateRange.push(toLocalDateString(d));
+    }
+
+    // Build lookup: "serviceId|date" -> requestCount
+    const requestMap = new Map<string, number>();
+    for (const row of requestStats) {
+      const dateStr = formatDateToString(row.date);
+      requestMap.set(`${row.service_id}|${dateStr}`, Number(row.request_count));
+    }
+
+    // Build chart data
+    const data = dateRange.map(date => {
+      const row: Record<string, string | number> = { date };
+      for (const s of services) {
+        row[s.displayName] = requestMap.get(`${s.id}|${date}`) || 0;
+      }
+      return row;
+    });
+
+    res.json({
+      data,
+      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+    });
+  } catch (error) {
+    console.error('Get service daily requests error:', error);
+    res.status(500).json({ error: 'Failed to get service daily requests' });
+  }
+});
+
 // ==================== Business Units ====================
 
 /**

@@ -8,6 +8,7 @@ import {
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
 import UsageAnalytics from '../components/Charts/UsageAnalytics';
+import EnhancedServiceCharts from '../components/Charts/EnhancedServiceCharts';
 import {
   AreaChart, Area, LineChart, Line as RechartsLine, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -1011,6 +1012,9 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
           {/* Weekly Business DAU */}
           <WeeklyBusinessDAUChart />
+
+          {/* Enhanced Service Metrics */}
+          <EnhancedServiceCharts />
 
           {/* Usage Analytics (Global) */}
           <UsageAnalytics />

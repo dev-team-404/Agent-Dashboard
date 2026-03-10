@@ -15,30 +15,38 @@ enum ServiceType {
   BACKGROUND  // 백그라운드 서비스: x-service-id, x-dept-name만 필수
 }
 
-model Service {
-  id          String      @id @default(uuid())
-  name        String      @unique              // "my-service" (유니크, 등록시 중복체크)
-  displayName String                           // "My Service"
-  description String?
-  iconUrl     String?     @map("icon_url")
-  docsUrl     String?     @map("docs_url")        // 서비스 설명서 URL
-  enabled     Boolean     @default(true)
-  type        ServiceType @default(STANDARD)
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+enum ServiceStatus {
+  DEVELOPMENT  // 개발 중 (생성 시 기본)
+  DEPLOYED     // 배포 완료 (서비스 마켓에 노출)
+}
 
-  // 등록한 admin 정보 (서비스는 등록 admin의 LLM 권한을 계승)
-  registeredBy             String?  @map("registered_by")              // admin loginid
-  registeredByDept         String?  @map("registered_by_dept")         // admin deptname
-  registeredByBusinessUnit String?  @map("registered_by_business_unit") // admin BU
+model Service {
+  id          String        @id @default(uuid())
+  name        String        @unique              // "my-service" (유니크, 등록시 중복체크)
+  displayName String                             // "My Service"
+  description String?
+  iconUrl     String?       @map("icon_url")
+  docsUrl     String?       @map("docs_url")        // 서비스 설명서 URL
+  enabled     Boolean       @default(true)
+  type        ServiceType   @default(STANDARD)
+  status      ServiceStatus @default(DEVELOPMENT)   // 개발/배포 상태
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // 등록한 사용자 정보 (누구나 서비스 생성 가능)
+  registeredBy             String?  @map("registered_by")              // loginid
+  registeredByDept         String?  @map("registered_by_dept")         // deptname
+  registeredByBusinessUnit String?  @map("registered_by_business_unit") // BU
 
   // Relations
-  usageLogs       UsageLog[]
-  dailyUsageStats DailyUsageStat[]
-  ratingFeedbacks RatingFeedback[]
-  userServices    UserService[]
-  rateLimits      UserRateLimit[]
+  usageLogs        UsageLog[]
+  dailyUsageStats  DailyUsageStat[]
+  ratingFeedbacks  RatingFeedback[]
+  userServices     UserService[]
+  rateLimits       UserRateLimit[]
   serviceRateLimit ServiceRateLimit?
+  serviceModels    ServiceModel[]
+  requestLogs      RequestLog[]
 
   @@map("services")
 }
@@ -71,6 +79,7 @@ model UserService {
   id           String   @id @default(uuid())
   userId       String   @map("user_id")
   serviceId    String   @map("service_id")
+  role         String   @default("USER") @map("role")  // OWNER, ADMIN, USER
   firstSeen    DateTime @map("first_seen")
   lastActive   DateTime @map("last_active")
   requestCount Int      @default(0) @map("request_count")
@@ -143,8 +152,28 @@ model Model {
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
   subModels       SubModel[]
+  serviceModels   ServiceModel[]
 
   @@map("models")
+}
+
+// ============================================
+// 서비스-모델 연결 (서비스가 사용할 수 있는 LLM)
+// ============================================
+model ServiceModel {
+  id        String   @id @default(uuid())
+  serviceId String   @map("service_id")
+  modelId   String   @map("model_id")
+  addedBy   String?  @map("added_by")     // 추가한 사용자 loginid
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  model   Model   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, modelId])
+  @@index([serviceId])
+  @@index([modelId])
+  @@map("service_models")
 }
 
 // ============================================
@@ -351,4 +380,62 @@ model GeneratedImage {
   @@index([userId])
   @@index([modelId])
   @@map("generated_images")
+}
+
+// ============================================
+// 요청 로그 (프록시 요청 상세)
+// ============================================
+model RequestLog {
+  id            String   @id @default(uuid())
+  serviceId     String?  @map("service_id")
+  userId        String?  @map("user_id")
+  deptname      String?
+  modelName     String   @map("model_name")
+  resolvedModel String?  @map("resolved_model")
+  method        String
+  path          String
+  statusCode    Int      @map("status_code")
+  requestBody   String?  @map("request_body") @db.Text
+  responseBody  String?  @map("response_body") @db.Text
+  inputTokens   Int?     @map("input_tokens")
+  outputTokens  Int?     @map("output_tokens")
+  latencyMs     Int?     @map("latency_ms")
+  errorMessage  String?  @map("error_message")
+  userAgent     String?  @map("user_agent")
+  ipAddress     String?  @map("ip_address")
+  stream        Boolean  @default(false)
+  timestamp     DateTime @default(now())
+
+  service Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([serviceId])
+  @@index([userId])
+  @@index([modelName])
+  @@index([statusCode])
+  @@index([timestamp])
+  @@index([userId, timestamp])
+  @@index([statusCode, timestamp])
+  @@map("request_logs")
+}
+
+// ============================================
+// 감사 로그 (관리자 행동 기록)
+// ============================================
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String?  @map("admin_id")
+  loginid    String
+  action     String
+  target     String?
+  targetType String?  @map("target_type")
+  details    Json?
+  ipAddress  String?  @map("ip_address")
+  timestamp  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([loginid])
+  @@index([action])
+  @@index([timestamp])
+  @@index([targetType])
+  @@map("audit_logs")
 }

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight } from 'lucide-react';
+import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight, Settings } from 'lucide-react';
 import { guideSections } from '../data/guides';
 
 function HeroSection() {
@@ -70,6 +70,7 @@ function HeroSection() {
 function GuideSectionsGrid() {
   const sectionIcons: Record<string, React.ReactNode> = {
     admin: <Shield className="w-7 h-7" />,
+    service: <Settings className="w-7 h-7" />,
     user: <User className="w-7 h-7" />,
     api: <Code className="w-7 h-7" />,
   };
@@ -87,7 +88,7 @@ function GuideSectionsGrid() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-8">
           {guideSections.map((section) => (
             <div key={section.id} className="group rounded-2xl glass hover:bg-white/10 transition-all duration-300 hover:-translate-y-1 overflow-hidden">
               {/* Card header */}

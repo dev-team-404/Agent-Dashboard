@@ -105,7 +105,7 @@ export default function ServiceMarket() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900">AI 서비스 마켓</h1>
         <p className="text-sm text-gray-500 mt-1">
-          등록된 {services.length}개 서비스를 탐색하고, API 연동 가이드를 확인하세요.
+          배포된 {services.length}개 서비스를 탐색하고, API 연동 가이드를 확인하세요.
         </p>
       </div>
 

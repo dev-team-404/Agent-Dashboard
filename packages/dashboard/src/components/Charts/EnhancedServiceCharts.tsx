@@ -1,0 +1,268 @@
+import { useState, useEffect } from 'react';
+import {
+  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts';
+import { TrendingUp, Users, Zap, BarChart3, Activity } from 'lucide-react';
+import { statsApi } from '../../services/api';
+
+const COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
+  '#06b6d4', '#ea580c', '#6366f1', '#22c55e', '#ef4444',
+  '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
+];
+
+type ChartType = 'cumUsers' | 'cumTokens' | 'dau' | 'requests' | 'deptUsage';
+
+const TABS: { key: ChartType; label: string; icon: React.ElementType }[] = [
+  { key: 'cumUsers', label: '누적 사용자', icon: Users },
+  { key: 'cumTokens', label: '누적 토큰', icon: Zap },
+  { key: 'dau', label: '서비스별 DAU', icon: Activity },
+  { key: 'requests', label: '일별 요청수', icon: BarChart3 },
+  { key: 'deptUsage', label: '부서별 사용량', icon: TrendingUp },
+];
+
+function formatNum(n: number): string {
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function formatDate(d: string): string {
+  return d.slice(5); // MM-DD
+}
+
+export default function EnhancedServiceCharts() {
+  const [tab, setTab] = useState<ChartType>('cumUsers');
+  const [days, setDays] = useState(30);
+  const [loading, setLoading] = useState(true);
+  const [cumUsersData, setCumUsersData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
+  const [cumTokensData, setCumTokensData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
+  const [dauData, setDauData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
+  const [requestsData, setRequestsData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
+  const [deptUsageData, setDeptUsageData] = useState<{ data: { serviceName: string; deptname: string; totalTokens: number; requestCount: number }[] }>({ data: [] });
+
+  useEffect(() => {
+    loadChartData();
+  }, [days]);
+
+  const loadChartData = async () => {
+    setLoading(true);
+    try {
+      const [cumUsersRes, cumTokensRes, dauRes, requestsRes, deptRes] = await Promise.all([
+        statsApi.globalCumulativeUsersByService(days),
+        statsApi.globalCumulativeTokensByService(days),
+        statsApi.globalDauByService(days),
+        statsApi.globalServiceDailyRequests(days),
+        statsApi.globalDeptUsageByService(days),
+      ]);
+      setCumUsersData(cumUsersRes.data);
+      setCumTokensData(cumTokensRes.data);
+      setDauData(dauRes.data);
+      setRequestsData(requestsRes.data);
+      setDeptUsageData(deptRes.data);
+    } catch (err) {
+      console.error('Failed to load enhanced charts:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getServiceKeys = (data: Record<string, unknown>[]) => {
+    if (!data || data.length === 0) return [];
+    const keys = new Set<string>();
+    data.forEach(row => {
+      Object.keys(row).forEach(k => {
+        if (k !== 'date') keys.add(k);
+      });
+    });
+    return Array.from(keys);
+  };
+
+  const renderLineChart = (data: Record<string, unknown>[], yFormatter?: (v: number) => string) => {
+    const serviceKeys = getServiceKeys(data);
+    if (data.length === 0) return <EmptyState />;
+    return (
+      <ResponsiveContainer width="100%" height={360}>
+        <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
+          <YAxis tickFormatter={yFormatter || formatNum} tick={{ fontSize: 11 }} />
+          <Tooltip
+            formatter={(value: number) => (yFormatter ? yFormatter(value) : formatNum(value))}
+            labelFormatter={(l: string) => l}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          {serviceKeys.map((key, i) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={COLORS[i % COLORS.length]}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    );
+  };
+
+  const renderAreaChart = (data: Record<string, unknown>[]) => {
+    const serviceKeys = getServiceKeys(data);
+    if (data.length === 0) return <EmptyState />;
+    return (
+      <ResponsiveContainer width="100%" height={360}>
+        <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
+          <YAxis tickFormatter={formatNum} tick={{ fontSize: 11 }} />
+          <Tooltip
+            formatter={(value: number) => formatNum(value)}
+            labelFormatter={(l: string) => l}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          {serviceKeys.map((key, i) => (
+            <Area
+              key={key}
+              type="monotone"
+              dataKey={key}
+              stroke={COLORS[i % COLORS.length]}
+              fill={COLORS[i % COLORS.length]}
+              fillOpacity={0.15}
+              strokeWidth={2}
+            />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
+    );
+  };
+
+  const renderDeptUsageChart = () => {
+    const data = deptUsageData.data || [];
+    if (data.length === 0) return <EmptyState />;
+
+    // Group by serviceName for bar chart
+    const grouped: Record<string, { deptname: string; tokens: number }[]> = {};
+    data.forEach(d => {
+      if (!grouped[d.serviceName]) grouped[d.serviceName] = [];
+      grouped[d.serviceName].push({ deptname: d.deptname, tokens: d.totalTokens });
+    });
+
+    // Flatten for recharts — pivot by dept
+    const allDepts = [...new Set(data.map(d => d.deptname))];
+    const serviceNames = Object.keys(grouped);
+    const chartData = serviceNames.map(svc => {
+      const row: Record<string, unknown> = { service: svc };
+      const items = grouped[svc];
+      allDepts.forEach(dept => {
+        const match = items.find(i => i.deptname === dept);
+        row[dept] = match ? match.tokens : 0;
+      });
+      return row;
+    });
+
+    return (
+      <ResponsiveContainer width="100%" height={360}>
+        <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis dataKey="service" tick={{ fontSize: 10 }} interval={0} angle={-15} textAnchor="end" height={60} />
+          <YAxis tickFormatter={formatNum} tick={{ fontSize: 11 }} />
+          <Tooltip
+            formatter={(value: number) => formatNum(value)}
+            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+          {allDepts.slice(0, 10).map((dept, i) => (
+            <Bar key={dept} dataKey={dept} stackId="a" fill={COLORS[i % COLORS.length]} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-indigo-50">
+            <BarChart3 className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">서비스별 상세 메트릭</h2>
+            <p className="text-xs text-gray-500">모든 서비스의 주요 지표를 한눈에 비교</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {[7, 30, 90].map(d => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                days === d
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              {d}일
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-100 px-6">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              tab === key
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Chart content */}
+      <div className="p-6">
+        {loading ? (
+          <div className="flex items-center justify-center h-80">
+            <div className="text-center">
+              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="mt-2 text-sm text-gray-500">차트 로딩 중...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {tab === 'cumUsers' && renderLineChart(cumUsersData.data)}
+            {tab === 'cumTokens' && renderAreaChart(cumTokensData.data)}
+            {tab === 'dau' && renderLineChart(dauData.data)}
+            {tab === 'requests' && renderAreaChart(requestsData.data)}
+            {tab === 'deptUsage' && renderDeptUsageChart()}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex items-center justify-center h-80">
+      <div className="text-center">
+        <BarChart3 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+        <p className="text-sm text-gray-500">데이터가 아직 없습니다</p>
+      </div>
+    </div>
+  );
+}

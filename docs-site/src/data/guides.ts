@@ -29,6 +29,20 @@ export const guideSections: GuideSection[] = [
     ],
   },
   {
+    id: 'service',
+    title: 'Service Guide',
+    description: '서비스 등록, 모델 관리, 멤버 관리, Rate Limit 등 서비스 운영 가이드입니다.',
+    icon: '⚙️',
+    gradient: 'from-orange-500 to-amber-400',
+    items: [
+      { path: '/service/service-registration', label: '서비스 등록 가이드', description: '서비스 생성, 타입, 네이밍 규칙, 배포' },
+      { path: '/service/service-models', label: '서비스 모델 관리', description: 'LLM 모델 추가/제거 및 프록시 인증' },
+      { path: '/service/service-users', label: '서비스 사용자 관리', description: '멤버 역할(OWNER/ADMIN/USER) 및 관리' },
+      { path: '/service/rate-limits', label: 'Rate Limit 설정', description: '서비스/사용자별 토큰 제한 설정' },
+      { path: '/service/usage-analytics', label: '사용량 분석', description: 'Usage Analytics 탭별 분석 및 CSV 내보내기' },
+    ],
+  },
+  {
     id: 'user',
     title: 'User Guide',
     description: '일반 사용자를 위한 Dashboard 사용법과 사용량 확인 방법을 안내합니다.',

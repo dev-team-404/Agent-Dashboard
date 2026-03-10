@@ -49,13 +49,26 @@ export const serviceApi = {
   list: () => api.get('/services'),
   listAll: () => api.get('/services/all'),
   listNames: () => api.get('/services/names'),
+  listMy: () => api.get('/services/my'),
   get: (id: string) => api.get(`/services/${id}`),
   create: (data: CreateServiceData) => api.post('/services', data),
   update: (id: string, data: Partial<CreateServiceData>) => api.put(`/services/${id}`, data),
   delete: (id: string) => api.delete(`/services/${id}`),
+  deploy: (id: string) => api.post(`/services/${id}/deploy`),
   resetData: (id: string) => api.post(`/services/${id}/reset-data`),
   stats: (id: string) => api.get(`/services/${id}/stats`),
   checkName: (name: string) => api.get(`/services/check-name/${name}`),
+  // Service Models
+  listModels: (id: string) => api.get(`/services/${id}/models`),
+  addModel: (id: string, modelId: string) => api.post(`/services/${id}/models`, { modelId }),
+  removeModel: (id: string, modelId: string) => api.delete(`/services/${id}/models/${modelId}`),
+  // Service Members
+  listMembers: (id: string) => api.get(`/services/${id}/members`),
+  addMember: (id: string, loginid: string, role?: string) => api.post(`/services/${id}/members`, { loginid, role }),
+  updateMemberRole: (id: string, userId: string, role: string) => api.put(`/services/${id}/members/${userId}/role`, { role }),
+  removeMember: (id: string, userId: string) => api.delete(`/services/${id}/members/${userId}`),
+  // Search users
+  searchUsers: (q: string) => api.get('/services/search-users', { params: { q } }),
 };
 
 export const modelsApi = {
@@ -153,6 +166,13 @@ export const statsApi = {
   globalByDeptServiceRequestsDaily: (days = 30, topN = 10) => api.get('/admin/stats/global/by-dept-service-requests-daily', { params: { days, topN } }),
   weeklyBusinessDau: (days = 90, granularity: 'daily' | 'weekly' = 'weekly') => api.get('/admin/stats/weekly-business-dau', { params: { days, granularity } }),
 
+  // Enhanced global metrics
+  globalCumulativeUsersByService: (days = 30) => api.get('/admin/stats/global/cumulative-users-by-service', { params: { days } }),
+  globalCumulativeTokensByService: (days = 30) => api.get('/admin/stats/global/cumulative-tokens-by-service', { params: { days } }),
+  globalDauByService: (days = 30) => api.get('/admin/stats/global/dau-by-service', { params: { days } }),
+  globalDeptUsageByService: (days = 30, topN = 10) => api.get('/admin/stats/global/dept-usage-by-service', { params: { days, topN } }),
+  globalServiceDailyRequests: (days = 30) => api.get('/admin/stats/global/service-daily-requests', { params: { days } }),
+
   // Latency stats
   latency: () => api.get('/admin/stats/latency'),
   latencyHistory: (hours = 24, interval = 10) => api.get('/admin/stats/latency/history', { params: { hours, interval } }),
@@ -230,7 +250,28 @@ interface CreateServiceData {
   docsUrl?: string;
   enabled?: boolean;
   type?: 'STANDARD' | 'BACKGROUND';
+  status?: 'DEVELOPMENT' | 'DEPLOYED';
 }
+
+// Admin Logs API
+export const logsApi = {
+  // Request Logs
+  listRequestLogs: (params: {
+    userId?: string; serviceId?: string; modelName?: string;
+    statusCode?: number; stream?: boolean;
+    startDate?: string; endDate?: string;
+    page?: number; limit?: number;
+  }) => api.get('/admin/logs', { params }),
+  getRequestLog: (id: string) => api.get(`/admin/logs/${id}`),
+  cleanupLogs: (retentionDays?: number) => api.delete('/admin/logs/cleanup', { params: { retentionDays } }),
+
+  // Audit Logs
+  listAuditLogs: (params: {
+    loginid?: string; action?: string; targetType?: string;
+    startDate?: string; endDate?: string;
+    page?: number; limit?: number;
+  }) => api.get('/admin/audit', { params }),
+};
 
 // 휴일 관리 API
 export interface Holiday {
