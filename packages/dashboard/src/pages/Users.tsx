@@ -259,8 +259,8 @@ export default function Users({ serviceId }: UsersProps) {
       {/* Page Header */}
       <div className="mb-8">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-            <User className="w-6 h-6 text-gray-600" />
+          <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
+            <User className="w-6 h-6 text-blue-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">사용자 관리</h1>
@@ -321,8 +321,8 @@ export default function Users({ serviceId }: UsersProps) {
                   <tr key={user.id} className="hover:bg-gray-50 transition-all duration-300 group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3.5">
-                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center ring-2 ring-white">
-                          <User className="w-4.5 h-4.5 text-gray-600" />
+                        <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center ring-2 ring-white">
+                          <User className="w-4.5 h-4.5 text-gray-500" />
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-gray-900 group-hover:text-samsung-blue transition-colors duration-300">{decodeUsername(user.username)}</p>
@@ -524,7 +524,7 @@ export default function Users({ serviceId }: UsersProps) {
               <button
                 onClick={handleSaveRateLimit}
                 disabled={savingRateLimit || rateLimitForm.maxTokens < 1}
-                className="px-6 py-2.5 text-sm font-semibold bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all duration-300 disabled:opacity-40"
+                className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 disabled:opacity-40"
               >
                 {savingRateLimit ? '저장 중...' : '저장'}
               </button>

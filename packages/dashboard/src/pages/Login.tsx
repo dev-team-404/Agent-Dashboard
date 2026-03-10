@@ -113,8 +113,8 @@ export default function Login({ onLogin }: LoginProps) {
               <button
                 onClick={handleSSOLogin}
                 disabled={loading}
-                className="w-full group relative py-4 px-6 bg-gray-900 text-white font-semibold rounded-2xl
-                           focus:outline-none focus:ring-4 focus:ring-samsung-blue/20
+                className="w-full group relative py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl
+                           focus:outline-none focus:ring-4 focus:ring-blue-600/20
                            disabled:opacity-50 disabled:cursor-not-allowed
                            transition-all duration-300
                            transform active:scale-[0.98]

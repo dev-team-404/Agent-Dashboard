@@ -128,7 +128,7 @@ export default function ServiceMarket() {
               onClick={() => setTypeFilter(t)}
               className={`px-3.5 py-2 text-sm font-medium border-r border-gray-300 last:border-r-0 transition-colors whitespace-nowrap ${
                 typeFilter === t
-                  ? 'bg-gray-900 text-white'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -255,7 +255,7 @@ export default function ServiceMarket() {
             <div className="flex justify-end">
               <button
                 onClick={() => setErrorModal(null)}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               >
                 확인
               </button>

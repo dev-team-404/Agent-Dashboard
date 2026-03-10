@@ -662,7 +662,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         {mainTab === 'services' && (
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
             새 서비스 등록
@@ -1014,8 +1014,8 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           {/* Department Token Table */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
             <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">
-              <div className="p-2 rounded-lg bg-gray-100">
-                <Building2 className="w-4 h-4 text-gray-600" />
+              <div className="p-2 rounded-lg bg-blue-50">
+                <Building2 className="w-4 h-4 text-blue-600" />
               </div>
               <div>
                 <h2 className="text-lg font-bold text-pastel-800">사업부별 상세 통계</h2>
@@ -1080,8 +1080,8 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-pastel-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-white" />
+                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-blue-600" />
                 </div>
                 <h3 className="text-lg font-bold text-pastel-800">새 서비스 등록</h3>
               </div>
@@ -1174,7 +1174,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 <button
                   type="submit"
                   disabled={creating || !newService.name || !newService.displayName}
-                  className="px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 font-medium"
+                  className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
                 >
                   {creating ? '생성 중...' : '등록'}
                 </button>
@@ -1190,8 +1190,8 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-slide-up">
             <div className="flex items-center justify-between p-5 border-b border-pastel-100">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-gray-900 flex items-center justify-center">
-                  <Settings className="w-5 h-5 text-white" />
+                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                  <Settings className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-pastel-800">서비스 수정</h3>
@@ -1272,7 +1272,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 font-medium"
+                  className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
                 >
                   {saving ? '저장 중...' : '저장'}
                 </button>

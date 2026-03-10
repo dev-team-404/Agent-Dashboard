@@ -155,12 +155,13 @@ function TokenDonutChart({
 
 // ── Metric Card ──
 function MetricCard({
-  label, value, icon: Icon, gradient, description, highlight, delay, suffix,
+  label, value, icon: Icon, iconBg, iconColor, description, highlight, delay, suffix,
 }: {
   label: string;
   value: number;
   icon: React.ElementType;
-  gradient: string;
+  iconBg: string;
+  iconColor: string;
   description: string;
   highlight?: boolean;
   delay: number;
@@ -189,8 +190,8 @@ function MetricCard({
             </p>
             <p className="text-xs text-pastel-400">{description}</p>
           </div>
-          <div className={`p-3 rounded-xl ${gradient}`}>
-            <Icon className="w-5 h-5 text-white" />
+          <div className={`p-3 rounded-xl ${iconBg}`}>
+            <Icon className={`w-5 h-5 ${iconColor}`} />
           </div>
         </div>
       </div>
@@ -334,8 +335,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
         <div className="rounded-lg bg-white border border-gray-200 p-6">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3.5 bg-gray-100 rounded-lg">
-                <Server className="w-7 h-7 text-gray-600" />
+              <div className="p-3.5 bg-blue-50 rounded-lg">
+                <Server className="w-7 h-7 text-blue-600" />
               </div>
               <div>
                 <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-gray-900">{serviceInfo.displayName}</h1>
@@ -428,7 +429,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           label="활성 사용자"
           value={overview?.activeUsers || 0}
           icon={Activity}
-          gradient="bg-gradient-to-r from-emerald-500 to-teal-500"
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-600"
           description="최근 30분"
           delay={0}
         />
@@ -436,7 +438,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           label="전체 사용자"
           value={overview?.totalUsers || 0}
           icon={Users}
-          gradient="bg-gradient-to-r from-blue-500 to-blue-600"
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
           description="등록된 사용자"
           delay={80}
         />
@@ -444,7 +447,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           label="일평균 활성(영업일)"
           value={serviceStats?.avgDailyActiveUsersExcluding || 0}
           icon={TrendingUp}
-          gradient="bg-gradient-to-r from-orange-500 to-amber-500"
+          iconBg="bg-orange-50"
+          iconColor="text-orange-600"
           description="최근 한달, 주말/휴일 제외"
           highlight
           delay={160}
@@ -453,7 +457,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           label="오늘 요청"
           value={overview?.todayUsage?.requests || 0}
           icon={Zap}
-          gradient="bg-gradient-to-r from-amber-500 to-yellow-500"
+          iconBg="bg-amber-50"
+          iconColor="text-amber-600"
           description="API 호출 수"
           delay={240}
         />
@@ -461,7 +466,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           label="오늘 토큰"
           value={todayTokens}
           icon={Hash}
-          gradient="bg-gradient-to-r from-violet-500 to-purple-500"
+          iconBg="bg-violet-50"
+          iconColor="text-violet-600"
           description="입력 + 출력 토큰"
           delay={320}
         />

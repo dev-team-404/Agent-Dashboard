@@ -225,8 +225,8 @@ export default function UnifiedUsers() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-gray-100">
-            <Users className="w-6 h-6 text-gray-600" />
+          <div className="p-3 rounded-lg bg-blue-50">
+            <Users className="w-6 h-6 text-blue-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">통합 사용자 관리</h1>
@@ -264,7 +264,7 @@ export default function UnifiedUsers() {
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2.5 px-5 py-3 rounded-lg border font-medium text-sm transition-all duration-200 ${
               hasActiveFilters
-                ? 'bg-gray-900 text-white border-transparent'
+                ? 'bg-blue-600 text-white border-transparent'
                 : 'bg-white text-pastel-600 border-gray-200/60 hover:bg-pastel-50 hover:border-pastel-300'
             }`}
           >
@@ -593,8 +593,8 @@ export default function UnifiedUsers() {
           <div className="bg-white rounded-xl max-w-md w-full shadow-modal animate-scale-in">
             <div className="p-6 border-b border-gray-100/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-gray-100">
-                  <Shield className="w-5 h-5 text-gray-600" />
+                <div className="p-2.5 rounded-lg bg-blue-50">
+                  <Shield className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-pastel-800">권한 변경</h2>
@@ -650,7 +650,7 @@ export default function UnifiedUsers() {
               <button
                 onClick={savePermissions}
                 disabled={saving}
-                className="px-6 py-2.5 text-sm font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? '저장 중...' : '저장'}
               </button>

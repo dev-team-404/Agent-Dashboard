@@ -288,8 +288,8 @@ export default function Holidays() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-            <CalendarDays className="w-6 h-6 text-gray-600" />
+          <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
+            <CalendarDays className="w-6 h-6 text-blue-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">휴일 관리</h1>
@@ -309,7 +309,7 @@ export default function Holidays() {
               setNewHoliday({ date: '', name: '', type: 'NATIONAL' });
               setShowAddModal(true);
             }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium text-sm"
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
             휴일 추가
@@ -427,7 +427,7 @@ export default function Holidays() {
                     <span
                       className={`text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
                         todayClass
-                          ? 'bg-gray-900 text-white shadow-sm'
+                          ? 'bg-blue-600 text-white shadow-sm'
                           : !isCurrentMonth
                           ? 'text-pastel-300'
                           : dayOfWeek === 0 || dayHolidays.some(h => h.type === 'NATIONAL')
@@ -506,7 +506,7 @@ export default function Holidays() {
         <div className="px-6 py-5 border-b border-gray-100/80">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center">
+              <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center">
                 <Calendar className="w-4 h-4 text-samsung-blue" />
               </div>
               <h3 className="font-semibold text-pastel-800 text-base">{currentYear}년 휴일 목록</h3>
@@ -561,7 +561,7 @@ export default function Holidays() {
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gray-900 rounded-xl flex items-center justify-center">
+                <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
                   <Plus className="w-4 h-4 text-white" />
                 </div>
                 <h3 className="text-lg font-semibold text-pastel-800">휴일 추가</h3>
@@ -615,7 +615,7 @@ export default function Holidays() {
               </button>
               <button
                 onClick={handleAddHoliday}
-                className="px-5 py-2.5 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
                 추가
               </button>
@@ -636,7 +636,7 @@ export default function Holidays() {
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100/80">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gray-900 rounded-xl flex items-center justify-center">
+                <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
                   <Upload className="w-4 h-4 text-white" />
                 </div>
                 <h3 className="text-lg font-semibold text-pastel-800">공휴일 프리셋 가져오기</h3>

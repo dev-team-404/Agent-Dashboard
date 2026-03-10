@@ -194,7 +194,7 @@ export default function MyUsage() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Daily Usage Chart */}
-        <div className="lg:col-span-2 bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-4">
+        <div className="lg:col-span-2 bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm hover:shadow-md transition-shadow animate-stagger-4">
           <div className="flex items-center gap-2.5 mb-6">
             <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
               <BarChart3 className="w-[18px] h-[18px] text-samsung-blue" />
@@ -225,7 +225,7 @@ export default function MyUsage() {
         </div>
 
         {/* Model Usage Pie */}
-        <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-5">
+        <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm hover:shadow-md transition-shadow animate-stagger-5">
           <h2 className="font-bold text-pastel-800 text-[15px] mb-6">모델별 사용량</h2>
           {modelUsage.length > 0 ? (
             <div className="h-72">
@@ -268,7 +268,7 @@ export default function MyUsage() {
       </div>
 
       {/* Daily Requests Bar Chart */}
-      <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm animate-stagger-6">
+      <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm hover:shadow-md transition-shadow animate-stagger-6">
         <h2 className="font-bold text-pastel-800 text-[15px] mb-6">일별 요청 수 및 토큰</h2>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
