@@ -1,0 +1,7 @@
+# Nginx+Docs build — only needs docs-site/ and nginx/
+packages/
+tests/
+cert/
+.git/
+.playwright-mcp/
+node_modules/
