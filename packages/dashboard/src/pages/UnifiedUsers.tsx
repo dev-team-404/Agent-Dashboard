@@ -38,7 +38,7 @@ const roleColors: Record<string, string> = {
 
 const roleLabels: Record<string, string> = {
   SUPER_ADMIN: '슈퍼관리자',
-  ADMIN: '관리자',
+  ADMIN: '시스템 관리자',
   USER: '사용자',
 };
 
@@ -246,7 +246,7 @@ export default function UnifiedUsers() {
   const getRoleFilterOptions = () => {
     return [
       { value: 'SUPER_ADMIN', label: '슈퍼관리자' },
-      { value: 'ADMIN', label: '관리자' },
+      { value: 'ADMIN', label: '시스템 관리자' },
       { value: 'USER', label: '사용자' },
     ];
   };

@@ -63,6 +63,7 @@ export declare function requireSuperAdmin(req: AuthenticatedRequest, res: Respon
 export declare function isModelVisibleTo(model: {
     visibility: string;
     visibilityScope: string[];
+    adminVisible?: boolean;
 }, userDept: string, userBU: string, isAdmin: boolean): boolean;
 export declare function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string;
 export declare function verifyInternalToken(token: string): JWTPayload | null;

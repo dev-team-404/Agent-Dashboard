@@ -150,6 +150,24 @@ export const serviceRateLimitApi = {
     api.delete('/admin/service-rate-limit', { params: { serviceId } }),
 };
 
+// Service-scoped Rate Limit (Service Owner/Admin 용)
+export const serviceRateLimitScopedApi = {
+  // 서비스 공통 rate limit
+  getCommon: (serviceId: string) =>
+    api.get(`/services/${serviceId}/service-rate-limit`),
+  setCommon: (serviceId: string, data: { maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled?: boolean }) =>
+    api.put(`/services/${serviceId}/service-rate-limit`, data),
+  removeCommon: (serviceId: string) =>
+    api.delete(`/services/${serviceId}/service-rate-limit`),
+  // 사용자별 rate limit
+  list: (serviceId: string) =>
+    api.get(`/services/${serviceId}/rate-limits`),
+  setUser: (serviceId: string, userId: string, data: { maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled?: boolean }) =>
+    api.put(`/services/${serviceId}/rate-limits/${userId}`, data),
+  removeUser: (serviceId: string, userId: string) =>
+    api.delete(`/services/${serviceId}/rate-limits/${userId}`),
+};
+
 export const statsApi = {
   // Service-specific stats
   overview: (serviceId?: string) => api.get('/admin/stats/overview', { params: { serviceId } }),

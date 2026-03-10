@@ -16,25 +16,73 @@ import { validateProxyHeaders, canServiceAccessModel } from '../middleware/proxy
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
 export const proxyRoutes = Router();
-// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용
+// 이미지 파일 서빙 — 인증 불필요 (UUID 파일명으로 보안)
+proxyRoutes.get('/images/files/:fileName', async (req, res) => {
+    try {
+        const { fileName } = req.params;
+        if (!fileName || fileName.includes('..') || fileName.includes('/')) {
+            res.status(400).json({ error: 'Invalid file name' });
+            return;
+        }
+        const record = await prisma.generatedImage.findUnique({
+            where: { fileName },
+            select: { mimeType: true, expiresAt: true },
+        });
+        if (!record) {
+            res.status(404).json({ error: 'Image not found' });
+            return;
+        }
+        if (record.expiresAt < new Date()) {
+            res.status(410).json({ error: 'Image has expired' });
+            return;
+        }
+        const filePath = path.resolve(IMAGE_STORAGE_PATH, fileName);
+        res.setHeader('Content-Type', record.mimeType);
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.sendFile(filePath, (err) => {
+            if (err && !res.headersSent) {
+                console.error(`[ImageServe] Failed to send file ${fileName}:`, err);
+                res.status(404).json({ error: 'Image file not found on disk' });
+            }
+        });
+    }
+    catch (error) {
+        console.error('Image file serve error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to serve image' });
+        }
+    }
+});
+// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙 제외)
 proxyRoutes.use(validateProxyHeaders);
+// 단일 엔드포인트 5xx retry 설정
+const SINGLE_ENDPOINT_MAX_RETRIES = 3;
+const SINGLE_ENDPOINT_RETRY_DELAY_MS = 500; // 500ms → 1000ms → 1500ms (linear backoff)
 async function getModelEndpoints(modelId, parentEndpoint) {
     const subModels = await prisma.subModel.findMany({
         where: { parentId: modelId, enabled: true },
         orderBy: { sortOrder: 'asc' },
-        select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true },
+        select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true, weight: true },
     });
     if (subModels.length === 0)
         return [parentEndpoint];
-    return [
-        parentEndpoint,
-        ...subModels.map(s => ({
+    // 가중치 라운드로빈: weight=2면 배열에 2번 포함
+    const endpoints = [];
+    // parent는 weight=1 (기본)
+    endpoints.push(parentEndpoint);
+    for (const s of subModels) {
+        const ep = {
             endpointUrl: s.endpointUrl,
             apiKey: s.apiKey,
             modelName: s.modelName || parentEndpoint.modelName,
             extraHeaders: s.extraHeaders,
-        })),
-    ];
+        };
+        const weight = Math.max(1, Math.min(s.weight, 10)); // clamp 1~10
+        for (let w = 0; w < weight; w++) {
+            endpoints.push(ep);
+        }
+    }
+    return endpoints;
 }
 async function getRoundRobinIndex(modelId, endpointCount) {
     if (endpointCount <= 1)
@@ -49,6 +97,67 @@ async function getRoundRobinIndex(modelId, endpointCount) {
     catch (error) {
         console.error('[RoundRobin] Redis error:', error);
         return 0;
+    }
+}
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+/**
+ * Service-level round-robin: 동일 서비스에 같은 모델 이름으로 여러 Model이
+ * ServiceModel로 등록되어 있으면, weight 기반 라운드로빈으로 하나를 선택한다.
+ * 선택된 Model은 이후 SubModel 라운드로빈 (기존 로직)을 그대로 탄다.
+ *
+ * fallback: ServiceModel이 없으면 기존처럼 전역 Model 조회.
+ */
+async function resolveModelWithServiceRR(serviceId, modelName) {
+    // 1) 해당 서비스에 등록된 ServiceModel 중, 요청 모델 이름과 일치하는 것 모두 조회
+    const serviceModels = await prisma.serviceModel.findMany({
+        where: {
+            serviceId,
+            enabled: true,
+            model: {
+                OR: [{ name: modelName }, { displayName: modelName }],
+                enabled: true,
+            },
+        },
+        include: { model: true },
+        orderBy: { sortOrder: 'asc' },
+    });
+    // 2) ServiceModel이 없으면 기존 전역 조회로 fallback
+    if (serviceModels.length === 0) {
+        const model = await prisma.model.findFirst({
+            where: {
+                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+                enabled: true,
+            },
+        });
+        if (!model)
+            return { found: false, model: null };
+        return { found: true, model };
+    }
+    // 3) 하나만 매칭 → 그대로 사용
+    if (serviceModels.length === 1) {
+        return { found: true, model: serviceModels[0].model };
+    }
+    // 4) 여러 개 매칭 → weight 기반 라운드로빈
+    const weightedModels = [];
+    for (const sm of serviceModels) {
+        const w = Math.max(1, Math.min(sm.weight, 10));
+        for (let i = 0; i < w; i++)
+            weightedModels.push(sm.model);
+    }
+    try {
+        const rrKey = `svc_rr:${serviceId}:${modelName}`;
+        const idx = await redis.incr(rrKey);
+        if (idx === 1)
+            await redis.expire(rrKey, 3600);
+        const selected = weightedModels[(idx - 1) % weightedModels.length];
+        console.log(`[ServiceRR] service=${serviceId} model="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
+        return { found: true, model: selected };
+    }
+    catch (error) {
+        console.error('[ServiceRR] Redis error, falling back to first model:', error);
+        return { found: true, model: serviceModels[0].model };
     }
 }
 /**
@@ -91,6 +200,70 @@ async function getOrCreateUser(proxyReq) {
         },
     });
     return user;
+}
+/**
+ * Rate limit 체크 (user가 있는 경우만)
+ * @returns 429 응답 객체 or null (통과)
+ */
+async function checkRateLimit(user, serviceId) {
+    if (!user)
+        return null;
+    // 1) 개별 사용자 rate limit 우선 확인
+    const userLimit = await prisma.userRateLimit.findUnique({
+        where: { userId_serviceId: { userId: user.id, serviceId } },
+    });
+    // 2) 개별 설정이 없으면 서비스 공통 rate limit 적용
+    let effectiveLimit = null;
+    if (userLimit) {
+        effectiveLimit = userLimit;
+    }
+    else {
+        const serviceLimit = await prisma.serviceRateLimit.findUnique({
+            where: { serviceId },
+        });
+        if (serviceLimit)
+            effectiveLimit = serviceLimit;
+    }
+    if (!effectiveLimit || !effectiveLimit.enabled)
+        return null;
+    const rateLimit = effectiveLimit;
+    const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const windowStart = new Date(Date.now() - windowMs);
+    const usage = await prisma.usageLog.aggregate({
+        where: {
+            userId: user.id,
+            serviceId,
+            timestamp: { gte: windowStart },
+        },
+        _sum: { totalTokens: true },
+    });
+    const usedTokens = usage._sum.totalTokens || 0;
+    if (usedTokens < rateLimit.maxTokens)
+        return null;
+    const oldestLog = await prisma.usageLog.findFirst({
+        where: {
+            userId: user.id,
+            serviceId,
+            timestamp: { gte: windowStart },
+        },
+        orderBy: { timestamp: 'asc' },
+        select: { timestamp: true },
+    });
+    const retryAfterSec = oldestLog
+        ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
+        : Math.ceil(windowMs / 1000);
+    const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
+    return {
+        status: 429,
+        body: {
+            error: 'Rate limit exceeded',
+            message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
+            limit: rateLimit.maxTokens,
+            used: usedTokens,
+            window: rateLimit.window,
+            retryAfter: retryAfterSec,
+        },
+    };
 }
 /**
  * Usage 저장
@@ -160,6 +333,7 @@ proxyRoutes.get('/models', async (req, res) => {
                 supportsVision: true,
                 visibility: true,
                 visibilityScope: true,
+                adminVisible: true,
             },
             orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
         });
@@ -177,7 +351,8 @@ proxyRoutes.get('/models', async (req, res) => {
     }
     catch (error) {
         console.error('Get models error:', error);
-        res.status(500).json({ error: 'Failed to get models' });
+        if (!res.headersSent)
+            res.status(500).json({ error: 'Failed to get models' });
     }
 });
 // ============================================
@@ -200,6 +375,7 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
                 supportsVision: true,
                 visibility: true,
                 visibilityScope: true,
+                adminVisible: true,
             },
         });
         if (!model) {
@@ -220,7 +396,8 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
     }
     catch (error) {
         console.error('Get model error:', error);
-        res.status(500).json({ error: 'Failed to get model' });
+        if (!res.headersSent)
+            res.status(500).json({ error: 'Failed to get model' });
     }
 });
 // ============================================
@@ -234,17 +411,13 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
             res.status(400).json({ error: 'model and messages are required' });
             return;
         }
-        // 모델 조회 (name, id, displayName 모두 매칭)
-        const model = await prisma.model.findFirst({
-            where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
-        });
-        if (!model) {
+        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+        if (!resolved.found || !resolved.model) {
             res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
             return;
         }
+        const model = resolved.model;
         // 서비스 접근 권한 확인
         if (!canServiceAccessModel(proxyReq, model)) {
             res.status(403).json({
@@ -255,49 +428,11 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
         }
         // 사용자 upsert (background가 아닌 경우)
         const user = await getOrCreateUser(proxyReq);
-        // Rate limit 체크 (user가 있는 경우만)
-        if (user) {
-            const rateLimit = await prisma.userRateLimit.findUnique({
-                where: { userId_serviceId: { userId: user.id, serviceId: proxyReq.serviceId } },
-            });
-            if (rateLimit && rateLimit.enabled) {
-                const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-                const windowStart = new Date(Date.now() - windowMs);
-                const usage = await prisma.usageLog.aggregate({
-                    where: {
-                        userId: user.id,
-                        serviceId: proxyReq.serviceId,
-                        timestamp: { gte: windowStart },
-                    },
-                    _sum: { totalTokens: true },
-                });
-                const usedTokens = usage._sum.totalTokens || 0;
-                if (usedTokens >= rateLimit.maxTokens) {
-                    // 가장 오래된 로그가 윈도우에서 빠지는 시점 계산
-                    const oldestLog = await prisma.usageLog.findFirst({
-                        where: {
-                            userId: user.id,
-                            serviceId: proxyReq.serviceId,
-                            timestamp: { gte: windowStart },
-                        },
-                        orderBy: { timestamp: 'asc' },
-                        select: { timestamp: true },
-                    });
-                    const retryAfterSec = oldestLog
-                        ? Math.max(1, Math.ceil((oldestLog.timestamp.getTime() + windowMs - Date.now()) / 1000))
-                        : Math.ceil(windowMs / 1000);
-                    const windowLabel = rateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간';
-                    res.status(429).json({
-                        error: 'Rate limit exceeded',
-                        message: `Token rate limit exceeded. Used ${usedTokens.toLocaleString()} / ${rateLimit.maxTokens.toLocaleString()} tokens in the last ${windowLabel}.`,
-                        limit: rateLimit.maxTokens,
-                        used: usedTokens,
-                        window: rateLimit.window,
-                        retryAfter: retryAfterSec,
-                    });
-                    return;
-                }
-            }
+        // Rate limit 체크
+        const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+        if (rateLimitResult) {
+            res.status(rateLimitResult.status).json(rateLimitResult.body);
+            return;
         }
         // 라운드로빈 + Failover
         const endpoints = await getModelEndpoints(model.id, {
@@ -308,14 +443,22 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         if (endpoints.length > 1) {
-            console.log(`[RoundRobin] Model "${model.name}" has ${endpoints.length} endpoints, starting at index ${startIdx}`);
+            console.log(`[RoundRobin] Model "${model.name}" has ${endpoints.length} endpoints (weighted), starting at index ${startIdx}`);
         }
+        const isSingleEndpoint = endpoints.length === 1;
+        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
         let lastFailoverError;
-        for (let attempt = 0; attempt < endpoints.length; attempt++) {
-            const idx = (startIdx + attempt) % endpoints.length;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
-                console.log(`[Failover] Model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                if (isSingleEndpoint) {
+                    console.log(`[Retry] Model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}: ${endpoint.endpointUrl}`);
+                    await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+                }
+                else {
+                    console.log(`[Failover] Model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                }
             }
             const llmRequestBody = {
                 model: endpoint.modelName,
@@ -346,16 +489,18 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
                 return;
             lastFailoverError = `Endpoint ${endpoint.endpointUrl} failed`;
         }
-        console.error(`[Failover] All ${endpoints.length} endpoints failed for model "${model.name}"`);
+        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        console.error(`[Failover] ${label} failed for model "${model.name}"`);
         res.status(503).json({
             error: 'Service temporarily unavailable',
-            message: `All ${endpoints.length} endpoint(s) failed. Please try again later.`,
+            message: `Failed ${label}. Please try again later.`,
             details: lastFailoverError,
         });
     }
     catch (error) {
         console.error('Chat completion proxy error:', error);
-        res.status(500).json({ error: 'Failed to process chat completion' });
+        if (!res.headersSent)
+            res.status(500).json({ error: 'Failed to process chat completion' });
     }
 });
 // ============================================
@@ -654,17 +799,13 @@ proxyRoutes.post('/embeddings', async (req, res) => {
             res.status(400).json({ error: 'model and input are required' });
             return;
         }
-        // 모델 조회 (name, id, displayName 모두 매칭)
-        const model = await prisma.model.findFirst({
-            where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
-        });
-        if (!model) {
+        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+        if (!resolved.found || !resolved.model) {
             res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
             return;
         }
+        const model = resolved.model;
         // 서비스 접근 권한 확인
         if (!canServiceAccessModel(proxyReq, model)) {
             res.status(403).json({
@@ -674,6 +815,12 @@ proxyRoutes.post('/embeddings', async (req, res) => {
         }
         // 사용자 upsert
         const user = await getOrCreateUser(proxyReq);
+        // Rate limit 체크
+        const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+        if (rateLimitResult) {
+            res.status(rateLimitResult.status).json(rateLimitResult.body);
+            return;
+        }
         // 라운드로빈 + Failover
         const endpoints = await getModelEndpoints(model.id, {
             endpointUrl: model.endpointUrl,
@@ -682,12 +829,20 @@ proxyRoutes.post('/embeddings', async (req, res) => {
             extraHeaders: model.extraHeaders,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        const isSingleEndpoint = endpoints.length === 1;
+        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
         let lastError;
-        for (let attempt = 0; attempt < endpoints.length; attempt++) {
-            const idx = (startIdx + attempt) % endpoints.length;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
-                console.log(`[Failover] Embeddings model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                if (isSingleEndpoint) {
+                    console.log(`[Retry] Embeddings model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+                }
+                else {
+                    console.log(`[Failover] Embeddings model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                }
             }
             const url = buildEmbeddingsUrl(endpoint.endpointUrl);
             const loginid = user?.loginid || proxyReq.serviceName;
@@ -762,11 +917,12 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                 continue;
             }
         }
-        // 모든 엔드포인트 실패
-        console.error(`[Failover] All ${endpoints.length} endpoints failed for embeddings model "${model.name}"`);
+        // 모든 시도 실패
+        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        console.error(`[Failover] ${label} failed for embeddings model "${model.name}"`);
         res.status(503).json({
             error: 'Service temporarily unavailable',
-            message: `All ${endpoints.length} endpoint(s) failed. Please try again later.`,
+            message: `Failed ${label}. Please try again later.`,
         });
     }
     catch (error) {
@@ -812,17 +968,13 @@ proxyRoutes.post('/rerank', async (req, res) => {
             res.status(400).json({ error: 'documents is required and must be a non-empty array' });
             return;
         }
-        // 모델 조회 (name, id, displayName 모두 매칭)
-        const model = await prisma.model.findFirst({
-            where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
-        });
-        if (!model) {
+        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+        if (!resolved.found || !resolved.model) {
             res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
             return;
         }
+        const model = resolved.model;
         // 서비스 접근 권한 확인
         if (!canServiceAccessModel(proxyReq, model)) {
             res.status(403).json({
@@ -832,6 +984,12 @@ proxyRoutes.post('/rerank', async (req, res) => {
         }
         // 사용자 upsert
         const user = await getOrCreateUser(proxyReq);
+        // Rate limit 체크
+        const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+        if (rateLimitResult) {
+            res.status(rateLimitResult.status).json(rateLimitResult.body);
+            return;
+        }
         // 라운드로빈 + Failover
         const endpoints = await getModelEndpoints(model.id, {
             endpointUrl: model.endpointUrl,
@@ -840,12 +998,20 @@ proxyRoutes.post('/rerank', async (req, res) => {
             extraHeaders: model.extraHeaders,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        const isSingleEndpoint = endpoints.length === 1;
+        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
         let lastError = null;
-        for (let attempt = 0; attempt < endpoints.length; attempt++) {
-            const idx = (startIdx + attempt) % endpoints.length;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
-                console.log(`[Failover] Rerank model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                if (isSingleEndpoint) {
+                    console.log(`[Retry] Rerank model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+                }
+                else {
+                    console.log(`[Failover] Rerank model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                }
             }
             const url = buildRerankUrl(endpoint.endpointUrl);
             const loginid = user?.loginid || proxyReq.serviceName;
@@ -928,11 +1094,12 @@ proxyRoutes.post('/rerank', async (req, res) => {
                 continue;
             }
         }
-        // 모든 엔드포인트 실패
-        console.error(`[Failover] All ${endpoints.length} endpoints failed for rerank model "${model.name}"`);
+        // 모든 시도 실패
+        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        console.error(`[Failover] ${label} failed for rerank model "${model.name}"`);
         res.status(503).json({
             error: 'Service temporarily unavailable',
-            message: `All ${endpoints.length} endpoint(s) failed. Please try again later.`,
+            message: `Failed ${label}. Please try again later.`,
         });
     }
     catch (error) {
@@ -954,17 +1121,13 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             res.status(400).json({ error: 'model and prompt are required' });
             return;
         }
-        // 모델 조회 (name, id, displayName 모두 매칭)
-        const model = await prisma.model.findFirst({
-            where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
-        });
-        if (!model) {
+        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+        if (!resolved.found || !resolved.model) {
             res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
             return;
         }
+        const model = resolved.model;
         if (model.type !== 'IMAGE') {
             res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
             return;
@@ -978,6 +1141,12 @@ proxyRoutes.post('/images/generations', async (req, res) => {
         }
         // 사용자 upsert
         const user = await getOrCreateUser(proxyReq);
+        // Rate limit 체크
+        const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+        if (rateLimitResult) {
+            res.status(rateLimitResult.status).json(rateLimitResult.body);
+            return;
+        }
         // 저장 디렉토리 확인
         ensureStorageDir();
         // 라운드로빈 + Failover
@@ -988,12 +1157,20 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             extraHeaders: model.extraHeaders,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        const isSingleEndpoint = endpoints.length === 1;
+        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
         let lastError;
-        for (let attempt = 0; attempt < endpoints.length; attempt++) {
-            const idx = (startIdx + attempt) % endpoints.length;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
-                console.log(`[Failover] Image model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                if (isSingleEndpoint) {
+                    console.log(`[Retry] Image model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+                }
+                else {
+                    console.log(`[Failover] Image model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                }
             }
             const provider = model.imageProvider || 'OPENAI';
             const loginid = user?.loginid || proxyReq.serviceName;
@@ -1047,54 +1224,18 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             }
         }
         // 모든 엔드포인트 실패
+        const label = isSingleEndpoint
+            ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries`
+            : `all ${endpoints.length} endpoints`;
         res.status(503).json({
             error: 'Service temporarily unavailable',
-            message: `All ${endpoints.length} endpoint(s) failed. Last error: ${lastError || 'unknown'}`,
+            message: `Failed ${label}. Last error: ${lastError || 'unknown'}`,
         });
     }
     catch (error) {
         console.error('Image generation proxy error:', error);
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to process image generation request' });
-        }
-    }
-});
-// ============================================
-// GET /v1/images/files/:fileName
-// ============================================
-proxyRoutes.get('/images/files/:fileName', async (req, res) => {
-    try {
-        const { fileName } = req.params;
-        if (!fileName || fileName.includes('..') || fileName.includes('/')) {
-            res.status(400).json({ error: 'Invalid file name' });
-            return;
-        }
-        const record = await prisma.generatedImage.findUnique({
-            where: { fileName },
-            select: { mimeType: true, expiresAt: true },
-        });
-        if (!record) {
-            res.status(404).json({ error: 'Image not found' });
-            return;
-        }
-        if (record.expiresAt < new Date()) {
-            res.status(410).json({ error: 'Image has expired' });
-            return;
-        }
-        const filePath = path.resolve(IMAGE_STORAGE_PATH, fileName);
-        res.setHeader('Content-Type', record.mimeType);
-        res.setHeader('Cache-Control', 'private, max-age=86400');
-        res.sendFile(filePath, (err) => {
-            if (err && !res.headersSent) {
-                console.error(`[ImageServe] Failed to send file ${fileName}:`, err);
-                res.status(404).json({ error: 'Image file not found on disk' });
-            }
-        });
-    }
-    catch (error) {
-        console.error('Image file serve error:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to serve image' });
         }
     }
 });
@@ -1109,7 +1250,9 @@ proxyRoutes.get('/health', async (_req, res) => {
         res.json({ status: 'healthy', timestamp: new Date().toISOString() });
     }
     catch (error) {
-        res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
+        console.error('Health check error:', error);
+        if (!res.headersSent)
+            res.status(503).json({ status: 'unhealthy', timestamp: new Date().toISOString() });
     }
 });
 //# sourceMappingURL=proxy.routes.js.map

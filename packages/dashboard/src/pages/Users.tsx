@@ -180,7 +180,7 @@ export default function Users({ serviceId }: UsersProps) {
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-samsung-blue/8 text-samsung-blue rounded-full ring-1 ring-samsung-blue/20">
           <Shield className="w-3.5 h-3.5" />
-          관리자
+          시스템 관리자
         </span>
       );
     }

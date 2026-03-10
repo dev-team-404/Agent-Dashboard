@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Search, Trash2, UserPlus, Users, ChevronDown,
-  Crown, Shield, User
+  Crown, Shield, User, Gauge
 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, serviceRateLimitScopedApi } from '../services/api';
 
 // ── Types ──
 
@@ -142,6 +142,16 @@ export default function MyServices() {
   const [userSearch, setUserSearch] = useState('');
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+
+  // Rate Limit modal
+  const [rateLimitTarget, setRateLimitTarget] = useState<Service | null>(null);
+  const [rateLimitLoading, setRateLimitLoading] = useState(false);
+  const [rateLimitSaving, setRateLimitSaving] = useState(false);
+  const [commonRateLimit, setCommonRateLimit] = useState<{ maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null>(null);
+  const [userRateLimits, setUserRateLimits] = useState<Array<{ userId: string; maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean; user: { id: string; loginid: string; username: string; deptname: string } }>>([]);
+  const [rlForm, setRlForm] = useState<{ maxTokens: string; window: 'FIVE_HOURS' | 'DAY' }>({ maxTokens: '100000', window: 'DAY' });
+  const [rlEditUserId, setRlEditUserId] = useState<string | null>(null);
+  const [rlUserForm, setRlUserForm] = useState<{ maxTokens: string; window: 'FIVE_HOURS' | 'DAY' }>({ maxTokens: '100000', window: 'DAY' });
 
   // ── Load services ──
 
@@ -363,6 +373,97 @@ export default function MyServices() {
     setSearchResults([]);
   };
 
+  // ── Rate Limit management ──
+
+  const openRateLimitModal = async (service: Service) => {
+    setRateLimitTarget(service);
+    setRateLimitLoading(true);
+    setRlEditUserId(null);
+    try {
+      const [commonRes, userRes] = await Promise.all([
+        serviceRateLimitScopedApi.getCommon(service.id),
+        serviceRateLimitScopedApi.list(service.id),
+      ]);
+      const common = commonRes.data.rateLimit;
+      setCommonRateLimit(common || null);
+      if (common) {
+        setRlForm({ maxTokens: String(common.maxTokens), window: common.window });
+      } else {
+        setRlForm({ maxTokens: '100000', window: 'DAY' });
+      }
+      setUserRateLimits(userRes.data.rateLimits || []);
+    } catch (err) {
+      console.error('Failed to load rate limits:', err);
+    } finally {
+      setRateLimitLoading(false);
+    }
+  };
+
+  const handleSaveCommonRateLimit = async () => {
+    if (!rateLimitTarget) return;
+    const maxTokens = parseInt(rlForm.maxTokens);
+    if (isNaN(maxTokens) || maxTokens < 1) return;
+    setRateLimitSaving(true);
+    try {
+      await serviceRateLimitScopedApi.setCommon(rateLimitTarget.id, { maxTokens, window: rlForm.window, enabled: true });
+      const res = await serviceRateLimitScopedApi.getCommon(rateLimitTarget.id);
+      setCommonRateLimit(res.data.rateLimit || null);
+    } catch (err) {
+      console.error('Failed to save common rate limit:', err);
+    } finally {
+      setRateLimitSaving(false);
+    }
+  };
+
+  const handleRemoveCommonRateLimit = async () => {
+    if (!rateLimitTarget || !commonRateLimit) return;
+    setRateLimitSaving(true);
+    try {
+      await serviceRateLimitScopedApi.removeCommon(rateLimitTarget.id);
+      setCommonRateLimit(null);
+    } catch (err) {
+      console.error('Failed to remove common rate limit:', err);
+    } finally {
+      setRateLimitSaving(false);
+    }
+  };
+
+  const handleSaveUserRateLimit = async (userId: string) => {
+    if (!rateLimitTarget) return;
+    const maxTokens = parseInt(rlUserForm.maxTokens);
+    if (isNaN(maxTokens) || maxTokens < 1) return;
+    setRateLimitSaving(true);
+    try {
+      await serviceRateLimitScopedApi.setUser(rateLimitTarget.id, userId, { maxTokens, window: rlUserForm.window, enabled: true });
+      const res = await serviceRateLimitScopedApi.list(rateLimitTarget.id);
+      setUserRateLimits(res.data.rateLimits || []);
+      setRlEditUserId(null);
+    } catch (err) {
+      console.error('Failed to save user rate limit:', err);
+    } finally {
+      setRateLimitSaving(false);
+    }
+  };
+
+  const handleRemoveUserRateLimit = async (userId: string) => {
+    if (!rateLimitTarget) return;
+    setRateLimitSaving(true);
+    try {
+      await serviceRateLimitScopedApi.removeUser(rateLimitTarget.id, userId);
+      setUserRateLimits((prev) => prev.filter((r) => r.userId !== userId));
+    } catch (err) {
+      console.error('Failed to remove user rate limit:', err);
+    } finally {
+      setRateLimitSaving(false);
+    }
+  };
+
+  const formatTokens = (n: number) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+    return String(n);
+  };
+
   // ── Role display helpers ──
 
   const roleIcon = (role: string) => {
@@ -376,7 +477,7 @@ export default function MyServices() {
   const roleLabel = (role: string) => {
     switch (role) {
       case 'OWNER': return '소유자';
-      case 'ADMIN': return '관리자';
+      case 'ADMIN': return '서비스 관리자';
       default: return '사용자';
     }
   };
@@ -549,6 +650,13 @@ export default function MyServices() {
                   >
                     <Users className="w-3.5 h-3.5" />
                     멤버 관리
+                  </button>
+                  <button
+                    onClick={() => openRateLimitModal(service)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
+                  >
+                    <Gauge className="w-3.5 h-3.5" />
+                    Rate Limit
                   </button>
                   {isDev ? (
                     <button
@@ -905,7 +1013,7 @@ export default function MyServices() {
                                   disabled={memberActionLoading}
                                   className="text-xs px-2 py-1 border border-gray-200 rounded bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 cursor-pointer"
                                 >
-                                  <option value="ADMIN">관리자</option>
+                                  <option value="ADMIN">서비스 관리자</option>
                                   <option value="USER">사용자</option>
                                 </select>
                                 <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
@@ -931,6 +1039,166 @@ export default function MyServices() {
                   )}
                 </div>
               </>
+            )}
+          </div>
+        </ModalBackdrop>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          Rate Limit Modal
+         ══════════════════════════════════════════════════ */}
+      {rateLimitTarget && (
+        <ModalBackdrop onClose={() => setRateLimitTarget(null)}>
+          <div className="p-6 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Rate Limit 설정</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{rateLimitTarget.displayName}</p>
+              </div>
+              <button onClick={() => setRateLimitTarget(null)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {rateLimitLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {/* ── 공통 Rate Limit ── */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">서비스 공통 제한</h4>
+                  <p className="text-xs text-gray-400 mb-3">개별 설정이 없는 모든 사용자에게 적용됩니다.</p>
+
+                  {commonRateLimit ? (
+                    <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2.5 border border-gray-200 mb-3">
+                      <div>
+                        <span className="text-sm font-medium text-gray-900">{formatTokens(commonRateLimit.maxTokens)} 토큰</span>
+                        <span className="text-xs text-gray-400 ml-2">/ {commonRateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간'}</span>
+                      </div>
+                      <button
+                        onClick={handleRemoveCommonRateLimit}
+                        disabled={rateLimitSaving}
+                        className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                      >
+                        제거
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">최대 토큰</label>
+                      <input
+                        type="number"
+                        value={rlForm.maxTokens}
+                        onChange={(e) => setRlForm({ ...rlForm, maxTokens: e.target.value })}
+                        min={1}
+                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="w-28">
+                      <label className="block text-xs text-gray-500 mb-1">기간</label>
+                      <select
+                        value={rlForm.window}
+                        onChange={(e) => setRlForm({ ...rlForm, window: e.target.value as 'FIVE_HOURS' | 'DAY' })}
+                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      >
+                        <option value="FIVE_HOURS">5시간</option>
+                        <option value="DAY">24시간</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleSaveCommonRateLimit}
+                      disabled={rateLimitSaving}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                    >
+                      {rateLimitSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : '저장'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── 사용자별 Rate Limit ── */}
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">사용자별 제한</h4>
+                  <p className="text-xs text-gray-400 mb-3">개별 제한이 공통 제한보다 우선합니다.</p>
+
+                  {userRateLimits.length > 0 ? (
+                    <div className="space-y-2">
+                      {userRateLimits.map((rl) => (
+                        <div key={rl.userId} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-sm font-medium text-gray-900">{rl.user.username}</span>
+                            <span className="text-xs text-gray-400 ml-1.5">{rl.user.loginid}</span>
+                          </div>
+
+                          {rlEditUserId === rl.userId ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                value={rlUserForm.maxTokens}
+                                onChange={(e) => setRlUserForm({ ...rlUserForm, maxTokens: e.target.value })}
+                                min={1}
+                                className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                              <select
+                                value={rlUserForm.window}
+                                onChange={(e) => setRlUserForm({ ...rlUserForm, window: e.target.value as 'FIVE_HOURS' | 'DAY' })}
+                                className="px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="FIVE_HOURS">5h</option>
+                                <option value="DAY">24h</option>
+                              </select>
+                              <button
+                                onClick={() => handleSaveUserRateLimit(rl.userId)}
+                                disabled={rateLimitSaving}
+                                className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                저장
+                              </button>
+                              <button
+                                onClick={() => setRlEditUserId(null)}
+                                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                취소
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600">{formatTokens(rl.maxTokens)} / {rl.window === 'FIVE_HOURS' ? '5h' : '24h'}</span>
+                              <button
+                                onClick={() => {
+                                  setRlEditUserId(rl.userId);
+                                  setRlUserForm({ maxTokens: String(rl.maxTokens), window: rl.window });
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                수정
+                              </button>
+                              <button
+                                onClick={() => handleRemoveUserRateLimit(rl.userId)}
+                                disabled={rateLimitSaving}
+                                className="text-xs text-red-500 hover:text-red-700"
+                              >
+                                제거
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 text-sm text-gray-400 bg-gray-50 rounded-lg">
+                      사용자별 Rate Limit이 설정되지 않았습니다.
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-400 mt-3">
+                    사용자별 Rate Limit은 멤버 관리에서 멤버를 추가한 뒤, 시스템 관리자 페이지 또는 이 화면에서 설정할 수 있습니다.
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </ModalBackdrop>

@@ -25,6 +25,7 @@ import { ratingRoutes } from './routes/rating.routes.js';
 import { serviceRoutes } from './routes/service.routes.js';
 import { holidaysRoutes } from './routes/holidays.routes.js';
 import { publicStatsRoutes } from './routes/public-stats.routes.js';
+import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
@@ -50,13 +51,14 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
 app.use(morgan('combined'));
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting — Dashboard API only (proxy routes have their own token-based limits)
+const dashboardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 1000,
     message: { error: 'Too many requests, please try again later.' },
+    skip: (req) => req.path.startsWith('/v1/') || req.path === '/health',
 });
-app.use(limiter);
+app.use(dashboardLimiter);
 // Health check
 app.get('/health', (_req, res) => {
     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
@@ -70,6 +72,7 @@ app.use('/admin', adminRoutes);
 app.use('/my-usage', myUsageRoutes);
 app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
+app.use('/admin', adminLogsRoutes);
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
 // Public Stats API (인증 불필요)

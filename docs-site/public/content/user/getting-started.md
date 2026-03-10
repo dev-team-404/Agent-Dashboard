@@ -1,6 +1,6 @@
 # 사용자 시작하기
 
-Agent Dashboard에 일반 사용자로 접속하여 사용하는 방법을 안내합니다.
+Agent Dashboard에 접속하여 서비스를 만들고 API를 호출하는 방법을 안내합니다.
 
 ## Dashboard 로그인
 
@@ -18,7 +18,15 @@ http://a2g.samsungds.net:8090
 
 ## Dashboard에서 할 수 있는 것
 
-일반 사용자(USER 역할)는 아래 기능을 사용할 수 있습니다.
+모든 사용자는 아래 기능을 사용할 수 있습니다.
+
+### 서비스 생성 및 관리
+
+- **내 서비스** 페이지에서 직접 서비스를 생성할 수 있습니다.
+- 서비스 모델 추가/제거, 멤버 관리, Rate Limit 설정 등을 직접 수행합니다.
+- 서비스를 마켓에 배포하여 다른 사용자에게 공유할 수 있습니다.
+
+> 서비스 등록에 대한 자세한 내용은 [서비스 등록 가이드](/docs/user/service-registration)를 참고하세요.
 
 ### 본인 사용량 확인
 
@@ -29,7 +37,7 @@ http://a2g.samsungds.net:8090
 
 ### 대시보드 메인 화면
 
-메인 화면에서는 본인의 사용 현황 요약을 확인할 수 있습니다.
+메인 화면에서는 사용 현황 요약을 확인할 수 있습니다.
 
 | 표시 항목 | 설명 |
 |-----------|------|
@@ -40,18 +48,21 @@ http://a2g.samsungds.net:8090
 
 > 사용량 확인에 대한 자세한 내용은 [사용량 확인](/docs/user/my-usage) 문서를 참고하세요.
 
-## API 사용을 위한 서비스 등록
+## 빠른 시작: API 호출까지 3단계
 
-API를 통해 LLM을 호출하려면 **서비스**가 등록되어 있어야 합니다. 서비스 등록은 Admin 권한이 필요합니다.
+### 1단계: 서비스 생성
 
-### 서비스가 이미 등록된 경우
+1. 좌측 메뉴에서 **내 서비스** 클릭
+2. **새 서비스 만들기** 버튼 클릭
+3. 서비스 코드, 이름, 타입 입력 후 **생성**
 
-팀의 Admin이 이미 서비스를 등록해두었다면, Admin에게 아래 정보를 확인하세요.
+### 2단계: 모델 추가
 
-- **Service ID**: API 호출 시 `x-service-id` 헤더에 사용
-- **사용 가능 모델**: 어떤 LLM 모델을 사용할 수 있는지
+1. 생성된 서비스를 클릭
+2. **모델** 탭에서 **모델 추가** 클릭
+3. 사용할 LLM 모델을 선택하여 추가
 
-확인 후 아래와 같이 API를 호출할 수 있습니다.
+### 3단계: API 호출
 
 ```bash
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
@@ -67,21 +78,9 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   }'
 ```
 
-### 서비스가 아직 없는 경우
-
-서비스가 등록되어 있지 않다면 팀의 Admin에게 서비스 등록을 요청하세요.
-
-**Admin에게 전달할 정보:**
-
-- 서비스 용도 (예: 챗봇, 코드 리뷰, 데이터 분석 등)
-- 서비스 타입 (일반/Background)
-- 희망하는 Service ID
-
-> Admin이 누구인지 모르는 경우 Dashboard 관리자에게 문의하세요.
-
 ## 사용 가능 모델 확인
 
-본인이 사용할 수 있는 LLM 모델 목록은 API로 확인할 수 있습니다.
+본인의 서비스에서 사용할 수 있는 LLM 모델 목록은 API로 확인할 수 있습니다.
 
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models \
@@ -90,8 +89,14 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-dept-name: SW혁신팀(S.LSI)"
 ```
 
+## 서비스 마켓
+
+다른 사용자가 배포한 서비스를 **서비스 마켓**에서 검색하고 확인할 수 있습니다. 좌측 메뉴에서 **서비스 마켓**을 클릭하세요.
+
 ## 다음 단계
 
+- [서비스 등록 가이드](/docs/user/service-registration) — 서비스 생성 및 배포 방법
 - [사용량 확인](/docs/user/my-usage) — 내 API 사용량 상세 조회 방법
 - [API 인증](/docs/api/authentication) — API 인증 헤더 상세 설명
+- [프레임워크별 연동](/docs/api/framework-integration) — Python/JS/Go 등 프레임워크별 코드 예시
 - [Chat Completions API](/docs/api/chat-completions) — API 호출 방법 상세 가이드

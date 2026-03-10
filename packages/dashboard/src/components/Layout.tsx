@@ -102,7 +102,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   };
 
   const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
-                    adminRole === 'ADMIN' ? '관리자' : '사용자';
+                    adminRole === 'ADMIN' ? '시스템 관리자' : '사용자';
 
   const sidebarWidth = sidebarCollapsed ? 'w-[72px]' : 'w-60';
   const mainMargin = sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-60';

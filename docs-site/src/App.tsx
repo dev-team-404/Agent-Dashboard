@@ -26,12 +26,12 @@ function guideContentPath(path: string): string {
     '/service/rate-limits': 'service/rate-limits.md',
     '/service/usage-analytics': 'service/usage-analytics.md',
     '/user/getting-started': 'user/getting-started.md',
+    '/user/service-registration': 'user/service-registration.md',
     '/user/my-usage': 'user/my-usage.md',
     '/api/authentication': 'api/authentication.md',
     '/api/framework-integration': 'api/framework-integration.md',
     '/api/chat-completions': 'api/chat-completions.md',
     '/api/models': 'api/models.md',
-    '/api/service-registration': 'api/service-registration.md',
   };
   return map[path] || '';
 }
@@ -76,6 +76,7 @@ export default function App() {
 
         {/* User Guide */}
         <Route path="/user/getting-started" element={<DocRoute sectionTitle="User Guide" path="/user/getting-started" />} />
+        <Route path="/user/service-registration" element={<DocRoute sectionTitle="User Guide" path="/user/service-registration" />} />
         <Route path="/user/my-usage" element={<DocRoute sectionTitle="User Guide" path="/user/my-usage" />} />
 
         {/* API Guide */}
@@ -83,7 +84,6 @@ export default function App() {
         <Route path="/api/framework-integration" element={<DocRoute sectionTitle="API Guide" path="/api/framework-integration" />} />
         <Route path="/api/chat-completions" element={<DocRoute sectionTitle="API Guide" path="/api/chat-completions" />} />
         <Route path="/api/models" element={<DocRoute sectionTitle="API Guide" path="/api/models" />} />
-        <Route path="/api/service-registration" element={<DocRoute sectionTitle="API Guide" path="/api/service-registration" />} />
 
         {/* Fallback */}
         <Route path="*" element={

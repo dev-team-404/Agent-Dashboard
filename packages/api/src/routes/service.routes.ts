@@ -1321,3 +1321,240 @@ serviceRoutes.delete('/:id/members/:userId', authenticateToken, async (req: Auth
     res.status(500).json({ error: 'Failed to remove member from service' });
   }
 });
+
+// ============================================
+// Rate Limit Management (Service Owner/Admin)
+// ============================================
+
+/**
+ * GET /services/:id/rate-limits
+ * 서비스의 전체 사용자 rate limit 목록 조회
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ */
+serviceRoutes.get('/:id/rate-limits', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const rateLimits = await prisma.userRateLimit.findMany({
+      where: { serviceId },
+      include: {
+        user: { select: { id: true, loginid: true, username: true, deptname: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ rateLimits });
+  } catch (error) {
+    console.error('Get service rate limits error:', error);
+    res.status(500).json({ error: 'Failed to get rate limits' });
+  }
+});
+
+/**
+ * PUT /services/:id/rate-limits/:userId
+ * 사용자의 서비스별 rate limit 설정/수정
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ * Body: { maxTokens, window: 'FIVE_HOURS' | 'DAY', enabled? }
+ */
+serviceRoutes.put('/:id/rate-limits/:userId', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const userId = req.params.userId as string;
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const { maxTokens, window: windowType, enabled } = req.body;
+
+    if (maxTokens === undefined || maxTokens === null || !windowType) {
+      res.status(400).json({ error: 'maxTokens and window are required' });
+      return;
+    }
+
+    if (!['FIVE_HOURS', 'DAY'].includes(windowType)) {
+      res.status(400).json({ error: 'window must be FIVE_HOURS or DAY' });
+      return;
+    }
+
+    if (typeof maxTokens !== 'number' || maxTokens < 1) {
+      res.status(400).json({ error: 'maxTokens must be at least 1' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const rateLimit = await prisma.userRateLimit.upsert({
+      where: { userId_serviceId: { userId, serviceId } },
+      update: {
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+      create: {
+        userId,
+        serviceId,
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+    });
+
+    res.json({ rateLimit, message: 'Rate limit updated' });
+  } catch (error) {
+    console.error('Set service user rate limit error:', error);
+    res.status(500).json({ error: 'Failed to set rate limit' });
+  }
+});
+
+/**
+ * DELETE /services/:id/rate-limits/:userId
+ * 사용자의 서비스별 rate limit 삭제 (무제한으로 복원)
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ */
+serviceRoutes.delete('/:id/rate-limits/:userId', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const userId = req.params.userId as string;
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const existing = await prisma.userRateLimit.findUnique({
+      where: { userId_serviceId: { userId, serviceId } },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: 'Rate limit not found' });
+      return;
+    }
+
+    await prisma.userRateLimit.delete({
+      where: { userId_serviceId: { userId, serviceId } },
+    });
+
+    res.json({ success: true, message: 'Rate limit removed (unlimited)' });
+  } catch (error) {
+    console.error('Delete service user rate limit error:', error);
+    res.status(500).json({ error: 'Failed to delete rate limit' });
+  }
+});
+
+/**
+ * GET /services/:id/service-rate-limit
+ * 서비스의 공통 rate limit 조회
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ */
+serviceRoutes.get('/:id/service-rate-limit', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const rateLimit = await prisma.serviceRateLimit.findUnique({
+      where: { serviceId },
+    });
+
+    res.json({ rateLimit: rateLimit || null });
+  } catch (error) {
+    console.error('Get service rate limit error:', error);
+    res.status(500).json({ error: 'Failed to get service rate limit' });
+  }
+});
+
+/**
+ * PUT /services/:id/service-rate-limit
+ * 서비스의 공통 rate limit 설정/수정
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ * Body: { maxTokens, window: 'FIVE_HOURS' | 'DAY', enabled? }
+ */
+serviceRoutes.put('/:id/service-rate-limit', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const { maxTokens, window: windowType, enabled } = req.body;
+
+    if (maxTokens === undefined || maxTokens === null || !windowType) {
+      res.status(400).json({ error: 'maxTokens and window are required' });
+      return;
+    }
+
+    if (!['FIVE_HOURS', 'DAY'].includes(windowType)) {
+      res.status(400).json({ error: 'window must be FIVE_HOURS or DAY' });
+      return;
+    }
+
+    if (typeof maxTokens !== 'number' || maxTokens < 1) {
+      res.status(400).json({ error: 'maxTokens must be at least 1' });
+      return;
+    }
+
+    const rateLimit = await prisma.serviceRateLimit.upsert({
+      where: { serviceId },
+      update: {
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+      create: {
+        serviceId,
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+    });
+
+    res.json({ rateLimit, message: 'Service rate limit updated' });
+  } catch (error) {
+    console.error('Set service common rate limit error:', error);
+    res.status(500).json({ error: 'Failed to set service rate limit' });
+  }
+});
+
+/**
+ * DELETE /services/:id/service-rate-limit
+ * 서비스의 공통 rate limit 삭제 (무제한으로 복원)
+ * 권한: Service OWNER, Service ADMIN, System Admin
+ */
+serviceRoutes.delete('/:id/service-rate-limit', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const existing = await prisma.serviceRateLimit.findUnique({ where: { serviceId } });
+    if (!existing) {
+      res.status(404).json({ error: 'Service rate limit not found' });
+      return;
+    }
+
+    await prisma.serviceRateLimit.delete({ where: { serviceId } });
+    res.json({ success: true, message: 'Service rate limit removed (unlimited)' });
+  } catch (error) {
+    console.error('Delete service common rate limit error:', error);
+    res.status(500).json({ error: 'Failed to delete service rate limit' });
+  }
+});

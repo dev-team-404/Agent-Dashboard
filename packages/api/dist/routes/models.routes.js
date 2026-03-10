@@ -79,15 +79,9 @@ modelsRoutes.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
  */
 modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider } = req.body;
+        const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider, adminVisible } = req.body;
         if (!name || !displayName || !endpointUrl) {
             res.status(400).json({ error: 'name, displayName, and endpointUrl are required' });
-            return;
-        }
-        // 이름 중복 체크
-        const existing = await prisma.model.findUnique({ where: { name } });
-        if (existing) {
-            res.status(409).json({ error: `Model name '${name}' is already taken` });
             return;
         }
         const deptname = req.adminDept || req.user?.deptname || '';
@@ -105,6 +99,7 @@ modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
                 supportsVision: supportsVision || false,
                 visibility: visibility || 'PUBLIC',
                 visibilityScope: visibilityScope || [],
+                adminVisible: adminVisible || false,
                 sortOrder: sortOrder || 0,
                 type: type || 'CHAT',
                 imageProvider: imageProvider || null,
@@ -146,15 +141,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
                 return;
             }
         }
-        const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider } = req.body;
-        // 이름 변경 시 중복 체크
-        if (name && name !== model.name) {
-            const existing = await prisma.model.findUnique({ where: { name } });
-            if (existing) {
-                res.status(409).json({ error: `Model name '${name}' is already taken` });
-                return;
-            }
-        }
+        const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider, adminVisible } = req.body;
         const updated = await prisma.model.update({
             where: { id },
             data: {
@@ -172,6 +159,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
                 ...(sortOrder !== undefined && { sortOrder }),
                 ...(type !== undefined && { type }),
                 ...(imageProvider !== undefined && { imageProvider }),
+                ...(adminVisible !== undefined && { adminVisible }),
             },
         });
         res.json({ model: updated });

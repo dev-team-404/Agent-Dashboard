@@ -91,8 +91,8 @@ const VISIBILITY_CONFIG: Record<VisibilityType, { label: string; icon: typeof Gl
   PUBLIC: { label: '전체 공개', icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: '모든 서비스에서 사용 가능' },
   BUSINESS_UNIT: { label: '사업부', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '동일 사업부 서비스만 사용 가능' },
   TEAM: { label: '팀 전용', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '동일 부서 서비스만 사용 가능' },
-  ADMIN_ONLY: { label: '모든 관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: 'Admin + Super Admin 접근 가능' },
-  SUPER_ADMIN_ONLY: { label: '슈퍼 관리자만', icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: 'Super Admin만 접근 가능' },
+  ADMIN_ONLY: { label: '시스템 관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: '시스템 관리자 + 슈퍼관리자 접근 가능' },
+  SUPER_ADMIN_ONLY: { label: '슈퍼관리자만', icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: '슈퍼관리자만 접근 가능' },
 };
 
 const emptyForm = {
@@ -1387,8 +1387,8 @@ export default function Models({ adminRole }: ModelsProps) {
                                         after:h-5 after:w-5 after:transition-all peer-checked:bg-samsung-blue" />
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-pastel-700">관리자 공개</span>
-                        <p className="text-xs text-pastel-400 mt-0.5">활성화 시 다른 팀/사업부의 관리자도 이 모델을 사용할 수 있습니다</p>
+                        <span className="text-sm font-medium text-pastel-700">시스템 관리자 공개</span>
+                        <p className="text-xs text-pastel-400 mt-0.5">활성화 시 다른 팀/사업부의 시스템 관리자도 이 모델을 사용할 수 있습니다</p>
                       </div>
                     </label>
                   </div>
