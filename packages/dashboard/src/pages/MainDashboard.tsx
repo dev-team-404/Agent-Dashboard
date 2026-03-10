@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Users, Activity, Zap, Building2, TrendingUp, Server,
   Plus, X, Clock, Trash2, BarChart3, Layers, Settings, Eye,
-  Edit2, User, Calendar,
+  Edit2, User,
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -629,29 +629,29 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
     <div className="space-y-6 animate-fade-in">
       {/* ════════ Top-Level Tabs ════════ */}
       <div className="flex items-center justify-between">
-        <div className="flex bg-gray-100 rounded-2xl p-1 gap-1">
+        <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
           <button
             onClick={() => setMainTab('services')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               mainTab === 'services'
-                ? 'bg-white text-pastel-800 shadow-card'
-                : 'text-pastel-500 hover:text-pastel-700'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <Server className="w-4 h-4" />
             서비스
-            <span className={`ml-1 px-1.5 py-0.5 text-xs rounded-full ${
-              mainTab === 'services' ? 'bg-samsung-blue text-white' : 'bg-gray-200 text-pastel-500'
+            <span className={`ml-0.5 px-1.5 py-0.5 text-xs rounded ${
+              mainTab === 'services' ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-500'
             }`}>
               {services.length}
             </span>
           </button>
           <button
             onClick={() => setMainTab('dashboard')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               mainTab === 'dashboard'
-                ? 'bg-white text-pastel-800 shadow-card'
-                : 'text-pastel-500 hover:text-pastel-700'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <BarChart3 className="w-4 h-4" />
@@ -662,7 +662,7 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
         {mainTab === 'services' && (
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-samsung-blue to-blue-600 text-white text-sm font-semibold rounded-xl hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 active:scale-[0.97]"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
           >
             <Plus className="w-4 h-4" />
             새 서비스 등록
@@ -674,50 +674,45 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
       {mainTab === 'services' && (
         <div className="space-y-6">
           {/* Service summary bar */}
-          <div className="flex items-center gap-6 px-5 py-3 bg-white/70 backdrop-blur-xl rounded-2xl border border-white/20 shadow-card">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-sm text-pastel-600">
-                활성 <span className="font-bold text-pastel-800">{services.filter(s => s.enabled).length}</span>
+          <div className="flex items-center gap-5 px-4 py-2.5 bg-white rounded-lg border border-gray-200 text-sm">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className="text-gray-600">
+                활성 <span className="font-semibold text-gray-900">{services.filter(s => s.enabled).length}</span>
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-gray-300" />
-              <span className="text-sm text-pastel-600">
-                비활성 <span className="font-bold text-pastel-800">{services.filter(s => !s.enabled).length}</span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-gray-300" />
+              <span className="text-gray-600">
+                비활성 <span className="font-semibold text-gray-900">{services.filter(s => !s.enabled).length}</span>
               </span>
             </div>
             <div className="h-4 w-px bg-gray-200" />
-            <span className="text-sm text-pastel-500">
-              오늘 활성 사용자 <span className="font-bold text-samsung-blue">{todayActive}명</span>
+            <span className="text-gray-500">
+              오늘 DAU <span className="font-semibold text-gray-900">{todayActive}</span>
             </span>
-            <span className="text-sm text-pastel-500">
-              총 요청 <span className="font-bold text-samsung-blue">{formatNumber(totalRequests)}</span>
+            <span className="text-gray-500">
+              총 요청 <span className="font-semibold text-gray-900">{formatNumber(totalRequests)}</span>
             </span>
           </div>
 
           {/* Service Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {mergedServiceStats.map((service, idx) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {mergedServiceStats.map((service) => (
               <div
                 key={service.serviceId}
-                className={`group relative overflow-hidden rounded-2xl bg-white ${
+                className={`group bg-white rounded-lg border transition-all duration-150 ${
                   service.enabled
                     ? service.hasData
-                      ? (service.type === 'BACKGROUND' ? 'card-glow-violet' : 'card-glow')
-                      : 'card-glow border-dashed border border-gray-200'
-                    : 'border border-gray-200 opacity-60'
-                } ${!service.hasData && service.enabled ? '' : 'border border-gray-100/80'}`}
-                style={{ animation: `slideUp 0.45s cubic-bezier(0.16,1,0.3,1) ${idx * 60}ms both` }}
+                      ? 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                      : 'border-dashed border-gray-300 hover:border-gray-400'
+                    : 'border-gray-200 opacity-60'
+                }`}
               >
-                {/* Status indicator */}
-                <div className={`absolute top-0 left-0 right-0 h-0.5 ${
-                  service.enabled
-                    ? service.todayActiveUsers > 0
-                      ? 'bg-gradient-to-r from-green-400 to-emerald-500'
-                      : 'bg-gradient-to-r from-samsung-blue/60 to-blue-400/60'
-                    : 'bg-gray-200'
-                }`} />
+                {/* Status indicator — only when active today */}
+                {service.enabled && service.todayActiveUsers > 0 && (
+                  <div className="h-0.5 bg-emerald-500 rounded-t-lg" />
+                )}
 
                 {/* Card content */}
                 <div className="p-5">
@@ -725,29 +720,29 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3 min-w-0">
                       {service.iconUrl ? (
-                        <img src={service.iconUrl} alt={service.serviceDisplayName} className="w-12 h-12 rounded-xl shadow-card flex-shrink-0" />
+                        <img src={service.iconUrl} alt={service.serviceDisplayName} className="w-10 h-10 rounded-lg flex-shrink-0" />
                       ) : (
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-card flex-shrink-0 ${
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
                           service.enabled
-                            ? 'bg-gradient-to-br from-samsung-blue to-blue-600'
-                            : 'bg-gray-300'
+                            ? service.type === 'BACKGROUND' ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-600'
+                            : 'bg-gray-100 text-gray-400'
                         }`}>
-                          <Server className="w-6 h-6 text-white" />
+                          <Server className="w-5 h-5" />
                         </div>
                       )}
                       <div className="min-w-0">
-                        <h3 className="font-bold text-pastel-800 text-lg truncate">{service.serviceDisplayName}</h3>
+                        <h3 className="font-semibold text-gray-900 text-sm truncate">{service.serviceDisplayName}</h3>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <code className="text-xs text-pastel-400 font-mono">{service.serviceName}</code>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${
+                          <code className="text-xs text-gray-400 font-mono">{service.serviceName}</code>
+                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
                             service.type === 'BACKGROUND'
-                              ? 'bg-purple-50 text-purple-600'
+                              ? 'bg-violet-50 text-violet-600'
                               : 'bg-blue-50 text-blue-600'
                           }`}>
                             {service.type === 'BACKGROUND' ? 'BG' : 'STD'}
                           </span>
                           {!service.enabled && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-gray-100 text-pastel-500">
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-500">
                               OFF
                             </span>
                           )}
@@ -757,12 +752,9 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
                     {/* Live indicator */}
                     {service.todayActiveUsers > 0 && (
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 rounded-full flex-shrink-0">
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-                        </span>
-                        <span className="text-xs font-semibold text-green-700">{service.todayActiveUsers}</span>
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 rounded flex-shrink-0">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                        <span className="text-xs font-medium text-green-700">{service.todayActiveUsers}</span>
                       </div>
                     )}
                   </div>
@@ -778,80 +770,75 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
                       {/* Stats */}
                       <div className="grid grid-cols-3 gap-2 mb-4">
-                        <div className="text-center p-2.5 bg-pastel-50 rounded-xl">
-                          <p className="text-lg font-bold text-pastel-800">{formatNumber(service.totalUsers)}</p>
-                          <p className="text-[11px] text-pastel-500">사용자</p>
+                        <div className="text-center p-2 bg-gray-50 rounded-lg">
+                          <p className="text-base font-semibold text-gray-900">{formatNumber(service.totalUsers)}</p>
+                          <p className="text-[11px] text-gray-500">사용자</p>
                         </div>
-                        <div className="text-center p-2.5 bg-pastel-50 rounded-xl">
-                          <p className="text-lg font-bold text-pastel-800">{formatNumber(service.totalRequests)}</p>
-                          <p className="text-[11px] text-pastel-500">요청</p>
+                        <div className="text-center p-2 bg-gray-50 rounded-lg">
+                          <p className="text-base font-semibold text-gray-900">{formatNumber(service.totalRequests)}</p>
+                          <p className="text-[11px] text-gray-500">요청</p>
                         </div>
-                        <div className="text-center p-2.5 bg-pastel-50 rounded-xl">
-                          <p className="text-lg font-bold text-pastel-800">{formatNumber(service.totalTokens)}</p>
-                          <p className="text-[11px] text-pastel-500">토큰</p>
+                        <div className="text-center p-2 bg-gray-50 rounded-lg">
+                          <p className="text-base font-semibold text-gray-900">{formatNumber(service.totalTokens)}</p>
+                          <p className="text-[11px] text-gray-500">토큰</p>
                         </div>
                       </div>
                     </>
                   ) : (
                     <div className="text-center py-6 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-pastel-50 flex items-center justify-center mx-auto mb-2">
-                        <Eye className="w-5 h-5 text-pastel-300" />
-                      </div>
-                      <p className="text-sm text-pastel-400">아직 요청이 없습니다</p>
-                      <p className="text-xs text-pastel-300 mt-1">x-service-id: {service.serviceName}</p>
+                      <Eye className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                      <p className="text-sm text-gray-400">아직 요청이 없습니다</p>
+                      <p className="text-xs text-gray-300 mt-1">x-service-id: {service.serviceName}</p>
                     </div>
                   )}
 
-                  {/* Registration meta — compact inline */}
-                  <div className="flex items-center gap-1.5 text-[11px] text-pastel-400 mb-4 flex-wrap">
+                  {/* Registration meta */}
+                  <div className="flex items-center gap-1 text-[11px] text-gray-400 mb-4 flex-wrap">
                     <User className="w-3 h-3 flex-shrink-0" />
-                    <span className="text-pastel-500 font-medium">{service.registeredBy || '알 수 없음'}</span>
-                    <span className="text-pastel-200">·</span>
+                    <span className="text-gray-500 font-medium">{service.registeredBy || '-'}</span>
+                    <span className="text-gray-300 mx-0.5">&middot;</span>
                     <Building2 className="w-3 h-3 flex-shrink-0" />
-                    <span className="truncate max-w-[120px]">
-                      {service.registeredByDept || '부서 미상'}
-                      {service.registeredByBusinessUnit && ` / ${service.registeredByBusinessUnit}`}
+                    <span className="truncate max-w-[100px]">
+                      {service.registeredByDept || '-'}
                     </span>
                     {service.createdAt && (
                       <>
-                        <span className="text-pastel-200">·</span>
-                        <Calendar className="w-3 h-3 flex-shrink-0" />
+                        <span className="text-gray-300 mx-0.5">&middot;</span>
                         <span>{new Date(service.createdAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').replace(/\.$/, '')}</span>
                       </>
                     )}
                   </div>
 
                   {/* Action buttons */}
-                  <div className="separator-gradient mb-0" />
-                  <div className="flex items-center gap-2 pt-3">
+                  <div className="border-t border-gray-100 pt-3 flex items-center gap-2">
                     <Link
                       to={`/service/${service.serviceId}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-samsung-blue bg-samsung-blue/5 hover:bg-samsung-blue/10 rounded-lg transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded transition-colors"
                     >
                       <BarChart3 className="w-3.5 h-3.5" />
                       대시보드
                     </Link>
                     <Link
                       to={`/service/${service.serviceId}/users`}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-lg transition-colors"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded transition-colors"
                     >
                       <Users className="w-3.5 h-3.5" />
                       사용자
                     </Link>
                     <button
                       onClick={() => openEditModal(service)}
-                      className="p-2 text-pastel-400 hover:text-samsung-blue hover:bg-samsung-blue/5 rounded-lg transition-colors"
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded transition-colors"
                       title="서비스 수정"
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     {adminRole === 'SUPER_ADMIN' && (
                       <button
                         onClick={() => { setDeleteError(null); setDeleteTarget({ id: service.serviceId, name: service.serviceDisplayName }); }}
-                        className="p-2 text-pastel-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                         title="서비스 삭제"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -862,15 +849,15 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
             {/* Add service card — same size as service cards */}
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 hover:border-samsung-blue hover:bg-samsung-blue/5 transition-all duration-300 group min-h-[240px]"
+              className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-colors group min-h-[200px]"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gray-100 group-hover:bg-samsung-blue/10 flex items-center justify-center mb-3 transition-colors">
-                <Plus className="w-7 h-7 text-pastel-400 group-hover:text-samsung-blue transition-colors" />
+              <div className="w-10 h-10 rounded-lg bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center mb-2 transition-colors">
+                <Plus className="w-5 h-5 text-gray-400" />
               </div>
-              <p className="text-base font-semibold text-pastel-500 group-hover:text-samsung-blue transition-colors">
+              <p className="text-sm font-medium text-gray-600">
                 {services.length === 0 ? '첫 번째 서비스 등록' : '새 서비스 등록'}
               </p>
-              <p className="text-xs text-pastel-400 mt-1">x-service-id 기반 LLM 프록시</p>
+              <p className="text-xs text-gray-400 mt-0.5">x-service-id 기반 LLM 프록시</p>
             </button>
           </div>
         </div>
