@@ -169,9 +169,64 @@ for await (const chunk of stream) {
 
 ## 3. Go — OpenAI SDK
 
+### 방법 A: 공식 SDK (추천)
+
+> `go get github.com/openai/openai-go`
+
+공식 OpenAI Go SDK는 `option.WithHeader()`로 커스텀 헤더를 직접 지원합니다.
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/openai/openai-go"
+    "github.com/openai/openai-go/option"
+)
+
+func main() {
+    client := openai.NewClient(
+        option.WithBaseURL("http://a2g.samsungds.net:8090/v1"),
+        option.WithAPIKey("not-used"),
+        option.WithHeader("x-service-id", "my-chatbot"),
+        option.WithHeader("x-user-id", "hong.gildong"),
+        option.WithHeader("x-dept-name", "SW혁신팀(S.LSI)"),
+    )
+
+    response, err := client.Chat.Completions.New(
+        context.Background(),
+        openai.ChatCompletionNewParams{
+            Model: "gpt-4o",
+            Messages: []openai.ChatCompletionMessageParamUnion{
+                openai.UserMessage("안녕하세요"),
+            },
+        },
+    )
+    if err != nil {
+        fmt.Printf("Error: %v\n", err)
+        return
+    }
+    fmt.Println(response.Choices[0].Message.Content)
+}
+```
+
+요청별 헤더 오버라이드도 가능합니다:
+
+```go
+response, err := client.Chat.Completions.New(
+    context.Background(),
+    params,
+    option.WithHeader("x-user-id", "kim.minsu"),  // 이 요청만 다른 사용자
+)
+```
+
+### 방법 B: 커뮤니티 SDK (sashabaranov)
+
 > `go get github.com/sashabaranov/go-openai`
 
-Go SDK는 `default_headers` 파라미터를 직접 지원하지 않으므로, **커스텀 HTTP Transport**를 사용합니다.
+이 라이브러리는 `default_headers` 파라미터를 직접 지원하지 않으므로, **커스텀 HTTP Transport**를 사용합니다.
 
 ```go
 package main
@@ -546,7 +601,8 @@ agent.print_response("최신 AI 뉴스를 검색해주세요.")
 |-----------|------|--------------|-------------|
 | **OpenAI SDK** | Python | `default_headers` / `extra_headers` | `OpenAI(base_url=..., default_headers=...)` |
 | **OpenAI SDK** | JS/TS | `defaultHeaders` | `new OpenAI({ baseURL, defaultHeaders })` |
-| **OpenAI SDK** | Go | 커스텀 Transport | `config.HTTPClient = &http.Client{Transport: ...}` |
+| **OpenAI SDK (공식)** | Go | `option.WithHeader()` | `openai.NewClient(option.WithHeader("key","val"))` |
+| **OpenAI SDK (커뮤니티)** | Go | 커스텀 Transport | `config.HTTPClient = &http.Client{Transport: ...}` |
 | **LangChain** | Python | `default_headers` | `ChatOpenAI(base_url=..., default_headers=...)` |
 | **LangChain** | JS/TS | `configuration.defaultHeaders` | `new ChatOpenAI({ configuration: { defaultHeaders } })` |
 | **LangGraph** | Python | LangChain과 동일 | `ChatOpenAI(default_headers=...)` |
