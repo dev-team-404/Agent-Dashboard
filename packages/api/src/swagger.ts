@@ -16,6 +16,372 @@ export const swaggerSpec = {
   },
   servers: [{ url: '/api/public', description: 'Public API' }],
   paths: {
+    // ─── /services ─────────────────────────────────────
+    '/stats/services': {
+      get: {
+        summary: '전체 서비스 ID 목록',
+        description:
+          '등록된 모든 서비스의 ID, 이름, 표시명, 타입, 활성 상태를 반환합니다.',
+        tags: ['서비스'],
+        responses: {
+          '200': {
+            description: '서비스 목록',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          serviceId: {
+                            type: 'string',
+                            format: 'uuid',
+                            example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                            description: '서비스 UUID',
+                          },
+                          name: {
+                            type: 'string',
+                            example: 'nexus-coder',
+                            description: '서비스 시스템명',
+                          },
+                          displayName: {
+                            type: 'string',
+                            example: 'Nexus Coder',
+                            description: '서비스 표시명',
+                          },
+                          type: {
+                            type: 'string',
+                            enum: ['STANDARD', 'BACKGROUND'],
+                            example: 'STANDARD',
+                            description: '서비스 타입',
+                          },
+                          enabled: {
+                            type: 'boolean',
+                            example: true,
+                            description: '활성 상태',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  data: [
+                    {
+                      serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                      name: 'nexus-coder',
+                      displayName: 'Nexus Coder',
+                      type: 'STANDARD',
+                      enabled: true,
+                    },
+                    {
+                      serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+                      name: 'background-agent',
+                      displayName: 'Background Agent',
+                      type: 'BACKGROUND',
+                      enabled: true,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '500': {
+            description: '서버 내부 오류',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { error: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ─── /stats/team-usage ─────────────────────────────
+    '/stats/team-usage': {
+      get: {
+        summary: '특정 서비스의 팀별 사용량',
+        description:
+          '지정된 서비스의 기간 내 팀(부서)별 토큰 사용량과 API 호출 수를 반환합니다.',
+        tags: ['팀별 사용량'],
+        parameters: [
+          {
+            name: 'startDate',
+            in: 'query',
+            required: true,
+            description: '조회 시작일 (YYYY-MM-DD)',
+            schema: { type: 'string', format: 'date', example: '2025-01-01' },
+          },
+          {
+            name: 'endDate',
+            in: 'query',
+            required: true,
+            description: '조회 종료일 (YYYY-MM-DD)',
+            schema: { type: 'string', format: 'date', example: '2025-01-31' },
+          },
+          {
+            name: 'serviceId',
+            in: 'query',
+            required: true,
+            description: '서비스 ID (UUID). /stats/services에서 조회 가능',
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: '팀별 사용량 목록',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          deptname: {
+                            type: 'string',
+                            example: 'SW혁신팀(S.LSI)',
+                            description: '부서명',
+                          },
+                          businessUnit: {
+                            type: 'string',
+                            example: 'S.LSI',
+                            description: '사업부',
+                          },
+                          totalInputTokens: {
+                            type: 'integer',
+                            example: 1200000,
+                            description: '총 입력 토큰',
+                          },
+                          totalOutputTokens: {
+                            type: 'integer',
+                            example: 600000,
+                            description: '총 출력 토큰',
+                          },
+                          totalTokens: {
+                            type: 'integer',
+                            example: 1800000,
+                            description: '총 토큰 (입력 + 출력)',
+                          },
+                          requestCount: {
+                            type: 'integer',
+                            example: 3200,
+                            description: 'API 호출 수',
+                          },
+                          uniqueUsers: {
+                            type: 'integer',
+                            example: 15,
+                            description: '고유 사용자 수',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  data: [
+                    {
+                      deptname: 'SW혁신팀(S.LSI)',
+                      businessUnit: 'S.LSI',
+                      totalInputTokens: 1200000,
+                      totalOutputTokens: 600000,
+                      totalTokens: 1800000,
+                      requestCount: 3200,
+                      uniqueUsers: 15,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '400': {
+            description: '잘못된 요청 (날짜 형식 오류, serviceId 누락 등)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { error: { type: 'string' } },
+                },
+                example: {
+                  error: 'serviceId는 필수 파라미터입니다.',
+                },
+              },
+            },
+          },
+          '500': {
+            description: '서버 내부 오류',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { error: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ─── /stats/team-usage-all ──────────────────────────
+    '/stats/team-usage-all': {
+      get: {
+        summary: '전체 서비스 팀별 사용량',
+        description:
+          '모든 서비스에 대해 팀(부서) × 서비스 별 토큰 사용량과 API 호출 수를 반환합니다.',
+        tags: ['팀별 사용량'],
+        parameters: [
+          {
+            name: 'startDate',
+            in: 'query',
+            required: true,
+            description: '조회 시작일 (YYYY-MM-DD)',
+            schema: { type: 'string', format: 'date', example: '2025-01-01' },
+          },
+          {
+            name: 'endDate',
+            in: 'query',
+            required: true,
+            description: '조회 종료일 (YYYY-MM-DD)',
+            schema: { type: 'string', format: 'date', example: '2025-01-31' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: '팀 × 서비스 사용량 목록',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          deptname: {
+                            type: 'string',
+                            example: 'SW혁신팀(S.LSI)',
+                            description: '부서명',
+                          },
+                          businessUnit: {
+                            type: 'string',
+                            example: 'S.LSI',
+                            description: '사업부',
+                          },
+                          serviceId: {
+                            type: 'string',
+                            nullable: true,
+                            format: 'uuid',
+                            example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                            description: '서비스 ID',
+                          },
+                          serviceName: {
+                            type: 'string',
+                            example: 'nexus-coder',
+                            description: '서비스 시스템명',
+                          },
+                          serviceDisplayName: {
+                            type: 'string',
+                            example: 'Nexus Coder',
+                            description: '서비스 표시명',
+                          },
+                          totalInputTokens: {
+                            type: 'integer',
+                            example: 1200000,
+                            description: '총 입력 토큰',
+                          },
+                          totalOutputTokens: {
+                            type: 'integer',
+                            example: 600000,
+                            description: '총 출력 토큰',
+                          },
+                          totalTokens: {
+                            type: 'integer',
+                            example: 1800000,
+                            description: '총 토큰 (입력 + 출력)',
+                          },
+                          requestCount: {
+                            type: 'integer',
+                            example: 3200,
+                            description: 'API 호출 수',
+                          },
+                          uniqueUsers: {
+                            type: 'integer',
+                            example: 15,
+                            description: '고유 사용자 수',
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  data: [
+                    {
+                      deptname: 'SW혁신팀(S.LSI)',
+                      businessUnit: 'S.LSI',
+                      serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                      serviceName: 'nexus-coder',
+                      serviceDisplayName: 'Nexus Coder',
+                      totalInputTokens: 1200000,
+                      totalOutputTokens: 600000,
+                      totalTokens: 1800000,
+                      requestCount: 3200,
+                      uniqueUsers: 15,
+                    },
+                    {
+                      deptname: 'SW혁신팀(S.LSI)',
+                      businessUnit: 'S.LSI',
+                      serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+                      serviceName: 'background-agent',
+                      serviceDisplayName: 'Background Agent',
+                      totalInputTokens: 500000,
+                      totalOutputTokens: 200000,
+                      totalTokens: 700000,
+                      requestCount: 1500,
+                      uniqueUsers: 8,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '400': {
+            description: '잘못된 요청',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { error: { type: 'string' } },
+                },
+              },
+            },
+          },
+          '500': {
+            description: '서버 내부 오류',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { error: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
     // ─── /stats/service-usage ──────────────────────────
     '/stats/service-usage': {
       get: {

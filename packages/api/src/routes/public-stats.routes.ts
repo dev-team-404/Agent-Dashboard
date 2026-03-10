@@ -81,6 +81,193 @@ function extractBusinessUnit(deptname: string): string {
   return parts[0]?.trim() || '';
 }
 
+// ─── GET /services ──────────────────────────────────────────
+
+/**
+ * 전체 서비스 ID 목록
+ */
+publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
+  try {
+    const services = await prisma.service.findMany({
+      select: {
+        id: true,
+        name: true,
+        displayName: true,
+        type: true,
+        enabled: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    res.json({
+      data: services.map((s) => ({
+        serviceId: s.id,
+        name: s.name,
+        displayName: s.displayName,
+        type: s.type,
+        enabled: s.enabled,
+      })),
+    });
+  } catch (err) {
+    console.error('Public stats services error:', err);
+    res.status(500).json({ error: '서비스 목록 조회에 실패했습니다.' });
+  }
+});
+
+// ─── GET /team-usage ────────────────────────────────────────
+
+/**
+ * 특정 서비스의 팀별 사용량 (토큰 + API 호출 수)
+ */
+publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, error } = parseDateRange(req.query);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+
+    const serviceId = req.query['serviceId'] as string | undefined;
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId는 필수 파라미터입니다.' });
+      return;
+    }
+
+    const stats = await prisma.dailyUsageStat.groupBy({
+      by: ['deptname'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+        serviceId,
+      },
+      _sum: {
+        totalInputTokens: true,
+        totalOutputTokens: true,
+        requestCount: true,
+      },
+      orderBy: { deptname: 'asc' },
+    });
+
+    // Unique users per dept
+    const uniqueUserRows = await prisma.dailyUsageStat.groupBy({
+      by: ['deptname', 'userId'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+        serviceId,
+        userId: { not: null },
+      },
+    });
+    const deptUserMap = new Map<string, Set<string>>();
+    for (const row of uniqueUserRows) {
+      if (!deptUserMap.has(row.deptname)) {
+        deptUserMap.set(row.deptname, new Set());
+      }
+      if (row.userId) {
+        deptUserMap.get(row.deptname)!.add(row.userId);
+      }
+    }
+
+    const data = stats.map((s) => {
+      const inputTokens = s._sum.totalInputTokens ?? 0;
+      const outputTokens = s._sum.totalOutputTokens ?? 0;
+      return {
+        deptname: s.deptname,
+        businessUnit: extractBusinessUnit(s.deptname),
+        totalInputTokens: inputTokens,
+        totalOutputTokens: outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        requestCount: s._sum.requestCount ?? 0,
+        uniqueUsers: deptUserMap.get(s.deptname)?.size ?? 0,
+      };
+    });
+
+    res.json({ data });
+  } catch (err) {
+    console.error('Public stats team-usage error:', err);
+    res.status(500).json({ error: '팀별 사용량 조회에 실패했습니다.' });
+  }
+});
+
+// ─── GET /team-usage-all ────────────────────────────────────
+
+/**
+ * 모든 서비스에 대해 팀별 사용량 (토큰 + API 호출 수)
+ */
+publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate, error } = parseDateRange(req.query);
+    if (error) {
+      res.status(400).json({ error });
+      return;
+    }
+
+    const stats = await prisma.dailyUsageStat.groupBy({
+      by: ['deptname', 'serviceId'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+      },
+      _sum: {
+        totalInputTokens: true,
+        totalOutputTokens: true,
+        requestCount: true,
+      },
+      orderBy: [{ deptname: 'asc' }],
+    });
+
+    // Fetch service names
+    const serviceIds = [
+      ...new Set(stats.map((s) => s.serviceId).filter(Boolean)),
+    ] as string[];
+    const services = await prisma.service.findMany({
+      where: { id: { in: serviceIds } },
+      select: { id: true, name: true, displayName: true },
+    });
+    const serviceMap = new Map(services.map((s) => [s.id, s]));
+
+    // Unique users per dept+service
+    const uniqueUserRows = await prisma.dailyUsageStat.groupBy({
+      by: ['deptname', 'serviceId', 'userId'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+        userId: { not: null },
+      },
+    });
+    const deptSvcUserMap = new Map<string, Set<string>>();
+    for (const row of uniqueUserRows) {
+      const key = `${row.deptname}|${row.serviceId ?? ''}`;
+      if (!deptSvcUserMap.has(key)) {
+        deptSvcUserMap.set(key, new Set());
+      }
+      if (row.userId) {
+        deptSvcUserMap.get(key)!.add(row.userId);
+      }
+    }
+
+    const data = stats.map((s) => {
+      const svc = s.serviceId ? serviceMap.get(s.serviceId) : null;
+      const inputTokens = s._sum.totalInputTokens ?? 0;
+      const outputTokens = s._sum.totalOutputTokens ?? 0;
+      const key = `${s.deptname}|${s.serviceId ?? ''}`;
+      return {
+        deptname: s.deptname,
+        businessUnit: extractBusinessUnit(s.deptname),
+        serviceId: s.serviceId || null,
+        serviceName: svc?.name || 'unknown',
+        serviceDisplayName: svc?.displayName || 'Unknown',
+        totalInputTokens: inputTokens,
+        totalOutputTokens: outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        requestCount: s._sum.requestCount ?? 0,
+        uniqueUsers: deptSvcUserMap.get(key)?.size ?? 0,
+      };
+    });
+
+    res.json({ data });
+  } catch (err) {
+    console.error('Public stats team-usage-all error:', err);
+    res.status(500).json({ error: '전체 팀별 사용량 조회에 실패했습니다.' });
+  }
+});
+
 // ─── GET /service-usage ─────────────────────────────────────
 
 /**
