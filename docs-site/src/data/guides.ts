@@ -61,6 +61,7 @@ export const guideSections: GuideSection[] = [
     gradient: 'from-emerald-500 to-teal-400',
     items: [
       { path: '/api/authentication', label: 'API 인증', description: '헤더 기반 인증 방법' },
+      { path: '/api/framework-integration', label: '프레임워크별 연동', description: 'Python/JS/Go + LangChain, ADK, Agno 등' },
       { path: '/api/chat-completions', label: 'Chat Completions API', description: 'POST /v1/chat/completions' },
       { path: '/api/models', label: 'Models API', description: 'GET /v1/models' },
       { path: '/api/service-registration', label: '서비스 등록 가이드', description: 'Dashboard에서 서비스 등록하기' },

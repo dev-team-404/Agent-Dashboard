@@ -28,6 +28,7 @@ function guideContentPath(path: string): string {
     '/user/getting-started': 'user/getting-started.md',
     '/user/my-usage': 'user/my-usage.md',
     '/api/authentication': 'api/authentication.md',
+    '/api/framework-integration': 'api/framework-integration.md',
     '/api/chat-completions': 'api/chat-completions.md',
     '/api/models': 'api/models.md',
     '/api/service-registration': 'api/service-registration.md',
@@ -79,6 +80,7 @@ export default function App() {
 
         {/* API Guide */}
         <Route path="/api/authentication" element={<DocRoute sectionTitle="API Guide" path="/api/authentication" />} />
+        <Route path="/api/framework-integration" element={<DocRoute sectionTitle="API Guide" path="/api/framework-integration" />} />
         <Route path="/api/chat-completions" element={<DocRoute sectionTitle="API Guide" path="/api/chat-completions" />} />
         <Route path="/api/models" element={<DocRoute sectionTitle="API Guide" path="/api/models" />} />
         <Route path="/api/service-registration" element={<DocRoute sectionTitle="API Guide" path="/api/service-registration" />} />
