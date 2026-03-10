@@ -64,6 +64,7 @@ serviceRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async 
         type: true,
         registeredBy: true,
         registeredByDept: true,
+        registeredByBusinessUnit: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { usageLogs: true } },
@@ -134,6 +135,10 @@ serviceRoutes.get('/names', authenticateToken, async (_req: AuthenticatedRequest
         iconUrl: true,
         docsUrl: true,
         type: true,
+        registeredBy: true,
+        registeredByDept: true,
+        registeredByBusinessUnit: true,
+        createdAt: true,
       },
     });
     res.json({ services });

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Users, Activity, Zap, Building2, TrendingUp, Server,
   Plus, X, Clock, Trash2, BarChart3, Layers, Settings, Eye,
-  Edit2,
+  Edit2, User, Calendar,
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -28,6 +28,10 @@ interface Service {
   docsUrl?: string;
   type?: string;
   enabled: boolean;
+  registeredBy?: string;
+  registeredByDept?: string;
+  registeredByBusinessUnit?: string;
+  createdAt?: string;
   _count: {
     usageLogs: number;
   };
@@ -795,6 +799,29 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
                       <p className="text-xs text-pastel-300 mt-1">x-service-id: {service.serviceName}</p>
                     </div>
                   )}
+
+                  {/* Registration info */}
+                  <div className="space-y-1 mb-3 py-2.5 px-3 bg-gray-50/80 rounded-lg text-xs">
+                    <div className="flex items-center gap-2 text-pastel-500">
+                      <User className="w-3 h-3 text-pastel-400 flex-shrink-0" />
+                      <span className="font-medium text-pastel-600">{service.registeredBy || '알 수 없음'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-pastel-500">
+                      <Building2 className="w-3 h-3 text-pastel-400 flex-shrink-0" />
+                      <span className="truncate">
+                        {service.registeredByDept || '부서 미상'}
+                        {service.registeredByBusinessUnit && (
+                          <span className="text-pastel-400"> / {service.registeredByBusinessUnit}</span>
+                        )}
+                      </span>
+                    </div>
+                    {service.createdAt && (
+                      <div className="flex items-center gap-2 text-pastel-400">
+                        <Calendar className="w-3 h-3 flex-shrink-0" />
+                        <span>{new Date(service.createdAt).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\. /g, '.').replace(/\.$/, '')} 등록</span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-2 pt-3 border-t border-pastel-100">
