@@ -205,11 +205,14 @@ export async function requireSuperAdmin(req: AuthenticatedRequest, res: Response
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
  */
 export function isModelVisibleTo(
-  model: { visibility: string; visibilityScope: string[] },
+  model: { visibility: string; visibilityScope: string[]; adminVisible?: boolean },
   userDept: string,
   userBU: string,
   isAdmin: boolean
 ): boolean {
+  // adminVisible: true → 모든 관리자(ADMIN + SUPER_ADMIN) 접근 허용 (scope 무관)
+  if (model.adminVisible === true && isAdmin) return true;
+
   switch (model.visibility) {
     case 'PUBLIC':
       return true;

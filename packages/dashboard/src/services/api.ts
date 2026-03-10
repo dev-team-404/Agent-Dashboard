@@ -108,11 +108,24 @@ export const usersApi = {
     api.put(`/admin/users/${userId}/rate-limit`, data),
   deleteRateLimit: (userId: string, serviceId: string) =>
     api.delete(`/admin/users/${userId}/rate-limit`, { params: { serviceId } }),
+  // User deletion
+  deleteUser: (userId: string) =>
+    api.delete(`/admin/users/${userId}`),
 };
 
 export const rateLimitApi = {
   listByService: (serviceId: string) =>
     api.get('/admin/rate-limits', { params: { serviceId } }),
+};
+
+// Service Rate Limit (공통)
+export const serviceRateLimitApi = {
+  get: (serviceId: string) =>
+    api.get('/admin/service-rate-limit', { params: { serviceId } }),
+  set: (data: { serviceId: string; maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled?: boolean }) =>
+    api.put('/admin/service-rate-limit', data),
+  remove: (serviceId: string) =>
+    api.delete('/admin/service-rate-limit', { params: { serviceId } }),
 };
 
 export const statsApi = {

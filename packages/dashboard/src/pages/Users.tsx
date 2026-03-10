@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck, Gauge, X, Infinity } from 'lucide-react';
-import { usersApi, serviceApi, rateLimitApi } from '../services/api';
+import { usersApi, serviceApi, rateLimitApi, serviceRateLimitApi } from '../services/api';
 
 /**
  * URL 인코딩된 사용자 이름을 디코딩
@@ -81,6 +81,16 @@ export default function Users({ serviceId }: UsersProps) {
   });
   const [savingRateLimit, setSavingRateLimit] = useState(false);
 
+  // Service common rate limit state
+  const [serviceRateLimit, setServiceRateLimit] = useState<{ maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null>(null);
+  const [showServiceRateLimitModal, setShowServiceRateLimitModal] = useState(false);
+  const [serviceRateLimitForm, setServiceRateLimitForm] = useState({
+    maxTokens: 1000000,
+    window: 'DAY' as 'FIVE_HOURS' | 'DAY',
+    enabled: true,
+  });
+  const [savingServiceRateLimit, setSavingServiceRateLimit] = useState(false);
+
   useEffect(() => {
     loadData(1);
   }, [serviceId]);
@@ -108,11 +118,13 @@ export default function Users({ serviceId }: UsersProps) {
 
       // Load service info and rate limits if serviceId is provided
       if (serviceId) {
-        const [serviceRes, rateLimitRes] = await Promise.all([
+        const [serviceRes, rateLimitRes, srlRes] = await Promise.all([
           serviceApi.get(serviceId),
           rateLimitApi.listByService(serviceId).catch(() => ({ data: { rateLimits: [] } })),
+          serviceRateLimitApi.get(serviceId).catch(() => ({ data: { rateLimit: null } })),
         ]);
         setServiceInfo(serviceRes.data.service);
+        setServiceRateLimit(srlRes.data.rateLimit);
 
         const rlMap: Record<string, RateLimitData> = {};
         for (const rl of rateLimitRes.data.rateLimits) {
@@ -122,6 +134,7 @@ export default function Users({ serviceId }: UsersProps) {
       } else {
         setServiceInfo(null);
         setRateLimits({});
+        setServiceRateLimit(null);
       }
     } catch (error) {
       console.error('Failed to load users:', error);
@@ -226,6 +239,41 @@ export default function Users({ serviceId }: UsersProps) {
     }
   };
 
+  // Service common rate limit handlers
+  const handleSaveServiceRateLimit = async () => {
+    if (!serviceId) return;
+    setSavingServiceRateLimit(true);
+    try {
+      await serviceRateLimitApi.set({
+        serviceId,
+        maxTokens: serviceRateLimitForm.maxTokens,
+        window: serviceRateLimitForm.window,
+        enabled: serviceRateLimitForm.enabled,
+      });
+      setShowServiceRateLimitModal(false);
+      loadData(pagination.page);
+    } catch {
+      alert('서비스 공통 Rate Limit 설정에 실패했습니다.');
+    } finally {
+      setSavingServiceRateLimit(false);
+    }
+  };
+
+  const handleDeleteServiceRateLimit = async () => {
+    if (!serviceId) return;
+    setSavingServiceRateLimit(true);
+    try {
+      await serviceRateLimitApi.remove(serviceId);
+      setShowServiceRateLimitModal(false);
+      setServiceRateLimit(null);
+      loadData(pagination.page);
+    } catch {
+      alert('서비스 공통 Rate Limit 삭제에 실패했습니다.');
+    } finally {
+      setSavingServiceRateLimit(false);
+    }
+  };
+
   const formatTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
@@ -246,12 +294,34 @@ export default function Users({ serviceId }: UsersProps) {
 
   return (
     <div className="animate-fade-in">
-      {/* Service Info Banner */}
+      {/* Service Info Banner + Common Rate Limit */}
       {serviceInfo && (
         <div className="bg-white border border-gray-200 rounded-lg mb-8">
-          <div className="px-8 py-7">
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{serviceInfo.displayName} - 사용자 관리</h1>
-            <p className="text-gray-500 text-sm mt-1.5 font-medium">서비스 ID: {serviceInfo.name}</p>
+          <div className="px-8 py-7 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{serviceInfo.displayName} - 사용자 관리</h1>
+              <p className="text-gray-500 text-sm mt-1.5 font-medium">서비스 ID: {serviceInfo.name}</p>
+            </div>
+            <button
+              onClick={() => {
+                if (serviceRateLimit) {
+                  setServiceRateLimitForm({
+                    maxTokens: serviceRateLimit.maxTokens,
+                    window: serviceRateLimit.window,
+                    enabled: serviceRateLimit.enabled,
+                  });
+                } else {
+                  setServiceRateLimitForm({ maxTokens: 1000000, window: 'DAY', enabled: true });
+                }
+                setShowServiceRateLimitModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+            >
+              <Gauge className="w-4 h-4" />
+              공통 제한: {serviceRateLimit && serviceRateLimit.enabled
+                ? `${formatTokens(serviceRateLimit.maxTokens)} / ${serviceRateLimit.window === 'FIVE_HOURS' ? '5h' : 'day'}`
+                : '무제한'}
+            </button>
           </div>
         </div>
       )}
@@ -528,6 +598,112 @@ export default function Users({ serviceId }: UsersProps) {
               >
                 {savingRateLimit ? '저장 중...' : '저장'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Common Rate Limit Modal */}
+      {showServiceRateLimitModal && serviceId && (
+        <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50" onClick={() => setShowServiceRateLimitModal(false)}>
+          <div className="bg-white rounded-xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <Gauge className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">서비스 공통 Rate Limit</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">개별 설정이 없는 모든 사용자에게 적용</p>
+                </div>
+              </div>
+              <button onClick={() => setShowServiceRateLimitModal(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {/* Window */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">시간 윈도우</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['FIVE_HOURS', 'DAY'] as const).map((w) => (
+                    <button
+                      key={w}
+                      onClick={() => setServiceRateLimitForm(f => ({ ...f, window: w }))}
+                      className={`py-2.5 text-sm font-medium rounded-lg border transition-all ${
+                        serviceRateLimitForm.window === w
+                          ? 'bg-blue-50 border-blue-200 text-blue-700'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {w === 'FIVE_HOURS' ? '5시간' : '24시간'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Max Tokens */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">인당 최대 토큰</label>
+                <input
+                  type="number"
+                  value={serviceRateLimitForm.maxTokens}
+                  onChange={(e) => setServiceRateLimitForm(f => ({ ...f, maxTokens: Math.max(1, parseInt(e.target.value) || 0) }))}
+                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+                <div className="flex gap-2 mt-2">
+                  {[100000, 500000, 1000000, 5000000].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setServiceRateLimitForm(f => ({ ...f, maxTokens: v }))}
+                      className="px-2.5 py-1 text-xs font-medium rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+                    >
+                      {formatTokens(v)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enabled */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">활성화</span>
+                <button
+                  onClick={() => setServiceRateLimitForm(f => ({ ...f, enabled: !f.enabled }))}
+                  className={`w-10 h-6 rounded-full transition-colors ${serviceRateLimitForm.enabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                >
+                  <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform mx-1 ${serviceRateLimitForm.enabled ? 'translate-x-4' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+              <div>
+                {serviceRateLimit && (
+                  <button
+                    onClick={handleDeleteServiceRateLimit}
+                    disabled={savingServiceRateLimit}
+                    className="text-sm font-medium text-red-500 hover:text-red-600"
+                  >
+                    제한 해제
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowServiceRateLimitModal(false)}
+                  className="px-5 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 rounded-lg"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleSaveServiceRateLimit}
+                  disabled={savingServiceRateLimit || serviceRateLimitForm.maxTokens < 1}
+                  className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
+                >
+                  {savingServiceRateLimit ? '저장 중...' : '저장'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

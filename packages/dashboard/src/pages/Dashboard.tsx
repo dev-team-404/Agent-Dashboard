@@ -8,6 +8,7 @@ import UserStatsChart from '../components/Charts/UserStatsChart';
 import ModelUsageChart from '../components/Charts/ModelUsageChart';
 import UsersByModelChart from '../components/Charts/UsersByModelChart';
 import ModelRatingChart from '../components/Charts/ModelRatingChart';
+import UsageAnalytics from '../components/Charts/UsageAnalytics';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
 } from 'recharts';
@@ -529,6 +530,11 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           <UsersByModelChart serviceId={serviceId} />
         </div>
       </div>
+
+      {/* ════════ Usage Analytics (Admin Only) ════════ */}
+      {adminRole && (
+        <UsageAnalytics serviceId={serviceId} />
+      )}
     </div>
   );
 }

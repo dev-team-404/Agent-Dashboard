@@ -38,6 +38,7 @@ model Service {
   ratingFeedbacks RatingFeedback[]
   userServices    UserService[]
   rateLimits      UserRateLimit[]
+  serviceRateLimit ServiceRateLimit?
 
   @@map("services")
 }
@@ -125,10 +126,12 @@ model Model {
   // Vision Language Model 지원 여부
   supportsVision Boolean @default(false) @map("supports_vision")
 
-  // 공개 범위 (4단계)
+  // 공개 범위
   visibility      LlmVisibility @default(PUBLIC)
   visibilityScope String[]      @default([]) @map("visibility_scope")
   // PUBLIC: [] (전체), BUSINESS_UNIT: ["S.LSI","DS"], TEAM: ["SW혁신팀(S.LSI)"], ADMIN_ONLY: []
+  adminVisible    Boolean       @default(false) @map("admin_visible")
+  // true: 팀/사업부 공개와 별도로 모든 관리자(ADMIN+SUPER_ADMIN)도 접근 가능
 
   // 등록한 admin 정보 (수정/삭제 권한 판단용)
   createdByDept         String? @map("created_by_dept")
@@ -205,7 +208,7 @@ model UsageLog {
   serviceId String? @map("service_id")
   service   Service? @relation(fields: [serviceId], references: [id])
 
-  user  User?  @relation(fields: [userId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   model Model @relation(fields: [modelId], references: [id])
 
   @@index([userId])
@@ -233,7 +236,7 @@ model DailyUsageStat {
   serviceId String?  @map("service_id")
   service   Service? @relation(fields: [serviceId], references: [id])
 
-  user  User?  @relation(fields: [userId], references: [id])
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
   model Model @relation(fields: [modelId], references: [id])
 
   @@unique([date, userId, modelId, serviceId])
@@ -291,6 +294,24 @@ model UserRateLimit {
   @@index([userId])
   @@index([serviceId])
   @@map("user_rate_limits")
+}
+
+// ============================================
+// 서비스 공통 Rate Limit (모든 사용자에게 동일 적용)
+// ============================================
+model ServiceRateLimit {
+  id         String          @id @default(uuid())
+  serviceId  String          @unique @map("service_id")
+  maxTokens  Int             @map("max_tokens")       // 윈도우 내 인당 최대 토큰
+  window     RateLimitWindow @default(DAY)
+  enabled    Boolean         @default(true)
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+  createdBy  String?         @map("created_by")       // 설정한 admin loginid
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("service_rate_limits")
 }
 
 // ============================================

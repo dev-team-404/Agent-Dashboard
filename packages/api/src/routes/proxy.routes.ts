@@ -161,11 +161,25 @@ async function checkRateLimit(
 ): Promise<{ status: 429; body: Record<string, unknown> } | null> {
   if (!user) return null;
 
-  const rateLimit = await prisma.userRateLimit.findUnique({
+  // 1) 개별 사용자 rate limit 우선 확인
+  const userLimit = await prisma.userRateLimit.findUnique({
     where: { userId_serviceId: { userId: user.id, serviceId } },
   });
 
-  if (!rateLimit || !rateLimit.enabled) return null;
+  // 2) 개별 설정이 없으면 서비스 공통 rate limit 적용
+  let effectiveLimit: { maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null = null;
+  if (userLimit) {
+    effectiveLimit = userLimit;
+  } else {
+    const serviceLimit = await prisma.serviceRateLimit.findUnique({
+      where: { serviceId },
+    });
+    if (serviceLimit) effectiveLimit = serviceLimit;
+  }
+
+  if (!effectiveLimit || !effectiveLimit.enabled) return null;
+
+  const rateLimit = effectiveLimit;
 
   const windowMs = rateLimit.window === 'FIVE_HOURS' ? 5 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   const windowStart = new Date(Date.now() - windowMs);
@@ -290,6 +304,7 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
         supportsVision: true,
         visibility: true,
         visibilityScope: true,
+        adminVisible: true,
       },
       orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
@@ -336,6 +351,7 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
         supportsVision: true,
         visibility: true,
         visibilityScope: true,
+        adminVisible: true,
       },
     });
 

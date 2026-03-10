@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X } from 'lucide-react';
-import { unifiedUsersApi } from '../services/api';
+import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle } from 'lucide-react';
+import { unifiedUsersApi, usersApi } from '../services/api';
 
 interface ServiceStat {
   serviceId: string;
@@ -59,6 +59,11 @@ export default function UnifiedUsers() {
   const [editingUser, setEditingUser] = useState<UnifiedUser | null>(null);
   const [editIsAdmin, setEditIsAdmin] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Delete user modal
+  const [deletingUser, setDeletingUser] = useState<UnifiedUser | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   // Column resize state
   const [columnWidths, setColumnWidths] = useState({
@@ -138,6 +143,32 @@ export default function UnifiedUsers() {
       alert('권한 변경에 실패했습니다.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openDeleteModal = (user: UnifiedUser) => {
+    setDeletingUser(user);
+    setDeleteConfirmInput('');
+  };
+
+  const closeDeleteModal = () => {
+    setDeletingUser(null);
+    setDeleteConfirmInput('');
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser || deleteConfirmInput !== deletingUser.loginid) return;
+
+    try {
+      setDeleting(true);
+      await usersApi.deleteUser(deletingUser.id);
+      closeDeleteModal();
+      loadUsers();
+    } catch (error) {
+      console.error('Failed to delete user:', error);
+      alert('사용자 삭제에 실패했습니다.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -539,12 +570,21 @@ export default function UnifiedUsers() {
                     </td>
                     <td className="px-5 py-4 text-right">
                       {user.globalRole !== 'SUPER_ADMIN' && (
-                        <button
-                          onClick={() => openEditModal(user)}
-                          className="px-3.5 py-1.5 text-xs font-semibold bg-pastel-50 text-pastel-600 hover:bg-samsung-blue hover:text-white rounded-xl border border-pastel-200/60 hover:border-transparent transition-all duration-200 shadow-sm hover:shadow-depth"
-                        >
-                          권한 변경
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => openEditModal(user)}
+                            className="px-3.5 py-1.5 text-xs font-semibold bg-pastel-50 text-pastel-600 hover:bg-samsung-blue hover:text-white rounded-xl border border-pastel-200/60 hover:border-transparent transition-all duration-200 shadow-sm hover:shadow-depth"
+                          >
+                            권한 변경
+                          </button>
+                          <button
+                            onClick={() => openDeleteModal(user)}
+                            className="p-1.5 text-pastel-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200/60 transition-all duration-200"
+                            title="사용자 삭제"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -586,6 +626,70 @@ export default function UnifiedUsers() {
           </div>
         )}
       </div>
+
+      {/* Delete User Confirmation Modal */}
+      {deletingUser && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full shadow-modal animate-scale-in">
+            <div className="p-6 border-b border-gray-100/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-red-50">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-pastel-800">사용자 삭제</h2>
+                  <p className="text-sm text-pastel-500">{deletingUser.username} ({deletingUser.loginid})</p>
+                </div>
+              </div>
+              <button
+                onClick={closeDeleteModal}
+                className="p-2 text-pastel-400 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="p-4 rounded-xl bg-red-50 border border-red-200/60 mb-5">
+                <p className="text-sm text-red-700 font-medium leading-relaxed">
+                  이 사용자의 <span className="font-bold">모든 기록</span>(사용 로그, 통계, 토큰 제한 설정)이
+                  영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">
+                  확인을 위해 <span className="text-red-600 font-bold">{deletingUser.loginid}</span>를 입력하세요
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmInput}
+                  onChange={e => setDeleteConfirmInput(e.target.value)}
+                  placeholder={deletingUser.loginid}
+                  className="w-full px-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-300 focus:outline-none focus:ring-2 focus:ring-red-500/15 focus:border-red-300 transition-all duration-200"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-100/80 flex justify-end gap-3">
+              <button
+                onClick={closeDeleteModal}
+                className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={deleting || deleteConfirmInput !== deletingUser.loginid}
+                className="px-6 py-2.5 text-sm font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? '삭제 중...' : '삭제'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Permission Modal - Simplified: toggle ADMIN on/off */}
       {editingUser && (

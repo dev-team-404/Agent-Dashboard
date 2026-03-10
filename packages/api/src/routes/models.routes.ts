@@ -89,7 +89,7 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
   try {
     const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
             extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
-            type, imageProvider } = req.body;
+            type, imageProvider, adminVisible } = req.body;
 
     if (!name || !displayName || !endpointUrl) {
       res.status(400).json({ error: 'name, displayName, and endpointUrl are required' });
@@ -119,6 +119,7 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
         supportsVision: supportsVision || false,
         visibility: visibility || 'PUBLIC',
         visibilityScope: visibilityScope || [],
+        adminVisible: adminVisible || false,
         sortOrder: sortOrder || 0,
         type: type || 'CHAT',
         imageProvider: imageProvider || null,
@@ -166,7 +167,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
 
     const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
             extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
-            type, imageProvider } = req.body;
+            type, imageProvider, adminVisible } = req.body;
 
     // 이름 변경 시 중복 체크
     if (name && name !== model.name) {
@@ -194,6 +195,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
         ...(sortOrder !== undefined && { sortOrder }),
         ...(type !== undefined && { type }),
         ...(imageProvider !== undefined && { imageProvider }),
+        ...(adminVisible !== undefined && { adminVisible }),
       },
     });
 

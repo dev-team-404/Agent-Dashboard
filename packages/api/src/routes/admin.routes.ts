@@ -411,7 +411,7 @@ adminRoutes.get('/models', async (req: AuthenticatedRequest, res) => {
         // SUPER_ADMIN_ONLY models are only visible to super admins
         if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
         return isModelVisibleTo(
-          { visibility: m.visibility, visibilityScope: m.visibilityScope },
+          { visibility: m.visibility, visibilityScope: m.visibilityScope, adminVisible: m.adminVisible },
           req.adminDept || '',
           req.adminBusinessUnit || '',
           true
@@ -675,7 +675,7 @@ adminRoutes.get('/models/:modelId/sub-models', async (req: AuthenticatedRequest,
 
     const model = await prisma.model.findUnique({
       where: { id: modelId },
-      select: { id: true, visibility: true, visibilityScope: true },
+      select: { id: true, visibility: true, visibilityScope: true, adminVisible: true },
     });
 
     if (!model) {
@@ -686,7 +686,7 @@ adminRoutes.get('/models/:modelId/sub-models', async (req: AuthenticatedRequest,
     // Check visibility for non-super admins
     if (!req.isSuperAdmin) {
       if (!isModelVisibleTo(
-        { visibility: model.visibility, visibilityScope: model.visibilityScope },
+        { visibility: model.visibility, visibilityScope: model.visibilityScope, adminVisible: model.adminVisible },
         req.adminDept || '',
         req.adminBusinessUnit || '',
         true
@@ -3986,5 +3986,151 @@ adminRoutes.get('/scope/departments', async (_req: AuthenticatedRequest, res) =>
   } catch (error) {
     console.error('Failed to get departments:', error);
     res.status(500).json({ error: 'Failed to get departments' });
+  }
+});
+
+// ==================== User Deletion (Record Purge) ====================
+
+/**
+ * DELETE /admin/users/:id
+ * 사용자 기록 말소 (SUPER_ADMIN only)
+ * cascade로 UsageLog, DailyUsageStat, UserService, UserRateLimit 모두 삭제
+ */
+adminRoutes.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.isSuperAdmin) {
+      res.status(403).json({ error: '슈퍼관리자만 사용자를 삭제할 수 있습니다.' });
+      return;
+    }
+
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+      return;
+    }
+
+    // 슈퍼관리자 본인은 삭제 불가
+    if (user.loginid === req.user!.loginid) {
+      res.status(400).json({ error: '자기 자신은 삭제할 수 없습니다.' });
+      return;
+    }
+
+    // Admin 레코드도 삭제 (존재하면)
+    await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
+
+    // User 삭제 (cascade: UsageLog, DailyUsageStat, UserService, UserRateLimit)
+    await prisma.user.delete({ where: { id } });
+
+    console.log(`[User Delete] ${req.user!.loginid} deleted user ${user.loginid} (${user.username})`);
+    res.json({
+      success: true,
+      message: `사용자 ${user.username} (${user.loginid})의 모든 기록이 삭제되었습니다.`,
+      deletedUser: { id: user.id, loginid: user.loginid, username: user.username },
+    });
+  } catch (error) {
+    console.error('User deletion error:', error);
+    res.status(500).json({ error: '사용자 삭제에 실패했습니다.' });
+  }
+});
+
+// ==================== Service Rate Limit (공통) ====================
+
+/**
+ * GET /admin/service-rate-limit?serviceId=
+ * 서비스의 공통 rate limit 조회
+ */
+adminRoutes.get('/service-rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.query['serviceId'] as string;
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId is required' });
+      return;
+    }
+
+    const rateLimit = await prisma.serviceRateLimit.findUnique({
+      where: { serviceId },
+    });
+
+    res.json({ rateLimit: rateLimit || null });
+  } catch (error) {
+    console.error('Get service rate limit error:', error);
+    res.status(500).json({ error: 'Failed to get service rate limit' });
+  }
+});
+
+/**
+ * PUT /admin/service-rate-limit
+ * 서비스의 공통 rate limit 설정/수정
+ * Body: { serviceId, maxTokens, window: 'FIVE_HOURS' | 'DAY', enabled? }
+ * 이 제한은 개별 UserRateLimit이 없는 모든 사용자에게 적용됨
+ */
+adminRoutes.put('/service-rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { serviceId, maxTokens, window: windowType, enabled } = req.body;
+
+    if (!serviceId || maxTokens === undefined || maxTokens === null || !windowType) {
+      res.status(400).json({ error: 'serviceId, maxTokens, and window are required' });
+      return;
+    }
+
+    if (!['FIVE_HOURS', 'DAY'].includes(windowType)) {
+      res.status(400).json({ error: 'window must be FIVE_HOURS or DAY' });
+      return;
+    }
+
+    if (typeof maxTokens !== 'number' || maxTokens < 1) {
+      res.status(400).json({ error: 'maxTokens must be at least 1' });
+      return;
+    }
+
+    const rateLimit = await prisma.serviceRateLimit.upsert({
+      where: { serviceId },
+      update: {
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+      create: {
+        serviceId,
+        maxTokens,
+        window: windowType,
+        enabled: enabled !== undefined ? enabled : true,
+        createdBy: req.user!.loginid,
+      },
+    });
+
+    res.json({ rateLimit, message: 'Service rate limit updated' });
+  } catch (error) {
+    console.error('Set service rate limit error:', error);
+    res.status(500).json({ error: 'Failed to set service rate limit' });
+  }
+});
+
+/**
+ * DELETE /admin/service-rate-limit?serviceId=
+ * 서비스의 공통 rate limit 삭제 (무제한으로 복원)
+ */
+adminRoutes.delete('/service-rate-limit', async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.query['serviceId'] as string || req.body?.serviceId;
+
+    if (!serviceId) {
+      res.status(400).json({ error: 'serviceId is required' });
+      return;
+    }
+
+    const existing = await prisma.serviceRateLimit.findUnique({ where: { serviceId } });
+    if (!existing) {
+      res.status(404).json({ error: 'Service rate limit not found' });
+      return;
+    }
+
+    await prisma.serviceRateLimit.delete({ where: { serviceId } });
+    res.json({ success: true, message: 'Service rate limit removed (unlimited)' });
+  } catch (error) {
+    console.error('Delete service rate limit error:', error);
+    res.status(500).json({ error: 'Failed to delete service rate limit' });
   }
 });

@@ -163,7 +163,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
  */
 export function canServiceAccessModel(
   proxyReq: ProxyAuthRequest,
-  model: { visibility: string; visibilityScope: string[] }
+  model: { visibility: string; visibilityScope: string[]; adminVisible?: boolean }
 ): boolean {
   // 등록 admin이 super admin이면 모든 LLM 접근 가능
   if (proxyReq.registeredByIsSuperAdmin) return true;

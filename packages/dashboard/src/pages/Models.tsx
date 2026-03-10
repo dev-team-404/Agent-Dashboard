@@ -35,6 +35,7 @@ interface Model {
   imageProvider: string | null;
   visibility: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
   visibilityScope: string[];
+  adminVisible: boolean;
   sortOrder: number;
   createdBy: string | null;
   createdByDept: string;
@@ -107,6 +108,7 @@ const emptyForm = {
   imageProvider: '' as string,
   visibility: 'PUBLIC' as VisibilityType,
   visibilityScope: [] as string[],
+  adminVisible: false,
   sortOrder: 0,
 };
 
@@ -333,6 +335,7 @@ export default function Models({ adminRole }: ModelsProps) {
       imageProvider: model.imageProvider || '',
       visibility: model.visibility,
       visibilityScope: model.visibilityScope || [],
+      adminVisible: model.adminVisible ?? false,
       sortOrder: model.sortOrder,
     });
     setFormError('');
@@ -585,6 +588,7 @@ export default function Models({ adminRole }: ModelsProps) {
         imageProvider: form.type === 'IMAGE' ? (form.imageProvider || undefined) : undefined,
         visibility: form.visibility,
         visibilityScope: form.visibilityScope.length > 0 ? form.visibilityScope : [],
+        adminVisible: (form.visibility === 'BUSINESS_UNIT' || form.visibility === 'TEAM') ? form.adminVisible : false,
         sortOrder: form.sortOrder,
       };
 
@@ -1296,7 +1300,7 @@ export default function Models({ adminRole }: ModelsProps) {
                       <button
                         key={v}
                         type="button"
-                        onClick={() => setForm({ ...form, visibility: v, visibilityScope: [] })}
+                        onClick={() => setForm({ ...form, visibility: v, visibilityScope: [], adminVisible: false })}
                         className={`flex flex-col items-center gap-1.5 p-3 rounded-ios border-2 transition-all duration-200
                           ${isSelected
                             ? 'border-samsung-blue bg-samsung-blue/5'
@@ -1334,6 +1338,29 @@ export default function Models({ adminRole }: ModelsProps) {
                     loading={scopeLoading}
                     placeholder="부서를 선택하세요"
                   />
+                )}
+
+                {/* Admin Visible toggle — only for BU / TEAM scoped models */}
+                {(form.visibility === 'BUSINESS_UNIT' || form.visibility === 'TEAM') && (
+                  <div className="mt-3 flex items-start gap-3 p-3 bg-pastel-50 rounded-ios">
+                    <label className="flex items-center gap-3 cursor-pointer select-none">
+                      <div className="relative">
+                        <input
+                          type="checkbox"
+                          checked={form.adminVisible}
+                          onChange={e => setForm({ ...form, adminVisible: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full
+                                        after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
+                                        after:h-5 after:w-5 after:transition-all peer-checked:bg-samsung-blue" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-pastel-700">관리자 공개</span>
+                        <p className="text-xs text-pastel-400 mt-0.5">활성화 시 다른 팀/사업부의 관리자도 이 모델을 사용할 수 있습니다</p>
+                      </div>
+                    </label>
+                  </div>
                 )}
               </div>
 

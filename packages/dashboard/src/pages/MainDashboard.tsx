@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
+import UsageAnalytics from '../components/Charts/UsageAnalytics';
 import {
   AreaChart, Area, LineChart, Line as RechartsLine, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -1010,6 +1011,9 @@ export default function MainDashboard({ adminRole }: MainDashboardProps) {
 
           {/* Weekly Business DAU */}
           <WeeklyBusinessDAUChart />
+
+          {/* Usage Analytics (Global) */}
+          <UsageAnalytics />
 
           {/* Department Token Table */}
           <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
