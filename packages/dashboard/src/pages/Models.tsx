@@ -17,6 +17,7 @@ interface SubModel {
   extraHeaders: Record<string, string> | null;
   enabled: boolean;
   sortOrder: number;
+  weight: number;
   createdAt: string;
 }
 
@@ -263,6 +264,7 @@ export default function Models({ adminRole }: ModelsProps) {
     apiKey: string;
     extraHeaders: string;
     enabled: boolean;
+    weight: number;
   } | null>(null);
 
   // Auto-refresh every 30s (with jitter)
@@ -672,6 +674,7 @@ export default function Models({ adminRole }: ModelsProps) {
       apiKey: '',
       extraHeaders: '',
       enabled: true,
+      weight: 1,
     });
   };
 
@@ -693,6 +696,7 @@ export default function Models({ adminRole }: ModelsProps) {
         apiKey: subModelForm.apiKey || undefined,
         extraHeaders,
         enabled: subModelForm.enabled,
+        weight: subModelForm.weight,
       };
       if (subModelForm.editing) {
         await modelsApi.updateSubModel(subModelForm.modelId, subModelForm.editing, data);
@@ -763,6 +767,9 @@ export default function Models({ adminRole }: ModelsProps) {
           <h1 className="text-2xl font-bold text-pastel-800">LLM 모델 관리</h1>
           <p className="text-sm text-pastel-500 mt-1">
             {models.length}개 모델 | 서비스와 독립적으로 관리됩니다
+          </p>
+          <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+            LLM 모델을 등록하고 관리합니다. 같은 모델 ID로 여러 개 등록하면 서비스별 라운드로빈에 사용할 수 있습니다.
           </p>
         </div>
         <button
@@ -988,10 +995,15 @@ export default function Models({ adminRole }: ModelsProps) {
                 {isExpanded && (
                   <div className="border-t border-pastel-100 bg-pastel-50/50 p-4 animate-slide-up">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-medium text-pastel-700 flex items-center gap-1.5">
-                        <Layers className="w-4 h-4" />
-                        서브모델 ({model.subModels?.length || 0})
-                      </h4>
+                      <div>
+                        <h4 className="text-sm font-medium text-pastel-700 flex items-center gap-1.5">
+                          <Layers className="w-4 h-4" />
+                          서브모델 ({model.subModels?.length || 0})
+                        </h4>
+                        <p className="text-[11px] text-gray-400 mt-0.5 ml-5.5">
+                          서브모델은 동일 모델의 여러 엔드포인트를 등록하여 로드밸런싱합니다.
+                        </p>
+                      </div>
                       <button
                         onClick={() => openSubModelForm(model.id)}
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-pastel-200
@@ -1012,6 +1024,11 @@ export default function Models({ adminRole }: ModelsProps) {
                                 {sub.modelName || model.name}
                               </p>
                               <p className="text-xs text-pastel-400 font-mono truncate">{sub.endpointUrl}</p>
+                              {sub.weight > 1 && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-samsung-blue/10 text-samsung-blue rounded mt-0.5">
+                                  {sub.weight}회 호출
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center gap-1">
                               <button
@@ -1023,6 +1040,7 @@ export default function Models({ adminRole }: ModelsProps) {
                                   apiKey: sub.apiKey || '',
                                   extraHeaders: sub.extraHeaders ? JSON.stringify(sub.extraHeaders) : '',
                                   enabled: sub.enabled,
+                                  weight: sub.weight || 1,
                                 })}
                                 className="p-1.5 rounded text-pastel-400 hover:text-samsung-blue hover:bg-pastel-50"
                               >
@@ -1071,15 +1089,28 @@ export default function Models({ adminRole }: ModelsProps) {
                             onChange={e => setSubModelForm({ ...subModelForm, apiKey: e.target.value })}
                             className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
                           />
-                          <label className="flex items-center gap-2 px-3 py-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={subModelForm.enabled}
-                              onChange={e => setSubModelForm({ ...subModelForm, enabled: e.target.checked })}
-                              className="rounded border-pastel-300 text-samsung-blue focus:ring-samsung-blue/20"
-                            />
-                            <span className="text-sm text-pastel-600">활성화</span>
-                          </label>
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-2 px-3 py-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={subModelForm.enabled}
+                                onChange={e => setSubModelForm({ ...subModelForm, enabled: e.target.checked })}
+                                className="rounded border-pastel-300 text-samsung-blue focus:ring-samsung-blue/20"
+                              />
+                              <span className="text-sm text-pastel-600">활성화</span>
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min={1}
+                                max={10}
+                                value={subModelForm.weight}
+                                onChange={e => setSubModelForm({ ...subModelForm, weight: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                                className="w-14 px-2 py-1.5 text-sm text-center border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
+                              />
+                              <span className="text-xs text-pastel-500">회 호출 후 다음 모델</span>
+                            </div>
+                          </div>
                         </div>
                         <div className="flex justify-end gap-2">
                           <button

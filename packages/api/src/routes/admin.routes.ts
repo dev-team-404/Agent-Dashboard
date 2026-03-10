@@ -663,6 +663,7 @@ const subModelSchema = z.object({
   extraHeaders: z.record(z.string()).optional(),
   enabled: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
+  weight: z.number().int().min(1).max(10).default(1),
 });
 
 /**

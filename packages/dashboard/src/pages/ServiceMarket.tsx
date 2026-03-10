@@ -14,7 +14,7 @@ interface MarketService {
   registeredByDept?: string;
   registeredByBusinessUnit?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
-  deployScopeValue?: string;
+  deployScopeValue?: string[];
   createdAt?: string;
   _count?: { usageLogs: number; userServices: number; serviceModels: number };
   totalTokens?: number;
@@ -207,14 +207,19 @@ export default function ServiceMarket() {
                         }`}>
                           {isBG ? 'BG' : 'STD'}
                         </span>
+                        {service.deployScope === 'ALL' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-600">
+                            전체 공개
+                          </span>
+                        )}
                         {service.deployScope === 'BUSINESS_UNIT' && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
-                            사업부 공개: {service.deployScopeValue || ''}
+                            사업부 공개: {(service.deployScopeValue || []).join(', ') || ''}
                           </span>
                         )}
                         {service.deployScope === 'TEAM' && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
-                            팀 공개: {service.deployScopeValue || ''}
+                            팀 공개: {(service.deployScopeValue || []).join(', ') || ''}
                           </span>
                         )}
                       </div>

@@ -244,33 +244,115 @@ async def test_model_management(session: aiohttp.ClientSession, results: TestRes
                    f"expected >=2, got {dup_count}" if dup_count < 2 else "")
     print(f"\n  Duplicate 'stress-gpt-4o' models created: {dup_count} (expected >=2)")
 
-    # Add SubModels to first chat model for round-robin testing
-    chat_model = next((m for m in created_models if m["type"] == "CHAT"), None)
-    if chat_model:
-        print(f"\n  Adding SubModels to '{chat_model['name']}' (id={chat_model['id'][:8]}...) for round-robin...")
-        # Add SubModels on different mock ports
-        for sub_port in MOCK_LLM_PORTS[1:]:  # skip first port (parent already uses it)
-            sub_data = {
-                "endpointUrl": f"http://host.docker.internal:{sub_port}/v1/chat/completions",
-                "modelName": chat_model["name"],
-                "sortOrder": sub_port - 9000,
-            }
+    # ── Service-level round-robin setup ──
+    # Create 3 separate Model records all with name "stress-rr-chat"
+    # on ports 9001, 9002, 9003 for service-level weighted round-robin testing
+    rr_models = []
+    rr_ports = [9001, 9002, 9003]
+    print(f"\n  Creating 3 'stress-rr-chat' models on ports {rr_ports} for service-level RR...")
+    for port in rr_ports:
+        rr_model_data = {
+            "name": "stress-rr-chat",
+            "displayName": f"Stress RR Chat (port {port})",
+            "endpointUrl": f"http://host.docker.internal:{port}/v1/chat/completions",
+            "type": "CHAT",
+            "visibility": "PUBLIC",
+        }
+        try:
+            async with session.post(f"{API_BASE}/models", headers=headers, json=rr_model_data) as resp:
+                data = await resp.json()
+                if resp.status == 201:
+                    model_id = data.get("model", {}).get("id", "")
+                    rr_models.append({"id": model_id, "port": port})
+                    print(f"    Created: stress-rr-chat port={port} (id={model_id[:8]}...)")
+                else:
+                    print(f"    FAIL: port {port} — {resp.status}: {data}")
+        except Exception as e:
+            print(f"    Error creating stress-rr-chat port {port}: {e}")
+
+    results.record("rr_models_created", len(rr_models) == 3, 0,
+                   f"expected 3, got {len(rr_models)}" if len(rr_models) != 3 else "")
+
+    # Create test service "stress-rr-test-svc"
+    rr_svc_id = None
+    rr_svc_name = "stress-rr-test-svc"
+    print(f"\n  Creating service '{rr_svc_name}'...")
+    try:
+        async with session.post(f"{API_BASE}/services", headers=headers,
+                                json={"name": rr_svc_name, "displayName": "Stress RR Test Service"}) as resp:
+            data = await resp.json()
+            if resp.status == 201:
+                rr_svc_id = data["service"]["id"]
+                print(f"    Created: {rr_svc_name} (id={rr_svc_id[:8]}...)")
+            elif resp.status == 409:
+                async with session.get(f"{API_BASE}/services", headers=headers) as lr:
+                    ld = await lr.json()
+                    rr_svc_id = next((s["id"] for s in ld.get("services", []) if s["name"] == rr_svc_name), None)
+                print(f"    Already exists: {rr_svc_name} (id={rr_svc_id[:8] if rr_svc_id else '?'}...)")
+            else:
+                print(f"    FAIL: {resp.status}: {data}")
+    except Exception as e:
+        print(f"    Error: {e}")
+
+    # Assign all 3 models to the service with different weights:
+    # port 9001: weight=2, port 9002: weight=1, port 9003: weight=1
+    rr_service_model_ids = {}  # port -> serviceModelId
+    rr_weight_map = {9001: 2, 9002: 1, 9003: 1}
+    if rr_svc_id and rr_models:
+        print(f"\n  Assigning models to '{rr_svc_name}' with weights...")
+        for rm in rr_models:
+            port = rm["port"]
+            weight = rr_weight_map[port]
             try:
                 async with session.post(
-                    f"{API_BASE}/admin/models/{chat_model['id']}/sub-models",
+                    f"{API_BASE}/services/{rr_svc_id}/models",
                     headers=headers,
-                    json=sub_data,
-                    params={"skipHealthCheck": "true"}
+                    json={"modelId": rm["id"], "weight": weight}
                 ) as resp:
+                    data = await resp.json()
                     if resp.status == 201:
-                        print(f"    SubModel added: port {sub_port}")
+                        sm_id = data.get("serviceModel", {}).get("id", "")
+                        rr_service_model_ids[port] = sm_id
+                        print(f"    Assigned: port {port} weight={weight} (serviceModelId={sm_id[:8]}...)")
+                    elif resp.status == 409:
+                        # Already assigned — fetch existing service models
+                        async with session.get(
+                            f"{API_BASE}/services/{rr_svc_id}/models",
+                            headers=headers
+                        ) as lr:
+                            ld = await lr.json()
+                            for sm in ld.get("serviceModels", []):
+                                if sm.get("modelId") == rm["id"] or sm.get("model", {}).get("id") == rm["id"]:
+                                    rr_service_model_ids[port] = sm["id"]
+                                    break
+                        print(f"    Already assigned: port {port} (409)")
+                    else:
+                        print(f"    FAIL: port {port} — {resp.status}: {data}")
+            except Exception as e:
+                print(f"    Error assigning port {port}: {e}")
+
+        # Use PUT to ensure correct weights (in case model was pre-existing)
+        for port, sm_id in rr_service_model_ids.items():
+            weight = rr_weight_map[port]
+            try:
+                async with session.put(
+                    f"{API_BASE}/services/{rr_svc_id}/models/{sm_id}",
+                    headers=headers,
+                    json={"weight": weight}
+                ) as resp:
+                    if resp.status == 200:
+                        print(f"    Weight confirmed: port {port} = {weight}")
                     else:
                         data = await resp.json()
-                        print(f"    SubModel port {sub_port}: {resp.status} — {data}")
+                        print(f"    Weight update port {port}: {resp.status} — {data}")
             except Exception as e:
-                print(f"    SubModel port {sub_port}: Error — {e}")
+                print(f"    Weight update port {port}: Error — {e}")
 
-    return created_models
+        all_assigned = len(rr_service_model_ids) == 3
+        results.record("rr_service_models_assigned", all_assigned, 0,
+                       f"expected 3 assignments, got {len(rr_service_model_ids)}" if not all_assigned else "")
+
+    return created_models, rr_models, rr_svc_id, rr_svc_name
 
 
 # ══════════════════════════════════════════════════
@@ -675,14 +757,15 @@ async def test_concurrent_proxy(session: aiohttp.ClientSession, results: TestRes
             pct = count / total_rr * 100 if total_rr > 0 else 0
             print(f"    port {port}: {count} ({pct:.1f}%)")
 
-        # Verify distribution is roughly even (within 20% of expected)
+        # NOTE: With service-level weighted round-robin, distribution is NOT expected
+        # to be even — it depends on per-service weight configuration.
+        # We just verify that multiple ports received traffic (basic connectivity check).
         if len(round_robin_tracking) >= 2:
-            expected = total_rr / len(round_robin_tracking)
-            all_within = all(abs(c - expected) / expected < 0.3 for c in round_robin_tracking.values())
-            results.record("round_robin_even_distribution", all_within, 0,
-                           f"distribution too skewed: {dict(round_robin_tracking)}" if not all_within else "")
+            results.record("round_robin_multi_port_traffic", True, 0)
+            print(f"    (verified: {len(round_robin_tracking)} ports received traffic)")
         else:
-            print("    (single server — no round-robin check)")
+            results.record("round_robin_multi_port_traffic", len(round_robin_tracking) >= 1, 0,
+                           f"only {len(round_robin_tracking)} port(s) received traffic")
 
     if batch_timings:
         sorted_t = sorted(batch_timings)
@@ -1021,10 +1104,171 @@ async def test_embeddings_rerank(session: aiohttp.ClientSession, results: TestRe
 
 
 # ══════════════════════════════════════════════════
+# Phase 8: Weighted Round-Robin + Single-Endpoint Retry
+# ══════════════════════════════════════════════════
+async def test_weighted_roundrobin_and_retry(session: aiohttp.ClientSession, results: TestResults,
+                                              created_services: list, created_models: list,
+                                              rr_models: list = None, rr_svc_id: str = None,
+                                              rr_svc_name: str = None):
+    print("\n" + "=" * 60)
+    print("  PHASE 8: Service-Level Weighted Round-Robin & Single-Endpoint Retry")
+    print("=" * 60)
+
+    std_services = [s for s in created_services if s["type"] == "STANDARD"]
+    chat_models = [m for m in created_models if m["type"] == "CHAT"]
+
+    # ── Test A: Service-level weighted round-robin distribution ──
+    # Uses "stress-rr-test-svc" service with 3 "stress-rr-chat" models on ports 9001/9002/9003
+    # Weights: port 9001=2, port 9002=1, port 9003=1
+    # Expected distribution: port 9001 ~50%, port 9002 ~25%, port 9003 ~25%
+    if not rr_svc_name or not rr_models:
+        print("  SKIP [A]: Service-level RR not set up (missing rr_svc_name or rr_models)")
+    else:
+        print(f"\n  [A] Service-level weighted round-robin test")
+        print(f"      Service: '{rr_svc_name}', model: 'stress-rr-chat'")
+        print(f"      Weights: port 9001=2, port 9002=1, port 9003=1")
+        print(f"      Expected: port 9001 ~50%, port 9002 ~25%, port 9003 ~25%")
+
+        NUM_WRR_REQUESTS = 200
+        wrr_tracking = defaultdict(int)
+        wrr_success = 0
+        wrr_fail = 0
+        semaphore = asyncio.Semaphore(50)
+
+        async def wrr_request(idx):
+            nonlocal wrr_success, wrr_fail
+            async with semaphore:
+                try:
+                    async with session.post(
+                        f"{PROXY_BASE}/chat/completions",
+                        headers={
+                            "x-service-id": rr_svc_name,
+                            "x-user-id": f"wrr.user{idx:04d}",
+                            "x-dept-name": "TestDept(TestBU)",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": "stress-rr-chat",
+                            "messages": [{"role": "user", "content": f"WRR test #{idx}"}],
+                            "max_tokens": 10,
+                        },
+                        timeout=aiohttp.ClientTimeout(total=15)
+                    ) as resp:
+                        if resp.status == 200:
+                            body = await resp.json()
+                            content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            for port in MOCK_LLM_PORTS:
+                                if f"llm-server-{port}" in content:
+                                    wrr_tracking[port] += 1
+                                    break
+                            wrr_success += 1
+                        else:
+                            wrr_fail += 1
+                except:
+                    wrr_fail += 1
+
+        start = time.time()
+        await asyncio.gather(*[wrr_request(i) for i in range(NUM_WRR_REQUESTS)])
+        elapsed = time.time() - start
+
+        print(f"      Completed {NUM_WRR_REQUESTS} requests in {elapsed:.1f}s ({wrr_success} ok, {wrr_fail} fail)")
+        total_tracked = sum(wrr_tracking.values())
+        if total_tracked > 0:
+            for port in sorted(wrr_tracking.keys()):
+                pct = wrr_tracking[port] / total_tracked * 100
+                print(f"      port {port}: {wrr_tracking[port]} ({pct:.1f}%)")
+
+            # Verify port 9001 (weight=2) gets roughly double the traffic
+            p9001 = wrr_tracking.get(9001, 0)
+            p9002 = wrr_tracking.get(9002, 0)
+            p9003 = wrr_tracking.get(9003, 0)
+
+            # With w=2/w=1/w=1 and mock 2% error, port 9001 should get ~40-60%
+            p9001_pct = p9001 / total_tracked * 100 if total_tracked > 0 else 0
+            weighted_ok = 35 <= p9001_pct <= 65  # generous range for stochastic distribution
+            results.record("weighted_rr_9001_double_traffic", weighted_ok, 0,
+                           f"port 9001 at {p9001_pct:.1f}%, expected ~50%" if not weighted_ok else "")
+            print(f"      Weighted distribution check: port 9001 at {p9001_pct:.1f}% ({'OK' if weighted_ok else 'FAIL'})")
+
+            # Verify port 9002 and 9003 each get roughly ~25%
+            p9002_pct = p9002 / total_tracked * 100 if total_tracked > 0 else 0
+            p9003_pct = p9003 / total_tracked * 100 if total_tracked > 0 else 0
+            minor_ok = (10 <= p9002_pct <= 40) and (10 <= p9003_pct <= 40)
+            results.record("weighted_rr_minor_ports_balanced", minor_ok, 0,
+                           f"port 9002={p9002_pct:.1f}% port 9003={p9003_pct:.1f}%, expected ~25% each" if not minor_ok else "")
+            print(f"      Minor ports check: 9002={p9002_pct:.1f}% 9003={p9003_pct:.1f}% ({'OK' if minor_ok else 'FAIL'})")
+
+            # Verify all 3 ports received traffic
+            all_3_used = len(wrr_tracking) >= 3
+            results.record("weighted_rr_all_3_ports_used", all_3_used, 0,
+                           f"only {len(wrr_tracking)} ports used" if not all_3_used else "")
+        else:
+            results.record("weighted_rr_9001_double_traffic", False, 0, "no responses tracked")
+            results.record("weighted_rr_minor_ports_balanced", False, 0, "no responses tracked")
+            results.record("weighted_rr_all_3_ports_used", False, 0, "no responses tracked")
+
+    # ── Test B: Single-endpoint retry (model without multiple service-level endpoints) ──
+    # Use a model that only has a single endpoint assigned to a service
+    # The 3rd chat model (stress-gpt-4o Third) should have just 1 endpoint
+    if not std_services or not chat_models:
+        print("\n  SKIP [B]: No STANDARD services or CHAT models for retry test")
+    else:
+        svc = std_services[0]
+        single_ep_model = chat_models[-1] if len(chat_models) >= 3 else chat_models[0]
+        print(f"\n  [B] Single-endpoint retry test: model '{single_ep_model['name']}' (id={single_ep_model['id'][:8]}...)")
+        print(f"      Service: '{svc['name']}', mock server has 2% error rate → retries should recover most failures")
+
+        NUM_RETRY_REQUESTS = 100
+        retry_success = 0
+        retry_fail = 0
+        semaphore = asyncio.Semaphore(20)
+
+        async def retry_request(idx):
+            nonlocal retry_success, retry_fail
+            async with semaphore:
+                try:
+                    async with session.post(
+                        f"{PROXY_BASE}/chat/completions",
+                        headers={
+                            "x-service-id": svc["name"],
+                            "x-user-id": f"retry.user{idx:04d}",
+                            "x-dept-name": "TestDept(TestBU)",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": single_ep_model["name"],
+                            "messages": [{"role": "user", "content": f"Retry test #{idx}"}],
+                            "max_tokens": 10,
+                        },
+                        timeout=aiohttp.ClientTimeout(total=20)
+                    ) as resp:
+                        if resp.status == 200:
+                            retry_success += 1
+                        else:
+                            retry_fail += 1
+                except:
+                    retry_fail += 1
+
+        start = time.time()
+        await asyncio.gather(*[retry_request(i) for i in range(NUM_RETRY_REQUESTS)])
+        elapsed = time.time() - start
+
+        # With 2% error rate and retries: success rate should be very high
+        retry_rate = retry_success / NUM_RETRY_REQUESTS * 100 if NUM_RETRY_REQUESTS > 0 else 0
+        print(f"      Completed in {elapsed:.1f}s: {retry_success}/{NUM_RETRY_REQUESTS} ({retry_rate:.1f}%)")
+
+        retry_ok = retry_rate >= 95
+        results.record("single_endpoint_retry_above_95pct", retry_ok, 0,
+                       f"success {retry_rate:.1f}% < 95%" if not retry_ok else "")
+        print(f"      Single-endpoint retry check: {retry_rate:.1f}% ({'OK' if retry_ok else 'FAIL'})")
+
+
+# ══════════════════════════════════════════════════
 # Cleanup
 # ══════════════════════════════════════════════════
 async def cleanup(session: aiohttp.ClientSession, created_services: list,
-                  created_models: list, created_vis_models: list):
+                  created_models: list, created_vis_models: list,
+                  rr_models: list = None, rr_svc_id: str = None):
     print("\n" + "=" * 60)
     print("  CLEANUP: Removing test data")
     print("=" * 60)
@@ -1050,6 +1294,23 @@ async def cleanup(session: aiohttp.ClientSession, created_services: list,
                         pass
     except:
         pass
+
+    # Delete RR service
+    if rr_svc_id:
+        try:
+            async with session.delete(f"{API_BASE}/services/{rr_svc_id}", headers=headers) as resp:
+                pass
+        except:
+            pass
+
+    # Delete RR models
+    if rr_models:
+        for rm in rr_models:
+            try:
+                async with session.delete(f"{API_BASE}/models/{rm['id']}?force=true", headers=headers) as resp:
+                    pass
+            except:
+                pass
 
     # Delete test models
     all_models = created_models + created_vis_models
@@ -1132,12 +1393,20 @@ async def main():
 
         start_time = time.time()
 
+        # Initialize variables for cleanup safety
+        created_services = []
+        created_models = []
+        created_vis_models = []
+        rr_models = None
+        rr_svc_id = None
+        rr_svc_name = None
+
         try:
             # Phase 1: Service CRUD
             created_services, svc_by_type = await test_service_crud(session, results)
 
-            # Phase 2: Model Management (duplicate names)
-            created_models = await test_model_management(session, results)
+            # Phase 2: Model Management (duplicate names + service-level RR setup)
+            created_models, rr_models, rr_svc_id, rr_svc_name = await test_model_management(session, results)
 
             # Phase 3: Visibility/Permission
             created_vis_models = await test_visibility(session, results)
@@ -1154,9 +1423,15 @@ async def main():
             # Phase 7: Embeddings & Rerank
             await test_embeddings_rerank(session, results, created_services, created_models)
 
+            # Phase 8: Service-level weighted round-robin verification + single-endpoint retry
+            await test_weighted_roundrobin_and_retry(session, results, created_services, created_models,
+                                                     rr_models=rr_models, rr_svc_id=rr_svc_id,
+                                                     rr_svc_name=rr_svc_name)
+
         finally:
             # Always cleanup
-            await cleanup(session, created_services, created_models, created_vis_models if 'created_vis_models' in dir() else [])
+            await cleanup(session, created_services, created_models, created_vis_models,
+                         rr_models=rr_models, rr_svc_id=rr_svc_id)
 
         total_time = time.time() - start_time
 

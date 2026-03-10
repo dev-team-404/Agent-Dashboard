@@ -63,7 +63,36 @@ const updateServiceSchema = z.object({
   docsUrl: z.string().url().optional().nullable(),
   enabled: z.boolean().optional(),
   type: z.enum(['STANDARD', 'BACKGROUND']).optional(),
+  deployScope: z.enum(['ALL', 'BUSINESS_UNIT', 'TEAM']).optional(),
+  deployScopeValue: z.array(z.string()).optional(),
 });
+
+const deployServiceSchema = z.object({
+  deployScope: z.enum(['ALL', 'BUSINESS_UNIT', 'TEAM']).default('ALL'),
+  deployScopeValue: z.array(z.string()).default([]),
+});
+
+// Helper: 사용자에게 서비스가 deployScope 기준으로 보이는지 확인
+function isServiceVisibleByScope(
+  service: { deployScope: string; deployScopeValue: string[]; registeredBy: string | null },
+  loginid: string,
+  userDept: string,
+  userBU: string,
+): boolean {
+  // Owner always sees their own service
+  if (service.registeredBy === loginid) return true;
+
+  switch (service.deployScope) {
+    case 'ALL':
+      return true;
+    case 'BUSINESS_UNIT':
+      return service.deployScopeValue.includes(userBU);
+    case 'TEAM':
+      return service.deployScopeValue.includes(userDept);
+    default:
+      return true;
+  }
+}
 
 // ============================================
 // GET /services
@@ -73,6 +102,9 @@ const updateServiceSchema = z.object({
 // ============================================
 serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
+    const loginid = req.user?.loginid || '';
+    const userDept = req.adminDept || req.user?.deptname || '';
+    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
     const isAdmin = req.adminRole === 'SUPER_ADMIN' || req.adminRole === 'ADMIN';
     let whereClause: any = { enabled: true };
 
@@ -84,7 +116,6 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
       // Super Admin: 모든 서비스 (whereClause 그대로)
     } else {
       // 일반 사용자: 본인 서비스 OR DEPLOYED 서비스
-      const loginid = req.user?.loginid || '';
       whereClause = {
         enabled: true,
         OR: [
@@ -107,6 +138,8 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
         enabled: true,
         type: true,
         status: true,
+        deployScope: true,
+        deployScopeValue: true,
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
@@ -116,7 +149,22 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
       },
     });
 
-    res.json({ services });
+    // Filter DEPLOYED services by deployScope (non-admins and ADMIN)
+    // SUPER_ADMIN sees everything; owners always see their own
+    const filtered = req.adminRole === 'SUPER_ADMIN'
+      ? services
+      : services.filter((s: any) => {
+          // Non-DEPLOYED services: already filtered by ownership or admin dept above
+          if (s.status !== 'DEPLOYED') return true;
+          // ADMIN sees their dept's scoped services
+          if (req.adminRole === 'ADMIN') {
+            return isServiceVisibleByScope(s, loginid, userDept, userBU);
+          }
+          // Regular user: check scope
+          return isServiceVisibleByScope(s, loginid, userDept, userBU);
+        });
+
+    res.json({ services: filtered });
   } catch (error) {
     console.error('Get services error:', error);
     res.status(500).json({ error: 'Failed to get services' });
@@ -147,6 +195,8 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         enabled: true,
         type: true,
         status: true,
+        deployScope: true,
+        deployScopeValue: true,
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
@@ -167,8 +217,12 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
 // GET /services/names
 // DEPLOYED 서비스 이름 목록 (서비스 마켓용)
 // ============================================
-serviceRoutes.get('/names', authenticateToken, async (_req: AuthenticatedRequest, res) => {
+serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
+    const loginid = req.user?.loginid || '';
+    const userDept = req.adminDept || req.user?.deptname || '';
+    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+
     const services = await prisma.service.findMany({
       where: { enabled: true, status: 'DEPLOYED' },
       orderBy: { createdAt: 'asc' },
@@ -181,13 +235,43 @@ serviceRoutes.get('/names', authenticateToken, async (_req: AuthenticatedRequest
         docsUrl: true,
         type: true,
         status: true,
+        deployScope: true,
+        deployScopeValue: true,
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
         createdAt: true,
+        _count: { select: { usageLogs: true, userServices: true, serviceModels: true } },
       },
     });
-    res.json({ services });
+
+    // 최근 7영업일 ≈ 10일 전부터 (주말 감안)
+    const since = new Date();
+    since.setDate(since.getDate() - 10);
+
+    // Aggregate token + request count per service (최근 7영업일)
+    const tokenAggs = await prisma.usageLog.groupBy({
+      by: ['serviceId'],
+      where: { serviceId: { in: services.map(s => s.id) }, timestamp: { gte: since } },
+      _sum: { totalTokens: true },
+      _count: true,
+    });
+    const tokenMap = new Map(tokenAggs.map(a => [a.serviceId, a._sum?.totalTokens || 0]));
+    const reqCountMap = new Map(tokenAggs.map(a => [a.serviceId, a._count || 0]));
+
+    // SUPER_ADMIN sees all; others filtered by deployScope
+    const filtered = req.adminRole === 'SUPER_ADMIN'
+      ? services
+      : services.filter((s: any) => isServiceVisibleByScope(s, loginid, userDept, userBU));
+
+    // Attach stats
+    const result = filtered.map(s => ({
+      ...s,
+      totalTokens: tokenMap.get(s.id) || 0,
+      recentRequests: reqCountMap.get(s.id) || 0,
+    }));
+
+    res.json({ services: result });
   } catch (error) {
     console.error('Get service names error:', error);
     res.status(500).json({ error: 'Failed to get service names' });
@@ -214,6 +298,8 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
         enabled: true,
         type: true,
         status: true,
+        deployScope: true,
+        deployScopeValue: true,
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
@@ -416,15 +502,67 @@ serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRe
       return;
     }
 
+    // Validate deployScope from body (defaults to ALL with empty array)
+    const validation = deployServiceSchema.safeParse(req.body || {});
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid deploy scope', details: validation.error.issues });
+      return;
+    }
+
+    const { deployScope, deployScopeValue } = validation.data;
+
     const updated = await prisma.service.update({
       where: { id },
-      data: { status: 'DEPLOYED' },
+      data: {
+        status: 'DEPLOYED',
+        deployScope,
+        deployScopeValue,
+      },
     });
 
     res.json({ service: updated, message: 'Service deployed successfully' });
   } catch (error) {
     console.error('Deploy service error:', error);
     res.status(500).json({ error: 'Failed to deploy service' });
+  }
+});
+
+// ============================================
+// POST /services/:id/undeploy
+// 서비스 배포 취소 → 개발 상태로 되돌리기 (소유자 또는 SUPER_ADMIN)
+// ============================================
+serviceRoutes.post('/:id/undeploy', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const service = await prisma.service.findUnique({ where: { id } });
+    if (!service) {
+      res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    const loginid = req.user?.loginid || '';
+    const isOwner = service.registeredBy === loginid;
+    const isSuperAdmin = req.adminRole === 'SUPER_ADMIN';
+
+    if (!isOwner && !isSuperAdmin) {
+      res.status(403).json({ error: 'Only the service owner or Super Admin can undeploy a service' });
+      return;
+    }
+
+    if (service.status !== 'DEPLOYED') {
+      res.status(400).json({ error: 'Service is not deployed' });
+      return;
+    }
+
+    const updated = await prisma.service.update({
+      where: { id },
+      data: { status: 'DEVELOPMENT' },
+    });
+
+    res.json({ service: updated, message: 'Service reverted to development' });
+  } catch (error) {
+    console.error('Undeploy service error:', error);
+    res.status(500).json({ error: 'Failed to undeploy service' });
   }
 });
 
@@ -639,10 +777,23 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
           },
         },
       },
-      orderBy: { addedAt: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { addedAt: 'asc' }],
     });
 
-    res.json({ serviceModels });
+    // Include sortOrder, weight, enabled in response
+    const result = serviceModels.map((sm: any) => ({
+      id: sm.id,
+      serviceId: sm.serviceId,
+      modelId: sm.modelId,
+      sortOrder: sm.sortOrder,
+      weight: sm.weight,
+      enabled: sm.enabled,
+      addedBy: sm.addedBy,
+      addedAt: sm.addedAt,
+      model: sm.model,
+    }));
+
+    res.json({ serviceModels: result });
   } catch (error) {
     console.error('Get service models error:', error);
     res.status(500).json({ error: 'Failed to get service models' });
@@ -655,15 +806,22 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
  * 서비스 소유자/관리자 또는 글로벌 관리자만 가능
  * 사용자가 해당 모델에 접근 가능해야 함 (isModelVisibleTo)
  */
+const addServiceModelSchema = z.object({
+  modelId: z.string().min(1, 'modelId is required'),
+  weight: z.number().int().min(1).max(10).default(1),
+  sortOrder: z.number().int().min(0).default(0),
+  enabled: z.boolean().default(true),
+});
+
 serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
     const serviceId = req.params.id as string;
-    const { modelId } = req.body;
-
-    if (!modelId) {
-      res.status(400).json({ error: 'modelId is required' });
+    const validation = addServiceModelSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
       return;
     }
+    const { modelId, weight, sortOrder, enabled } = validation.data;
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) {
@@ -705,6 +863,9 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       data: {
         serviceId,
         modelId,
+        weight,
+        sortOrder,
+        enabled,
         addedBy: req.user?.loginid || '',
       },
       include: {
@@ -728,8 +889,156 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
 });
 
 /**
+ * PUT /services/:id/models/reorder
+ * 서비스 모델 일괄 순서 변경 (batch reorder)
+ * Body: { items: [{ id: string, sortOrder: number }] }
+ */
+const reorderServiceModelsSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().min(1),
+    sortOrder: z.number().int().min(0),
+  })).min(1),
+});
+
+serviceRoutes.put('/:id/models/reorder', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const validation = reorderServiceModelsSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) {
+      res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'You do not have permission to manage this service\'s models' });
+      return;
+    }
+
+    const { items } = validation.data;
+
+    // Verify all items belong to this service
+    const existingModels = await prisma.serviceModel.findMany({
+      where: { serviceId, id: { in: items.map((i) => i.id) } },
+      select: { id: true },
+    });
+    const existingIds = new Set(existingModels.map((m: any) => m.id));
+    const invalidIds = items.filter((i) => !existingIds.has(i.id));
+    if (invalidIds.length > 0) {
+      res.status(400).json({
+        error: 'Some ServiceModel IDs do not belong to this service',
+        invalidIds: invalidIds.map((i) => i.id),
+      });
+      return;
+    }
+
+    // Batch update in transaction
+    await prisma.$transaction(
+      items.map((item) =>
+        prisma.serviceModel.update({
+          where: { id: item.id },
+          data: { sortOrder: item.sortOrder },
+        })
+      )
+    );
+
+    // Return updated list
+    const serviceModels = await prisma.serviceModel.findMany({
+      where: { serviceId },
+      include: {
+        model: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            type: true,
+            enabled: true,
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { addedAt: 'asc' }],
+    });
+
+    res.json({ serviceModels });
+  } catch (error) {
+    console.error('Reorder service models error:', error);
+    res.status(500).json({ error: 'Failed to reorder service models' });
+  }
+});
+
+/**
+ * PUT /services/:id/models/:serviceModelId
+ * 개별 ServiceModel 속성 수정 (weight, sortOrder, enabled)
+ */
+const updateServiceModelSchema = z.object({
+  weight: z.number().int().min(1).max(10).optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  enabled: z.boolean().optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: 'At least one field (weight, sortOrder, enabled) must be provided',
+});
+
+serviceRoutes.put('/:id/models/:serviceModelId', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const serviceModelId = req.params.serviceModelId as string;
+
+    const validation = updateServiceModelSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) {
+      res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'You do not have permission to manage this service\'s models' });
+      return;
+    }
+
+    const existing = await prisma.serviceModel.findFirst({
+      where: { id: serviceModelId, serviceId },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'ServiceModel not found for this service' });
+      return;
+    }
+
+    const updated = await prisma.serviceModel.update({
+      where: { id: serviceModelId },
+      data: validation.data,
+      include: {
+        model: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            type: true,
+            enabled: true,
+          },
+        },
+      },
+    });
+
+    res.json({ serviceModel: updated });
+  } catch (error) {
+    console.error('Update service model error:', error);
+    res.status(500).json({ error: 'Failed to update service model' });
+  }
+});
+
+/**
  * DELETE /services/:id/models/:modelId
- * 서비스에서 모델 제거
+ * 서비스에서 모델 제거 (by modelId - composite key)
  */
 serviceRoutes.delete('/:id/models/:modelId', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
@@ -763,6 +1072,43 @@ serviceRoutes.delete('/:id/models/:modelId', authenticateToken, async (req: Auth
   } catch (error) {
     console.error('Remove service model error:', error);
     res.status(500).json({ error: 'Failed to remove model from service' });
+  }
+});
+
+/**
+ * DELETE /services/:id/service-models/:serviceModelId
+ * 서비스에서 모델 제거 (by ServiceModel ID)
+ * 동일 모델이 다른 설정으로 추가된 경우 개별 삭제용
+ */
+serviceRoutes.delete('/:id/service-models/:serviceModelId', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const serviceModelId = req.params.serviceModelId as string;
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) {
+      res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'You do not have permission to manage this service\'s models' });
+      return;
+    }
+
+    const existing = await prisma.serviceModel.findFirst({
+      where: { id: serviceModelId, serviceId },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'ServiceModel not found for this service' });
+      return;
+    }
+
+    await prisma.serviceModel.delete({ where: { id: serviceModelId } });
+    res.json({ message: 'ServiceModel removed from service successfully' });
+  } catch (error) {
+    console.error('Remove service model by id error:', error);
+    res.status(500).json({ error: 'Failed to remove service model' });
   }
 });
 

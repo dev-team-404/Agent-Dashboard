@@ -54,14 +54,23 @@ export const serviceApi = {
   create: (data: CreateServiceData) => api.post('/services', data),
   update: (id: string, data: Partial<CreateServiceData>) => api.put(`/services/${id}`, data),
   delete: (id: string) => api.delete(`/services/${id}`),
-  deploy: (id: string) => api.post(`/services/${id}/deploy`),
+  deploy: (id: string, data?: { deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM'; deployScopeValue?: string }) =>
+    api.post(`/services/${id}/deploy`, data),
+  undeploy: (id: string) => api.post(`/services/${id}/undeploy`),
   resetData: (id: string) => api.post(`/services/${id}/reset-data`),
   stats: (id: string) => api.get(`/services/${id}/stats`),
   checkName: (name: string) => api.get(`/services/check-name/${name}`),
   // Service Models
   listModels: (id: string) => api.get(`/services/${id}/models`),
-  addModel: (id: string, modelId: string) => api.post(`/services/${id}/models`, { modelId }),
+  addModel: (id: string, data: { modelId: string; weight?: number; sortOrder?: number; enabled?: boolean }) =>
+    api.post(`/services/${id}/models`, data),
+  updateServiceModel: (id: string, serviceModelId: string, data: { weight?: number; sortOrder?: number; enabled?: boolean }) =>
+    api.put(`/services/${id}/models/${serviceModelId}`, data),
+  reorderModels: (id: string, items: Array<{ id: string; sortOrder: number }>) =>
+    api.put(`/services/${id}/models/reorder`, { items }),
   removeModel: (id: string, modelId: string) => api.delete(`/services/${id}/models/${modelId}`),
+  removeServiceModel: (id: string, serviceModelId: string) =>
+    api.delete(`/services/${id}/service-models/${serviceModelId}`),
   // Service Members
   listMembers: (id: string) => api.get(`/services/${id}/members`),
   addMember: (id: string, loginid: string, role?: string) => api.post(`/services/${id}/members`, { loginid, role }),
@@ -215,6 +224,24 @@ export const unifiedUsersApi = {
     api.put(`/admin/unified-users/${id}/permissions`, data),
 };
 
+export interface ServiceModel {
+  id: string;
+  serviceId: string;
+  modelId: string;
+  sortOrder: number;
+  weight: number;
+  enabled: boolean;
+  addedBy?: string;
+  addedAt: string;
+  model: {
+    id: string;
+    name: string;
+    displayName: string;
+    type: string;
+    enabled: boolean;
+  };
+}
+
 interface CreateModelData {
   name: string;
   displayName: string;
@@ -240,6 +267,7 @@ interface CreateSubModelData {
   extraBody?: Record<string, unknown>;
   enabled?: boolean;
   sortOrder?: number;
+  weight?: number;
 }
 
 interface CreateServiceData {
@@ -251,6 +279,8 @@ interface CreateServiceData {
   enabled?: boolean;
   type?: 'STANDARD' | 'BACKGROUND';
   status?: 'DEVELOPMENT' | 'DEPLOYED';
+  deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
+  deployScopeValue?: string;
 }
 
 // Admin Logs API

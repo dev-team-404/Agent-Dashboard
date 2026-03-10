@@ -20,6 +20,12 @@ enum ServiceStatus {
   DEPLOYED     // 배포 완료 (서비스 마켓에 노출)
 }
 
+enum DeployScope {
+  ALL            // 전체 공개
+  BUSINESS_UNIT  // 사업부 공개
+  TEAM           // 팀 공개
+}
+
 model Service {
   id          String        @id @default(uuid())
   name        String        @unique              // "my-service" (유니크, 등록시 중복체크)
@@ -30,6 +36,8 @@ model Service {
   enabled     Boolean       @default(true)
   type        ServiceType   @default(STANDARD)
   status      ServiceStatus @default(DEVELOPMENT)   // 개발/배포 상태
+  deployScope DeployScope   @default(ALL) @map("deploy_scope")  // 배포 공개 범위
+  deployScopeValue String[] @default([]) @map("deploy_scope_value") // 공개 대상 (BU명, 팀명 등)
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
@@ -164,6 +172,9 @@ model ServiceModel {
   id        String   @id @default(uuid())
   serviceId String   @map("service_id")
   modelId   String   @map("model_id")
+  sortOrder Int      @default(0) @map("sort_order")     // 표시 순서
+  weight    Int      @default(1) @map("weight")          // 라운드로빈 호출 횟수 (1~10)
+  enabled   Boolean  @default(true)                       // 비활성화 시 라운드로빈 제외
   addedBy   String?  @map("added_by")     // 추가한 사용자 loginid
   addedAt   DateTime @default(now()) @map("added_at")
 
@@ -188,6 +199,7 @@ model SubModel {
   extraHeaders Json?   @map("extra_headers")
   extraBody    Json?   @map("extra_body")
   enabled     Boolean  @default(true)
+  weight      Int      @default(1) @map("weight")       // 라운드로빈 가중치 (2=2배 빈도)
   sortOrder   Int      @default(0) @map("sort_order")
   createdAt   DateTime @default(now()) @map("created_at")
 

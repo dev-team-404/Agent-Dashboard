@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Search, Trash2, UserPlus, Users, ChevronDown,
@@ -20,21 +21,19 @@ interface Service {
   enabled: boolean;
   registeredBy?: string;
   registeredByDept?: string;
+  registeredByBusinessUnit?: string;
+  deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
+  deployScopeValue?: string[];
   createdAt: string;
   _count?: { usageLogs: number };
   serviceModels?: Array<{
     id: string;
     modelId: string;
-    model: { id: string; name: string; displayName: string; type: string };
+    sortOrder: number;
+    weight: number;
+    enabled: boolean;
+    model: { id: string; name: string; displayName: string; type: string; enabled: boolean };
   }>;
-}
-
-interface AvailableModel {
-  id: string;
-  name: string;
-  displayName: string;
-  type: string;
-  enabled: boolean;
 }
 
 interface ServiceMember {
@@ -117,6 +116,7 @@ function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClo
 // ── Main Component ──
 
 export default function MyServices() {
+  const navigate = useNavigate();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,14 +131,8 @@ export default function MyServices() {
   // Deploy modal
   const [deployTarget, setDeployTarget] = useState<Service | null>(null);
   const [deploying, setDeploying] = useState(false);
-
-  // Model management modal
-  const [modelTarget, setModelTarget] = useState<Service | null>(null);
-  const [serviceModels, setServiceModels] = useState<Service['serviceModels']>([]);
-  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState('');
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelActionLoading, setModelActionLoading] = useState(false);
+  const [deployScope, setDeployScope] = useState<'ALL' | 'BUSINESS_UNIT' | 'TEAM'>('ALL');
+  const [deployScopeValue, setDeployScopeValue] = useState('');
 
   // Member management modal
   const [memberTarget, setMemberTarget] = useState<Service | null>(null);
@@ -238,11 +232,26 @@ export default function MyServices() {
 
   // ── Deploy ──
 
+  const openDeployModal = (service: Service) => {
+    setDeployTarget(service);
+    // Pre-fill scope from existing service data or default to ALL
+    setDeployScope(service.deployScope || 'ALL');
+    setDeployScopeValue(
+      (service.deployScopeValue || []).join(', ') ||
+      (service.registeredByBusinessUnit || service.registeredByDept || '')
+    );
+  };
+
   const handleDeploy = async () => {
     if (!deployTarget) return;
     setDeploying(true);
     try {
-      await api.post(`/services/${deployTarget.id}/deploy`);
+      await api.post(`/services/${deployTarget.id}/deploy`, {
+        deployScope,
+        deployScopeValue: deployScope !== 'ALL' && deployScopeValue
+          ? deployScopeValue.split(',').map((v: string) => v.trim()).filter(Boolean)
+          : [],
+      });
       setDeployTarget(null);
       await loadServices();
     } catch (err: unknown) {
@@ -254,62 +263,16 @@ export default function MyServices() {
     }
   };
 
-  // ── Model management ──
-
-  const openModelModal = async (service: Service) => {
-    setModelTarget(service);
-    setModelsLoading(true);
-    setSelectedModelId('');
+  const handleUndeploy = async (serviceId: string) => {
+    if (!confirm('배포를 취소하고 개발 상태로 되돌리시겠습니까?')) return;
     try {
-      const [modelsRes, availableRes] = await Promise.all([
-        api.get(`/services/${service.id}/models`),
-        api.get('/models'),
-      ]);
-      setServiceModels(modelsRes.data.serviceModels || []);
-      setAvailableModels(availableRes.data.models || []);
-    } catch (err) {
-      console.error('Failed to load models:', err);
-    } finally {
-      setModelsLoading(false);
-    }
-  };
-
-  const handleAddModel = async () => {
-    if (!modelTarget || !selectedModelId) return;
-    setModelActionLoading(true);
-    try {
-      await api.post(`/services/${modelTarget.id}/models`, { modelId: selectedModelId });
-      const res = await api.get(`/services/${modelTarget.id}/models`);
-      setServiceModels(res.data.serviceModels || []);
-      setSelectedModelId('');
+      await api.post(`/services/${serviceId}/undeploy`);
+      await loadServices();
     } catch (err: unknown) {
-      console.error('Failed to add model:', err);
+      console.error('Undeploy failed:', err);
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '모델 추가에 실패했습니다.');
-    } finally {
-      setModelActionLoading(false);
+      alert(msg || '배포 취소에 실패했습니다.');
     }
-  };
-
-  const handleRemoveModel = async (modelId: string) => {
-    if (!modelTarget) return;
-    setModelActionLoading(true);
-    try {
-      await api.delete(`/services/${modelTarget.id}/models/${modelId}`);
-      const res = await api.get(`/services/${modelTarget.id}/models`);
-      setServiceModels(res.data.serviceModels || []);
-    } catch (err: unknown) {
-      console.error('Failed to remove model:', err);
-    } finally {
-      setModelActionLoading(false);
-    }
-  };
-
-  const closeModelModal = () => {
-    setModelTarget(null);
-    setServiceModels([]);
-    setAvailableModels([]);
-    setSelectedModelId('');
   };
 
   // ── Member management ──
@@ -426,11 +389,6 @@ export default function MyServices() {
     }
   };
 
-  // ── Filtered available models (exclude already assigned) ──
-
-  const assignedModelIds = new Set((serviceModels || []).map((sm) => sm.modelId));
-  const unassignedModels = availableModels.filter((m) => !assignedModelIds.has(m.id) && m.enabled);
-
   // ── Already-member user IDs ──
 
   const memberUserIds = new Set(members.map((m) => m.userId));
@@ -474,6 +432,12 @@ export default function MyServices() {
           새 서비스 만들기
         </button>
       </div>
+
+      {/* Help text */}
+      <p className="text-xs text-gray-400 leading-relaxed -mt-3">
+        나의 서비스를 생성하고 관리합니다. 서비스 ID는 영문 소문자와 하이픈만 사용 가능하며, 생성 후 변경할 수 없습니다.
+        배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 마켓에 공개됩니다.
+      </p>
 
       {/* ── Error ── */}
       {error && (
@@ -526,6 +490,22 @@ export default function MyServices() {
                         }`}>
                           {isDev ? '개발중' : '배포됨'}
                         </span>
+                        {/* Deploy scope badge */}
+                        {!isDev && service.deployScope && (
+                          <span className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                            service.deployScope === 'ALL'
+                              ? 'bg-blue-50 text-blue-600'
+                              : service.deployScope === 'BUSINESS_UNIT'
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-green-50 text-green-700'
+                          }`}>
+                            {service.deployScope === 'ALL'
+                              ? '전체 공개'
+                              : service.deployScope === 'BUSINESS_UNIT'
+                                ? `사업부: ${(service.deployScopeValue || []).join(', ')}`
+                                : `팀: ${(service.deployScopeValue || []).join(', ')}`}
+                          </span>
+                        )}
                       </div>
                       <code className="text-xs text-gray-400 font-mono">{service.name}</code>
                     </div>
@@ -557,11 +537,11 @@ export default function MyServices() {
                 {/* Actions */}
                 <div className="border-t border-gray-100 px-5 py-3 flex items-center gap-2 flex-wrap">
                   <button
-                    onClick={() => openModelModal(service)}
+                    onClick={() => navigate(`/my-services/${service.id}/models`)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
                   >
                     <Layers className="w-3.5 h-3.5" />
-                    모델 관리
+                    모델 설정
                   </button>
                   <button
                     onClick={() => openMemberModal(service)}
@@ -570,13 +550,21 @@ export default function MyServices() {
                     <Users className="w-3.5 h-3.5" />
                     멤버 관리
                   </button>
-                  {isDev && (
+                  {isDev ? (
                     <button
-                      onClick={() => setDeployTarget(service)}
+                      onClick={() => openDeployModal(service)}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-md hover:bg-green-100 transition-colors"
                     >
                       <Rocket className="w-3.5 h-3.5" />
                       배포하기
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleUndeploy(service.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors"
+                    >
+                      <Rocket className="w-3.5 h-3.5" />
+                      배포 취소
                     </button>
                   )}
                   <button
@@ -654,6 +642,7 @@ export default function MyServices() {
                   placeholder="내 AI 서비스"
                   className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
                 />
+                <p className="mt-1 text-xs text-gray-400">사용자에게 보여지는 서비스 이름 (한글/영문 자유)</p>
               </div>
 
               {/* Description */}
@@ -662,7 +651,7 @@ export default function MyServices() {
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="서비스에 대한 간단한 설명"
+                  placeholder="서비스에 대한 간단한 설명 (예: 사내 문서 검색 AI 챗봇)"
                   rows={3}
                   className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors resize-none"
                 />
@@ -682,6 +671,7 @@ export default function MyServices() {
                   </select>
                   <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
+                <p className="mt-1 text-xs text-gray-400">표준: 일반 API 서비스 | 백그라운드: 비동기 배치 처리용 서비스</p>
               </div>
             </div>
 
@@ -731,6 +721,55 @@ export default function MyServices() {
                 </p>
               </div>
             </div>
+
+            {/* Deploy scope selection */}
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">공개 범위</label>
+                <div className="relative">
+                  <select
+                    value={deployScope}
+                    onChange={(e) => {
+                      const scope = e.target.value as 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
+                      setDeployScope(scope);
+                      if (scope === 'BUSINESS_UNIT') {
+                        setDeployScopeValue(deployTarget.registeredByBusinessUnit || deployTarget.registeredByDept || '');
+                      } else if (scope === 'TEAM') {
+                        setDeployScopeValue(deployTarget.registeredByDept || '');
+                      } else {
+                        setDeployScopeValue('');
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors appearance-none pr-8"
+                  >
+                    <option value="ALL">전체 공개 (ALL)</option>
+                    <option value="BUSINESS_UNIT">사업부 공개 (BUSINESS_UNIT)</option>
+                    <option value="TEAM">팀 공개 (TEAM)</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {deployScope !== 'ALL' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {deployScope === 'BUSINESS_UNIT' ? '사업부명' : '팀명'} (콤마로 구분하여 복수 입력 가능)
+                  </label>
+                  <input
+                    type="text"
+                    value={deployScopeValue}
+                    onChange={(e) => setDeployScopeValue(e.target.value)}
+                    placeholder={deployScope === 'BUSINESS_UNIT' ? '예: AI사업부, 플랫폼사업부' : '예: AI개발팀, 백엔드팀'}
+                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              )}
+
+              <p className="text-xs text-gray-400 leading-relaxed">
+                전체 공개: 모든 사용자에게 노출 | 사업부 공개: 같은 사업부 사용자에게만 노출 | 팀 공개: 같은 팀 사용자에게만 노출
+              </p>
+            </div>
+
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setDeployTarget(null)}
@@ -748,89 +787,6 @@ export default function MyServices() {
                 배포하기
               </button>
             </div>
-          </div>
-        </ModalBackdrop>
-      )}
-
-      {/* ══════════════════════════════════════════════════
-          Model Management Modal
-         ══════════════════════════════════════════════════ */}
-      {modelTarget && (
-        <ModalBackdrop onClose={closeModelModal}>
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">모델 관리</h3>
-                <p className="text-sm text-gray-500 mt-0.5">{modelTarget.displayName}</p>
-              </div>
-              <button onClick={closeModelModal} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {modelsLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-              </div>
-            ) : (
-              <>
-                {/* Add model */}
-                <div className="flex gap-2 mb-4">
-                  <div className="relative flex-1">
-                    <select
-                      value={selectedModelId}
-                      onChange={(e) => setSelectedModelId(e.target.value)}
-                      className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors appearance-none pr-8"
-                    >
-                      <option value="">모델 선택...</option>
-                      {unassignedModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.displayName} ({m.type})
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                  </div>
-                  <button
-                    onClick={handleAddModel}
-                    disabled={!selectedModelId || modelActionLoading}
-                    className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {modelActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    추가
-                  </button>
-                </div>
-
-                {/* Current models */}
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {(serviceModels || []).length > 0 ? (
-                    (serviceModels || []).map((sm) => (
-                      <div
-                        key={sm.id}
-                        className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-gray-900 truncate">{sm.model.displayName}</p>
-                          <p className="text-xs text-gray-400">{sm.model.name} &middot; {sm.model.type}</p>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveModel(sm.modelId)}
-                          disabled={modelActionLoading}
-                          className="p-1.5 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
-                          title="모델 제거"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-6 text-sm text-gray-400">
-                      연결된 모델이 없습니다.
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
           </div>
         </ModalBackdrop>
       )}

@@ -138,6 +138,9 @@ export default function MyUsage() {
         <div>
           <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">내 사용량</h1>
           <p className="text-sm text-pastel-500 mt-1">나의 LLM API 사용 현황을 확인하세요</p>
+          <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+            내 토큰 사용량과 요청 기록을 확인합니다. Rate Limit이 설정된 경우 남은 한도를 확인할 수 있습니다. 서비스별 필터로 상세 내역을 조회하세요.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {services.length > 0 && (
