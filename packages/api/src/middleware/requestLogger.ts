@@ -1,8 +1,9 @@
 /**
- * Request Logger Middleware (v2)
+ * Request Logger Middleware (v3)
  *
- * 모든 API 호출의 헤더 정보를 디코딩하여 구조화된 로그로 출력
- * v2: x-user-dept → x-dept-name 헤더 변경 반영
+ * 모든 API 호출에 service, user, dept를 항상 표시 (없으면 null)
+ * - 프록시 라우트: x-service-id, x-user-id, x-dept-name 헤더에서 추출
+ * - 대시보드 라우트: Authorization (JWT/SSO) 토큰에서 추출
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -10,12 +11,9 @@ import { Request, Response, NextFunction } from 'express';
 function safeDecode(value: string | undefined): string {
   if (!value) return '';
   try {
-    // URL-encoded (%XX) → decode
     if (value.includes('%')) return decodeURIComponent(value);
-    // Raw UTF-8 bytes in header → Node.js reads as latin1 → convert back to UTF-8
     const buf = Buffer.from(value, 'latin1');
     const decoded = buf.toString('utf8');
-    // 유효한 UTF-8이면 변환된 값 사용, 아니면 원본
     if (decoded !== value && !decoded.includes('\ufffd')) return decoded;
     return value;
   } catch {
@@ -50,7 +48,6 @@ function decodeAuthHeader(authHeader: string | undefined): Record<string, unknow
         loginid: payload.loginid || payload.sub || '',
         username: payload.username || payload.name || '',
         deptname: payload.deptname || payload.department || '',
-        exp: payload.exp ? new Date(payload.exp * 1000).toISOString() : undefined,
       };
     } catch {
       return { type: 'jwt', error: 'decode_failed' };
@@ -63,12 +60,22 @@ function decodeAuthHeader(authHeader: string | undefined): Record<string, unknow
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const startTime = Date.now();
 
-  const serviceId = (req.headers['x-service-id'] as string) || '';
-  const userId = (req.headers['x-user-id'] as string) || '';
-  const deptName = safeDecode(req.headers['x-dept-name'] as string);
-  const authInfo = decodeAuthHeader(req.headers['authorization'] as string);
+  // 헤더 기반 (프록시 라우트)
+  const headerServiceId = (req.headers['x-service-id'] as string) || '';
+  const headerUserId = (req.headers['x-user-id'] as string) || '';
+  const headerDept = safeDecode(req.headers['x-dept-name'] as string);
 
-  const model = req.body?.model || '';
+  // JWT/SSO 기반 (대시보드 라우트)
+  const authInfo = decodeAuthHeader(req.headers['authorization'] as string);
+  const authUserId = (authInfo?.loginid as string) || '';
+  const authDept = (authInfo?.deptname as string) || '';
+
+  // 통합: 헤더 우선, 없으면 auth 토큰에서
+  const serviceId = headerServiceId || null;
+  const userId = headerUserId || authUserId || null;
+  const dept = headerDept || authDept || null;
+
+  const model = req.body?.model || null;
   const stream = req.body?.stream || false;
 
   res.on('finish', () => {
@@ -76,12 +83,11 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
     const status = res.statusCode;
 
     const logLine = `[Request] ${req.method} ${req.originalUrl || req.url} ${status} ${duration}ms` +
-      (serviceId ? ` | service=${serviceId}` : '') +
-      (userId ? ` | user=${userId}` : '') +
-      (deptName ? ` | dept=${deptName}` : '') +
+      ` | service=${serviceId}` +
+      ` | user=${userId}` +
+      ` | dept=${dept}` +
       (model ? ` | model=${model}` : '') +
-      (stream ? ` | stream=${stream}` : '') +
-      (authInfo ? ` | auth=${authInfo.type}(${authInfo.loginid || ''})` : '');
+      (stream ? ` | stream=${stream}` : '');
 
     if (status >= 500) {
       console.error(logLine);
