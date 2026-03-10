@@ -96,13 +96,6 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
       return;
     }
 
-    // 이름 중복 체크
-    const existing = await prisma.model.findUnique({ where: { name } });
-    if (existing) {
-      res.status(409).json({ error: `Model name '${name}' is already taken` });
-      return;
-    }
-
     const deptname = req.adminDept || req.user?.deptname || '';
     const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
 
@@ -168,15 +161,6 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
     const { name, displayName, endpointUrl, apiKey, maxTokens, enabled,
             extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
             type, imageProvider, adminVisible } = req.body;
-
-    // 이름 변경 시 중복 체크
-    if (name && name !== model.name) {
-      const existing = await prisma.model.findUnique({ where: { name } });
-      if (existing) {
-        res.status(409).json({ error: `Model name '${name}' is already taken` });
-        return;
-      }
-    }
 
     const updated = await prisma.model.update({
       where: { id },

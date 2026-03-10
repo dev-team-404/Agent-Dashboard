@@ -114,7 +114,7 @@ enum ModelType {
 
 model Model {
   id          String   @id @default(uuid())
-  name        String   @unique                // 전역 유니크
+  name        String                           // 중복 허용 (동일 모델 ID, 다른 설정 가능)
   displayName String
   endpointUrl String
   apiKey      String?

@@ -59,13 +59,14 @@ app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
 app.use(morgan('combined'));
 
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting — Dashboard API only (proxy routes have their own token-based limits)
+const dashboardLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
   message: { error: 'Too many requests, please try again later.' },
+  skip: (req) => req.path.startsWith('/v1/') || req.path === '/health',
 });
-app.use(limiter);
+app.use(dashboardLimiter);
 
 // Health check
 app.get('/health', (_req, res) => {
