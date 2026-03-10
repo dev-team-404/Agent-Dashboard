@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, ArrowUpRight, BookOpen, Layers } from 'lucide-react';
+import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, ArrowUpRight, BookOpen, Layers, ArrowUpDown, Users, Zap, Coins } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface MarketService {
@@ -13,8 +13,15 @@ interface MarketService {
   registeredBy?: string;
   registeredByDept?: string;
   registeredByBusinessUnit?: string;
+  deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
+  deployScopeValue?: string;
   createdAt?: string;
+  _count?: { usageLogs: number; userServices: number; serviceModels: number };
+  totalTokens?: number;
+  recentRequests?: number;
 }
+
+type SortOption = 'default' | 'users' | 'requests' | 'tokens';
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -47,6 +54,7 @@ export default function ServiceMarket() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'STANDARD' | 'BACKGROUND'>('ALL');
+  const [sortBy, setSortBy] = useState<SortOption>('default');
   const [errorModal, setErrorModal] = useState<string | null>(null);
 
   useEffect(() => { loadServices(); }, []);
@@ -79,6 +87,13 @@ export default function ServiceMarket() {
       (s.registeredByDept || '').toLowerCase().includes(q);
     const matchType = typeFilter === 'ALL' || s.type === typeFilter;
     return matchSearch && matchType;
+  }).sort((a, b) => {
+    switch (sortBy) {
+      case 'users': return (b._count?.userServices || 0) - (a._count?.userServices || 0);
+      case 'requests': return (b.recentRequests || 0) - (a.recentRequests || 0);
+      case 'tokens': return (b.totalTokens || 0) - (a.totalTokens || 0);
+      default: return 0;
+    }
   });
 
   const standardCount = services.filter(s => s.type !== 'BACKGROUND').length;
@@ -109,6 +124,13 @@ export default function ServiceMarket() {
         </p>
       </div>
 
+      {/* Help banner */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+        <p className="text-xs text-gray-400 leading-relaxed">
+          서비스 마켓에서 배포된 서비스를 확인하고 모델을 사용할 수 있습니다. 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-dept-name</code> 헤더를 포함하세요. 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
+        </p>
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -121,20 +143,35 @@ export default function ServiceMarket() {
             className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
           />
         </div>
-        <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden flex-shrink-0">
-          {(['ALL', 'STANDARD', 'BACKGROUND'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`px-3.5 py-2 text-sm font-medium border-r border-gray-300 last:border-r-0 transition-colors whitespace-nowrap ${
-                typeFilter === t
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
+        <div className="flex gap-2 flex-shrink-0">
+          <div className="relative">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="appearance-none pl-8 pr-8 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer"
             >
-              {t === 'ALL' ? `전체 ${services.length}` : t === 'STANDARD' ? `표준 ${standardCount}` : `백그라운드 ${backgroundCount}`}
-            </button>
-          ))}
+              <option value="default">기본 정렬</option>
+              <option value="users">유저 많은순</option>
+              <option value="requests">API 사용순 (7영업일)</option>
+              <option value="tokens">토큰 사용순 (7영업일)</option>
+            </select>
+            <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          </div>
+          <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden">
+            {(['ALL', 'STANDARD', 'BACKGROUND'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`px-3.5 py-2 text-sm font-medium border-r border-gray-300 last:border-r-0 transition-colors whitespace-nowrap ${
+                  typeFilter === t
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {t === 'ALL' ? `전체 ${services.length}` : t === 'STANDARD' ? `표준 ${standardCount}` : `백그라운드 ${backgroundCount}`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -163,22 +200,50 @@ export default function ServiceMarket() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-semibold text-gray-900 truncate">{service.displayName}</h3>
                         <span className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
                           isBG ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-600'
                         }`}>
                           {isBG ? 'BG' : 'STD'}
                         </span>
+                        {service.deployScope === 'BUSINESS_UNIT' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
+                            사업부 공개: {service.deployScopeValue || ''}
+                          </span>
+                        )}
+                        {service.deployScope === 'TEAM' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
+                            팀 공개: {service.deployScopeValue || ''}
+                          </span>
+                        )}
                       </div>
                       <code className="text-xs text-gray-400 font-mono">{service.name}</code>
                     </div>
                   </div>
 
                   {/* Description */}
-                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-4">
+                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-3">
                     {service.description || '설명이 등록되지 않았습니다.'}
                   </p>
+
+                  {/* Stats */}
+                  <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1" title="사용 유저 수">
+                      <Users className="w-3 h-3 text-gray-400" />
+                      {service._count?.userServices?.toLocaleString() ?? 0}명
+                    </span>
+                    <span className="flex items-center gap-1" title="최근 7영업일 API 요청 수">
+                      <Zap className="w-3 h-3 text-gray-400" />
+                      {service.recentRequests?.toLocaleString() ?? 0}회
+                    </span>
+                    <span className="flex items-center gap-1" title="최근 7영업일 토큰 사용량">
+                      <Coins className="w-3 h-3 text-gray-400" />
+                      {service.totalTokens != null && service.totalTokens >= 1000
+                        ? `${(service.totalTokens / 1000).toFixed(1)}k`
+                        : (service.totalTokens?.toLocaleString() ?? 0)} 토큰
+                    </span>
+                  </div>
 
                   {/* Registration metadata */}
                   <div className="flex items-center gap-1 text-xs text-gray-400 flex-wrap">
