@@ -114,6 +114,17 @@ export default function WeeklyBusinessDAUChart() {
     return stats;
   }, [chartData, services]);
 
+  // Rank services: top 10 in chart, rest in table
+  const { topServices, restServices } = useMemo(() => {
+    if (services.length <= 10) return { topServices: services, restServices: [] as ServiceInfo[] };
+    const ranked = [...services].sort((a, b) => {
+      const aVal = serviceStats[a.id]?.latest || serviceStats[a.id]?.avg || 0;
+      const bVal = serviceStats[b.id]?.latest || serviceStats[b.id]?.avg || 0;
+      return bVal - aVal;
+    });
+    return { topServices: ranked.slice(0, 10), restServices: ranked.slice(10) };
+  }, [services, serviceStats]);
+
   const title = granularity === 'daily'
     ? '서비스별 일별 DAU (영업일)'
     : '서비스별 주간 평균 DAU (영업일)';
@@ -188,9 +199,9 @@ export default function WeeklyBusinessDAUChart() {
       </div>
 
       {/* Service Stats Summary */}
-      {services.length > 0 && (
+      {topServices.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-          {services.map((service, index) => {
+          {topServices.map((service, index) => {
             const stats = serviceStats[service.id];
             return (
               <div
@@ -254,11 +265,11 @@ export default function WeeklyBusinessDAUChart() {
               />
               <Legend
                 formatter={(value: string) => {
-                  const service = services.find((s) => s.id === value);
+                  const service = topServices.find((s) => s.id === value);
                   return service?.displayName || value;
                 }}
               />
-              {services.map((service, index) => (
+              {topServices.map((service, index) => (
                 <Line
                   key={service.id}
                   type="monotone"
@@ -272,6 +283,37 @@ export default function WeeklyBusinessDAUChart() {
               ))}
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {restServices.length > 0 && (
+        <div className="mt-4 border-t border-gray-100 pt-4 px-2">
+          <p className="text-xs text-gray-500 mb-2">그 외 {restServices.length}개 서비스</p>
+          <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50">
+                <tr>
+                  <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
+                  <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+                  <th className="text-right py-2 px-3 font-medium text-gray-500">평균</th>
+                  <th className="text-right py-2 px-3 font-medium text-gray-500">최대</th>
+                </tr>
+              </thead>
+              <tbody>
+                {restServices.map((service, i) => {
+                  const stats = serviceStats[service.id];
+                  return (
+                    <tr key={service.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{service.displayName}</td>
+                      <td className="text-right py-1.5 px-3 text-gray-600">{stats?.latest || 0}</td>
+                      <td className="text-right py-1.5 px-3 text-gray-600">{stats?.avg || 0}</td>
+                      <td className="text-right py-1.5 px-3 text-gray-600">{stats?.max || 0}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

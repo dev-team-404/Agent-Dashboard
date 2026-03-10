@@ -33,6 +33,52 @@ function formatDate(d: string): string {
   return d.slice(5); // MM-DD
 }
 
+function rankServiceKeys(data: Record<string, unknown>[], limit = 10): { top: string[]; rest: string[] } {
+  const keys = new Set<string>();
+  data.forEach(row => Object.keys(row).forEach(k => { if (k !== 'date') keys.add(k); }));
+  const sorted = Array.from(keys).sort((a, b) => {
+    const sumA = data.reduce((s, r) => s + ((r[a] as number) || 0), 0);
+    const sumB = data.reduce((s, r) => s + ((r[b] as number) || 0), 0);
+    return sumB - sumA;
+  });
+  return { top: sorted.slice(0, limit), rest: sorted.slice(limit) };
+}
+
+function OverflowTable({ data, keys, label }: { data: Record<string, unknown>[]; keys: string[]; label: string }) {
+  if (keys.length === 0) return null;
+  const rows = keys.map(key => ({
+    name: key,
+    total: data.reduce((s, r) => s + ((r[key] as number) || 0), 0),
+    latest: (data[data.length - 1]?.[key] as number) || 0,
+  })).sort((a, b) => b.total - a.total);
+
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-4">
+      <p className="text-xs text-gray-500 mb-2">그 외 {keys.length}개 서비스 {label}</p>
+      <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-gray-50">
+            <tr>
+              <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
+              <th className="text-right py-2 px-3 font-medium text-gray-500">합계</th>
+              <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{r.name}</td>
+                <td className="text-right py-1.5 px-3 text-gray-600">{formatNum(r.total)}</td>
+                <td className="text-right py-1.5 px-3 text-gray-600">{formatNum(r.latest)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function EnhancedServiceCharts() {
   const [tab, setTab] = useState<ChartType>('cumUsers');
   const [days, setDays] = useState(30);
@@ -69,76 +115,71 @@ export default function EnhancedServiceCharts() {
     }
   };
 
-  const getServiceKeys = (data: Record<string, unknown>[]) => {
-    if (!data || data.length === 0) return [];
-    const keys = new Set<string>();
-    data.forEach(row => {
-      Object.keys(row).forEach(k => {
-        if (k !== 'date') keys.add(k);
-      });
-    });
-    return Array.from(keys);
-  };
-
   const renderLineChart = (data: Record<string, unknown>[], yFormatter?: (v: number) => string) => {
-    const serviceKeys = getServiceKeys(data);
     if (data.length === 0) return <EmptyState />;
+    const { top, rest } = rankServiceKeys(data, 10);
     return (
-      <ResponsiveContainer width="100%" height={360}>
-        <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
-          <YAxis tickFormatter={yFormatter || formatNum} tick={{ fontSize: 11 }} />
-          <Tooltip
-            formatter={(value: number) => (yFormatter ? yFormatter(value) : formatNum(value))}
-            labelFormatter={(l: string) => l}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-          />
-          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-          {serviceKeys.map((key, i) => (
-            <Line
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={COLORS[i % COLORS.length]}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
+      <>
+        <ResponsiveContainer width="100%" height={360}>
+          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={yFormatter || formatNum} tick={{ fontSize: 11 }} />
+            <Tooltip
+              formatter={(value: number) => (yFormatter ? yFormatter(value) : formatNum(value))}
+              labelFormatter={(l: string) => l}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
             />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {top.map((key, i) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={COLORS[i % COLORS.length]}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+        <OverflowTable data={data} keys={rest} label="요약" />
+      </>
     );
   };
 
   const renderAreaChart = (data: Record<string, unknown>[]) => {
-    const serviceKeys = getServiceKeys(data);
     if (data.length === 0) return <EmptyState />;
+    const { top, rest } = rankServiceKeys(data, 10);
     return (
-      <ResponsiveContainer width="100%" height={360}>
-        <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
-          <YAxis tickFormatter={formatNum} tick={{ fontSize: 11 }} />
-          <Tooltip
-            formatter={(value: number) => formatNum(value)}
-            labelFormatter={(l: string) => l}
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-          />
-          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-          {serviceKeys.map((key, i) => (
-            <Area
-              key={key}
-              type="monotone"
-              dataKey={key}
-              stroke={COLORS[i % COLORS.length]}
-              fill={COLORS[i % COLORS.length]}
-              fillOpacity={0.15}
-              strokeWidth={2}
+      <>
+        <ResponsiveContainer width="100%" height={360}>
+          <AreaChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={formatNum} tick={{ fontSize: 11 }} />
+            <Tooltip
+              formatter={(value: number) => formatNum(value)}
+              labelFormatter={(l: string) => l}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
             />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {top.map((key, i) => (
+              <Area
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={COLORS[i % COLORS.length]}
+                fill={COLORS[i % COLORS.length]}
+                fillOpacity={0.15}
+                strokeWidth={2}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+        <OverflowTable data={data} keys={rest} label="요약" />
+      </>
     );
   };
 

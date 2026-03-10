@@ -259,9 +259,27 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
     return row;
   });
 
+  // Top 10 services by total requests
+  const rankedServices = [...uniqueServices].sort((a, b) => {
+    const sumA = serviceRechartsData.reduce((s, r) => s + ((r[a] as number) || 0), 0);
+    const sumB = serviceRechartsData.reduce((s, r) => s + ((r[b] as number) || 0), 0);
+    return sumB - sumA;
+  });
+  const topServices = rankedServices.slice(0, 10);
+  const restServices = rankedServices.slice(10);
+
   const deptTokenRechartsData = deptDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
   const deptUsersRechartsData = deptUsersDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
-  const deptServiceRechartsData = deptServiceRequestsData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptServiceRechartsData: DeptServiceRequestsDaily[] = deptServiceRequestsData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
+
+  // Top 10 dept-service combos by total requests
+  const rankedCombos = [...deptServiceCombos].sort((a, b) => {
+    const sumA = deptServiceRechartsData.reduce((s, r) => s + ((r[a] as number) || 0), 0);
+    const sumB = deptServiceRechartsData.reduce((s, r) => s + ((r[b] as number) || 0), 0);
+    return sumB - sumA;
+  });
+  const topCombos = rankedCombos.slice(0, 10);
+  const restCombos = rankedCombos.slice(10);
 
   const latencyKeys = Object.keys(latencyHistory);
   const latencyRechartsData = latencyKeys.length > 0
@@ -314,26 +332,57 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
     switch (activeTab) {
       case 'service':
         return serviceRechartsData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <AreaChart data={serviceRechartsData}>
-              <defs>
-                {uniqueServices.map((svc, i) => (
-                  <linearGradient key={svc} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.25} />
-                    <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.02} />
-                  </linearGradient>
+          <>
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={serviceRechartsData}>
+                <defs>
+                  {topServices.map((svc, i) => (
+                    <linearGradient key={svc} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.25} />
+                      <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.02} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+                <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
+                <Legend />
+                {topServices.map((svc, i) => (
+                  <Area key={svc} type="monotone" dataKey={svc} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={`url(#grad-${i})`} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                 ))}
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
-              <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
-              <Legend />
-              {uniqueServices.map((svc, i) => (
-                <Area key={svc} type="monotone" dataKey={svc} stroke={CHART_COLORS[i % CHART_COLORS.length]} fill={`url(#grad-${i})`} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-              ))}
-            </AreaChart>
-          </ResponsiveContainer>
+              </AreaChart>
+            </ResponsiveContainer>
+            {restServices.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-3">
+                <p className="text-xs text-gray-400 mb-2">그 외 {restServices.length}개 서비스</p>
+                <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50">
+                      <tr>
+                        <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">총 요청</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {restServices.map((svc, i) => {
+                        const total = serviceRechartsData.reduce((s, r) => s + ((r[svc] as number) || 0), 0);
+                        const latest = (serviceRechartsData[serviceRechartsData.length - 1]?.[svc] as number) || 0;
+                        return (
+                          <tr key={svc} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                            <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{svc}</td>
+                            <td className="text-right py-1.5 px-3 text-gray-600">{formatNumber(total)}</td>
+                            <td className="text-right py-1.5 px-3 text-gray-600">{formatNumber(latest)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
         );
@@ -362,18 +411,49 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
       case 'dept-requests':
         return deptServiceRechartsData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={deptServiceRechartsData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
-              <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
-              <Legend />
-              {deptServiceCombos.map((combo, i) => (
-                <RechartsLine key={combo} type="monotone" dataKey={combo} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={deptServiceRechartsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+                <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
+                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [formatNumber(value), undefined]} />
+                <Legend />
+                {topCombos.map((combo, i) => (
+                  <RechartsLine key={combo} type="monotone" dataKey={combo} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+            {restCombos.length > 0 && (
+              <div className="mt-4 border-t border-gray-100 pt-3">
+                <p className="text-xs text-gray-400 mb-2">그 외 {restCombos.length}개 조합</p>
+                <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-gray-50">
+                      <tr>
+                        <th className="text-left py-2 px-3 font-medium text-gray-500">사업부/서비스</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">총 요청</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {restCombos.map((combo, i) => {
+                        const total = deptServiceRechartsData.reduce((s, r) => s + ((r[combo] as number) || 0), 0);
+                        const latest = (deptServiceRechartsData[deptServiceRechartsData.length - 1]?.[combo] as number) || 0;
+                        return (
+                          <tr key={combo} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                            <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{combo}</td>
+                            <td className="text-right py-1.5 px-3 text-gray-600">{formatNumber(total)}</td>
+                            <td className="text-right py-1.5 px-3 text-gray-600">{formatNumber(latest)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
         );
