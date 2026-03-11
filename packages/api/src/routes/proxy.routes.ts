@@ -129,9 +129,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Service-level round-robin: 동일 서비스에 같은 모델 이름으로 여러 Model이
- * ServiceModel로 등록되어 있으면, weight 기반 라운드로빈으로 하나를 선택한다.
- * 선택된 Model은 이후 SubModel 라운드로빈 (기존 로직)을 그대로 탄다.
+ * Service-level round-robin: aliasName 기반 모델 해석
+ * 서비스에 등록된 ServiceModel 중 aliasName이 일치하는 모델들을
+ * weight 기반 라운드로빈으로 선택한다.
  *
  * fallback: ServiceModel이 없으면 기존처럼 전역 Model 조회.
  */
@@ -142,22 +142,53 @@ async function resolveModelWithServiceRR(
   | { found: true; model: NonNullable<Awaited<ReturnType<typeof prisma.model.findFirst>>> }
   | { found: false; model: null }
 > {
-  // 1) 해당 서비스에 등록된 ServiceModel 중, 요청 모델 이름과 일치하는 것 모두 조회
+  // 1) aliasName으로 매칭하는 ServiceModel 조회
   const serviceModels = await prisma.serviceModel.findMany({
     where: {
       serviceId,
+      aliasName: modelName,
       enabled: true,
-      model: {
-        OR: [{ name: modelName }, { displayName: modelName }],
-        enabled: true,
-      },
+      model: { enabled: true },
     },
     include: { model: true },
     orderBy: { sortOrder: 'asc' },
   });
 
-  // 2) ServiceModel이 없으면 기존 전역 조회로 fallback
+  // 2) aliasName 매칭이 없으면 기존 전역 조회로 fallback
   if (serviceModels.length === 0) {
+    // 기존 model name/displayName 기반으로도 시도
+    const fallbackSM = await prisma.serviceModel.findMany({
+      where: {
+        serviceId,
+        enabled: true,
+        model: {
+          OR: [{ name: modelName }, { displayName: modelName }],
+          enabled: true,
+        },
+      },
+      include: { model: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    if (fallbackSM.length > 0) {
+      if (fallbackSM.length === 1) return { found: true, model: fallbackSM[0]!.model };
+      // 여러 개면 weight 기반 RR
+      const weightedModels: typeof fallbackSM[number]['model'][] = [];
+      for (const sm of fallbackSM) {
+        const w = Math.max(1, Math.min(sm.weight, 10));
+        for (let i = 0; i < w; i++) weightedModels.push(sm.model);
+      }
+      try {
+        const rrKey = `svc_rr:${serviceId}:${modelName}`;
+        const idx = await redis.incr(rrKey);
+        if (idx === 1) await redis.expire(rrKey, 3600);
+        return { found: true, model: weightedModels[(idx - 1) % weightedModels.length]! };
+      } catch {
+        return { found: true, model: fallbackSM[0]!.model };
+      }
+    }
+
+    // 전역 Model 조회 fallback
     const model = await prisma.model.findFirst({
       where: {
         OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
@@ -185,7 +216,7 @@ async function resolveModelWithServiceRR(
     const idx = await redis.incr(rrKey);
     if (idx === 1) await redis.expire(rrKey, 3600);
     const selected = weightedModels[(idx - 1) % weightedModels.length]!;
-    console.log(`[ServiceRR] service=${serviceId} model="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
+    console.log(`[ServiceRR] service=${serviceId} alias="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
     return { found: true, model: selected };
   } catch (error) {
     console.error('[ServiceRR] Redis error, falling back to first model:', error);
@@ -371,12 +402,59 @@ function buildChatCompletionsUrl(endpointUrl: string): string {
 }
 
 // ============================================
-// GET /v1/models
+// GET /v1/models (서비스별 alias 기반)
 // ============================================
 proxyRoutes.get('/models', async (req: Request, res: Response) => {
   const proxyReq = req as ProxyAuthRequest;
 
   try {
+    // 1) 서비스에 등록된 ServiceModel 조회 (aliasName 기반)
+    const serviceModels = await prisma.serviceModel.findMany({
+      where: {
+        serviceId: proxyReq.serviceId,
+        enabled: true,
+        model: { enabled: true },
+      },
+      include: {
+        model: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            maxTokens: true,
+            supportsVision: true,
+            visibility: true,
+            visibilityScope: true,
+            adminVisible: true,
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }],
+    });
+
+    // 2) 서비스에 모델이 등록되어 있으면 aliasName 기준으로 반환
+    if (serviceModels.length > 0) {
+      // 접근 가능한 모델만 필터 + 고유 aliasName 추출
+      const aliasSet = new Set<string>();
+      const result: { id: string; object: string; created: number; owned_by: string }[] = [];
+
+      for (const sm of serviceModels) {
+        if (aliasSet.has(sm.aliasName)) continue;
+        if (!canServiceAccessModel(proxyReq, sm.model)) continue;
+        aliasSet.add(sm.aliasName);
+        result.push({
+          id: sm.aliasName,
+          object: 'model',
+          created: Date.now(),
+          owned_by: 'agent-dashboard',
+        });
+      }
+
+      res.json({ object: 'list', data: result });
+      return;
+    }
+
+    // 3) ServiceModel이 없으면 기존 전역 모델 목록 fallback
     const models = await prisma.model.findMany({
       where: { enabled: true },
       select: {
@@ -393,7 +471,6 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
       orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
 
-    // 서비스 등록 admin 권한에 따라 필터링
     const filtered = models.filter(model =>
       canServiceAccessModel(proxyReq, model)
     );

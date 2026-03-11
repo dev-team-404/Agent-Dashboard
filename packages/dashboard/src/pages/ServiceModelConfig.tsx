@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Plus, Trash2, ChevronDown, ChevronUp, Loader2,
+  ArrowLeft, Plus, Trash2, ChevronDown, Loader2,
   Layers, ToggleLeft, ToggleRight, RefreshCw,
-  Zap, MessageSquare, Image, Cpu, ArrowUpDown
+  Zap, MessageSquare, Image, Cpu, ArrowUpDown,
+  AlertTriangle, X, Edit2, Check
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -13,11 +14,13 @@ interface ServiceModelItem {
   id: string;
   serviceId: string;
   modelId: string;
+  aliasName: string;
   sortOrder: number;
   weight: number;
   enabled: boolean;
   addedBy?: string;
   addedAt: string;
+  accessible: boolean;
   model: {
     id: string;
     name: string;
@@ -47,6 +50,11 @@ interface ServiceInfo {
   status: 'DEVELOPMENT' | 'DEPLOYED';
 }
 
+interface AliasGroup {
+  aliasName: string;
+  items: ServiceModelItem[];
+}
+
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
   CHAT: MessageSquare,
   IMAGE: Image,
@@ -61,6 +69,17 @@ const MODEL_TYPE_LABELS: Record<string, string> = {
   RERANKING: '리랭킹',
 };
 
+const GROUP_COLORS = [
+  'border-l-blue-400',
+  'border-l-emerald-400',
+  'border-l-amber-400',
+  'border-l-purple-400',
+  'border-l-rose-400',
+  'border-l-cyan-400',
+  'border-l-teal-400',
+  'border-l-orange-400',
+];
+
 export default function ServiceModelConfig() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
@@ -70,9 +89,20 @@ export default function ServiceModelConfig() {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // 새 alias 그룹 추가
+  const [newAliasName, setNewAliasName] = useState('');
+  const [showNewAliasForm, setShowNewAliasForm] = useState(false);
+
+  // 모델 추가 대상 alias
+  const [addingToAlias, setAddingToAlias] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [addWeight, setAddWeight] = useState(1);
   const [filterType, setFilterType] = useState<string>('ALL');
+
+  // alias 이름 수정
+  const [editingAlias, setEditingAlias] = useState<string | null>(null);
+  const [editAliasValue, setEditAliasValue] = useState('');
 
   // ── Load data ──
   const loadData = useCallback(async () => {
@@ -96,47 +126,53 @@ export default function ServiceModelConfig() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Derived: unassigned models ──
-  const assignedModelIds = new Set(serviceModels.map(sm => sm.modelId));
-  const unassignedModels = availableModels.filter(m => m.enabled && !assignedModelIds.has(m.id));
-  const filteredUnassigned = filterType === 'ALL'
-    ? unassignedModels
-    : unassignedModels.filter(m => m.type === filterType);
+  // ── Derived: alias groups ──
+  const aliasGroups: AliasGroup[] = [];
+  const aliasMap = new Map<string, ServiceModelItem[]>();
 
-  // ── Derived: group models by name for round-robin visualization ──
-  const modelNameCounts: Record<string, number> = {};
   serviceModels.forEach(sm => {
-    const name = sm.model.name;
-    modelNameCounts[name] = (modelNameCounts[name] || 0) + 1;
+    const key = sm.aliasName;
+    if (!aliasMap.has(key)) aliasMap.set(key, []);
+    aliasMap.get(key)!.push(sm);
   });
 
-  // Colors for round-robin groups
-  const RR_COLORS = [
-    'border-blue-300 bg-blue-50',
-    'border-emerald-300 bg-emerald-50',
-    'border-amber-300 bg-amber-50',
-    'border-purple-300 bg-purple-50',
-    'border-rose-300 bg-rose-50',
-    'border-cyan-300 bg-cyan-50',
-  ];
-  const rrGroupColorMap: Record<string, string> = {};
-  let colorIdx = 0;
-  Object.entries(modelNameCounts).forEach(([name, count]) => {
-    if (count > 1) {
-      rrGroupColorMap[name] = RR_COLORS[colorIdx % RR_COLORS.length]!;
-      colorIdx++;
-    }
+  aliasMap.forEach((items, aliasName) => {
+    aliasGroups.push({
+      aliasName,
+      items: items.sort((a, b) => a.sortOrder - b.sortOrder),
+    });
   });
+
+  // ── Available models for adding ──
+  const getAvailableForAlias = (aliasName: string) => {
+    const assignedIds = new Set(
+      serviceModels
+        .filter(sm => sm.aliasName === aliasName)
+        .map(sm => sm.modelId)
+    );
+    const filtered = availableModels.filter(m => m.enabled && !assignedIds.has(m.id));
+    return filterType === 'ALL' ? filtered : filtered.filter(m => m.type === filterType);
+  };
 
   // ── Handlers ──
-  const handleAddModel = async () => {
+  const handleCreateAliasGroup = async () => {
+    const name = newAliasName.trim();
+    if (!name) return;
+    // alias만 생성 (모델은 나중에 추가)
+    setShowNewAliasForm(false);
+    setNewAliasName('');
+    setAddingToAlias(name);
+  };
+
+  const handleAddModelToAlias = async (aliasName: string) => {
     if (!serviceId || !selectedModelId) return;
     setSaving(true);
     try {
       await api.post(`/services/${serviceId}/models`, {
         modelId: selectedModelId,
+        aliasName,
         weight: addWeight,
-        sortOrder: serviceModels.length,
+        sortOrder: serviceModels.filter(sm => sm.aliasName === aliasName).length,
       });
       setSelectedModelId('');
       setAddWeight(1);
@@ -149,11 +185,11 @@ export default function ServiceModelConfig() {
     }
   };
 
-  const handleRemove = async (sm: ServiceModelItem) => {
-    if (!confirm(`'${sm.model.displayName}' 모델을 제거하시겠습니까?`)) return;
+  const handleRemoveModel = async (sm: ServiceModelItem) => {
+    if (!confirm(`'${sm.model.displayName}'을(를) '${sm.aliasName}' 그룹에서 제거하시겠습니까?`)) return;
     setSaving(true);
     try {
-      await api.delete(`/services/${serviceId}/models/${sm.modelId}`);
+      await api.delete(`/services/${serviceId}/service-models/${sm.id}`);
       await loadData();
     } catch (err) {
       console.error('Failed to remove:', err);
@@ -189,23 +225,48 @@ export default function ServiceModelConfig() {
     }
   };
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
-    const sorted = [...serviceModels].sort((a, b) => a.sortOrder - b.sortOrder);
-    const targetIdx = direction === 'up' ? index - 1 : index + 1;
-    if (targetIdx < 0 || targetIdx >= sorted.length) return;
-
-    // Swap sort orders
-    const items = sorted.map((sm, i) => ({ id: sm.id, sortOrder: i }));
-    const temp = items[index]!.sortOrder;
-    items[index]!.sortOrder = items[targetIdx]!.sortOrder;
-    items[targetIdx]!.sortOrder = temp;
-
+  const handleDeleteAliasGroup = async (aliasName: string) => {
+    const items = serviceModels.filter(sm => sm.aliasName === aliasName);
+    if (!confirm(`'${aliasName}' 그룹과 내부 모델 ${items.length}개를 모두 제거하시겠습니까?`)) return;
     setSaving(true);
     try {
-      await api.put(`/services/${serviceId}/models/reorder`, { items });
+      for (const sm of items) {
+        await api.delete(`/services/${serviceId}/service-models/${sm.id}`);
+      }
+      if (addingToAlias === aliasName) setAddingToAlias(null);
       await loadData();
     } catch (err) {
-      console.error('Failed to reorder:', err);
+      console.error('Failed to delete group:', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRenameAlias = async (oldAlias: string) => {
+    const newAlias = editAliasValue.trim();
+    if (!newAlias || newAlias === oldAlias) {
+      setEditingAlias(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      const items = serviceModels.filter(sm => sm.aliasName === oldAlias);
+      for (const sm of items) {
+        // 기존 삭제 후 새 aliasName으로 재생성
+        await api.delete(`/services/${serviceId}/service-models/${sm.id}`);
+        await api.post(`/services/${serviceId}/models`, {
+          modelId: sm.modelId,
+          aliasName: newAlias,
+          weight: sm.weight,
+          sortOrder: sm.sortOrder,
+          enabled: sm.enabled,
+        });
+      }
+      setEditingAlias(null);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(msg || '이름 변경에 실패했습니다.');
     } finally {
       setSaving(false);
     }
@@ -230,8 +291,6 @@ export default function ServiceModelConfig() {
       </div>
     );
   }
-
-  const sortedModels = [...serviceModels].sort((a, b) => a.sortOrder - b.sortOrder);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -266,257 +325,434 @@ export default function ServiceModelConfig() {
 
       {/* Info banner */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl px-5 py-4 mb-6">
-        <p className="text-sm text-blue-800 font-medium">라운드로빈 설정</p>
+        <p className="text-sm text-blue-800 font-medium">v1/models 가상 모델 설정</p>
         <p className="text-xs text-blue-600 mt-1 leading-relaxed">
-          같은 모델 ID를 가진 여러 모델을 등록하면 자동으로 라운드로빈이 적용됩니다.
-          <strong className="font-semibold"> 호출 횟수</strong>를 설정하면 해당 모델이 N번 호출된 후 다음 모델로 넘어갑니다.
-          순서는 위에서 아래로 적용됩니다.
+          <strong>표시 모델명</strong>을 만들고 그 안에 실제 LLM 모델들을 배치하세요.
+          v1/models API 호출 시 <strong>표시 모델명</strong>만 노출되며,
+          내부적으로는 배치된 모델들이 <strong>가중치 기반 라운드로빈</strong>으로 분배됩니다.
         </p>
       </div>
 
-      {/* Add model section */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">모델 추가</h2>
-        <div className="flex items-end gap-3">
-          {/* Type filter */}
-          <div className="w-28">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
-            <div className="relative">
-              <select
-                value={filterType}
-                onChange={e => setFilterType(e.target.value)}
-                className="w-full px-2.5 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 appearance-none pr-7 transition-colors"
-              >
-                <option value="ALL">전체</option>
-                <option value="CHAT">채팅</option>
-                <option value="IMAGE">이미지</option>
-                <option value="EMBEDDING">임베딩</option>
-                <option value="RERANKING">리랭킹</option>
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
+      {/* Alias Groups */}
+      <div className="space-y-4 mb-6">
+        {aliasGroups.map((group, groupIdx) => {
+          const totalWeight = group.items.filter(sm => sm.enabled).reduce((sum, sm) => sum + sm.weight, 0);
+          const enabledCount = group.items.filter(sm => sm.enabled).length;
+          const hasInaccessible = group.items.some(sm => !sm.accessible);
+          const colorClass = GROUP_COLORS[groupIdx % GROUP_COLORS.length];
+          const isEditing = editingAlias === group.aliasName;
 
-          {/* Model select */}
-          <div className="flex-1">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택</label>
-            <div className="relative">
-              <select
-                value={selectedModelId}
-                onChange={e => setSelectedModelId(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 appearance-none pr-8 transition-colors"
-              >
-                <option value="">모델을 선택하세요...</option>
-                {filteredUnassigned.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
-          </div>
-
-          {/* Weight */}
-          <div className="w-28">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">호출 횟수</label>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={addWeight}
-                onChange={e => setAddWeight(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                className="w-14 px-2 py-2 text-sm text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
-              />
-              <span className="text-xs text-gray-400">회</span>
-            </div>
-          </div>
-
-          {/* Add button */}
-          <button
-            onClick={handleAddModel}
-            disabled={!selectedModelId || saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            추가
-          </button>
-        </div>
-
-        {filteredUnassigned.length === 0 && (
-          <p className="text-xs text-gray-400 mt-2">
-            {unassignedModels.length === 0 ? '추가 가능한 모델이 없습니다.' : '해당 타입의 모델이 없습니다.'}
-          </p>
-        )}
-      </div>
-
-      {/* Model list */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-700">
-            등록된 모델 ({serviceModels.length})
-          </h2>
-          {serviceModels.length > 1 && (
-            <span className="text-[11px] text-gray-400">
-              위에서 아래 순서로 라운드로빈 적용
-            </span>
-          )}
-        </div>
-
-        {sortedModels.length === 0 ? (
-          <div className="text-center py-12">
-            <Layers className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-400">등록된 모델이 없습니다.</p>
-            <p className="text-xs text-gray-300 mt-1">위에서 모델을 추가하세요.</p>
-          </div>
-        ) : (
-          <div>
-            {sortedModels.map((sm, idx) => {
-              const isRRGroup = (modelNameCounts[sm.model.name] || 0) > 1;
-              const rrColor = rrGroupColorMap[sm.model.name] || '';
-              const TypeIcon = MODEL_TYPE_ICONS[sm.model.type] || Cpu;
-
-              return (
-                <div
-                  key={sm.id}
-                  className={`flex items-center gap-3 px-5 py-3.5 border-b border-gray-50 last:border-b-0 transition-colors
-                    ${!sm.enabled ? 'opacity-50 bg-gray-50/50' : 'hover:bg-gray-50/50'}
-                    ${isRRGroup ? `border-l-4 ${rrColor}` : 'border-l-4 border-l-transparent'}`}
-                >
-                  {/* Reorder buttons */}
-                  <div className="flex flex-col gap-0.5">
+          return (
+            <div key={group.aliasName} className={`bg-white border border-gray-200 rounded-xl overflow-hidden border-l-4 ${colorClass}`}>
+              {/* Group header */}
+              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+                <Zap className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                {isEditing ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      type="text"
+                      value={editAliasValue}
+                      onChange={e => setEditAliasValue(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleRenameAlias(group.aliasName)}
+                      className="px-2 py-1 text-sm font-semibold border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 flex-1"
+                      autoFocus
+                    />
                     <button
-                      onClick={() => handleMove(idx, 'up')}
-                      disabled={idx === 0 || saving}
-                      className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      onClick={() => handleRenameAlias(group.aliasName)}
+                      className="p-1 text-green-600 hover:bg-green-50 rounded"
                     >
-                      <ChevronUp className="w-3.5 h-3.5" />
+                      <Check className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleMove(idx, 'down')}
-                      disabled={idx === sortedModels.length - 1 || saving}
-                      className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      onClick={() => setEditingAlias(null)}
+                      className="p-1 text-gray-400 hover:bg-gray-100 rounded"
                     >
-                      <ChevronDown className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
-
-                  {/* Order number */}
-                  <div className="w-6 h-6 flex items-center justify-center rounded-md bg-gray-100 text-[11px] font-semibold text-gray-500">
-                    {idx + 1}
-                  </div>
-
-                  {/* Type icon */}
-                  <div className={`w-7 h-7 flex items-center justify-center rounded-lg ${
-                    sm.model.type === 'CHAT' ? 'bg-blue-100 text-blue-600' :
-                    sm.model.type === 'IMAGE' ? 'bg-purple-100 text-purple-600' :
-                    sm.model.type === 'EMBEDDING' ? 'bg-green-100 text-green-600' :
-                    'bg-amber-100 text-amber-600'
-                  }`}>
-                    <TypeIcon className="w-3.5 h-3.5" />
-                  </div>
-
-                  {/* Model info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-900 truncate">{sm.model.displayName}</p>
-                      {isRRGroup && (
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 rounded">
-                          <Zap className="w-2.5 h-2.5" />
-                          RR
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-400 font-mono truncate">{sm.model.name}</p>
-                  </div>
-
-                  {/* Weight control */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <button
-                      onClick={() => handleWeightChange(sm, sm.weight - 1)}
-                      disabled={sm.weight <= 1 || saving}
-                      className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold transition-colors"
-                    >
-                      −
-                    </button>
-                    <div className="w-16 text-center">
-                      <span className="text-sm font-semibold text-gray-700">{sm.weight}</span>
-                      <span className="text-[10px] text-gray-400 ml-0.5">회 호출</span>
+                ) : (
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm font-semibold text-gray-900">{group.aliasName}</code>
+                        <button
+                          onClick={() => { setEditingAlias(group.aliasName); setEditAliasValue(group.aliasName); }}
+                          className="p-0.5 text-gray-300 hover:text-gray-500 transition-colors"
+                          title="이름 변경"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        {hasInaccessible && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-red-50 text-red-600 rounded">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            접근 불가 모델 포함
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        {group.items.length}개 모델
+                        {enabledCount > 1 && ` · 라운드로빈 ${totalWeight}회/사이클`}
+                      </p>
                     </div>
                     <button
-                      onClick={() => handleWeightChange(sm, sm.weight + 1)}
-                      disabled={sm.weight >= 10 || saving}
-                      className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold transition-colors"
+                      onClick={() => setAddingToAlias(addingToAlias === group.aliasName ? null : group.aliasName)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
                     >
-                      +
+                      <Plus className="w-3 h-3" />
+                      모델 추가
+                    </button>
+                    <button
+                      onClick={() => handleDeleteAliasGroup(group.aliasName)}
+                      disabled={saving}
+                      className="p-1.5 text-gray-300 hover:text-red-500 transition-colors"
+                      title="그룹 삭제"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Add model inline form */}
+              {addingToAlias === group.aliasName && (
+                <div className="px-5 py-3 border-b border-gray-100 bg-blue-50/30">
+                  <div className="flex items-end gap-3">
+                    <div className="w-24">
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
+                      <div className="relative">
+                        <select
+                          value={filterType}
+                          onChange={e => setFilterType(e.target.value)}
+                          className="w-full px-2 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-6"
+                        >
+                          <option value="ALL">전체</option>
+                          <option value="CHAT">채팅</option>
+                          <option value="IMAGE">이미지</option>
+                          <option value="EMBEDDING">임베딩</option>
+                          <option value="RERANKING">리랭킹</option>
+                        </select>
+                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택</label>
+                      <div className="relative">
+                        <select
+                          value={selectedModelId}
+                          onChange={e => setSelectedModelId(e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-7"
+                        >
+                          <option value="">모델을 선택하세요...</option>
+                          {getAvailableForAlias(group.aliasName).map(m => (
+                            <option key={m.id} value={m.id}>
+                              {m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="w-20">
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">가중치</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={addWeight}
+                        onChange={e => setAddWeight(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                        className="w-full px-2 py-1.5 text-xs text-center border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleAddModelToAlias(group.aliasName)}
+                      disabled={!selectedModelId || saving}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                      추가
+                    </button>
+                    <button
+                      onClick={() => { setAddingToAlias(null); setSelectedModelId(''); }}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
-
-                  {/* Enable/disable toggle */}
-                  <button
-                    onClick={() => handleToggleEnabled(sm)}
-                    disabled={saving}
-                    className="flex-shrink-0 transition-colors"
-                    title={sm.enabled ? '비활성화' : '활성화'}
-                  >
-                    {sm.enabled ? (
-                      <ToggleRight className="w-7 h-7 text-blue-500" />
-                    ) : (
-                      <ToggleLeft className="w-7 h-7 text-gray-300" />
-                    )}
-                  </button>
-
-                  {/* Remove */}
-                  <button
-                    onClick={() => handleRemove(sm)}
-                    disabled={saving}
-                    className="p-1.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
-                    title="제거"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              )}
 
-      {/* Usage example */}
-      <div className="mt-4 px-4 py-3 bg-white border border-gray-100 rounded-xl">
-        <p className="text-xs text-gray-400 leading-relaxed">
-          <span className="font-medium text-gray-500">사용법 예시:</span> 같은 모델 ID 'gpt-4o'를 3개 등록하고 각각 호출 횟수를 2, 1, 1로 설정하면, 첫 번째 모델이 2번 호출 후 두 번째가 1번, 세 번째가 1번 호출됩니다 (총 4회/사이클). 비활성화된 모델은 라운드로빈에서 제외됩니다.
-        </p>
-      </div>
+              {/* Model list within group */}
+              {group.items.length === 0 ? (
+                <div className="text-center py-6 text-xs text-gray-400">
+                  모델을 추가하세요.
+                </div>
+              ) : (
+                <div>
+                  {group.items.map((sm) => {
+                    const TypeIcon = MODEL_TYPE_ICONS[sm.model.type] || Cpu;
+                    const isInaccessible = !sm.accessible;
 
-      {/* Round-robin explanation */}
-      {Object.keys(rrGroupColorMap).length > 0 && (
-        <div className="mt-4 px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl">
-          <p className="text-xs font-medium text-gray-600 mb-2">라운드로빈 그룹</p>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(rrGroupColorMap).map(([name, color]) => {
-              const models = sortedModels.filter(sm => sm.model.name === name && sm.enabled);
-              const totalWeight = models.reduce((sum, m) => sum + m.weight, 0);
-              return (
-                <div key={name} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${color}`}>
-                  <code className="text-xs font-mono font-semibold">{name}</code>
-                  <span className="text-[10px] text-gray-500">
-                    {models.length}개 모델 · 총 {totalWeight}회/사이클
-                  </span>
-                  <div className="flex gap-0.5">
-                    {models.map((m, i) => (
-                      <span key={m.id} className="text-[10px] text-gray-400">
-                        {i > 0 && '→'} {m.model.displayName}({m.weight}회)
+                    return (
+                      <div
+                        key={sm.id}
+                        className={`flex items-center gap-3 px-5 py-3 border-b border-gray-50 last:border-b-0 transition-colors
+                          ${isInaccessible ? 'bg-red-50/60' : !sm.enabled ? 'opacity-50 bg-gray-50/50' : 'hover:bg-gray-50/50'}`}
+                      >
+                        {/* Type icon */}
+                        <div className={`w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0 ${
+                          isInaccessible ? 'bg-red-100 text-red-500' :
+                          sm.model.type === 'CHAT' ? 'bg-blue-100 text-blue-600' :
+                          sm.model.type === 'IMAGE' ? 'bg-purple-100 text-purple-600' :
+                          sm.model.type === 'EMBEDDING' ? 'bg-green-100 text-green-600' :
+                          'bg-amber-100 text-amber-600'
+                        }`}>
+                          {isInaccessible ? <AlertTriangle className="w-3.5 h-3.5" /> : <TypeIcon className="w-3.5 h-3.5" />}
+                        </div>
+
+                        {/* Model info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-medium truncate ${isInaccessible ? 'text-red-700 line-through' : 'text-gray-900'}`}>
+                              {sm.model.displayName}
+                            </p>
+                            {isInaccessible && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-600 rounded">
+                                접근 불가
+                              </span>
+                            )}
+                            {group.items.length > 1 && sm.enabled && !isInaccessible && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 rounded">
+                                <Zap className="w-2.5 h-2.5" />
+                                RR
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 font-mono truncate">{sm.model.name}</p>
+                        </div>
+
+                        {/* Weight control */}
+                        {!isInaccessible && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => handleWeightChange(sm, sm.weight - 1)}
+                              disabled={sm.weight <= 1 || saving}
+                              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-xs font-bold transition-colors"
+                            >
+                              -
+                            </button>
+                            <div className="w-14 text-center">
+                              <span className="text-xs font-semibold text-gray-700">{sm.weight}</span>
+                              <span className="text-[10px] text-gray-400 ml-0.5">x</span>
+                            </div>
+                            <button
+                              onClick={() => handleWeightChange(sm, sm.weight + 1)}
+                              disabled={sm.weight >= 10 || saving}
+                              className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-30 text-xs font-bold transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Enable/disable toggle */}
+                        {!isInaccessible && (
+                          <button
+                            onClick={() => handleToggleEnabled(sm)}
+                            disabled={saving}
+                            className="flex-shrink-0 transition-colors"
+                            title={sm.enabled ? '비활성화' : '활성화'}
+                          >
+                            {sm.enabled ? (
+                              <ToggleRight className="w-6 h-6 text-blue-500" />
+                            ) : (
+                              <ToggleLeft className="w-6 h-6 text-gray-300" />
+                            )}
+                          </button>
+                        )}
+
+                        {/* Remove */}
+                        <button
+                          onClick={() => handleRemoveModel(sm)}
+                          disabled={saving}
+                          className="p-1 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                          title="제거"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Round-robin summary for this group */}
+              {group.items.filter(sm => sm.enabled && sm.accessible).length > 1 && (
+                <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100">
+                  <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <Zap className="w-3 h-3 text-blue-500" />
+                    <span className="font-medium">라운드로빈:</span>
+                    {group.items.filter(sm => sm.enabled && sm.accessible).map((sm, i) => (
+                      <span key={sm.id}>
+                        {i > 0 && <span className="text-gray-300 mx-0.5">&rarr;</span>}
+                        <span className="font-mono">{sm.model.displayName}</span>
+                        <span className="text-gray-400">({sm.weight}x)</span>
                       </span>
                     ))}
+                    <span className="text-gray-400 ml-1">
+                      = 총 {group.items.filter(sm => sm.enabled && sm.accessible).reduce((s, sm) => s + sm.weight, 0)}회/사이클
+                    </span>
                   </div>
                 </div>
-              );
-            })}
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Pending new alias group (not yet in DB) */}
+      {addingToAlias && !aliasGroups.some(g => g.aliasName === addingToAlias) && (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden border-l-4 border-l-gray-300 mb-4">
+          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
+            <Zap className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <code className="text-sm font-semibold text-gray-900">{addingToAlias}</code>
+              <p className="text-[11px] text-gray-400 mt-0.5">0개 모델 — 실제 모델을 추가하면 그룹이 생성됩니다.</p>
+            </div>
+            <button
+              onClick={() => { setAddingToAlias(null); setSelectedModelId(''); }}
+              className="p-1.5 text-gray-300 hover:text-red-500 transition-colors"
+              title="취소"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="px-5 py-3 bg-blue-50/30">
+            <div className="flex items-end gap-3">
+              <div className="w-24">
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
+                <div className="relative">
+                  <select
+                    value={filterType}
+                    onChange={e => setFilterType(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-6"
+                  >
+                    <option value="ALL">전체</option>
+                    <option value="CHAT">채팅</option>
+                    <option value="IMAGE">이미지</option>
+                    <option value="EMBEDDING">임베딩</option>
+                    <option value="RERANKING">리랭킹</option>
+                  </select>
+                  <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택</label>
+                <div className="relative">
+                  <select
+                    value={selectedModelId}
+                    onChange={e => setSelectedModelId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-7"
+                  >
+                    <option value="">모델을 선택하세요...</option>
+                    {getAvailableForAlias(addingToAlias).map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              <div className="w-20">
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">가중치</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={addWeight}
+                  onChange={e => setAddWeight(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                  className="w-full px-2 py-1.5 text-xs text-center border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <button
+                onClick={() => handleAddModelToAlias(addingToAlias)}
+                disabled={!selectedModelId || saving}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                추가
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* New alias group button */}
+      {showNewAliasForm ? (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">새 표시 모델 추가</h3>
+          <p className="text-xs text-gray-400 mb-3">
+            v1/models API 응답에 노출될 모델 이름을 입력하세요. 실제 LLM 모델은 이후에 추가합니다.
+          </p>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">표시 모델명</label>
+              <input
+                type="text"
+                value={newAliasName}
+                onChange={e => setNewAliasName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCreateAliasGroup()}
+                placeholder="예: gpt-4o, claude-sonnet, my-custom-model"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
+                autoFocus
+              />
+            </div>
+            <button
+              onClick={handleCreateAliasGroup}
+              disabled={!newAliasName.trim()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              만들기
+            </button>
+            <button
+              onClick={() => { setShowNewAliasForm(false); setNewAliasName(''); }}
+              className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowNewAliasForm(true)}
+          className="w-full py-4 border-2 border-dashed border-gray-200 rounded-xl text-sm font-medium text-gray-400 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50/30 transition-all flex items-center justify-center gap-2 mb-6"
+        >
+          <Plus className="w-4 h-4" />
+          새 표시 모델 추가
+        </button>
+      )}
+
+      {/* Empty state */}
+      {aliasGroups.length === 0 && !showNewAliasForm && (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+          <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-medium text-gray-900 mb-1">등록된 모델이 없습니다</p>
+          <p className="text-sm text-gray-500 mb-4">
+            "새 표시 모델 추가"를 눌러 v1/models에 노출될 모델을 만드세요.
+          </p>
+        </div>
+      )}
+
+      {/* How it works */}
+      <div className="px-4 py-3 bg-white border border-gray-100 rounded-xl">
+        <p className="text-xs text-gray-400 leading-relaxed">
+          <span className="font-medium text-gray-500">작동 방식:</span>{' '}
+          "표시 모델명"이 v1/models 응답에 노출됩니다.
+          클라이언트가 해당 이름으로 요청하면, 그 그룹 안의 실제 모델들이 가중치 기반으로 라운드로빈 분배됩니다.
+          예: "gpt-4o" 그룹에 모델A(2x), 모델B(1x)를 배치하면 → A, A, B, A, A, B ... 순서로 호출됩니다.
+        </p>
+      </div>
     </div>
   );
 }

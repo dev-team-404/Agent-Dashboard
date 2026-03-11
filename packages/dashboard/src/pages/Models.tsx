@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Plus, Edit2, Trash2, Check, X, Layers, ChevronDown, ChevronRight,
+  Plus, Edit2, Trash2, Check, X, Layers,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
   Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
   ShieldCheck, Image, MessageSquare
@@ -8,18 +8,6 @@ import {
 import { modelsApi, scopeApi } from '../services/api';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
-
-interface SubModel {
-  id: string;
-  modelName: string | null;
-  endpointUrl: string;
-  apiKey: string | null;
-  extraHeaders: Record<string, string> | null;
-  enabled: boolean;
-  sortOrder: number;
-  weight: number;
-  createdAt: string;
-}
 
 interface Model {
   id: string;
@@ -43,7 +31,6 @@ interface Model {
   createdByBusinessUnit: string;
   createdBySuperAdmin: boolean;
   createdAt: string;
-  subModels?: SubModel[];
 }
 
 interface HealthCheckResult {
@@ -224,7 +211,6 @@ export default function Models({ adminRole }: ModelsProps) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityType | ''>('');
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -254,18 +240,6 @@ export default function Models({ adminRole }: ModelsProps) {
   // Scope options for multi-select
   const [scopeOptions, setScopeOptions] = useState<string[]>([]);
   const [scopeLoading, setScopeLoading] = useState(false);
-
-  // SubModel state
-  const [subModelForm, setSubModelForm] = useState<{
-    modelId: string;
-    editing: string | null;
-    modelName: string;
-    endpointUrl: string;
-    apiKey: string;
-    extraHeaders: string;
-    enabled: boolean;
-    weight: number;
-  } | null>(null);
 
   // Auto-refresh every 30s (with jitter)
   useEffect(() => {
@@ -655,71 +629,6 @@ export default function Models({ adminRole }: ModelsProps) {
     }
   };
 
-  const toggleExpand = (modelId: string) => {
-    setExpandedModels(prev => {
-      const next = new Set(prev);
-      if (next.has(modelId)) next.delete(modelId);
-      else next.add(modelId);
-      return next;
-    });
-  };
-
-  // SubModel handlers
-  const openSubModelForm = (modelId: string) => {
-    setSubModelForm({
-      modelId,
-      editing: null,
-      modelName: '',
-      endpointUrl: '',
-      apiKey: '',
-      extraHeaders: '',
-      enabled: true,
-      weight: 1,
-    });
-  };
-
-  const saveSubModel = async () => {
-    if (!subModelForm) return;
-    try {
-      let extraHeaders: Record<string, string> | undefined;
-      if (subModelForm.extraHeaders.trim()) {
-        try {
-          extraHeaders = JSON.parse(subModelForm.extraHeaders);
-        } catch {
-          alert('Extra Headers가 올바른 JSON 형식이 아닙니다.');
-          return;
-        }
-      }
-      const data = {
-        modelName: subModelForm.modelName || undefined,
-        endpointUrl: subModelForm.endpointUrl,
-        apiKey: subModelForm.apiKey || undefined,
-        extraHeaders,
-        enabled: subModelForm.enabled,
-        weight: subModelForm.weight,
-      };
-      if (subModelForm.editing) {
-        await modelsApi.updateSubModel(subModelForm.modelId, subModelForm.editing, data);
-      } else {
-        await modelsApi.createSubModel(subModelForm.modelId, data);
-      }
-      setSubModelForm(null);
-      loadModels();
-    } catch (error: any) {
-      alert(error.response?.data?.error || '저장에 실패했습니다.');
-    }
-  };
-
-  const deleteSubModel = async (modelId: string, subModelId: string) => {
-    if (!confirm('이 서브모델을 삭제하시겠습니까?')) return;
-    try {
-      await modelsApi.deleteSubModel(modelId, subModelId);
-      loadModels();
-    } catch (error: any) {
-      alert(error.response?.data?.error || '삭제에 실패했습니다.');
-    }
-  };
-
   // Admin can modify?
   const canModify = (model: Model) => {
     if (adminRole === 'SUPER_ADMIN') return true;
@@ -835,7 +744,6 @@ export default function Models({ adminRole }: ModelsProps) {
         <div className="grid gap-4">
           {filteredModels.map((model) => {
             const healthCheck = healthChecks[model.id];
-            const isExpanded = expandedModels.has(model.id);
 
             return (
               <div
@@ -957,18 +865,6 @@ export default function Models({ adminRole }: ModelsProps) {
                         </button>
                       )}
 
-                      <button
-                        onClick={() => toggleExpand(model.id)}
-                        className="p-2 rounded-ios text-pastel-500 hover:bg-pastel-50
-                                   transition-all duration-200"
-                        title="서브모델"
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )}
-                      </button>
                     </div>
                   </div>
 
@@ -991,145 +887,6 @@ export default function Models({ adminRole }: ModelsProps) {
                   )}
                 </div>
 
-                {/* SubModels */}
-                {isExpanded && (
-                  <div className="border-t border-pastel-100 bg-pastel-50/50 p-4 animate-slide-up">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="text-sm font-medium text-pastel-700 flex items-center gap-1.5">
-                          <Layers className="w-4 h-4" />
-                          서브모델 ({model.subModels?.length || 0})
-                        </h4>
-                        <p className="text-[11px] text-gray-400 mt-0.5 ml-5.5">
-                          서브모델은 동일 모델의 여러 엔드포인트를 등록하여 로드밸런싱합니다.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => openSubModelForm(model.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-white border border-pastel-200
-                                   rounded-ios hover:bg-pastel-50 text-pastel-600 transition-all duration-200"
-                      >
-                        <Plus className="w-3 h-3" />
-                        추가
-                      </button>
-                    </div>
-
-                    {model.subModels && model.subModels.length > 0 ? (
-                      <div className="space-y-2">
-                        {model.subModels.map(sub => (
-                          <div key={sub.id} className="flex items-center gap-3 p-3 bg-white rounded-ios border border-pastel-100">
-                            <div className={`w-2 h-2 rounded-full ${sub.enabled ? 'bg-green-400' : 'bg-gray-300'}`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-pastel-700 truncate">
-                                {sub.modelName || model.name}
-                              </p>
-                              <p className="text-xs text-pastel-400 font-mono truncate">{sub.endpointUrl}</p>
-                              {sub.weight > 1 && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium bg-samsung-blue/10 text-samsung-blue rounded mt-0.5">
-                                  {sub.weight}회 호출
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => setSubModelForm({
-                                  modelId: model.id,
-                                  editing: sub.id,
-                                  modelName: sub.modelName || '',
-                                  endpointUrl: sub.endpointUrl,
-                                  apiKey: sub.apiKey || '',
-                                  extraHeaders: sub.extraHeaders ? JSON.stringify(sub.extraHeaders) : '',
-                                  enabled: sub.enabled,
-                                  weight: sub.weight || 1,
-                                })}
-                                className="p-1.5 rounded text-pastel-400 hover:text-samsung-blue hover:bg-pastel-50"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => deleteSubModel(model.id, sub.id)}
-                                className="p-1.5 rounded text-pastel-400 hover:text-red-500 hover:bg-red-50"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-pastel-400 py-3 text-center">
-                        서브모델이 없습니다. 로드밸런싱이 필요한 경우 추가하세요.
-                      </p>
-                    )}
-
-                    {subModelForm && subModelForm.modelId === model.id && (
-                      <div className="mt-3 p-4 bg-white rounded-ios border border-pastel-200 space-y-3">
-                        <h5 className="text-sm font-medium text-pastel-700">
-                          {subModelForm.editing ? '서브모델 수정' : '서브모델 추가'}
-                        </h5>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            placeholder="모델명 (비워두면 부모 모델명 사용)"
-                            value={subModelForm.modelName}
-                            onChange={e => setSubModelForm({ ...subModelForm, modelName: e.target.value })}
-                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
-                          />
-                          <input
-                            type="text"
-                            placeholder="엔드포인트 URL (/v1 까지) *"
-                            value={subModelForm.endpointUrl}
-                            onChange={e => setSubModelForm({ ...subModelForm, endpointUrl: e.target.value })}
-                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
-                          />
-                          <input
-                            type="password"
-                            placeholder="API Key"
-                            value={subModelForm.apiKey}
-                            onChange={e => setSubModelForm({ ...subModelForm, apiKey: e.target.value })}
-                            className="px-3 py-2 text-sm border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
-                          />
-                          <div className="flex items-center gap-3">
-                            <label className="flex items-center gap-2 px-3 py-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={subModelForm.enabled}
-                                onChange={e => setSubModelForm({ ...subModelForm, enabled: e.target.checked })}
-                                className="rounded border-pastel-300 text-samsung-blue focus:ring-samsung-blue/20"
-                              />
-                              <span className="text-sm text-pastel-600">활성화</span>
-                            </label>
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min={1}
-                                max={10}
-                                value={subModelForm.weight}
-                                onChange={e => setSubModelForm({ ...subModelForm, weight: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                                className="w-14 px-2 py-1.5 text-sm text-center border border-pastel-200 rounded-ios focus:outline-none focus:ring-2 focus:ring-samsung-blue/20"
-                              />
-                              <span className="text-xs text-pastel-500">회 호출 후 다음 모델</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => setSubModelForm(null)}
-                            className="px-3 py-1.5 text-xs text-pastel-600 hover:bg-pastel-50 rounded-ios transition-colors"
-                          >
-                            취소
-                          </button>
-                          <button
-                            onClick={saveSubModel}
-                            className="px-3 py-1.5 text-xs bg-samsung-blue text-white rounded-ios hover:bg-samsung-blue-dark transition-colors"
-                          >
-                            {subModelForm.editing ? '수정' : '추가'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

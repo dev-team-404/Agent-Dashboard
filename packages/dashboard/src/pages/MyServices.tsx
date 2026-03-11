@@ -285,6 +285,23 @@ export default function MyServices() {
     }
   };
 
+  // ── Delete service ──
+
+  const handleDeleteService = async (service: Service) => {
+    const usageCount = service._count?.usageLogs || 0;
+    const message = usageCount > 0
+      ? `'${service.displayName}' 서비스를 삭제하시겠습니까?\n\n⚠️ 이 서비스에는 ${usageCount.toLocaleString()}건의 사용 기록이 있습니다. 삭제 시 모든 데이터가 함께 삭제됩니다.\n\n정말 삭제하시겠습니까?`
+      : `'${service.displayName}' 서비스를 삭제하시겠습니까?`;
+    if (!confirm(message)) return;
+    try {
+      await api.delete(`/services/${service.id}${usageCount > 0 ? '?force=true' : ''}`);
+      await loadServices();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(msg || '서비스 삭제에 실패했습니다.');
+    }
+  };
+
   // ── Member management ──
 
   const openMemberModal = async (service: Service) => {
@@ -681,6 +698,13 @@ export default function MyServices() {
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                     수정
+                  </button>
+                  <button
+                    onClick={() => handleDeleteService(service)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    삭제
                   </button>
                 </div>
               </div>

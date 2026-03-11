@@ -172,16 +172,17 @@ model ServiceModel {
   id        String   @id @default(uuid())
   serviceId String   @map("service_id")
   modelId   String   @map("model_id")
-  sortOrder Int      @default(0) @map("sort_order")     // 표시 순서
-  weight    Int      @default(1) @map("weight")          // 라운드로빈 호출 횟수 (1~10)
-  enabled   Boolean  @default(true)                       // 비활성화 시 라운드로빈 제외
+  aliasName String   @default("") @map("alias_name")        // v1/models에 표시될 가상 모델명
+  sortOrder Int      @default(0) @map("sort_order")       // 표시 순서
+  weight    Int      @default(1) @map("weight")            // 라운드로빈 호출 횟수 (1~10)
+  enabled   Boolean  @default(true)                         // 비활성화 시 라운드로빈 제외
   addedBy   String?  @map("added_by")     // 추가한 사용자 loginid
   addedAt   DateTime @default(now()) @map("added_at")
 
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   model   Model   @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
-  @@unique([serviceId, modelId])
+  @@unique([serviceId, modelId, aliasName])
   @@index([serviceId])
   @@index([modelId])
   @@map("service_models")

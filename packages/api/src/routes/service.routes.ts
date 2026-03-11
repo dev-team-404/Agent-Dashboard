@@ -14,15 +14,41 @@
 
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
-import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { z } from 'zod';
 
 export const serviceRoutes = Router();
 
 // ============================================
+// Helper: 관리자 정보 자동 감지 (requireAdmin 대신 non-blocking)
+// ============================================
+async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
+  if (!req.user || req.adminRole) return; // 이미 설정되었으면 스킵
+  if (isSuperAdminByEnv(req.user.loginid)) {
+    req.isAdmin = true;
+    req.isSuperAdmin = true;
+    req.adminRole = 'SUPER_ADMIN';
+    req.adminDept = req.user.deptname;
+    req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
+    return;
+  }
+  const admin = await prisma.admin.findUnique({ where: { loginid: req.user.loginid } });
+  if (admin) {
+    req.isAdmin = true;
+    req.isSuperAdmin = admin.role === 'SUPER_ADMIN';
+    req.adminRole = admin.role as 'SUPER_ADMIN' | 'ADMIN';
+    req.adminId = admin.id;
+    req.adminDept = admin.deptname || req.user.deptname;
+    req.adminBusinessUnit = admin.businessUnit || extractBusinessUnit(req.user.deptname);
+  }
+}
+
+// ============================================
 // Helper: 서비스 관리 권한 확인
 // ============================================
 async function canManageService(req: AuthenticatedRequest, serviceId: string): Promise<boolean> {
+  // 먼저 admin 정보 감지
+  await detectAdminInfo(req);
   if (req.adminRole === 'SUPER_ADMIN') return true;
   const loginid = req.user?.loginid || '';
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -614,6 +640,7 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
 serviceRoutes.delete('/:id', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
     const id = req.params.id as string;
+    const force = req.query['force'] === 'true';
     const existing = await prisma.service.findUnique({
       where: { id },
       include: { _count: { select: { usageLogs: true } } },
@@ -625,23 +652,31 @@ serviceRoutes.delete('/:id', authenticateToken, async (req: AuthenticatedRequest
     }
 
     if (!(await canManageService(req, id))) {
-      if (req.adminRole === 'ADMIN' && existing.registeredByDept === (req.adminDept || req.user?.deptname)) {
-        // allowed
-      } else {
-        res.status(403).json({ error: 'You do not have permission to delete this service' });
-        return;
-      }
+      res.status(403).json({ error: 'You do not have permission to delete this service' });
+      return;
     }
 
-    if (existing._count.usageLogs > 0) {
+    if (existing._count.usageLogs > 0 && !force) {
       res.status(409).json({
-        error: 'Cannot delete service with existing usage data',
+        error: 'Cannot delete service with existing usage data. Use ?force=true to force delete.',
         details: { usageLogs: existing._count.usageLogs },
       });
       return;
     }
 
-    await prisma.service.delete({ where: { id } });
+    // Cascade 삭제: 관련 데이터 정리
+    await prisma.$transaction([
+      prisma.usageLog.deleteMany({ where: { serviceId: id } }),
+      prisma.dailyUsageStat.deleteMany({ where: { serviceId: id } }),
+      prisma.serviceModel.deleteMany({ where: { serviceId: id } }),
+      prisma.userService.deleteMany({ where: { serviceId: id } }),
+      prisma.userRateLimit.deleteMany({ where: { serviceId: id } }),
+      prisma.serviceRateLimit.deleteMany({ where: { serviceId: id } }),
+      prisma.ratingFeedback.deleteMany({ where: { serviceId: id } }),
+      prisma.requestLog.updateMany({ where: { serviceId: id }, data: { serviceId: null } }),
+      prisma.service.delete({ where: { id } }),
+    ]);
+
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
     console.error('Delete service error:', error);
@@ -760,6 +795,12 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
       return;
     }
 
+    // 현재 사용자의 모델 접근 권한 확인을 위해 admin 정보 감지
+    await detectAdminInfo(req);
+    const userDept = req.adminDept || req.user?.deptname || '';
+    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const isAdmin = !!(req.adminRole);
+
     const serviceModels = await prisma.serviceModel.findMany({
       where: { serviceId },
       include: {
@@ -772,6 +813,7 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
             enabled: true,
             visibility: true,
             visibilityScope: true,
+            adminVisible: true,
             maxTokens: true,
             supportsVision: true,
           },
@@ -780,18 +822,25 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
       orderBy: [{ sortOrder: 'asc' }, { addedAt: 'asc' }],
     });
 
-    // Include sortOrder, weight, enabled in response
-    const result = serviceModels.map((sm: any) => ({
-      id: sm.id,
-      serviceId: sm.serviceId,
-      modelId: sm.modelId,
-      sortOrder: sm.sortOrder,
-      weight: sm.weight,
-      enabled: sm.enabled,
-      addedBy: sm.addedBy,
-      addedAt: sm.addedAt,
-      model: sm.model,
-    }));
+    // Include sortOrder, weight, enabled + 접근 가능 여부 표시
+    const result = serviceModels.map((sm: any) => {
+      const accessible = sm.model.visibility === 'SUPER_ADMIN_ONLY'
+        ? req.adminRole === 'SUPER_ADMIN'
+        : isModelVisibleTo(sm.model, userDept, userBU, isAdmin);
+      return {
+        id: sm.id,
+        serviceId: sm.serviceId,
+        modelId: sm.modelId,
+        aliasName: sm.aliasName,
+        sortOrder: sm.sortOrder,
+        weight: sm.weight,
+        enabled: sm.enabled,
+        addedBy: sm.addedBy,
+        addedAt: sm.addedAt,
+        model: sm.model,
+        accessible, // 현재 사용자가 이 모델에 접근 가능한지
+      };
+    });
 
     res.json({ serviceModels: result });
   } catch (error) {
@@ -808,6 +857,7 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
  */
 const addServiceModelSchema = z.object({
   modelId: z.string().min(1, 'modelId is required'),
+  aliasName: z.string().min(1, 'aliasName is required'),
   weight: z.number().int().min(1).max(10).default(1),
   sortOrder: z.number().int().min(0).default(0),
   enabled: z.boolean().default(true),
@@ -821,7 +871,7 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
       return;
     }
-    const { modelId, weight, sortOrder, enabled } = validation.data;
+    const { modelId, aliasName, weight, sortOrder, enabled } = validation.data;
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) {
@@ -841,21 +891,26 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       return;
     }
 
-    // 모델 접근 가능 여부 확인
+    // 모델 접근 가능 여부 확인 (admin 정보는 canManageService에서 이미 감지됨)
     const userDept = req.adminDept || req.user?.deptname || '';
     const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
     const isAdmin = !!(req.adminRole);
-    if (!isModelVisibleTo(model, userDept, userBU, isAdmin)) {
+    if (model.visibility === 'SUPER_ADMIN_ONLY') {
+      if (req.adminRole !== 'SUPER_ADMIN') {
+        res.status(403).json({ error: 'You do not have access to this model' });
+        return;
+      }
+    } else if (!isModelVisibleTo(model, userDept, userBU, isAdmin)) {
       res.status(403).json({ error: 'You do not have access to this model' });
       return;
     }
 
-    // 중복 확인
+    // 중복 확인 (같은 서비스 + 같은 모델 + 같은 alias)
     const existing = await prisma.serviceModel.findUnique({
-      where: { serviceId_modelId: { serviceId, modelId } },
+      where: { serviceId_modelId_aliasName: { serviceId, modelId, aliasName } },
     });
     if (existing) {
-      res.status(409).json({ error: 'Model is already assigned to this service' });
+      res.status(409).json({ error: 'This model is already assigned to this alias' });
       return;
     }
 
@@ -863,6 +918,7 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       data: {
         serviceId,
         modelId,
+        aliasName,
         weight,
         sortOrder,
         enabled,
@@ -1056,16 +1112,16 @@ serviceRoutes.delete('/:id/models/:modelId', authenticateToken, async (req: Auth
       return;
     }
 
-    const existing = await prisma.serviceModel.findUnique({
-      where: { serviceId_modelId: { serviceId, modelId } },
+    const existing = await prisma.serviceModel.findMany({
+      where: { serviceId, modelId },
     });
-    if (!existing) {
+    if (existing.length === 0) {
       res.status(404).json({ error: 'Model is not assigned to this service' });
       return;
     }
 
-    await prisma.serviceModel.delete({
-      where: { serviceId_modelId: { serviceId, modelId } },
+    await prisma.serviceModel.deleteMany({
+      where: { serviceId, modelId },
     });
 
     res.json({ message: 'Model removed from service successfully' });
