@@ -99,6 +99,17 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
     const deptname = req.adminDept || req.user?.deptname || '';
     const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
 
+    // visibilityScope가 비어있으면 creator의 dept/BU 기준으로 자동 채움
+    const effectiveVisibility = visibility || 'PUBLIC';
+    let effectiveScope = visibilityScope || [];
+    if (effectiveScope.length === 0) {
+      if (effectiveVisibility === 'TEAM' && deptname) {
+        effectiveScope = [deptname];
+      } else if (effectiveVisibility === 'BUSINESS_UNIT' && businessUnit) {
+        effectiveScope = [businessUnit];
+      }
+    }
+
     const model = await prisma.model.create({
       data: {
         name,
@@ -110,8 +121,8 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
         extraHeaders: extraHeaders || null,
         extraBody: extraBody || null,
         supportsVision: supportsVision || false,
-        visibility: visibility || 'PUBLIC',
-        visibilityScope: visibilityScope || [],
+        visibility: effectiveVisibility,
+        visibilityScope: effectiveScope,
         adminVisible: adminVisible || false,
         sortOrder: sortOrder || 0,
         type: type || 'CHAT',
@@ -162,6 +173,18 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
             extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
             type, imageProvider, adminVisible } = req.body;
 
+    // visibility 변경 시 scope가 비어있으면 creator 기준으로 자동 채움
+    let effectiveScope = visibilityScope;
+    if (visibility !== undefined && (visibilityScope === undefined || (Array.isArray(visibilityScope) && visibilityScope.length === 0))) {
+      const ownerDept = model.createdByDept || req.adminDept || req.user?.deptname || '';
+      const ownerBU = model.createdByBusinessUnit || req.adminBusinessUnit || extractBusinessUnit(ownerDept);
+      if (visibility === 'TEAM' && ownerDept) {
+        effectiveScope = [ownerDept];
+      } else if (visibility === 'BUSINESS_UNIT' && ownerBU) {
+        effectiveScope = [ownerBU];
+      }
+    }
+
     const updated = await prisma.model.update({
       where: { id },
       data: {
@@ -175,7 +198,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
         ...(extraBody !== undefined && { extraBody }),
         ...(supportsVision !== undefined && { supportsVision }),
         ...(visibility !== undefined && { visibility }),
-        ...(visibilityScope !== undefined && { visibilityScope }),
+        ...(effectiveScope !== undefined && { visibilityScope: effectiveScope }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(type !== undefined && { type }),
         ...(imageProvider !== undefined && { imageProvider }),

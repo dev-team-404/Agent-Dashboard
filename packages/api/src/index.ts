@@ -31,6 +31,7 @@ import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
+import { extractBusinessUnit } from './middleware/auth.js';
 
 import 'dotenv/config';
 
@@ -135,6 +136,42 @@ async function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
+// 빈 visibilityScope를 가진 TEAM/BUSINESS_UNIT 모델을 owner 기준으로 자동 채움
+async function backfillEmptyVisibilityScope() {
+  try {
+    const models = await prisma.model.findMany({
+      where: {
+        visibility: { in: ['TEAM', 'BUSINESS_UNIT'] },
+        visibilityScope: { equals: [] },
+      },
+    });
+
+    if (models.length === 0) return;
+
+    console.log(`[Backfill] Found ${models.length} model(s) with empty visibilityScope`);
+
+    for (const model of models) {
+      let scope: string[] = [];
+      if (model.visibility === 'TEAM' && model.createdByDept) {
+        scope = [model.createdByDept];
+      } else if (model.visibility === 'BUSINESS_UNIT') {
+        const bu = model.createdByBusinessUnit || extractBusinessUnit(model.createdByDept || '');
+        if (bu) scope = [bu];
+      }
+
+      if (scope.length > 0) {
+        await prisma.model.update({
+          where: { id: model.id },
+          data: { visibilityScope: scope },
+        });
+        console.log(`[Backfill] Updated model "${model.displayName}" (${model.visibility}): scope = [${scope.join(', ')}]`);
+      }
+    }
+  } catch (error) {
+    console.error('[Backfill] Failed to backfill visibilityScope:', error);
+  }
+}
+
 // Start server
 async function main() {
   try {
@@ -143,6 +180,9 @@ async function main() {
 
     await redis.ping();
     console.log('Redis connected');
+
+    // 빈 visibilityScope 자동 보정 (기존 모델 대상)
+    await backfillEmptyVisibilityScope();
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();

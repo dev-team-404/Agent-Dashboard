@@ -824,9 +824,11 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
 
     // Include sortOrder, weight, enabled + 접근 가능 여부 표시
     const result = serviceModels.map((sm: any) => {
-      const accessible = sm.model.visibility === 'SUPER_ADMIN_ONLY'
-        ? req.adminRole === 'SUPER_ADMIN'
-        : isModelVisibleTo(sm.model, userDept, userBU, isAdmin);
+      const accessible = req.adminRole === 'SUPER_ADMIN'
+        ? true  // SUPER_ADMIN은 모든 모델 접근 가능
+        : sm.model.visibility === 'SUPER_ADMIN_ONLY'
+          ? false
+          : isModelVisibleTo(sm.model, userDept, userBU, isAdmin);
       return {
         id: sm.id,
         serviceId: sm.serviceId,
@@ -892,17 +894,18 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
     }
 
     // 모델 접근 가능 여부 확인 (admin 정보는 canManageService에서 이미 감지됨)
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
-    const isAdmin = !!(req.adminRole);
-    if (model.visibility === 'SUPER_ADMIN_ONLY') {
-      if (req.adminRole !== 'SUPER_ADMIN') {
+    // SUPER_ADMIN은 모든 모델에 접근 가능
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const userDept = req.adminDept || req.user?.deptname || '';
+      const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+      const isAdmin = !!(req.adminRole);
+      if (model.visibility === 'SUPER_ADMIN_ONLY') {
+        res.status(403).json({ error: 'You do not have access to this model' });
+        return;
+      } else if (!isModelVisibleTo(model, userDept, userBU, isAdmin)) {
         res.status(403).json({ error: 'You do not have access to this model' });
         return;
       }
-    } else if (!isModelVisibleTo(model, userDept, userBU, isAdmin)) {
-      res.status(403).json({ error: 'You do not have access to this model' });
-      return;
     }
 
     // 중복 확인 (같은 서비스 + 같은 모델 + 같은 alias)
