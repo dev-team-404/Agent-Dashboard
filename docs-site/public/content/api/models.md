@@ -21,7 +21,9 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
 
 > **참고**: Background 서비스의 경우 `x-user-id` 헤더를 생략합니다.
 
-### 응답
+### 응답 (서비스 모델이 설정된 경우)
+
+서비스에 모델 설정(표시 모델명/alias)이 구성되어 있으면, **표시 모델명만 반환**됩니다.
 
 ```json
 {
@@ -31,19 +33,39 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
       "id": "gpt-4o",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "organization"
+      "owned_by": "agent-dashboard"
     },
     {
-      "id": "gpt-4o-mini",
+      "id": "claude",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "organization"
+      "owned_by": "agent-dashboard"
+    }
+  ]
+}
+```
+
+위 예시에서 `gpt-4o`와 `claude`는 서비스 관리자가 설정한 **표시 모델명(alias)**입니다. 같은 alias 뒤에 여러 실제 LLM 모델이 가중치 기반 라운드로빈으로 연결되어 있을 수 있습니다.
+
+### 응답 (서비스 모델이 설정되지 않은 경우)
+
+서비스에 모델을 아직 설정하지 않았으면, 접근 가능한 전체 LLM 모델 목록이 반환됩니다.
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "GPT-4o",
+      "object": "model",
+      "created": 1709827200,
+      "owned_by": "agent-dashboard"
     },
     {
-      "id": "claude-3.5-sonnet",
+      "id": "Claude Sonnet 4.6",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "organization"
+      "owned_by": "agent-dashboard"
     }
   ]
 }
@@ -55,10 +77,10 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
 |------|------|------|
 | `object` | string | 항상 `"list"` |
 | `data` | array | 모델 객체 배열 |
-| `data[].id` | string | 모델 ID (API 호출 시 `model` 파라미터에 사용) |
+| `data[].id` | string | 모델 ID (API 호출 시 `model` 파라미터에 사용). 서비스 모델 설정이 있으면 표시 모델명(alias), 없으면 실제 모델 displayName |
 | `data[].object` | string | 항상 `"model"` |
-| `data[].created` | number | 모델 생성 시각 (Unix timestamp) |
-| `data[].owned_by` | string | 모델 소유자 |
+| `data[].created` | number | 타임스탬프 |
+| `data[].owned_by` | string | `"agent-dashboard"` |
 
 ## 특정 모델 정보 조회
 
@@ -84,7 +106,7 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models/gpt-4o \
   "id": "gpt-4o",
   "object": "model",
   "created": 1709827200,
-  "owned_by": "organization"
+  "owned_by": "agent-dashboard"
 }
 ```
 
@@ -99,6 +121,18 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models/gpt-4o \
   }
 }
 ```
+
+## 서비스별 모델 목록이 다른 이유
+
+각 서비스는 **모델 설정** 페이지에서 독자적인 표시 모델명(alias)을 구성할 수 있습니다. 따라서 동일한 LLM 모델이라도 서비스마다 다른 이름으로 노출될 수 있습니다.
+
+```
+서비스 A의 v1/models → ["gpt-4o", "claude"]
+서비스 B의 v1/models → ["chat-model", "code-model"]
+서비스 C (미설정)    → ["GPT-4o", "Claude Sonnet 4.6"] (전체 모델)
+```
+
+자세한 설정 방법은 [서비스 모델 관리](/docs/service/service-models)를 참고하세요.
 
 ## 활용 예시
 
@@ -173,11 +207,11 @@ else:
 |-----------|------|-----------|
 | 401 | 인증 실패 | 인증 헤더 확인 |
 | 403 | 권한 없음 | 서비스의 모델 접근 권한 확인 |
-| 404 | 모델 없음 | 모델명 확인 |
+| 404 | 모델 없음 | 모델명 확인 (서비스 모델 설정이 변경되었을 수 있음) |
 | 500 | 서버 오류 | 관리자 문의 |
 
 ## 다음 단계
 
 - [Chat Completions API](/docs/api/chat-completions) — 모델로 대화 API 호출
 - [API 인증](/docs/api/authentication) — 인증 헤더 상세 설명
-- [서비스 등록 가이드](/docs/api/service-registration) — 서비스 등록 방법
+- [서비스 모델 관리](/docs/service/service-models) — 서비스별 모델 설정 및 라운드로빈 구성
