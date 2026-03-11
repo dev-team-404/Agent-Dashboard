@@ -9,6 +9,13 @@ import { api, serviceRateLimitScopedApi } from '../services/api';
 
 // ── Types ──
 
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
+
+interface MyServicesProps {
+  user: { id: string; loginid: string; username: string; deptname: string };
+  adminRole: AdminRole;
+}
+
 interface Service {
   id: string;
   name: string;
@@ -26,6 +33,8 @@ interface Service {
   deployScopeValue?: string[];
   createdAt: string;
   _count?: { usageLogs: number };
+  _isServiceAdmin?: boolean;
+  _isCreator?: boolean;
   serviceModels?: Array<{
     id: string;
     modelId: string;
@@ -35,6 +44,8 @@ interface Service {
     model: { id: string; name: string; displayName: string; type: string; enabled: boolean };
   }>;
 }
+
+type ServiceTab = 'all' | 'created' | 'team' | 'service-admin';
 
 interface ServiceMember {
   id: string;
@@ -115,11 +126,13 @@ function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClo
 
 // ── Main Component ──
 
-export default function MyServices() {
+export default function MyServices({ user, adminRole }: MyServicesProps) {
   const navigate = useNavigate();
+  const isSystemAdmin = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<ServiceTab>(isSystemAdmin ? 'all' : 'created');
 
   // Modal states
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -171,6 +184,23 @@ export default function MyServices() {
   useEffect(() => {
     loadServices();
   }, [loadServices]);
+
+  // ── Filter services by tab ──
+
+  const filteredServices = services.filter((s) => {
+    switch (activeTab) {
+      case 'all':
+        return true;
+      case 'created':
+        return s._isCreator;
+      case 'team':
+        return s.registeredByDept === user.deptname;
+      case 'service-admin':
+        return s._isServiceAdmin;
+      default:
+        return true;
+    }
+  });
 
   // ── Create / Edit service ──
 
@@ -537,9 +567,13 @@ export default function MyServices() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">내 서비스</h1>
+          <h1 className="text-xl font-semibold text-gray-900">
+            {isSystemAdmin ? '서비스 관리' : '내 서비스'}
+          </h1>
           <p className="text-sm text-gray-500 mt-1">
-            내가 등록한 서비스를 관리하고, 새 서비스를 만들 수 있습니다.
+            {isSystemAdmin
+              ? '서비스를 관리하고 모니터링합니다.'
+              : '내가 등록한 서비스를 관리하고, 새 서비스를 만들 수 있습니다.'}
           </p>
         </div>
         <button
@@ -551,11 +585,42 @@ export default function MyServices() {
         </button>
       </div>
 
+      {/* ── Tabs (System Admin only) ── */}
+      {isSystemAdmin && (
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 -mt-2">
+          {([
+            { key: 'all' as ServiceTab, label: '전체', count: services.length },
+            { key: 'created' as ServiceTab, label: '내가 만든 서비스', count: services.filter(s => s._isCreator).length },
+            { key: 'team' as ServiceTab, label: '내 팀의 서비스', count: services.filter(s => s.registeredByDept === user.deptname).length },
+            { key: 'service-admin' as ServiceTab, label: '내가 관리자인 서비스', count: services.filter(s => s._isServiceAdmin).length },
+          ]).map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                activeTab === key
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+              <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] ${
+                activeTab === key ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-500'
+              }`}>
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Help text */}
-      <p className="text-xs text-gray-400 leading-relaxed -mt-3">
-        나의 서비스를 생성하고 관리합니다. 서비스 ID는 영문 소문자와 하이픈만 사용 가능하며, 생성 후 변경할 수 없습니다.
-        배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 마켓에 공개됩니다.
-      </p>
+      {!isSystemAdmin && (
+        <p className="text-xs text-gray-400 leading-relaxed -mt-3">
+          나의 서비스를 생성하고 관리합니다. 서비스 ID는 영문 소문자와 하이픈만 사용 가능하며, 생성 후 변경할 수 없습니다.
+          배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 마켓에 공개됩니다.
+        </p>
+      )}
 
       {/* ── Error ── */}
       {error && (
@@ -565,9 +630,9 @@ export default function MyServices() {
       )}
 
       {/* ── Service cards grid ── */}
-      {services.length > 0 ? (
+      {filteredServices.length > 0 ? (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {services.map((service) => {
+          {filteredServices.map((service) => {
             const isBG = service.type === 'BACKGROUND';
             const isDev = service.status === 'DEVELOPMENT';
             const Icon = isBG ? Server : Cpu;
@@ -626,6 +691,26 @@ export default function MyServices() {
                         )}
                       </div>
                       <code className="text-xs text-gray-400 font-mono">{service.name}</code>
+                      {/* Relationship badges (for system admins) */}
+                      {isSystemAdmin && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {service._isCreator && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
+                              <Crown className="w-2.5 h-2.5" />소유자
+                            </span>
+                          )}
+                          {service._isServiceAdmin && !service._isCreator && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-700">
+                              <Shield className="w-2.5 h-2.5" />서비스 관리자
+                            </span>
+                          )}
+                          {!service._isCreator && !service._isServiceAdmin && (
+                            <span className="text-[10px] text-gray-400">
+                              등록자: {service.registeredBy} ({service.registeredByDept})
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -714,9 +799,13 @@ export default function MyServices() {
       ) : (
         <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
           <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm font-medium text-gray-900 mb-1">등록된 서비스가 없습니다</p>
+          <p className="text-sm font-medium text-gray-900 mb-1">
+            {isSystemAdmin && activeTab !== 'all' ? '해당 조건의 서비스가 없습니다' : '등록된 서비스가 없습니다'}
+          </p>
           <p className="text-sm text-gray-500 mb-4">
-            새 서비스를 만들어 AI 모델을 연동해 보세요.
+            {isSystemAdmin && activeTab !== 'all'
+              ? '다른 탭을 선택하거나 새 서비스를 만들어 보세요.'
+              : '새 서비스를 만들어 AI 모델을 연동해 보세요.'}
           </p>
           <button
             onClick={openCreateModal}

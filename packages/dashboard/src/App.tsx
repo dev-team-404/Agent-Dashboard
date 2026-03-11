@@ -112,33 +112,27 @@ function App() {
         <Routes>
           {/* All users */}
           <Route path="/services" element={<ServiceMarket />} />
-          <Route path="/my-services" element={<MyServices />} />
+          <Route path="/my-services" element={<MyServices user={user} adminRole={adminRole} />} />
           <Route path="/my-services/:serviceId/models" element={<ServiceModelConfig />} />
           <Route path="/my-usage" element={<MyUsage />} />
 
-          {/* Admin only */}
+          {/* System Admin (ADMIN + SUPER_ADMIN) */}
           {isAdmin && (
             <>
               <Route path="/" element={<MainDashboard adminRole={adminRole} />} />
-
-              {/* LLM Models (independent of services) */}
               <Route path="/models" element={<Models adminRole={adminRole} />} />
-
-              {/* Super Admin only */}
-              {adminRole === 'SUPER_ADMIN' && (
-                <Route path="/users" element={<UnifiedUsers />} />
-              )}
-              {adminRole === 'SUPER_ADMIN' && (
-                <Route path="/holidays" element={<Holidays />} />
-              )}
-
-              {/* Logs */}
-              <Route path="/request-logs" element={<RequestLogs />} />
-              <Route path="/audit-logs" element={<AuditLogs />} />
-
-              {/* Service-specific routes */}
+              <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
+            </>
+          )}
+
+          {/* Super Admin only */}
+          {adminRole === 'SUPER_ADMIN' && (
+            <>
+              <Route path="/holidays" element={<Holidays />} />
+              <Route path="/request-logs" element={<RequestLogs />} />
+              <Route path="/audit-logs" element={<AuditLogs />} />
             </>
           )}
 

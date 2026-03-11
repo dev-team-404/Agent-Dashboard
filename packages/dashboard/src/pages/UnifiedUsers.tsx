@@ -42,7 +42,10 @@ const roleLabels: Record<string, string> = {
   USER: '사용자',
 };
 
-export default function UnifiedUsers() {
+type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
+
+export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
+  const isSuperAdmin = adminRole === 'SUPER_ADMIN';
   const [users, setUsers] = useState<UnifiedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
@@ -57,7 +60,7 @@ export default function UnifiedUsers() {
 
   // Permission edit modal
   const [editingUser, setEditingUser] = useState<UnifiedUser | null>(null);
-  const [editIsAdmin, setEditIsAdmin] = useState(false);
+  const [editRole, setEditRole] = useState<'USER' | 'ADMIN' | 'SUPER_ADMIN'>('USER');
   const [saving, setSaving] = useState(false);
 
   // Delete user modal
@@ -120,12 +123,12 @@ export default function UnifiedUsers() {
 
   const openEditModal = (user: UnifiedUser) => {
     setEditingUser(user);
-    setEditIsAdmin(user.globalRole === 'ADMIN');
+    setEditRole(user.globalRole === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : user.globalRole === 'ADMIN' ? 'ADMIN' : 'USER');
   };
 
   const closeEditModal = () => {
     setEditingUser(null);
-    setEditIsAdmin(false);
+    setEditRole('USER');
   };
 
   const savePermissions = async () => {
@@ -134,7 +137,7 @@ export default function UnifiedUsers() {
     try {
       setSaving(true);
       await unifiedUsersApi.updatePermissions(editingUser.id, {
-        globalRole: editIsAdmin ? 'ADMIN' : undefined,
+        globalRole: editRole !== 'USER' ? editRole : undefined,
       });
       closeEditModal();
       loadUsers();
@@ -713,35 +716,45 @@ export default function UnifiedUsers() {
               </button>
             </div>
 
-            <div className="p-6">
-              <label className="flex items-center justify-between p-5 bg-gray-50 rounded-lg border border-gray-200/60 cursor-pointer hover:border-samsung-blue/20 transition-all duration-200">
-                <div className="flex items-center gap-3.5">
-                  <div className="p-2 rounded-xl bg-samsung-blue/10">
-                    <Shield className="w-5 h-5 text-samsung-blue" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-pastel-800">관리자 권한</p>
-                    <p className="text-sm text-pastel-500 mt-0.5">대시보드 및 사용자 관리 기능에 접근할 수 있습니다</p>
-                  </div>
-                </div>
-                <div className="relative flex-shrink-0 ml-4">
+            <div className="p-6 space-y-3">
+              {([
+                { value: 'USER' as const, label: '일반 사용자', desc: '자신의 사용 현황만 확인할 수 있습니다.', color: 'bg-gray-100 text-gray-600' },
+                { value: 'ADMIN' as const, label: '시스템 관리자', desc: '통합 대시보드, LLM 모델 관리, 서비스 관리 등에 접근할 수 있습니다.', color: 'bg-blue-50 text-blue-700' },
+                ...(isSuperAdmin ? [{ value: 'SUPER_ADMIN' as const, label: '슈퍼 관리자', desc: '모든 권한 + 사용자 관리, 요청/감사 로그, 휴일 관리 등 전체 시스템 권한을 갖습니다.', color: 'bg-red-50 text-red-700' }] : []),
+              ]).map(({ value, label, desc, color }) => (
+                <label
+                  key={value}
+                  className={`flex items-center gap-3.5 p-4 rounded-lg border cursor-pointer transition-all duration-200 ${
+                    editRole === value
+                      ? 'border-samsung-blue bg-blue-50/30 ring-1 ring-samsung-blue/20'
+                      : 'border-gray-200/60 hover:border-samsung-blue/20'
+                  }`}
+                >
                   <input
-                    type="checkbox"
-                    checked={editIsAdmin}
-                    onChange={e => setEditIsAdmin(e.target.checked)}
-                    className="sr-only peer"
+                    type="radio"
+                    name="editRole"
+                    value={value}
+                    checked={editRole === value}
+                    onChange={() => setEditRole(value)}
+                    className="sr-only"
                   />
-                  <div className="w-12 h-7 bg-pastel-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-samsung-blue/15 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-pastel-200 after:border after:rounded-full after:h-6 after:w-6 after:shadow-sm after:transition-all peer-checked:bg-samsung-blue transition-colors duration-200"></div>
-                </div>
-              </label>
-
-              <div className="mt-4 px-4 py-3 rounded-xl bg-pastel-50/50 border border-pastel-100/60">
-                <p className="text-xs text-pastel-500 leading-relaxed">
-                  {editIsAdmin
-                    ? '이 사용자는 관리자로 설정됩니다. 대시보드 접근 및 서비스 관리가 가능합니다.'
-                    : '이 사용자는 일반 사용자입니다. 자신의 사용 현황만 확인할 수 있습니다.'}
-                </p>
-              </div>
+                  <div className={`p-2 rounded-xl ${editRole === value ? 'bg-samsung-blue/10' : 'bg-gray-100'}`}>
+                    <Shield className={`w-4 h-4 ${editRole === value ? 'text-samsung-blue' : 'text-gray-400'}`} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-pastel-800 text-sm">{label}</p>
+                      <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${color}`}>{value}</span>
+                    </div>
+                    <p className="text-xs text-pastel-500 mt-0.5">{desc}</p>
+                  </div>
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                    editRole === value ? 'border-samsung-blue' : 'border-gray-300'
+                  }`}>
+                    {editRole === value && <div className="w-2 h-2 rounded-full bg-samsung-blue" />}
+                  </div>
+                </label>
+              ))}
             </div>
 
             <div className="p-6 border-t border-gray-100/80 flex justify-end gap-3">

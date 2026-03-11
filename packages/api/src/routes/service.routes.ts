@@ -20,6 +20,24 @@ import { z } from 'zod';
 export const serviceRoutes = Router();
 
 // ============================================
+// Helper: 감사 로그
+// ============================================
+async function recordAudit(req: AuthenticatedRequest, action: string, target: string | null, targetType: string, details?: Record<string, unknown>) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        loginid: req.user?.loginid || 'unknown',
+        action, target, targetType,
+        details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || undefined,
+      },
+    });
+  } catch (err) {
+    console.error('[AuditLog] Failed to record:', err);
+  }
+}
+
+// ============================================
 // Helper: 관리자 정보 자동 감지 (requireAdmin 대신 non-blocking)
 // ============================================
 async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
@@ -49,12 +67,19 @@ async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
 async function canManageService(req: AuthenticatedRequest, serviceId: string): Promise<boolean> {
   // 먼저 admin 정보 감지
   await detectAdminInfo(req);
+  // System Super Admin: 전체 서비스 관리 가능
   if (req.adminRole === 'SUPER_ADMIN') return true;
   const loginid = req.user?.loginid || '';
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) return false;
+  // 서비스 소유자 (생성자)
   if (service.registeredBy === loginid) return true;
-  // Check membership by loginid → userId
+  // System Admin: 같은 부서 서비스 관리 가능
+  if (req.adminRole === 'ADMIN') {
+    const adminDept = req.adminDept || req.user?.deptname || '';
+    if (adminDept && service.registeredByDept === adminDept) return true;
+  }
+  // Service Admin: UserService에서 OWNER/ADMIN 역할
   const user = await prisma.user.findUnique({ where: { loginid } });
   if (!user) return false;
   const membership = await prisma.userService.findFirst({
@@ -306,13 +331,51 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
 
 // ============================================
 // GET /services/my
-// 내 서비스 목록 (registeredBy 매칭)
+// 서비스 관리 목록
+// - SUPER_ADMIN: 전체 서비스
+// - System ADMIN: 내가 만든 서비스 + 내 팀 서비스 + 내가 서비스 관리자인 서비스
+// - User: 내가 만든 서비스 + 내가 서비스 관리자(OWNER/ADMIN)인 서비스
 // ============================================
 serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
     const loginid = req.user?.loginid || '';
+    await detectAdminInfo(req);
+
+    // 현재 사용자 ID 조회
+    const currentUser = await prisma.user.findUnique({ where: { loginid } });
+
+    // 역할별 조회 조건 구성
+    const isSuperAdmin = req.adminRole === 'SUPER_ADMIN';
+    let whereClause: Record<string, unknown> = {};
+
+    if (!isSuperAdmin) {
+      const whereConditions: Record<string, unknown>[] = [];
+      // 내가 만든 서비스
+      whereConditions.push({ registeredBy: loginid });
+
+      // 내가 서비스 관리자(OWNER/ADMIN)인 서비스
+      if (currentUser) {
+        whereConditions.push({
+          userServices: {
+            some: { userId: currentUser.id, role: { in: ['OWNER', 'ADMIN'] } },
+          },
+        });
+      }
+
+      // System ADMIN: 내 팀 서비스
+      if (req.adminRole === 'ADMIN') {
+        const dept = req.adminDept || req.user?.deptname || '';
+        if (dept) {
+          whereConditions.push({ registeredByDept: dept });
+        }
+      }
+
+      whereClause = { OR: whereConditions };
+    }
+    // SUPER_ADMIN: whereClause stays {} → no filter → all services
+
     const services = await prisma.service.findMany({
-      where: { registeredBy: loginid },
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -335,7 +398,23 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
       },
     });
 
-    res.json({ services });
+    // 서비스 관리자 여부 플래그 추가
+    let serviceAdminIds = new Set<string>();
+    if (currentUser) {
+      const memberships = await prisma.userService.findMany({
+        where: { userId: currentUser.id, role: { in: ['OWNER', 'ADMIN'] } },
+        select: { serviceId: true },
+      });
+      serviceAdminIds = new Set(memberships.map((m: { serviceId: string }) => m.serviceId));
+    }
+
+    const enriched = services.map((s: { id: string; registeredBy: string | null }) => ({
+      ...s,
+      _isServiceAdmin: serviceAdminIds.has(s.id),
+      _isCreator: s.registeredBy === loginid,
+    }));
+
+    res.json({ services: enriched });
   } catch (error) {
     console.error('Get my services error:', error);
     res.status(500).json({ error: 'Failed to get my services' });
@@ -499,6 +578,7 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
       },
     });
 
+    recordAudit(req, 'CREATE_SERVICE', service.id, 'Service', { name: service.name, displayName: service.displayName }).catch(() => {});
     res.status(201).json({ service });
   } catch (error) {
     console.error('Create service error:', error);
@@ -508,7 +588,7 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
 
 // ============================================
 // POST /services/:id/deploy
-// 서비스 배포 (소유자 또는 SUPER_ADMIN)
+// 서비스 배포 (서비스 관리 권한 보유자)
 // ============================================
 serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
@@ -519,12 +599,8 @@ serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRe
       return;
     }
 
-    const loginid = req.user?.loginid || '';
-    const isOwner = service.registeredBy === loginid;
-    const isSuperAdmin = req.adminRole === 'SUPER_ADMIN';
-
-    if (!isOwner && !isSuperAdmin) {
-      res.status(403).json({ error: 'Only the service owner or Super Admin can deploy a service' });
+    if (!(await canManageService(req, id))) {
+      res.status(403).json({ error: 'You do not have permission to deploy this service' });
       return;
     }
 
@@ -546,6 +622,7 @@ serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRe
       },
     });
 
+    recordAudit(req, 'DEPLOY_SERVICE', id, 'Service', { deployScope, deployScopeValue }).catch(() => {});
     res.json({ service: updated, message: 'Service deployed successfully' });
   } catch (error) {
     console.error('Deploy service error:', error);
@@ -555,7 +632,7 @@ serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRe
 
 // ============================================
 // POST /services/:id/undeploy
-// 서비스 배포 취소 → 개발 상태로 되돌리기 (소유자 또는 SUPER_ADMIN)
+// 서비스 배포 취소 → 개발 상태로 되돌리기 (서비스 관리 권한 보유자)
 // ============================================
 serviceRoutes.post('/:id/undeploy', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
@@ -566,12 +643,8 @@ serviceRoutes.post('/:id/undeploy', authenticateToken, async (req: Authenticated
       return;
     }
 
-    const loginid = req.user?.loginid || '';
-    const isOwner = service.registeredBy === loginid;
-    const isSuperAdmin = req.adminRole === 'SUPER_ADMIN';
-
-    if (!isOwner && !isSuperAdmin) {
-      res.status(403).json({ error: 'Only the service owner or Super Admin can undeploy a service' });
+    if (!(await canManageService(req, id))) {
+      res.status(403).json({ error: 'You do not have permission to undeploy this service' });
       return;
     }
 
@@ -585,6 +658,7 @@ serviceRoutes.post('/:id/undeploy', authenticateToken, async (req: Authenticated
       data: { status: 'DEVELOPMENT' },
     });
 
+    recordAudit(req, 'UNDEPLOY_SERVICE', id, 'Service', {}).catch(() => {});
     res.json({ service: updated, message: 'Service reverted to development' });
   } catch (error) {
     console.error('Undeploy service error:', error);
@@ -612,13 +686,8 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
     }
 
     if (!(await canManageService(req, id))) {
-      // Fallback: admin dept check
-      if (req.adminRole === 'ADMIN' && existing.registeredByDept === (req.adminDept || req.user?.deptname)) {
-        // allowed
-      } else {
-        res.status(403).json({ error: 'You do not have permission to modify this service' });
-        return;
-      }
+      res.status(403).json({ error: 'You do not have permission to modify this service' });
+      return;
     }
 
     const service = await prisma.service.update({
@@ -677,6 +746,7 @@ serviceRoutes.delete('/:id', authenticateToken, async (req: AuthenticatedRequest
       prisma.service.delete({ where: { id } }),
     ]);
 
+    recordAudit(req, 'DELETE_SERVICE', id, 'Service', { name: existing.name }).catch(() => {});
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
     console.error('Delete service error:', error);
@@ -848,6 +918,44 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
   } catch (error) {
     console.error('Get service models error:', error);
     res.status(500).json({ error: 'Failed to get service models' });
+  }
+});
+
+/**
+ * GET /services/:id/available-models
+ * 서비스에 추가 가능한 모델 목록 (사용자 권한 기준 필터링)
+ * - SUPER_ADMIN: 전체 모델
+ * - SYSTEM ADMIN: dept/BU 스코프 기준 + SUPER_ADMIN_ONLY 제외
+ * - SERVICE OWNER/ADMIN (비관리자): PUBLIC + 본인 팀/사업부 스코프 모델
+ */
+serviceRoutes.get('/:id/available-models', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'You do not have permission to manage this service' });
+      return;
+    }
+
+    const models = await prisma.model.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+    });
+
+    const isSuper = req.adminRole === 'SUPER_ADMIN';
+    const userDept = req.adminDept || req.user?.deptname || '';
+    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const isAdmin = !!(req.adminRole);
+
+    const filtered = isSuper
+      ? models
+      : models.filter(m => {
+          if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
+          return isModelVisibleTo(m, userDept, userBU, isAdmin);
+        });
+
+    res.json({ models: filtered });
+  } catch (error) {
+    console.error('Get available models error:', error);
+    res.status(500).json({ error: 'Failed to get available models' });
   }
 });
 

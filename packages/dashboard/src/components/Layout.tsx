@@ -41,9 +41,9 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
-const userNavItems = [
+const getUserNavItems = (adminRole: AdminRole) => [
   { path: '/services', label: '서비스 마켓', icon: Store },
-  { path: '/my-services', label: '내 서비스', icon: Wrench },
+  { path: '/my-services', label: adminRole ? '서비스 관리' : '내 서비스', icon: Wrench },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
 ];
 
@@ -89,7 +89,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/users') return '사용자 관리';
     if (location.pathname === '/holidays') return '휴일 관리';
     if (location.pathname === '/my-usage') return '내 사용량';
-    if (location.pathname === '/my-services') return '내 서비스';
+    if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
     if (location.pathname === '/services') return '서비스 마켓';
     if (location.pathname === '/request-logs') return '요청 로그';
     if (location.pathname === '/audit-logs') return '감사 로그';
@@ -167,19 +167,30 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
 
         {/* Navigation */}
         <nav className={`flex-1 py-4 ${sidebarCollapsed ? 'px-2' : 'px-3'} space-y-5`}>
-          {/* Admin */}
+          {/* System Admin */}
           {isAdmin && (
             <div>
               {!sidebarCollapsed && (
-                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">관리</p>
+                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">시스템 관리</p>
               )}
               <div className="space-y-0.5">
                 <NavLink path="/" label="통합 대시보드" icon={Home} />
                 <NavLink path="/models" label="LLM 모델" icon={Cpu} />
-                {adminRole === 'SUPER_ADMIN' && <NavLink path="/users" label="사용자 관리" icon={Users} />}
+                <NavLink path="/users" label="사용자 관리" icon={Users} />
+              </div>
+            </div>
+          )}
+
+          {/* Super Admin only */}
+          {adminRole === 'SUPER_ADMIN' && (
+            <div>
+              {!sidebarCollapsed && (
+                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">슈퍼 관리자</p>
+              )}
+              <div className="space-y-0.5">
                 <NavLink path="/request-logs" label="요청 로그" icon={FileText} />
                 <NavLink path="/audit-logs" label="감사 로그" icon={ClipboardList} />
-                {adminRole === 'SUPER_ADMIN' && <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />}
+                <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
               </div>
             </div>
           )}
@@ -190,7 +201,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">개인</p>
             )}
             <div className="space-y-0.5">
-              {userNavItems.map(({ path, label, icon }) => (
+              {getUserNavItems(adminRole).map(({ path, label, icon }) => (
                 <NavLink key={path} path={path} label={label} icon={icon} />
               ))}
             </div>

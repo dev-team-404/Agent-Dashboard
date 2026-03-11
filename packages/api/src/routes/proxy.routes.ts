@@ -393,6 +393,51 @@ async function recordUsage(
   console.log(`[Usage] user=${loginid || 'background'}, model=${modelId}, service=${serviceId}, tokens=${totalTokens}, latency=${latencyMs || 'N/A'}ms`);
 }
 
+/**
+ * RequestLog 저장 (요청 로그)
+ */
+async function recordRequestLog(params: {
+  serviceId: string;
+  userId?: string | null;
+  deptname?: string | null;
+  modelName: string;
+  resolvedModel?: string | null;
+  method: string;
+  path: string;
+  statusCode: number;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  latencyMs?: number | null;
+  errorMessage?: string | null;
+  userAgent?: string | null;
+  ipAddress?: string | null;
+  stream?: boolean;
+}) {
+  try {
+    await prisma.requestLog.create({
+      data: {
+        serviceId: params.serviceId,
+        userId: params.userId || null,
+        deptname: params.deptname || null,
+        modelName: params.modelName,
+        resolvedModel: params.resolvedModel || null,
+        method: params.method,
+        path: params.path,
+        statusCode: params.statusCode,
+        inputTokens: params.inputTokens || null,
+        outputTokens: params.outputTokens || null,
+        latencyMs: params.latencyMs || null,
+        errorMessage: params.errorMessage ? params.errorMessage.substring(0, 2000) : null,
+        userAgent: params.userAgent || null,
+        ipAddress: params.ipAddress || null,
+        stream: params.stream || false,
+      },
+    });
+  } catch (err) {
+    console.error('[RequestLog] Failed to record:', err);
+  }
+}
+
 function buildChatCompletionsUrl(endpointUrl: string): string {
   let url = endpointUrl.trim();
   if (url.endsWith('/chat/completions')) return url;
@@ -544,11 +589,15 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
 // ============================================
 proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
   const proxyReq = req as ProxyAuthRequest;
+  const reqStartTime = Date.now();
+  const userAgent = req.headers['user-agent'] || null;
+  const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || null;
 
   try {
     const { model: modelName, messages, stream, ...otherParams } = req.body;
 
     if (!modelName || !messages) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: modelName || 'unknown', method: 'POST', path: '/v1/chat/completions', statusCode: 400, latencyMs: Date.now() - reqStartTime, errorMessage: 'model and messages are required', userAgent, ipAddress }).catch(() => {});
       res.status(400).json({ error: 'model and messages are required' });
       return;
     }
@@ -556,6 +605,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, method: 'POST', path: '/v1/chat/completions', statusCode: 404, latencyMs: Date.now() - reqStartTime, errorMessage: `Model '${modelName}' not found or disabled`, userAgent, ipAddress }).catch(() => {});
       res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
       return;
     }
@@ -563,6 +613,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
     // 서비스 접근 권한 확인
     if (!canServiceAccessModel(proxyReq, model)) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 403, latencyMs: Date.now() - reqStartTime, errorMessage: 'Model not accessible by service', userAgent, ipAddress }).catch(() => {});
       res.status(403).json({
         error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
         message: 'This model is not available for your service. Check the LLM visibility settings.',
@@ -576,6 +627,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
     if (rateLimitResult) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: rateLimitResult.status, latencyMs: Date.now() - reqStartTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: stream || false }).catch(() => {});
       res.status(rateLimitResult.status).json(rateLimitResult.body);
       return;
     }
@@ -643,6 +695,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
     const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for model "${model.name}"`);
+    recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => {});
     res.status(503).json({
       error: 'Service temporarily unavailable',
       message: `Failed ${label}. Please try again later.`,
@@ -650,6 +703,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Chat completion proxy error:', error);
+    recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: req.body?.model || 'unknown', method: 'POST', path: '/v1/chat/completions', statusCode: 500, latencyMs: Date.now() - reqStartTime, errorMessage: error instanceof Error ? error.message : 'Unknown error', userAgent, ipAddress, stream: req.body?.stream || false }).catch(() => {});
     if (!res.headersSent) res.status(500).json({ error: 'Failed to process chat completion' });
   }
 });
@@ -779,6 +833,12 @@ async function handleNonStreamingRequest(
         recordUsage(user?.id || null, user?.loginid || null, model.id,
           data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0,
           proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+        recordRequestLog({
+          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
+          statusCode: 200, inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens,
+          latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
+        }).catch(() => {});
       }
       res.json(data);
       return true;
@@ -948,6 +1008,12 @@ async function handleStreamingRequest(
         usageData.prompt_tokens || 0, usageData.completion_tokens || 0,
         proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
     }
+    recordRequestLog({
+      serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+      modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
+      statusCode: 200, inputTokens: usageData?.prompt_tokens, outputTokens: usageData?.completion_tokens,
+      latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: true,
+    }).catch(() => {});
     res.end();
     return true;
 

@@ -112,7 +112,7 @@ export default function ServiceModelConfig() {
       const [svcRes, modelsRes, availableRes] = await Promise.all([
         api.get(`/services/${serviceId}`),
         api.get(`/services/${serviceId}/models`),
-        api.get('/models'),
+        api.get(`/services/${serviceId}/available-models`),
       ]);
       setService(svcRes.data.service);
       setServiceModels(modelsRes.data.serviceModels || []);

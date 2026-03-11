@@ -10,13 +10,13 @@
 
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
-import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticateToken, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 
 export const adminLogsRoutes = Router();
 
-// Apply authentication and admin check to all routes
+// Super Admin only — 요청 로그, 감사 로그는 슈퍼 관리자 전용
 adminLogsRoutes.use(authenticateToken);
-adminLogsRoutes.use(requireAdmin as RequestHandler);
+adminLogsRoutes.use(requireSuperAdmin as RequestHandler);
 
 // ==================== Helper ====================
 

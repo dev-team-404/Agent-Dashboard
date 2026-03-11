@@ -15,6 +15,22 @@ import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo
 
 export const modelsRoutes = Router();
 
+async function recordAudit(req: AuthenticatedRequest, action: string, target: string | null, targetType: string, details?: Record<string, unknown>) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.adminId || undefined,
+        loginid: req.user?.loginid || 'unknown',
+        action, target, targetType,
+        details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || undefined,
+      },
+    });
+  } catch (err) {
+    console.error('[AuditLog] Failed to record:', err);
+  }
+}
+
 /**
  * GET /models
  * 모델 목록 (권한에 따라 필터링)
@@ -134,6 +150,7 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
       },
     });
 
+    recordAudit(req, 'CREATE_MODEL', model.id, 'Model', { name: model.name, displayName: model.displayName, visibility: model.visibility }).catch(() => {});
     res.status(201).json({ model });
   } catch (error) {
     console.error('Create model error:', error);
@@ -206,6 +223,7 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
       },
     });
 
+    recordAudit(req, 'UPDATE_MODEL', updated.id, 'Model', { name: updated.name, changes: Object.keys(req.body) }).catch(() => {});
     res.json({ model: updated });
   } catch (error) {
     console.error('Update model error:', error);
@@ -250,6 +268,7 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin as RequestHandler, a
       return;
     }
 
+    const modelName = model.name;
     // SubModel, UsageLog 등 cascade 처리
     await prisma.$transaction([
       prisma.subModel.deleteMany({ where: { parentId: id } }),
@@ -258,6 +277,7 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin as RequestHandler, a
       prisma.model.delete({ where: { id } }),
     ]);
 
+    recordAudit(req, 'DELETE_MODEL', id, 'Model', { name: modelName }).catch(() => {});
     res.json({ success: true });
   } catch (error) {
     console.error('Delete model error:', error);

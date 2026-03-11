@@ -17,13 +17,13 @@ import { z } from 'zod';
 
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
- * (PG DATE는 midnight UTC로 반환되므로 toISOString 사용 OK)
+ * KST(Asia/Seoul) 기준으로 통일 — toISOString()은 UTC 기반이라 날짜 경계에서 1일 밀릴 수 있음
  */
 function formatDateToString(date: Date | string): string {
   if (typeof date === 'string') {
     return date.split('T')[0] || date;
   }
-  return date.toISOString().split('T')[0]!;
+  return toLocalDateString(date);
 }
 
 /**
@@ -50,6 +50,27 @@ export const adminRoutes = Router();
 // Apply authentication and admin check to all routes
 adminRoutes.use(authenticateToken);
 adminRoutes.use(requireAdmin as RequestHandler);
+
+/**
+ * Helper: 감사 로그 기록
+ */
+async function recordAudit(req: AuthenticatedRequest, action: string, target: string | null, targetType: string, details?: Record<string, unknown>) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.adminId || undefined,
+        loginid: req.user?.loginid || 'unknown',
+        action,
+        target,
+        targetType,
+        details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || undefined,
+      },
+    });
+  } catch (err) {
+    console.error('[AuditLog] Failed to record:', err);
+  }
+}
 
 // ==================== Models Management ====================
 
@@ -1706,8 +1727,8 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin as RequestHandler, asyn
     const { id } = req.params;
     const { role } = req.body;
 
-    if (!role || role !== 'ADMIN') {
-      res.status(400).json({ error: 'role must be ADMIN' });
+    if (!role || !['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+      res.status(400).json({ error: 'role must be ADMIN or SUPER_ADMIN' });
       return;
     }
 
@@ -1746,6 +1767,7 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin as RequestHandler, asyn
       },
     });
 
+    recordAudit(req, 'PROMOTE_USER', user.loginid, 'User', { username: user.username, role }).catch(() => {});
     res.json({
       success: true,
       admin,
@@ -1796,6 +1818,7 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
       where: { loginid: user.loginid },
     });
 
+    recordAudit(req, 'DEMOTE_USER', user.loginid, 'User', { username: user.username, previousRole: admin.role }).catch(() => {});
     res.json({
       success: true,
       message: `${user.username} demoted from admin`,
@@ -1810,10 +1833,12 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
 
 /**
  * GET /admin/unified-users
- * 전체 사용자 통합 관리 (서비스별 통계 포함)
+ * 사용자 관리 (SYSTEM ADMIN 이상)
+ * - SUPER_ADMIN: 전체 사용자
+ * - ADMIN: 본인 팀(dept) 사용자만
  * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
  */
-adminRoutes.get('/unified-users', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
   try {
     const page = parseInt(req.query['page'] as string) || 1;
     const limit = Math.min(100, parseInt(req.query['limit'] as string) || 50);
@@ -1827,6 +1852,14 @@ adminRoutes.get('/unified-users', requireSuperAdmin as RequestHandler, async (re
     const whereClause: any = {
       loginid: { not: 'anonymous' },
     };
+
+    // SYSTEM ADMIN: 본인 팀 사용자만 보이게 제한
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (adminDept) {
+        whereClause.deptname = adminDept;
+      }
+    }
 
     if (search) {
       whereClause.OR = [
@@ -1951,10 +1984,12 @@ adminRoutes.get('/unified-users', requireSuperAdmin as RequestHandler, async (re
 
 /**
  * PUT /admin/unified-users/:id/permissions
- * 사용자 권한 변경 (SUPER_ADMIN만)
- * Body: { globalRole?: 'ADMIN' }
+ * 사용자 권한 변경
+ * - SUPER_ADMIN: 모든 역할 변경 가능 (ADMIN, SUPER_ADMIN, USER)
+ * - ADMIN: ADMIN 역할만 지정/해제 가능 (본인 팀 사용자만)
+ * Body: { globalRole?: 'ADMIN' | 'SUPER_ADMIN' }
  */
-adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+adminRoutes.put('/unified-users/:id/permissions', async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { globalRole } = req.body;
@@ -1974,26 +2009,41 @@ adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin as RequestHa
       return;
     }
 
-    if (globalRole === 'ADMIN') {
+    // SYSTEM ADMIN 제한: 본인 팀만 + ADMIN 역할만
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (user.deptname !== adminDept) {
+        res.status(403).json({ error: 'Can only modify users in your department' });
+        return;
+      }
+      if (globalRole === 'SUPER_ADMIN') {
+        res.status(403).json({ error: 'Only Super Admin can assign Super Admin role' });
+        return;
+      }
+    }
+
+    if (globalRole === 'ADMIN' || globalRole === 'SUPER_ADMIN') {
       await prisma.admin.upsert({
         where: { loginid: user.loginid },
         update: {
-          role: 'ADMIN',
+          role: globalRole,
           deptname: user.deptname || '',
           businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
           designatedBy: req.user!.loginid,
         },
         create: {
           loginid: user.loginid,
-          role: 'ADMIN',
+          role: globalRole,
           deptname: user.deptname || '',
           businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
           designatedBy: req.user!.loginid,
         },
       });
+      recordAudit(req, `SET_ROLE_${globalRole}`, user.loginid, 'User', { username: user.username, role: globalRole }).catch(() => {});
     } else {
-      // globalRole undefined or not ADMIN → demote
+      // globalRole undefined → demote to user
       await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
+      recordAudit(req, 'DEMOTE_TO_USER', user.loginid, 'User', { username: user.username }).catch(() => {});
     }
 
     res.json({ success: true, message: `${user.username} permissions updated` });
