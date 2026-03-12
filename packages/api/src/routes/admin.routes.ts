@@ -612,10 +612,33 @@ adminRoutes.put('/models/:id', async (req: AuthenticatedRequest, res) => {
       }
     }
 
+    const oldModel = await prisma.model.findUnique({ where: { id }, select: { displayName: true } });
+
     const model = await prisma.model.update({
       where: { id },
       data: validation.data,
     });
+
+    // displayName이 변경된 경우 로그 테이블들의 스냅샷도 일괄 갱신
+    if (oldModel && validation.data.displayName && validation.data.displayName !== oldModel.displayName) {
+      const oldName = oldModel.displayName;
+      const newName = validation.data.displayName;
+      await Promise.all([
+        prisma.healthCheckLog.updateMany({
+          where: { modelId: id },
+          data: { modelName: newName },
+        }),
+        prisma.requestLog.updateMany({
+          where: { modelName: oldName },
+          data: { modelName: newName },
+        }),
+        prisma.ratingFeedback.updateMany({
+          where: { modelName: oldName },
+          data: { modelName: newName },
+        }),
+      ]);
+      console.log(`[Model] displayName changed: "${oldName}" → "${newName}" — updated logs`);
+    }
 
     res.json({ model });
   } catch (error) {
