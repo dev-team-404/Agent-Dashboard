@@ -8,7 +8,7 @@ import {
   Crown, Shield, User, Gauge, Server,
   Activity, TrendingUp, Hash, BarChart3,
   Globe, Building2, Lock, ExternalLink,
-  FileText, ChevronLeft, ChevronRight, Eye, EyeOff,
+  FileText, ChevronLeft, ChevronRight, Eye, EyeOff, Ticket,
 } from 'lucide-react';
 import { api, serviceApi, serviceRateLimitScopedApi, statsApi } from '../services/api';
 import {
@@ -54,6 +54,10 @@ interface Service {
   registeredByBusinessUnit?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
+  targetMM?: number | null;
+  serviceCategory?: string | null;
+  standardMD?: number | null;
+  jiraTicket?: string | null;
   createdAt: string;
   _count?: { usageLogs: number; userServices: number; serviceModels: number };
   _isServiceAdmin?: boolean;
@@ -286,6 +290,17 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
                 >
                   <ExternalLink className="w-3 h-3" />
                   API 문서
+                </a>
+              )}
+              {service.jiraTicket && (
+                <a
+                  href={service.jiraTicket}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-violet-300 bg-violet-500/20 rounded-lg hover:bg-violet-500/30 transition-colors"
+                >
+                  <Ticket className="w-3 h-3" />
+                  Jira
                 </a>
               )}
             </div>

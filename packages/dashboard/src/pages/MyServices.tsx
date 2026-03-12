@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
-  Layers, Search, Trash2, UserPlus, Users, ChevronDown,
-  Crown, Shield, User, Gauge, Link, Image
+  Layers, Trash2, ChevronDown,
+  Crown, Shield, Link, Image,
+  ArrowLeft, ArrowRight, Check, ExternalLink, FileText, Ticket
 } from 'lucide-react';
-import { api, serviceRateLimitScopedApi } from '../services/api';
+import { api } from '../services/api';
 
 // ── Types ──
 
@@ -32,6 +33,10 @@ interface Service {
   registeredByBusinessUnit?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
+  targetMM?: number | null;
+  serviceCategory?: string | null;
+  standardMD?: number | null;
+  jiraTicket?: string | null;
   createdAt: string;
   _count?: { usageLogs: number };
   _isServiceAdmin?: boolean;
@@ -48,24 +53,6 @@ interface Service {
 
 type ServiceTab = 'all' | 'created' | 'team' | 'service-admin';
 
-interface ServiceMember {
-  id: string;
-  userId: string;
-  role: 'OWNER' | 'ADMIN' | 'USER';
-  user: {
-    id: string;
-    loginid: string;
-    username: string;
-    deptname: string;
-  };
-}
-
-interface SearchUser {
-  id: string;
-  loginid: string;
-  username: string;
-  deptname: string;
-}
 
 interface ServiceFormData {
   name: string;
@@ -75,6 +62,10 @@ interface ServiceFormData {
   iconUrl: string;
   docsUrl: string;
   serviceUrl: string;
+  targetMM: string;
+  serviceCategory: string;
+  standardMD: string;
+  jiraTicket: string;
 }
 
 const EMPTY_FORM: ServiceFormData = {
@@ -85,7 +76,21 @@ const EMPTY_FORM: ServiceFormData = {
   iconUrl: '',
   docsUrl: '',
   serviceUrl: '',
+  targetMM: '',
+  serviceCategory: '',
+  standardMD: '',
+  jiraTicket: '',
 };
+
+const SERVICE_CATEGORIES = [
+  '설계 자동화 및 최적화',
+  '코드개발/분석/검증 지원',
+  '디버깅 및 분석 자동화',
+  '문서 및 요구사항 지능형 처리',
+  'Agent플랫폼 및 개발 생태계',
+  '데이터 기반 인사이트 및 대시보드',
+  '인프라/도구/협력 요청',
+];
 
 // ── Helpers ──
 
@@ -148,30 +153,16 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Wizard states (creation only)
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+
   // Deploy modal
   const [deployTarget, setDeployTarget] = useState<Service | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployScope, setDeployScope] = useState<'ALL' | 'BUSINESS_UNIT' | 'TEAM'>('ALL');
   const [deployScopeValue, setDeployScopeValue] = useState('');
 
-  // Member management modal
-  const [memberTarget, setMemberTarget] = useState<Service | null>(null);
-  const [members, setMembers] = useState<ServiceMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [memberActionLoading, setMemberActionLoading] = useState(false);
-  const [userSearch, setUserSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-
-  // Rate Limit modal
-  const [rateLimitTarget, setRateLimitTarget] = useState<Service | null>(null);
-  const [rateLimitLoading, setRateLimitLoading] = useState(false);
-  const [rateLimitSaving, setRateLimitSaving] = useState(false);
-  const [commonRateLimit, setCommonRateLimit] = useState<{ maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null>(null);
-  const [userRateLimits, setUserRateLimits] = useState<Array<{ userId: string; maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean; user: { id: string; loginid: string; username: string; deptname: string } }>>([]);
-  const [rlForm, setRlForm] = useState<{ maxTokens: string; window: 'FIVE_HOURS' | 'DAY' }>({ maxTokens: '100000', window: 'DAY' });
-  const [rlEditUserId, setRlEditUserId] = useState<string | null>(null);
-  const [rlUserForm, setRlUserForm] = useState<{ maxTokens: string; window: 'FIVE_HOURS' | 'DAY' }>({ maxTokens: '100000', window: 'DAY' });
 
   // ── Load services ──
 
@@ -211,11 +202,18 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 
   // ── Create / Edit service ──
 
-  const openCreateModal = () => {
-    setEditingService(null);
+  const openCreateWizard = () => {
     setFormData(EMPTY_FORM);
     setFormError(null);
-    setShowServiceModal(true);
+    setWizardStep(0);
+    setShowWizard(true);
+  };
+
+  const closeWizard = () => {
+    setShowWizard(false);
+    setFormData(EMPTY_FORM);
+    setFormError(null);
+    setWizardStep(0);
   };
 
   const openEditModal = (service: Service) => {
@@ -228,6 +226,10 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       iconUrl: service.iconUrl || '',
       docsUrl: service.docsUrl || '',
       serviceUrl: service.serviceUrl || '',
+      targetMM: service.targetMM != null ? String(service.targetMM) : '',
+      serviceCategory: service.serviceCategory || '',
+      standardMD: service.standardMD != null ? String(service.standardMD) : '',
+      jiraTicket: service.jiraTicket || '',
     });
     setFormError(null);
     setShowServiceModal(true);
@@ -240,13 +242,25 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     setFormError(null);
   };
 
+  const buildPayload = () => ({
+    displayName: formData.displayName,
+    description: formData.description || undefined,
+    type: formData.type,
+    iconUrl: formData.iconUrl.trim() || null,
+    docsUrl: formData.docsUrl.trim() || null,
+    serviceUrl: formData.serviceUrl.trim() || null,
+    targetMM: formData.targetMM ? parseFloat(formData.targetMM) : null,
+    serviceCategory: formData.serviceCategory || null,
+    standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
+    jiraTicket: formData.jiraTicket.trim() || null,
+  });
+
   const handleSaveService = async () => {
     if (!formData.name.trim() || !formData.displayName.trim()) {
       setFormError('서비스 코드와 표시 이름은 필수입니다.');
       return;
     }
 
-    // Validate name format: lowercase alphanumeric + hyphens
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(formData.name) && formData.name.length > 1) {
       setFormError('서비스 코드는 영문 소문자, 숫자, 하이픈만 사용 가능합니다.');
       return;
@@ -257,26 +271,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 
     try {
       if (editingService) {
-        await api.put(`/services/${editingService.id}`, {
-          displayName: formData.displayName,
-          description: formData.description || undefined,
-          type: formData.type,
-          iconUrl: formData.iconUrl.trim() || null,
-          docsUrl: formData.docsUrl.trim() || null,
-          serviceUrl: formData.serviceUrl.trim() || null,
-        });
+        await api.put(`/services/${editingService.id}`, buildPayload());
       } else {
-        await api.post('/services', {
-          name: formData.name,
-          displayName: formData.displayName,
-          description: formData.description || undefined,
-          type: formData.type,
-          iconUrl: formData.iconUrl.trim() || null,
-          docsUrl: formData.docsUrl.trim() || null,
-          serviceUrl: formData.serviceUrl.trim() || null,
-        });
+        await api.post('/services', { name: formData.name, ...buildPayload() });
       }
-      closeServiceModal();
+      if (editingService) closeServiceModal();
+      else closeWizard();
       await loadServices();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
@@ -348,215 +348,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     }
   };
 
-  // ── Member management ──
-
-  const openMemberModal = async (service: Service) => {
-    setMemberTarget(service);
-    setMembersLoading(true);
-    setUserSearch('');
-    setSearchResults([]);
-    try {
-      const res = await api.get(`/services/${service.id}/members`);
-      setMembers(res.data.members || []);
-    } catch (err) {
-      console.error('Failed to load members:', err);
-    } finally {
-      setMembersLoading(false);
-    }
-  };
-
-  const handleSearchUsers = async (query: string) => {
-    setUserSearch(query);
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-    setSearchLoading(true);
-    try {
-      const res = await api.get('/services/search-users', { params: { q: query } });
-      setSearchResults(res.data.users || []);
-    } catch (err) {
-      console.error('Failed to search users:', err);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
-
-  const handleAddMember = async (userId: string) => {
-    if (!memberTarget) return;
-    setMemberActionLoading(true);
-    try {
-      const user = searchResults.find((u) => u.id === userId);
-      await api.post(`/services/${memberTarget.id}/members`, { loginid: user?.loginid });
-      const res = await api.get(`/services/${memberTarget.id}/members`);
-      setMembers(res.data.members || []);
-      setUserSearch('');
-      setSearchResults([]);
-    } catch (err: unknown) {
-      console.error('Failed to add member:', err);
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '멤버 추가에 실패했습니다.');
-    } finally {
-      setMemberActionLoading(false);
-    }
-  };
-
-  const handleChangeRole = async (userId: string, role: string) => {
-    if (!memberTarget) return;
-    setMemberActionLoading(true);
-    try {
-      await api.put(`/services/${memberTarget.id}/members/${userId}/role`, { role });
-      const res = await api.get(`/services/${memberTarget.id}/members`);
-      setMembers(res.data.members || []);
-    } catch (err: unknown) {
-      console.error('Failed to change role:', err);
-    } finally {
-      setMemberActionLoading(false);
-    }
-  };
-
-  const handleRemoveMember = async (userId: string) => {
-    if (!memberTarget) return;
-    setMemberActionLoading(true);
-    try {
-      await api.delete(`/services/${memberTarget.id}/members/${userId}`);
-      const res = await api.get(`/services/${memberTarget.id}/members`);
-      setMembers(res.data.members || []);
-    } catch (err: unknown) {
-      console.error('Failed to remove member:', err);
-    } finally {
-      setMemberActionLoading(false);
-    }
-  };
-
-  const closeMemberModal = () => {
-    setMemberTarget(null);
-    setMembers([]);
-    setUserSearch('');
-    setSearchResults([]);
-  };
-
-  // ── Rate Limit management ──
-
-  const openRateLimitModal = async (service: Service) => {
-    setRateLimitTarget(service);
-    setRateLimitLoading(true);
-    setRlEditUserId(null);
-    try {
-      const [commonRes, userRes] = await Promise.all([
-        serviceRateLimitScopedApi.getCommon(service.id),
-        serviceRateLimitScopedApi.list(service.id),
-      ]);
-      const common = commonRes.data.rateLimit;
-      setCommonRateLimit(common || null);
-      if (common) {
-        setRlForm({ maxTokens: String(common.maxTokens), window: common.window });
-      } else {
-        setRlForm({ maxTokens: '100000', window: 'DAY' });
-      }
-      setUserRateLimits(userRes.data.rateLimits || []);
-    } catch (err) {
-      console.error('Failed to load rate limits:', err);
-    } finally {
-      setRateLimitLoading(false);
-    }
-  };
-
-  const handleSaveCommonRateLimit = async () => {
-    if (!rateLimitTarget) return;
-    const maxTokens = parseInt(rlForm.maxTokens);
-    if (isNaN(maxTokens) || maxTokens < 1) return;
-    setRateLimitSaving(true);
-    try {
-      await serviceRateLimitScopedApi.setCommon(rateLimitTarget.id, { maxTokens, window: rlForm.window, enabled: true });
-      const res = await serviceRateLimitScopedApi.getCommon(rateLimitTarget.id);
-      setCommonRateLimit(res.data.rateLimit || null);
-    } catch (err) {
-      console.error('Failed to save common rate limit:', err);
-    } finally {
-      setRateLimitSaving(false);
-    }
-  };
-
-  const handleRemoveCommonRateLimit = async () => {
-    if (!rateLimitTarget || !commonRateLimit) return;
-    setRateLimitSaving(true);
-    try {
-      await serviceRateLimitScopedApi.removeCommon(rateLimitTarget.id);
-      setCommonRateLimit(null);
-    } catch (err) {
-      console.error('Failed to remove common rate limit:', err);
-    } finally {
-      setRateLimitSaving(false);
-    }
-  };
-
-  const handleSaveUserRateLimit = async (userId: string) => {
-    if (!rateLimitTarget) return;
-    const maxTokens = parseInt(rlUserForm.maxTokens);
-    if (isNaN(maxTokens) || maxTokens < 1) return;
-    setRateLimitSaving(true);
-    try {
-      await serviceRateLimitScopedApi.setUser(rateLimitTarget.id, userId, { maxTokens, window: rlUserForm.window, enabled: true });
-      const res = await serviceRateLimitScopedApi.list(rateLimitTarget.id);
-      setUserRateLimits(res.data.rateLimits || []);
-      setRlEditUserId(null);
-    } catch (err) {
-      console.error('Failed to save user rate limit:', err);
-    } finally {
-      setRateLimitSaving(false);
-    }
-  };
-
-  const handleRemoveUserRateLimit = async (userId: string) => {
-    if (!rateLimitTarget) return;
-    setRateLimitSaving(true);
-    try {
-      await serviceRateLimitScopedApi.removeUser(rateLimitTarget.id, userId);
-      setUserRateLimits((prev) => prev.filter((r) => r.userId !== userId));
-    } catch (err) {
-      console.error('Failed to remove user rate limit:', err);
-    } finally {
-      setRateLimitSaving(false);
-    }
-  };
-
-  const formatTokens = (n: number) => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-    return String(n);
-  };
-
-  // ── Role display helpers ──
-
-  const roleIcon = (role: string) => {
-    switch (role) {
-      case 'OWNER': return <Crown className="w-3 h-3" />;
-      case 'ADMIN': return <Shield className="w-3 h-3" />;
-      default: return <User className="w-3 h-3" />;
-    }
-  };
-
-  const roleLabel = (role: string) => {
-    switch (role) {
-      case 'OWNER': return '소유자';
-      case 'ADMIN': return '서비스 관리자';
-      default: return '사용자';
-    }
-  };
-
-  const roleBadgeClass = (role: string) => {
-    switch (role) {
-      case 'OWNER': return 'bg-amber-50 text-amber-700';
-      case 'ADMIN': return 'bg-blue-50 text-blue-700';
-      default: return 'bg-gray-50 text-gray-600';
-    }
-  };
-
-  // ── Already-member user IDs ──
-
-  const memberUserIds = new Set(members.map((m) => m.userId));
-
   // ── Render ──
 
   if (loading) {
@@ -593,7 +384,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           </p>
         </div>
         <button
-          onClick={openCreateModal}
+          onClick={openCreateWizard}
           className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -731,9 +522,16 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </div>
 
                   {/* Description */}
-                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-3">
+                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-2">
                     {service.description || '설명이 등록되지 않았습니다.'}
                   </p>
+
+                  {/* Category */}
+                  {service.serviceCategory && (
+                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded mb-2">
+                      {service.serviceCategory}
+                    </span>
+                  )}
 
                   {/* Meta */}
                   <div className="flex items-center gap-3 text-xs text-gray-400">
@@ -753,29 +551,32 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </div>
                 </div>
 
+                {/* Shortcut buttons */}
+                {(service.serviceUrl || service.docsUrl || service.jiraTicket) && (
+                  <div className="border-t border-gray-100 px-5 py-2 flex items-center gap-1.5">
+                    {service.serviceUrl && (
+                      <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
+                        <ExternalLink className="w-3 h-3" />서비스
+                      </a>
+                    )}
+                    {service.docsUrl && (
+                      <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
+                        <FileText className="w-3 h-3" />문서
+                      </a>
+                    )}
+                    {service.jiraTicket && (
+                      <a href={service.jiraTicket} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-violet-600 bg-violet-50 rounded hover:bg-violet-100 transition-colors">
+                        <Ticket className="w-3 h-3" />Jira
+                      </a>
+                    )}
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="border-t border-gray-100 px-5 py-3 flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => navigate(`/my-services/${service.id}/models`)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    모델 설정
-                  </button>
-                  <button
-                    onClick={() => openMemberModal(service)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    멤버 관리
-                  </button>
-                  <button
-                    onClick={() => openRateLimitModal(service)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
-                  >
-                    <Gauge className="w-3.5 h-3.5" />
-                    Rate Limit
-                  </button>
                   {isDev ? (
                     <button
                       onClick={() => openDeployModal(service)}
@@ -824,7 +625,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               : '새 서비스를 만들어 AI 모델을 연동해 보세요.'}
           </p>
           <button
-            onClick={openCreateModal}
+            onClick={openCreateWizard}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -834,161 +635,106 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       )}
 
       {/* ══════════════════════════════════════════════════
-          Create / Edit Service Modal
+          Edit Service Modal (popup)
          ══════════════════════════════════════════════════ */}
-      {showServiceModal && (
+      {showServiceModal && editingService && (
         <ModalBackdrop onClose={closeServiceModal}>
-          <div className="p-6">
+          <div className="p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-semibold text-gray-900">
-                {editingService ? '서비스 수정' : '새 서비스 만들기'}
-              </h3>
-              <button onClick={closeServiceModal} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="text-base font-semibold text-gray-900">서비스 수정</h3>
+              <button onClick={closeServiceModal} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="space-y-4">
-              {/* Name (code) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  서비스 코드 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
-                  disabled={!!editingService}
-                  placeholder="my-service"
-                  className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors ${
-                    editingService ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : 'bg-white text-gray-900'
-                  }`}
-                />
-                <p className="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 사용 (생성 후 변경 불가)</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">서비스 코드</label>
+                <input type="text" value={formData.name} disabled className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed" />
               </div>
-
-              {/* Display name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  표시 이름 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.displayName}
-                  onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-                  placeholder="내 AI 서비스"
-                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                />
-                <p className="mt-1 text-xs text-gray-400">사용자에게 보여지는 서비스 이름 (한글/영문 자유)</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span className="text-red-500">*</span></label>
+                <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
               </div>
-
-              {/* Description */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="서비스에 대한 간단한 설명 (예: 사내 문서 검색 AI 챗봇)"
-                  rows={3}
-                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors resize-none"
-                />
+                <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" />
               </div>
-
-              {/* Type */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">서비스 타입</label>
-                <div className="relative">
-                  <select
-                    value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })}
-                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors appearance-none pr-8"
-                  >
-                    <option value="STANDARD">표준 (STANDARD)</option>
-                    <option value="BACKGROUND">백그라운드 (BACKGROUND)</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">서비스 타입</label>
+                  <div className="relative">
+                    <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                      <option value="STANDARD">표준</option>
+                      <option value="BACKGROUND">백그라운드</option>
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-400">표준: 일반 API 서비스 | 백그라운드: 비동기 배치 처리용 서비스</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">카테고리</label>
+                  <div className="relative">
+                    <select value={formData.serviceCategory} onChange={(e) => setFormData({ ...formData, serviceCategory: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                      <option value="">선택...</option>
+                      {SERVICE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
               </div>
-
-              {/* Icon URL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span>
-                </label>
-                <input
-                  type="url"
-                  value={formData.iconUrl}
-                  onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
-                  placeholder="https://example.com/logo.png"
-                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                />
-                {formData.iconUrl.trim() && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <img src={formData.iconUrl.trim()} alt="미리보기" className="w-8 h-8 rounded-lg border border-gray-200 object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    <span className="text-xs text-gray-400">미리보기</span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">목표 MM</label>
+                  <input type="number" step="0.1" min="0" value={formData.targetMM} onChange={(e) => setFormData({ ...formData, targetMM: e.target.value })} placeholder="예: 3.5" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                </div>
+                {formData.type === 'BACKGROUND' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Standard M/D</label>
+                    <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })} placeholder="예: 0.1" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                   </div>
                 )}
               </div>
-
-              {/* Service URL */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> 서비스 URL</span>
-                </label>
-                <input
-                  type="url"
-                  value={formData.serviceUrl}
-                  onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })}
-                  placeholder="https://my-service.example.com"
-                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                />
-                <p className="mt-1 text-xs text-gray-400">서비스 마켓에서 바로가기 버튼으로 연결됩니다</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
+                <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
               </div>
-
-              {/* Docs URL */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> API 문서 URL</span>
-                </label>
-                <input
-                  type="url"
-                  value={formData.docsUrl}
-                  onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })}
-                  placeholder="https://docs.example.com/api"
-                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                />
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> 서비스 URL</span></label>
+                  <input type="url" value={formData.serviceUrl} onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })} placeholder="https://my-service.example.com" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> API 문서 URL</span></label>
+                  <input type="url" value={formData.docsUrl} onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })} placeholder="https://docs.example.com/api" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> Jira 티켓</span></label>
+                  <input type="url" value={formData.jiraTicket} onChange={(e) => setFormData({ ...formData, jiraTicket: e.target.value })} placeholder="https://jira.example.com/browse/PROJ-123" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                </div>
               </div>
             </div>
-
-            {/* Error */}
-            {formError && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {formError}
-              </div>
-            )}
-
-            {/* Actions */}
+            {formError && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
             <div className="flex justify-end gap-2 mt-6">
-              <button
-                onClick={closeServiceModal}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleSaveService}
-                disabled={formSaving}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                {editingService ? '저장' : '만들기'}
+              <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+              <button onClick={handleSaveService} disabled={formSaving} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}저장
               </button>
             </div>
           </div>
         </ModalBackdrop>
       )}
+
+      {/* ══════════════════════════════════════════════════
+          Create Service Wizard (full-page overlay)
+         ══════════════════════════════════════════════════ */}
+      {showWizard && <ServiceCreationWizard
+        formData={formData}
+        setFormData={setFormData}
+        wizardStep={wizardStep}
+        setWizardStep={setWizardStep}
+        formError={formError}
+        setFormError={setFormError}
+        formSaving={formSaving}
+        onSave={handleSaveService}
+        onClose={closeWizard}
+      />}
 
       {/* ══════════════════════════════════════════════════
           Deploy Confirmation Modal
@@ -1078,310 +824,290 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         </ModalBackdrop>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          Member Management Modal
-         ══════════════════════════════════════════════════ */}
-      {memberTarget && (
-        <ModalBackdrop onClose={closeMemberModal}>
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">멤버 관리</h3>
-                <p className="text-sm text-gray-500 mt-0.5">{memberTarget.displayName}</p>
-              </div>
-              <button onClick={closeMemberModal} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+    </div>
+  );
+}
 
-            {membersLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-              </div>
-            ) : (
-              <>
-                {/* Search & add user */}
-                <div className="mb-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      value={userSearch}
-                      onChange={(e) => handleSearchUsers(e.target.value)}
-                      placeholder="사용자 검색 (이름 또는 ID)..."
-                      className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                    />
-                    {searchLoading && (
-                      <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
-                    )}
-                  </div>
+// ══════════════════════════════════════════════════
+// Service Creation Wizard Component
+// ══════════════════════════════════════════════════
 
-                  {/* Search results dropdown */}
-                  {searchResults.length > 0 && (
-                    <div className="mt-1 border border-gray-200 rounded-lg bg-white shadow-sm max-h-40 overflow-y-auto">
-                      {searchResults.map((u) => {
-                        const alreadyMember = memberUserIds.has(u.id);
-                        return (
-                          <button
-                            key={u.id}
-                            onClick={() => !alreadyMember && handleAddMember(u.id)}
-                            disabled={alreadyMember || memberActionLoading}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-left text-sm transition-colors ${
-                              alreadyMember
-                                ? 'text-gray-400 cursor-not-allowed bg-gray-50'
-                                : 'text-gray-700 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <span className="font-medium">{u.username}</span>
-                              <span className="text-gray-400 ml-1.5">{u.loginid}</span>
-                              <span className="text-gray-300 mx-1">&middot;</span>
-                              <span className="text-gray-400 text-xs">{u.deptname}</span>
-                            </div>
-                            {alreadyMember ? (
-                              <span className="text-xs text-gray-400 flex-shrink-0">이미 멤버</span>
-                            ) : (
-                              <UserPlus className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+const WIZARD_STEPS = [
+  { title: '기본 정보', desc: '서비스 코드와 이름을 설정합니다' },
+  { title: '서비스 분류', desc: '타입과 카테고리를 선택합니다' },
+  { title: '사업 정보', desc: '목표 공수와 표준 M/D를 입력합니다' },
+  { title: '링크 설정', desc: '관련 URL을 등록합니다 (선택)' },
+  { title: '확인', desc: '입력한 정보를 확인하고 등록합니다' },
+];
 
-                {/* Current members */}
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {members.length > 0 ? (
-                    members.map((member) => {
-                      const isOwner = member.role === 'OWNER';
-                      return (
-                        <div
-                          key={member.id}
-                          className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg"
-                        >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <div className="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-[10px] font-medium text-gray-600">
-                                {member.user.username.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm font-medium text-gray-900 truncate">
-                                  {member.user.username}
-                                </span>
-                                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded ${roleBadgeClass(member.role)}`}>
-                                  {roleIcon(member.role)}
-                                  {roleLabel(member.role)}
-                                </span>
-                              </div>
-                              <p className="text-xs text-gray-400 truncate">
-                                {member.user.loginid} &middot; {member.user.deptname}
-                              </p>
-                            </div>
-                          </div>
+function ServiceCreationWizard({
+  formData, setFormData, wizardStep, setWizardStep,
+  formError, setFormError, formSaving, onSave, onClose,
+}: {
+  formData: ServiceFormData;
+  setFormData: (d: ServiceFormData) => void;
+  wizardStep: number;
+  setWizardStep: (s: number) => void;
+  formError: string | null;
+  setFormError: (e: string | null) => void;
+  formSaving: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const canNext = (): boolean => {
+    switch (wizardStep) {
+      case 0: return !!(formData.name.trim() && formData.displayName.trim());
+      case 1: return !!(formData.serviceCategory);
+      case 2: return !!(formData.targetMM);
+      default: return true;
+    }
+  };
 
-                          {!isOwner && (
-                            <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                              {/* Role dropdown */}
-                              <div className="relative">
-                                <select
-                                  value={member.role}
-                                  onChange={(e) => handleChangeRole(member.userId, e.target.value)}
-                                  disabled={memberActionLoading}
-                                  className="text-xs px-2 py-1 border border-gray-200 rounded bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-6 cursor-pointer"
-                                >
-                                  <option value="ADMIN">서비스 관리자</option>
-                                  <option value="USER">사용자</option>
-                                </select>
-                                <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
-                              </div>
-                              {/* Remove */}
-                              <button
-                                onClick={() => handleRemoveMember(member.userId)}
-                                disabled={memberActionLoading}
-                                className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                                title="멤버 제거"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-center py-6 text-sm text-gray-400">
-                      등록된 멤버가 없습니다.
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+  const handleNext = () => {
+    setFormError(null);
+    if (wizardStep === 0) {
+      if (!formData.name.trim() || !formData.displayName.trim()) {
+        setFormError('서비스 코드와 표시 이름은 필수입니다.');
+        return;
+      }
+      if (formData.name.length > 1 && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(formData.name)) {
+        setFormError('서비스 코드는 영문 소문자로 시작/끝, 하이픈 사용 가능');
+        return;
+      }
+    }
+    if (wizardStep === 1 && !formData.serviceCategory) {
+      setFormError('서비스 카테고리를 선택해주세요.');
+      return;
+    }
+    if (wizardStep === 2 && !formData.targetMM) {
+      setFormError('목표 MM을 입력해주세요.');
+      return;
+    }
+    setWizardStep(wizardStep + 1);
+  };
+
+  const inputClass = "w-full px-3.5 py-2.5 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors";
+
+  return (
+    <div className="fixed inset-0 bg-gray-900/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">새 서비스 등록</h2>
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X className="w-5 h-5" /></button>
           </div>
-        </ModalBackdrop>
-      )}
+          {/* Step indicator */}
+          <div className="flex items-center gap-1">
+            {WIZARD_STEPS.map((step, i) => (
+              <div key={i} className="flex items-center flex-1">
+                <button
+                  onClick={() => { if (i < wizardStep) setWizardStep(i); }}
+                  className={`flex items-center gap-1.5 ${i <= wizardStep ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors ${
+                    i < wizardStep ? 'bg-green-500 text-white' : i === wizardStep ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {i < wizardStep ? <Check className="w-3.5 h-3.5" /> : i + 1}
+                  </div>
+                  <span className={`text-xs font-medium truncate hidden sm:block ${i === wizardStep ? 'text-blue-600' : 'text-gray-400'}`}>
+                    {step.title}
+                  </span>
+                </button>
+                {i < WIZARD_STEPS.length - 1 && (
+                  <div className={`h-px flex-1 mx-1 ${i < wizardStep ? 'bg-green-300' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
 
-      {/* ══════════════════════════════════════════════════
-          Rate Limit Modal
-         ══════════════════════════════════════════════════ */}
-      {rateLimitTarget && (
-        <ModalBackdrop onClose={() => setRateLimitTarget(null)}>
-          <div className="p-6 max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-5">
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="mb-5">
+            <h3 className="text-base font-semibold text-gray-900">{WIZARD_STEPS[wizardStep].title}</h3>
+            <p className="text-sm text-gray-500 mt-0.5">{WIZARD_STEPS[wizardStep].desc}</p>
+          </div>
+
+          {/* Step 0: 기본 정보 */}
+          {wizardStep === 0 && (
+            <div className="space-y-5">
               <div>
-                <h3 className="text-base font-semibold text-gray-900">Rate Limit 설정</h3>
-                <p className="text-xs text-gray-400 mt-0.5">{rateLimitTarget.displayName}</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 코드 <span className="text-red-500">*</span></label>
+                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                  placeholder="my-ai-service" className={inputClass} />
+                <p className="mt-1.5 text-xs text-gray-400">API 호출 시 사용되는 고유 식별자입니다. 영문 소문자, 숫자, 하이픈만 사용 가능하며 생성 후 변경할 수 없습니다.</p>
               </div>
-              <button onClick={() => setRateLimitTarget(null)} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">표시 이름 <span className="text-red-500">*</span></label>
+                <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                  placeholder="내 AI 서비스" className={inputClass} />
+                <p className="mt-1.5 text-xs text-gray-400">대시보드와 서비스 마켓에 표시되는 이름입니다. 한글/영문 자유롭게 입력하세요.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명 <span className="text-red-500">*</span></label>
+                <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="서비스에 대한 간단한 설명 (예: 사내 문서 검색 AI 챗봇)" rows={3} className={`${inputClass} resize-none`} />
+              </div>
             </div>
+          )}
 
-            {rateLimitLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
-              </div>
-            ) : (
-              <div className="space-y-5">
-                {/* ── 공통 Rate Limit ── */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-3">서비스 공통 제한</h4>
-                  <p className="text-xs text-gray-400 mb-3">개별 설정이 없는 모든 사용자에게 적용됩니다.</p>
-
-                  {commonRateLimit ? (
-                    <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2.5 border border-gray-200 mb-3">
-                      <div>
-                        <span className="text-sm font-medium text-gray-900">{formatTokens(commonRateLimit.maxTokens)} 토큰</span>
-                        <span className="text-xs text-gray-400 ml-2">/ {commonRateLimit.window === 'FIVE_HOURS' ? '5시간' : '24시간'}</span>
+          {/* Step 1: 서비스 분류 */}
+          {wizardStep === 1 && (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 타입 <span className="text-red-500">*</span></label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([['STANDARD', '표준 (Standard)', '일반 API 서비스. 사용자 요청에 실시간 응답합니다.', Cpu],
+                     ['BACKGROUND', '백그라운드 (Background)', '비동기 배치 처리용 서비스. 정기적으로 자동 실행됩니다.', Server]] as const).map(([val, label, desc, Icon]) => (
+                    <button key={val} onClick={() => setFormData({ ...formData, type: val as 'STANDARD' | 'BACKGROUND' })}
+                      className={`p-4 rounded-lg border-2 text-left transition-all ${formData.type === val ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <Icon className={`w-4 h-4 ${formData.type === val ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className={`text-sm font-semibold ${formData.type === val ? 'text-blue-700' : 'text-gray-700'}`}>{label}</span>
                       </div>
-                      <button
-                        onClick={handleRemoveCommonRateLimit}
-                        disabled={rateLimitSaving}
-                        className="text-xs text-red-500 hover:text-red-700 transition-colors"
-                      >
-                        제거
-                      </button>
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500 mb-1">최대 토큰</label>
-                      <input
-                        type="number"
-                        value={rlForm.maxTokens}
-                        onChange={(e) => setRlForm({ ...rlForm, maxTokens: e.target.value })}
-                        min={1}
-                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                    </div>
-                    <div className="w-28">
-                      <label className="block text-xs text-gray-500 mb-1">기간</label>
-                      <select
-                        value={rlForm.window}
-                        onChange={(e) => setRlForm({ ...rlForm, window: e.target.value as 'FIVE_HOURS' | 'DAY' })}
-                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      >
-                        <option value="FIVE_HOURS">5시간</option>
-                        <option value="DAY">24시간</option>
-                      </select>
-                    </div>
-                    <button
-                      onClick={handleSaveCommonRateLimit}
-                      disabled={rateLimitSaving}
-                      className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    >
-                      {rateLimitSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : '저장'}
+                      <p className="text-xs text-gray-500">{desc}</p>
                     </button>
-                  </div>
-                </div>
-
-                {/* ── 사용자별 Rate Limit ── */}
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-3">사용자별 제한</h4>
-                  <p className="text-xs text-gray-400 mb-3">개별 제한이 공통 제한보다 우선합니다.</p>
-
-                  {userRateLimits.length > 0 ? (
-                    <div className="space-y-2">
-                      {userRateLimits.map((rl) => (
-                        <div key={rl.userId} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
-                          <div className="min-w-0 flex-1">
-                            <span className="text-sm font-medium text-gray-900">{rl.user.username}</span>
-                            <span className="text-xs text-gray-400 ml-1.5">{rl.user.loginid}</span>
-                          </div>
-
-                          {rlEditUserId === rl.userId ? (
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                value={rlUserForm.maxTokens}
-                                onChange={(e) => setRlUserForm({ ...rlUserForm, maxTokens: e.target.value })}
-                                min={1}
-                                className="w-24 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                              <select
-                                value={rlUserForm.window}
-                                onChange={(e) => setRlUserForm({ ...rlUserForm, window: e.target.value as 'FIVE_HOURS' | 'DAY' })}
-                                className="px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              >
-                                <option value="FIVE_HOURS">5h</option>
-                                <option value="DAY">24h</option>
-                              </select>
-                              <button
-                                onClick={() => handleSaveUserRateLimit(rl.userId)}
-                                disabled={rateLimitSaving}
-                                className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-                              >
-                                저장
-                              </button>
-                              <button
-                                onClick={() => setRlEditUserId(null)}
-                                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
-                              >
-                                취소
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-gray-600">{formatTokens(rl.maxTokens)} / {rl.window === 'FIVE_HOURS' ? '5h' : '24h'}</span>
-                              <button
-                                onClick={() => {
-                                  setRlEditUserId(rl.userId);
-                                  setRlUserForm({ maxTokens: String(rl.maxTokens), window: rl.window });
-                                }}
-                                className="text-xs text-blue-600 hover:text-blue-800"
-                              >
-                                수정
-                              </button>
-                              <button
-                                onClick={() => handleRemoveUserRateLimit(rl.userId)}
-                                disabled={rateLimitSaving}
-                                className="text-xs text-red-500 hover:text-red-700"
-                              >
-                                제거
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 text-sm text-gray-400 bg-gray-50 rounded-lg">
-                      사용자별 Rate Limit이 설정되지 않았습니다.
-                    </div>
-                  )}
-
-                  <p className="text-xs text-gray-400 mt-3">
-                    사용자별 Rate Limit은 멤버 관리에서 멤버를 추가한 뒤, 시스템 관리자 페이지 또는 이 화면에서 설정할 수 있습니다.
-                  </p>
+                  ))}
                 </div>
               </div>
-            )}
-          </div>
-        </ModalBackdrop>
-      )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 카테고리 <span className="text-red-500">*</span></label>
+                <p className="text-xs text-gray-400 mb-3">서비스의 주요 목적에 맞는 카테고리를 선택해주세요.</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {SERVICE_CATEGORIES.map((cat) => (
+                    <button key={cat} onClick={() => setFormData({ ...formData, serviceCategory: cat })}
+                      className={`px-4 py-3 rounded-lg border text-left text-sm transition-all ${formData.serviceCategory === cat ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'}`}>
+                      {formData.serviceCategory === cat && <Check className="w-4 h-4 inline mr-2 text-blue-500" />}
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: 사업 정보 */}
+          {wizardStep === 2 && (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">목표 MM (Men/Month) <span className="text-red-500">*</span></label>
+                <input type="number" step="0.1" min="0" value={formData.targetMM} onChange={(e) => setFormData({ ...formData, targetMM: e.target.value })}
+                  placeholder="예: 3.5" className={inputClass} />
+                <p className="mt-1.5 text-xs text-gray-400">이 서비스가 절감하거나 대체할 것으로 예상되는 인력 공수입니다.</p>
+              </div>
+              {formData.type === 'BACKGROUND' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Standard M/D (Man/Day) <span className="text-red-500">*</span></label>
+                  <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })}
+                    placeholder="예: 0.1" className={inputClass} />
+                  <p className="mt-1.5 text-xs text-gray-400">해당 작업을 숙련된 인간이 수행 시 소요되는 표준 공수입니다. 예: 코드 리뷰 1건 = 0.1 M/D</p>
+                </div>
+              )}
+              <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  <strong>MM (Men/Month)</strong>은 서비스의 사업적 가치를 측정하는 핵심 지표입니다.
+                  AI 서비스가 자동화하는 업무량을 인력 기준으로 환산하여 입력해주세요.
+                  {formData.type === 'BACKGROUND' && (
+                    <><br /><br /><strong>Standard M/D</strong>는 백그라운드 서비스가 처리하는 단위 작업의 인간 기준 소요 공수입니다.
+                    서비스의 처리 건수와 곱하여 총 절감 공수를 산출하는 데 사용됩니다.</>
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: 링크 설정 */}
+          {wizardStep === 3 && (
+            <div className="space-y-5">
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 mb-2">
+                <p className="text-xs text-gray-500">아래 항목은 모두 선택사항입니다. 나중에 수정할 수 있습니다.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
+                <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
+                  placeholder="https://example.com/logo.png" className={inputClass} />
+                {formData.iconUrl.trim() && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <img src={formData.iconUrl.trim()} alt="" className="w-8 h-8 rounded-lg border border-gray-200 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    <span className="text-xs text-gray-400">미리보기</span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> 서비스 URL</span></label>
+                <input type="url" value={formData.serviceUrl} onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })}
+                  placeholder="https://my-service.example.com" className={inputClass} />
+                <p className="mt-1.5 text-xs text-gray-400">서비스 마켓과 카드에 바로가기 버튼으로 연결됩니다</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> API 문서 URL</span></label>
+                <input type="url" value={formData.docsUrl} onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })}
+                  placeholder="https://docs.example.com/api" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> Jira 티켓</span></label>
+                <input type="url" value={formData.jiraTicket} onChange={(e) => setFormData({ ...formData, jiraTicket: e.target.value })}
+                  placeholder="https://jira.example.com/browse/PROJ-123" className={inputClass} />
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: 확인 */}
+          {wizardStep === 4 && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">
+                {([
+                  ['서비스 코드', formData.name],
+                  ['표시 이름', formData.displayName],
+                  ['설명', formData.description || '-'],
+                  ['서비스 타입', formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'],
+                  ['카테고리', formData.serviceCategory || '-'],
+                  ['목표 MM', formData.targetMM ? `${formData.targetMM} MM` : '-'],
+                  ...(formData.type === 'BACKGROUND' ? [['Standard M/D', formData.standardMD ? `${formData.standardMD} M/D` : '-']] : []),
+                  ['로고 URL', formData.iconUrl || '-'],
+                  ['서비스 URL', formData.serviceUrl || '-'],
+                  ['API 문서 URL', formData.docsUrl || '-'],
+                  ['Jira 티켓', formData.jiraTicket || '-'],
+                ] as [string, string][]).map(([label, value]) => (
+                  <div key={label} className="flex items-start px-4 py-3">
+                    <span className="text-xs font-medium text-gray-500 w-28 flex-shrink-0 pt-0.5">{label}</span>
+                    <span className="text-sm text-gray-900 break-all">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-green-50 rounded-lg p-4 border border-green-100">
+                <p className="text-sm text-green-700">위 정보로 서비스를 등록합니다. 등록 후 모델 연동, 멤버 추가 등 추가 설정을 진행할 수 있습니다.</p>
+              </div>
+            </div>
+          )}
+
+          {formError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+          <button onClick={wizardStep === 0 ? onClose : () => setWizardStep(wizardStep - 1)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+            <ArrowLeft className="w-4 h-4" />
+            {wizardStep === 0 ? '취소' : '이전'}
+          </button>
+          {wizardStep < WIZARD_STEPS.length - 1 ? (
+            <button onClick={handleNext} disabled={!canNext()}
+              className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+              다음 <ArrowRight className="w-4 h-4" />
+            </button>
+          ) : (
+            <button onClick={onSave} disabled={formSaving}
+              className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              {formSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              서비스 등록
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

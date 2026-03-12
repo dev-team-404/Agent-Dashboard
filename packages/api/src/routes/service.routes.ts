@@ -96,28 +96,46 @@ async function getUserIdByLoginid(loginid: string): Promise<string | null> {
 // ============================================
 // Schemas
 // ============================================
+const SERVICE_CATEGORIES = [
+  '설계 자동화 및 최적화',
+  '코드개발/분석/검증 지원',
+  '디버깅 및 분석 자동화',
+  '문서 및 요구사항 지능형 처리',
+  'Agent플랫폼 및 개발 생태계',
+  '데이터 기반 인사이트 및 대시보드',
+  '인프라/도구/협력 요청',
+] as const;
+
 const createServiceSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Service ID must be lowercase alphanumeric with hyphens only'),
   displayName: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
-  iconUrl: z.string().url().optional().nullable(),
-  docsUrl: z.string().url().optional().nullable(),
-  serviceUrl: z.string().url().optional().nullable(),
+  iconUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  docsUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  serviceUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
   enabled: z.boolean().default(true),
   type: z.enum(['STANDARD', 'BACKGROUND']).default('STANDARD'),
   status: z.enum(['DEVELOPMENT', 'DEPLOYED']).default('DEVELOPMENT'),
+  targetMM: z.number().min(0).max(9999).optional().nullable(),
+  serviceCategory: z.string().optional().nullable(),
+  standardMD: z.number().min(0).max(9999).optional().nullable(),
+  jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
 });
 
 const updateServiceSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional().nullable(),
-  iconUrl: z.string().url().optional().nullable(),
-  docsUrl: z.string().url().optional().nullable(),
-  serviceUrl: z.string().url().optional().nullable(),
+  iconUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  docsUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  serviceUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
   enabled: z.boolean().optional(),
   type: z.enum(['STANDARD', 'BACKGROUND']).optional(),
   deployScope: z.enum(['ALL', 'BUSINESS_UNIT', 'TEAM']).optional(),
   deployScopeValue: z.array(z.string()).optional(),
+  targetMM: z.number().min(0).max(9999).optional().nullable(),
+  serviceCategory: z.string().optional().nullable(),
+  standardMD: z.number().min(0).max(9999).optional().nullable(),
+  jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
 });
 
 const deployServiceSchema = z.object({
@@ -189,7 +207,7 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        contentLoggingEnabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
         contentLoggingConsentAt: true,
         contentLoggingConsentBy: true,
         enabled: true,
@@ -250,7 +268,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        contentLoggingEnabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
         contentLoggingConsentAt: true,
         contentLoggingConsentBy: true,
         enabled: true,
@@ -295,7 +313,7 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        contentLoggingEnabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
         contentLoggingConsentAt: true,
         contentLoggingConsentBy: true,
         type: true,
@@ -399,7 +417,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        contentLoggingEnabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
         contentLoggingConsentAt: true,
         contentLoggingConsentBy: true,
         enabled: true,
@@ -504,6 +522,7 @@ serviceRoutes.get('/check-name/:name', authenticateToken, async (req: Authentica
 // ============================================
 serviceRoutes.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
+    await detectAdminInfo(req);
     const id = req.params.id as string;
     const service = await prisma.service.findUnique({
       where: { id },
@@ -1781,7 +1800,7 @@ serviceRoutes.put('/:id/content-logging', authenticateToken, async (req: Authent
       data: updateData,
       select: {
         id: true,
-        contentLoggingEnabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
         contentLoggingConsentAt: true,
         contentLoggingConsentBy: true,
       },

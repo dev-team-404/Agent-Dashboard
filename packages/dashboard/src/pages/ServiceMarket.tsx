@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, ArrowUpRight, BookOpen, Layers, ArrowUpDown, Users, Zap, Coins } from 'lucide-react';
+import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, Layers, ArrowUpDown, Users, Zap, Coins, Ticket, ExternalLink, FileText } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface MarketService {
@@ -16,6 +16,8 @@ interface MarketService {
   registeredByBusinessUnit?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
+  serviceCategory?: string;
+  jiraTicket?: string;
   createdAt?: string;
   _count?: { usageLogs: number; userServices: number; serviceModels: number };
   totalTokens?: number;
@@ -71,13 +73,6 @@ export default function ServiceMarket() {
     }
   };
 
-  const handleServiceClick = (service: MarketService) => {
-    if (service.docsUrl) {
-      window.open(service.docsUrl, '_blank', 'noopener,noreferrer');
-    } else {
-      setErrorModal(service.displayName);
-    }
-  };
 
   const filtered = services.filter((s) => {
     const q = search.toLowerCase();
@@ -229,9 +224,16 @@ export default function ServiceMarket() {
                   </div>
 
                   {/* Description */}
-                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-3">
+                  <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-2">
                     {service.description || '설명이 등록되지 않았습니다.'}
                   </p>
+
+                  {/* Category */}
+                  {service.serviceCategory && (
+                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded mb-2">
+                      {service.serviceCategory}
+                    </span>
+                  )}
 
                   {/* Stats */}
                   <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
@@ -271,38 +273,29 @@ export default function ServiceMarket() {
                   </div>
                 </div>
 
-                {/* Action */}
-                <div className="border-t border-gray-100 px-5 py-3 flex items-center gap-3">
-                  {service.serviceUrl && (
-                    <a
-                      href={service.serviceUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <ArrowUpRight className="w-3.5 h-3.5" />
-                      바로가기
-                    </a>
-                  )}
-                  <button
-                    onClick={() => handleServiceClick(service)}
-                    className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                      service.docsUrl
-                        ? 'text-blue-600 hover:text-blue-700'
-                        : 'text-gray-300 cursor-default'
-                    }`}
-                  >
-                    {service.docsUrl ? (
-                      <>
-                        <BookOpen className="w-3.5 h-3.5" />
-                        설명서
-                        <ArrowUpRight className="w-3 h-3" />
-                      </>
-                    ) : (
-                      '설명서 없음'
+                {/* Shortcut buttons */}
+                {(service.serviceUrl || service.docsUrl || service.jiraTicket) && (
+                  <div className="border-t border-gray-100 px-5 py-2 flex items-center gap-1.5">
+                    {service.serviceUrl && (
+                      <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
+                        <ExternalLink className="w-3 h-3" />서비스
+                      </a>
                     )}
-                  </button>
-                </div>
+                    {service.docsUrl && (
+                      <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
+                        <FileText className="w-3 h-3" />문서
+                      </a>
+                    )}
+                    {service.jiraTicket && (
+                      <a href={service.jiraTicket} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-violet-600 bg-violet-50 rounded hover:bg-violet-100 transition-colors">
+                        <Ticket className="w-3 h-3" />Jira
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

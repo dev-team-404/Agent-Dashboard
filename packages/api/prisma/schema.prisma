@@ -42,6 +42,12 @@ model Service {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
+  // 사업 정보
+  targetMM      Float?    @map("target_mm")          // 목표 MM (men/month)
+  serviceCategory String? @map("service_category")   // 7개 카테고리 중 택1
+  standardMD    Float?    @map("standard_md")         // Background 서비스 표준 공수 (M/D)
+  jiraTicket    String?   @map("jira_ticket")          // Jira 티켓 URL (optional)
+
   // LLM 콘텐츠 로깅 (동의 기반)
   contentLoggingEnabled   Boolean   @default(false) @map("content_logging_enabled")
   contentLoggingConsentAt DateTime? @map("content_logging_consent_at")
