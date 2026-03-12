@@ -133,7 +133,7 @@ function sleep(ms: number): Promise<void> {
  * 서비스에 등록된 ServiceModel 중 aliasName이 일치하는 모델들을
  * weight 기반 라운드로빈으로 선택한다.
  *
- * fallback: ServiceModel이 없으면 기존처럼 전역 Model 조회.
+ * 서비스에 등록된 alias 이름으로만 호출 가능. 전역 fallback 없음.
  */
 async function resolveModelWithServiceRR(
   serviceId: string,
@@ -142,7 +142,7 @@ async function resolveModelWithServiceRR(
   | { found: true; model: NonNullable<Awaited<ReturnType<typeof prisma.model.findFirst>>> }
   | { found: false; model: null }
 > {
-  // 1) aliasName으로 매칭하는 ServiceModel 조회
+  // aliasName으로 매칭하는 ServiceModel 조회 (유일한 경로)
   const serviceModels = await prisma.serviceModel.findMany({
     where: {
       serviceId,
@@ -154,57 +154,17 @@ async function resolveModelWithServiceRR(
     orderBy: { sortOrder: 'asc' },
   });
 
-  // 2) aliasName 매칭이 없으면 기존 전역 조회로 fallback
+  // alias 매칭 없음 → 모델 없음 (전역 fallback 없음)
   if (serviceModels.length === 0) {
-    // 기존 model name/displayName 기반으로도 시도
-    const fallbackSM = await prisma.serviceModel.findMany({
-      where: {
-        serviceId,
-        enabled: true,
-        model: {
-          OR: [{ name: modelName }, { displayName: modelName }],
-          enabled: true,
-        },
-      },
-      include: { model: true },
-      orderBy: { sortOrder: 'asc' },
-    });
-
-    if (fallbackSM.length > 0) {
-      if (fallbackSM.length === 1) return { found: true, model: fallbackSM[0]!.model };
-      // 여러 개면 weight 기반 RR
-      const weightedModels: typeof fallbackSM[number]['model'][] = [];
-      for (const sm of fallbackSM) {
-        const w = Math.max(1, Math.min(sm.weight, 10));
-        for (let i = 0; i < w; i++) weightedModels.push(sm.model);
-      }
-      try {
-        const rrKey = `svc_rr:${serviceId}:${modelName}`;
-        const idx = await redis.incr(rrKey);
-        if (idx === 1) await redis.expire(rrKey, 3600);
-        return { found: true, model: weightedModels[(idx - 1) % weightedModels.length]! };
-      } catch {
-        return { found: true, model: fallbackSM[0]!.model };
-      }
-    }
-
-    // 전역 Model 조회 fallback
-    const model = await prisma.model.findFirst({
-      where: {
-        OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-        enabled: true,
-      },
-    });
-    if (!model) return { found: false, model: null };
-    return { found: true, model };
+    return { found: false, model: null };
   }
 
-  // 3) 하나만 매칭 → 그대로 사용
+  // 하나만 매칭 → 그대로 사용
   if (serviceModels.length === 1) {
     return { found: true, model: serviceModels[0]!.model };
   }
 
-  // 4) 여러 개 매칭 → weight 기반 라운드로빈
+  // 여러 개 매칭 → weight 기반 라운드로빈
   const weightedModels: typeof serviceModels[number]['model'][] = [];
   for (const sm of serviceModels) {
     const w = Math.max(1, Math.min(sm.weight, 10));
@@ -477,58 +437,23 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
       orderBy: [{ sortOrder: 'asc' }],
     });
 
-    // 2) 서비스에 모델이 등록되어 있으면 aliasName 기준으로 반환
-    if (serviceModels.length > 0) {
-      // 접근 가능한 모델만 필터 + 고유 aliasName 추출
-      const aliasSet = new Set<string>();
-      const result: { id: string; object: string; created: number; owned_by: string }[] = [];
+    // 2) 서비스에 등록된 alias만 반환 (전역 fallback 없음)
+    const aliasSet = new Set<string>();
+    const result: { id: string; object: string; created: number; owned_by: string }[] = [];
 
-      for (const sm of serviceModels) {
-        if (aliasSet.has(sm.aliasName)) continue;
-        if (!canServiceAccessModel(proxyReq, sm.model)) continue;
-        aliasSet.add(sm.aliasName);
-        result.push({
-          id: sm.aliasName,
-          object: 'model',
-          created: Date.now(),
-          owned_by: 'agent-dashboard',
-        });
-      }
-
-      res.json({ object: 'list', data: result });
-      return;
-    }
-
-    // 3) ServiceModel이 없으면 기존 전역 모델 목록 fallback
-    const models = await prisma.model.findMany({
-      where: { enabled: true },
-      select: {
-        id: true,
-        name: true,
-        displayName: true,
-        maxTokens: true,
-        sortOrder: true,
-        supportsVision: true,
-        visibility: true,
-        visibilityScope: true,
-        adminVisible: true,
-      },
-      orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
-    });
-
-    const filtered = models.filter(model =>
-      canServiceAccessModel(proxyReq, model)
-    );
-
-    res.json({
-      object: 'list',
-      data: filtered.map(model => ({
-        id: model.displayName || model.name,
+    for (const sm of serviceModels) {
+      if (aliasSet.has(sm.aliasName)) continue;
+      if (!canServiceAccessModel(proxyReq, sm.model)) continue;
+      aliasSet.add(sm.aliasName);
+      result.push({
+        id: sm.aliasName,
         object: 'model',
         created: Date.now(),
         owned_by: 'agent-dashboard',
-      })),
-    });
+      });
+    }
+
+    res.json({ object: 'list', data: result });
   } catch (error) {
     console.error('Get models error:', error);
     if (!res.headersSent) res.status(500).json({ error: 'Failed to get models' });
@@ -544,36 +469,45 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
   try {
     const { modelName } = req.params;
 
-    const model = await prisma.model.findFirst({
+    // 서비스에 등록된 alias 이름으로만 조회
+    const serviceModel = await prisma.serviceModel.findFirst({
       where: {
-        OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+        serviceId: proxyReq.serviceId,
+        aliasName: modelName,
         enabled: true,
+        model: { enabled: true },
       },
-      select: {
-        id: true,
-        name: true,
-        displayName: true,
-        maxTokens: true,
-        supportsVision: true,
-        visibility: true,
-        visibilityScope: true,
-        adminVisible: true,
+      include: {
+        model: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+            maxTokens: true,
+            supportsVision: true,
+            visibility: true,
+            visibilityScope: true,
+            adminVisible: true,
+          },
+        },
       },
     });
 
-    if (!model) {
-      res.status(404).json({ error: 'Model not found' });
+    if (!serviceModel) {
+      res.status(404).json({
+        error: `Model '${modelName}' not found. Use GET /v1/models to see available models for this service.`,
+      });
       return;
     }
 
     // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, model)) {
+    if (!canServiceAccessModel(proxyReq, serviceModel.model)) {
       res.status(403).json({ error: `Model '${modelName}' is not accessible by this service` });
       return;
     }
 
     res.json({
-      id: model.displayName || model.name,
+      id: serviceModel.aliasName,
       object: 'model',
       created: Date.now(),
       owned_by: 'agent-dashboard',
@@ -602,11 +536,11 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
       return;
     }
 
-    // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+    // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
-      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, method: 'POST', path: '/v1/chat/completions', statusCode: 404, latencyMs: Date.now() - reqStartTime, errorMessage: `Model '${modelName}' not found or disabled`, userAgent, ipAddress }).catch(() => {});
-      res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, method: 'POST', path: '/v1/chat/completions', statusCode: 404, latencyMs: Date.now() - reqStartTime, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, userAgent, ipAddress }).catch(() => {});
+      res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
     const model = resolved.model;
@@ -1057,10 +991,10 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
       return;
     }
 
-    // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+    // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
-      res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+      res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
     const model = resolved.model;
@@ -1245,10 +1179,10 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
       return;
     }
 
-    // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+    // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
-      res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+      res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
     const model = resolved.model;
@@ -1417,10 +1351,10 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
       return;
     }
 
-    // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+    // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
-      res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+      res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
     const model = resolved.model;

@@ -941,7 +941,6 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
   const [addingToAlias, setAddingToAlias] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [addWeight, setAddWeight] = useState(1);
-  const [filterType, setFilterType] = useState('ALL');
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [editAliasValue, setEditAliasValue] = useState('');
 
@@ -970,10 +969,20 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
   });
   aMap.forEach((items, aliasName) => aliasGroups.push({ aliasName, items: items.sort((a, b) => a.sortOrder - b.sortOrder) }));
 
-  const getAvailable = (alias: string) => {
+  const getGroupedAvailable = (alias: string) => {
     const used = new Set(serviceModels.filter(sm => sm.aliasName === alias).map(sm => sm.modelId));
     const filtered = availableModels.filter(m => m.enabled && !used.has(m.id));
-    return filterType === 'ALL' ? filtered : filtered.filter(m => m.type === filterType);
+    const groups: { type: string; label: string; models: AvailableModel[] }[] = [];
+    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING'];
+    for (const t of typeOrder) {
+      const models = filtered.filter(m => m.type === t);
+      if (models.length > 0) groups.push({ type: t, label: MODEL_TYPE_LABELS[t] || t, models });
+    }
+    // 기타 타입
+    const knownTypes = new Set(typeOrder);
+    const others = filtered.filter(m => !knownTypes.has(m.type));
+    if (others.length > 0) groups.push({ type: 'OTHER', label: '기타', models: others });
+    return groups;
   };
 
   const addModel = async (alias: string) => {
@@ -1081,20 +1090,16 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
             {addingToAlias === group.aliasName && (
               <div className="px-5 py-3 border-b border-gray-100 bg-blue-50/30">
                 <div className="flex items-end gap-3">
-                  <div className="w-24">
-                    <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
-                    <select value={filterType} onChange={e => setFilterType(e.target.value)}
-                      className="w-full px-2 py-1.5 text-xs bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none">
-                      <option value="ALL">전체</option><option value="CHAT">채팅</option><option value="IMAGE">이미지</option>
-                      <option value="EMBEDDING">임베딩</option><option value="RERANKING">리랭킹</option>
-                    </select>
-                  </div>
                   <div className="flex-1">
-                    <label className="block text-[11px] font-medium text-gray-500 mb-1">모델</label>
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택 (타입별 분류)</label>
                     <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}
                       className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none">
-                      <option value="">선택...</option>
-                      {getAvailable(group.aliasName).map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}</option>)}
+                      <option value="">모델을 선택하세요...</option>
+                      {getGroupedAvailable(group.aliasName).map(g => (
+                        <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
+                          {g.models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
                   <div className="w-20">
@@ -1198,7 +1203,11 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                 <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}
                   className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none">
                   <option value="">모델을 선택하세요...</option>
-                  {getAvailable(addingToAlias).map(m => <option key={m.id} value={m.id}>{m.displayName} — {MODEL_TYPE_LABELS[m.type] || m.type}</option>)}
+                  {getGroupedAvailable(addingToAlias).map(g => (
+                    <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
+                      {g.models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
               <button onClick={() => addModel(addingToAlias)} disabled={!selectedModelId || saving}

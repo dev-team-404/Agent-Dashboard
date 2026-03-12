@@ -98,8 +98,6 @@ export default function ServiceModelConfig() {
   const [addingToAlias, setAddingToAlias] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [addWeight, setAddWeight] = useState(1);
-  const [filterType, setFilterType] = useState<string>('ALL');
-
   // alias 이름 수정
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [editAliasValue, setEditAliasValue] = useState('');
@@ -143,15 +141,24 @@ export default function ServiceModelConfig() {
     });
   });
 
-  // ── Available models for adding ──
-  const getAvailableForAlias = (aliasName: string) => {
+  // ── Available models for adding (타입별 그룹) ──
+  const getGroupedAvailableForAlias = (aliasName: string) => {
     const assignedIds = new Set(
       serviceModels
         .filter(sm => sm.aliasName === aliasName)
         .map(sm => sm.modelId)
     );
     const filtered = availableModels.filter(m => m.enabled && !assignedIds.has(m.id));
-    return filterType === 'ALL' ? filtered : filtered.filter(m => m.type === filterType);
+    const groups: { type: string; label: string; models: AvailableModel[] }[] = [];
+    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING'];
+    for (const t of typeOrder) {
+      const models = filtered.filter(m => m.type === t);
+      if (models.length > 0) groups.push({ type: t, label: MODEL_TYPE_LABELS[t] || t, models });
+    }
+    const knownTypes = new Set(typeOrder);
+    const others = filtered.filter(m => !knownTypes.has(m.type));
+    if (others.length > 0) groups.push({ type: 'OTHER', label: '기타', models: others });
+    return groups;
   };
 
   // ── Handlers ──
@@ -417,25 +424,8 @@ export default function ServiceModelConfig() {
               {addingToAlias === group.aliasName && (
                 <div className="px-5 py-3 border-b border-gray-100 bg-blue-50/30">
                   <div className="flex items-end gap-3">
-                    <div className="w-24">
-                      <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
-                      <div className="relative">
-                        <select
-                          value={filterType}
-                          onChange={e => setFilterType(e.target.value)}
-                          className="w-full px-2 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-6"
-                        >
-                          <option value="ALL">전체</option>
-                          <option value="CHAT">채팅</option>
-                          <option value="IMAGE">이미지</option>
-                          <option value="EMBEDDING">임베딩</option>
-                          <option value="RERANKING">리랭킹</option>
-                        </select>
-                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
-                      </div>
-                    </div>
                     <div className="flex-1">
-                      <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택</label>
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택 (타입별 분류)</label>
                       <div className="relative">
                         <select
                           value={selectedModelId}
@@ -443,10 +433,12 @@ export default function ServiceModelConfig() {
                           className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-7"
                         >
                           <option value="">모델을 선택하세요...</option>
-                          {getAvailableForAlias(group.aliasName).map(m => (
-                            <option key={m.id} value={m.id}>
-                              {m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}
-                            </option>
+                          {getGroupedAvailableForAlias(group.aliasName).map(g => (
+                            <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
+                              {g.models.map(m => (
+                                <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
@@ -628,25 +620,8 @@ export default function ServiceModelConfig() {
           </div>
           <div className="px-5 py-3 bg-blue-50/30">
             <div className="flex items-end gap-3">
-              <div className="w-24">
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">타입</label>
-                <div className="relative">
-                  <select
-                    value={filterType}
-                    onChange={e => setFilterType(e.target.value)}
-                    className="w-full px-2 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-6"
-                  >
-                    <option value="ALL">전체</option>
-                    <option value="CHAT">채팅</option>
-                    <option value="IMAGE">이미지</option>
-                    <option value="EMBEDDING">임베딩</option>
-                    <option value="RERANKING">리랭킹</option>
-                  </select>
-                  <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
-                </div>
-              </div>
               <div className="flex-1">
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택</label>
+                <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택 (타입별 분류)</label>
                 <div className="relative">
                   <select
                     value={selectedModelId}
@@ -654,10 +629,12 @@ export default function ServiceModelConfig() {
                     className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-7"
                   >
                     <option value="">모델을 선택하세요...</option>
-                    {getAvailableForAlias(addingToAlias).map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.displayName} ({m.name}) — {MODEL_TYPE_LABELS[m.type] || m.type}
-                      </option>
+                    {getGroupedAvailableForAlias(addingToAlias).map(g => (
+                      <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
+                        {g.models.map(m => (
+                          <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
