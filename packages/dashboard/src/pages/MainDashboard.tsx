@@ -310,26 +310,31 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
     : [];
 
   // ── Healthcheck chart data ──
+  // 같은 헬스체크 사이클의 모델들은 타임스탬프가 밀리초 단위로 다르므로
+  // 분 단위로 버킷팅하여 하나의 행으로 합침
   const hcModelNames = Object.keys(healthCheckHistory);
   const hcRechartsData: Record<string, string | number>[] = (() => {
     if (hcModelNames.length === 0) return [];
-    // Collect all unique timestamps
-    const allTimes = new Set<string>();
+    // 분 단위 버킷: "2026-03-12T03:41" 형태로 그룹핑
+    const bucketMap = new Map<string, Record<string, string | number>>();
     hcModelNames.forEach(name => {
-      healthCheckHistory[name]?.forEach(p => allTimes.add(p.time));
-    });
-    const sortedTimes = [...allTimes].sort();
-    return sortedTimes.map(t => {
-      const d = new Date(t);
-      const row: Record<string, string | number> = {
-        time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-      };
-      hcModelNames.forEach(name => {
-        const point = healthCheckHistory[name]?.find(p => p.time === t);
-        row[name] = point?.latency != null ? point.latency : 0;
+      healthCheckHistory[name]?.forEach(p => {
+        const d = new Date(p.time);
+        const bucket = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        if (!bucketMap.has(bucket)) {
+          bucketMap.set(bucket, {
+            time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+          });
+        }
+        const row = bucketMap.get(bucket)!;
+        if (p.latency != null) {
+          row[name] = p.latency;
+        }
       });
-      return row;
     });
+    return [...bucketMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, row]) => row);
   })();
 
   // ── Loading skeleton ──
@@ -542,11 +547,11 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                     <Tooltip
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                      formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${value}ms`, undefined]}
+                      formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]}
                     />
                     <Legend />
                     {hcModelNames.map((name, i) => (
-                      <RechartsLine key={name} type="monotone" dataKey={name} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                      <RechartsLine key={name} type="monotone" dataKey={name} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
