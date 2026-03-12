@@ -63,7 +63,7 @@ export const swaggerSpec = {
       get: {
         summary: '전체 서비스 ID 목록',
         description:
-          '등록된 모든 서비스의 ID, 이름, 표시명, 타입, 활성 상태를 반환합니다.\n\n' +
+          '등록된 모든 서비스의 ID, 이름, 표시명, 타입, 활성 상태, 메타데이터를 반환합니다.\n\n' +
           '다른 API의 `serviceId` 파라미터에 사용할 UUID를 여기서 조회하세요.',
         tags: ['서비스'],
         responses: {
@@ -82,8 +82,19 @@ export const swaggerSpec = {
                           serviceId: { type: 'string', format: 'uuid', description: '서비스 UUID' },
                           name: { type: 'string', description: '서비스 시스템명 (영문)' },
                           displayName: { type: 'string', description: '서비스 표시명' },
+                          description: { type: 'string', nullable: true, description: '서비스 설명' },
                           type: { type: 'string', enum: ['STANDARD', 'BACKGROUND'], description: '서비스 타입' },
+                          status: { type: 'string', enum: ['DEVELOPMENT', 'DEPLOYED'], description: '서비스 상태' },
                           enabled: { type: 'boolean', description: '활성 상태' },
+                          targetMM: { type: 'number', nullable: true, description: '목표 MM (Men/Month)' },
+                          serviceCategory: { type: 'array', items: { type: 'string' }, description: '서비스 카테고리 (복수)' },
+                          standardMD: { type: 'number', nullable: true, description: '표준 M/D (BACKGROUND 서비스)' },
+                          jiraTicket: { type: 'string', nullable: true, description: 'Jira 티켓 URL' },
+                          serviceUrl: { type: 'string', nullable: true, description: '서비스 URL' },
+                          docsUrl: { type: 'string', nullable: true, description: 'API 문서 URL' },
+                          registeredBy: { type: 'string', nullable: true, description: '등록자 ID' },
+                          registeredByDept: { type: 'string', nullable: true, description: '등록자 부서' },
+                          createdAt: { type: 'string', format: 'date-time', description: '생성일시' },
                         },
                       },
                     },
@@ -91,8 +102,8 @@ export const swaggerSpec = {
                 },
                 example: {
                   data: [
-                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', type: 'STANDARD', enabled: true },
-                    { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'hanseol', displayName: 'Hanseol', type: 'STANDARD', enabled: true },
+                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: 'https://docs.example.com/nexus', registeredBy: 'syngha.han', registeredByDept: 'SW혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z' },
+                    { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'hanseol', displayName: 'Hanseol', description: '한글 문서 자동 생성', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 1.5, serviceCategory: ['문서 및 요구사항 지능형 처리', '코드개발/분석/검증 지원'], standardMD: null, jiraTicket: 'https://jira.example.com/browse/HS-100', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', createdAt: '2025-07-15T10:30:00.000Z' },
                   ],
                 },
               },
