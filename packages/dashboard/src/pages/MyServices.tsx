@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Search, Trash2, UserPlus, Users, ChevronDown,
-  Crown, Shield, User, Gauge
+  Crown, Shield, User, Gauge, Link, Image
 } from 'lucide-react';
 import { api, serviceRateLimitScopedApi } from '../services/api';
 
@@ -71,6 +71,8 @@ interface ServiceFormData {
   displayName: string;
   description: string;
   type: 'STANDARD' | 'BACKGROUND';
+  iconUrl: string;
+  docsUrl: string;
 }
 
 const EMPTY_FORM: ServiceFormData = {
@@ -78,6 +80,8 @@ const EMPTY_FORM: ServiceFormData = {
   displayName: '',
   description: '',
   type: 'STANDARD',
+  iconUrl: '',
+  docsUrl: '',
 };
 
 // ── Helpers ──
@@ -218,6 +222,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       displayName: service.displayName,
       description: service.description || '',
       type: service.type,
+      iconUrl: service.iconUrl || '',
+      docsUrl: service.docsUrl || '',
     });
     setFormError(null);
     setShowServiceModal(true);
@@ -251,6 +257,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           displayName: formData.displayName,
           description: formData.description || undefined,
           type: formData.type,
+          iconUrl: formData.iconUrl.trim() || null,
+          docsUrl: formData.docsUrl.trim() || null,
         });
       } else {
         await api.post('/services', {
@@ -258,6 +266,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           displayName: formData.displayName,
           description: formData.description || undefined,
           type: formData.type,
+          iconUrl: formData.iconUrl.trim() || null,
+          docsUrl: formData.docsUrl.trim() || null,
         });
       }
       closeServiceModal();
@@ -893,6 +903,41 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
                 <p className="mt-1 text-xs text-gray-400">표준: 일반 API 서비스 | 백그라운드: 비동기 배치 처리용 서비스</p>
+              </div>
+
+              {/* Icon URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={formData.iconUrl}
+                  onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+                />
+                {formData.iconUrl.trim() && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <img src={formData.iconUrl.trim()} alt="미리보기" className="w-8 h-8 rounded-lg border border-gray-200 object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    <span className="text-xs text-gray-400">미리보기</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Docs URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> API 문서 URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={formData.docsUrl}
+                  onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })}
+                  placeholder="https://docs.example.com/api"
+                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+                />
               </div>
             </div>
 
