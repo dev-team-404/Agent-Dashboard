@@ -2350,8 +2350,8 @@ adminRoutes.get('/stats/daily', async (req: AuthenticatedRequest, res) => {
     }>>(`
       SELECT
         DATE(ul.timestamp) as date,
-        COALESCE(SUM(ul.input_tokens), 0) as total_input,
-        COALESCE(SUM(ul.output_tokens), 0) as total_output,
+        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
         COUNT(*) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
@@ -2519,8 +2519,8 @@ adminRoutes.get('/stats/by-dept', async (req: AuthenticatedRequest, res) => {
     }>>(`
       SELECT
         COALESCE(u.deptname, 'Unknown') as deptname,
-        COALESCE(SUM(ul.input_tokens), 0) as total_input,
-        COALESCE(SUM(ul.output_tokens), 0) as total_output,
+        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
         COUNT(*) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
