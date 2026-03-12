@@ -132,7 +132,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ServiceTab>(isSystemAdmin ? 'all' : 'created');
+  const [activeTab, setActiveTab] = useState<ServiceTab>('all');
 
   // Modal states
   const [showServiceModal, setShowServiceModal] = useState(false);
