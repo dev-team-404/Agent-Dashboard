@@ -23,6 +23,7 @@ interface Service {
   description?: string;
   iconUrl?: string;
   docsUrl?: string;
+  serviceUrl?: string;
   type: 'STANDARD' | 'BACKGROUND';
   status: 'DEVELOPMENT' | 'DEPLOYED';
   enabled: boolean;
@@ -73,6 +74,7 @@ interface ServiceFormData {
   type: 'STANDARD' | 'BACKGROUND';
   iconUrl: string;
   docsUrl: string;
+  serviceUrl: string;
 }
 
 const EMPTY_FORM: ServiceFormData = {
@@ -82,6 +84,7 @@ const EMPTY_FORM: ServiceFormData = {
   type: 'STANDARD',
   iconUrl: '',
   docsUrl: '',
+  serviceUrl: '',
 };
 
 // ── Helpers ──
@@ -224,6 +227,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       type: service.type,
       iconUrl: service.iconUrl || '',
       docsUrl: service.docsUrl || '',
+      serviceUrl: service.serviceUrl || '',
     });
     setFormError(null);
     setShowServiceModal(true);
@@ -259,6 +263,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           type: formData.type,
           iconUrl: formData.iconUrl.trim() || null,
           docsUrl: formData.docsUrl.trim() || null,
+          serviceUrl: formData.serviceUrl.trim() || null,
         });
       } else {
         await api.post('/services', {
@@ -268,6 +273,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           type: formData.type,
           iconUrl: formData.iconUrl.trim() || null,
           docsUrl: formData.docsUrl.trim() || null,
+          serviceUrl: formData.serviceUrl.trim() || null,
         });
       }
       closeServiceModal();
@@ -924,6 +930,21 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     <span className="text-xs text-gray-400">미리보기</span>
                   </div>
                 )}
+              </div>
+
+              {/* Service URL */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> 서비스 URL</span>
+                </label>
+                <input
+                  type="url"
+                  value={formData.serviceUrl}
+                  onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })}
+                  placeholder="https://my-service.example.com"
+                  className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+                />
+                <p className="mt-1 text-xs text-gray-400">서비스 마켓에서 바로가기 버튼으로 연결됩니다</p>
               </div>
 
               {/* Docs URL */}

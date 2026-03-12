@@ -33,6 +33,7 @@ model Service {
   description String?
   iconUrl     String?       @map("icon_url")
   docsUrl     String?       @map("docs_url")        // 서비스 설명서 URL
+  serviceUrl  String?       @map("service_url")     // 서비스 바로가기 URL
   enabled     Boolean       @default(true)
   type        ServiceType   @default(STANDARD)
   status      ServiceStatus @default(DEVELOPMENT)   // 개발/배포 상태

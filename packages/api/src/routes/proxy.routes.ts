@@ -74,6 +74,7 @@ interface EndpointInfo {
   apiKey: string | null;
   modelName: string;
   extraHeaders: Record<string, string> | null;
+  extraBody: Record<string, any> | null;
 }
 
 // 단일 엔드포인트 5xx retry 설정
@@ -84,7 +85,7 @@ async function getModelEndpoints(modelId: string, parentEndpoint: EndpointInfo):
   const subModels = await prisma.subModel.findMany({
     where: { parentId: modelId, enabled: true },
     orderBy: { sortOrder: 'asc' },
-    select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true, weight: true },
+    select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true, extraBody: true, weight: true },
   });
 
   if (subModels.length === 0) return [parentEndpoint];
@@ -101,6 +102,7 @@ async function getModelEndpoints(modelId: string, parentEndpoint: EndpointInfo):
       apiKey: s.apiKey,
       modelName: s.modelName || parentEndpoint.modelName,
       extraHeaders: s.extraHeaders as Record<string, string> | null,
+      extraBody: s.extraBody as Record<string, any> | null,
     };
     const weight = Math.max(1, Math.min(s.weight, 10)); // clamp 1~10
     for (let w = 0; w < weight; w++) {
@@ -572,6 +574,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
       apiKey: model.apiKey,
       modelName: model.name,
       extraHeaders: model.extraHeaders as Record<string, string> | null,
+      extraBody: model.extraBody as Record<string, any> | null,
     });
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
@@ -597,6 +600,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
       }
 
       const llmRequestBody = {
+        ...(endpoint.extraBody || {}),
         model: endpoint.modelName,
         messages,
         stream: stream || false,
@@ -1023,6 +1027,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
       apiKey: model.apiKey,
       modelName: model.name,
       extraHeaders: model.extraHeaders as Record<string, string> | null,
+      extraBody: model.extraBody as Record<string, any> | null,
     });
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
@@ -1048,6 +1053,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
       console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (embeddings)`);
 
       const embeddingsBody = {
+        ...(endpoint.extraBody || {}),
         model: endpoint.modelName,
         input,
         ...otherParams,
@@ -1211,6 +1217,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
       apiKey: model.apiKey,
       modelName: model.name,
       extraHeaders: model.extraHeaders as Record<string, string> | null,
+      extraBody: model.extraBody as Record<string, any> | null,
     });
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
@@ -1236,6 +1243,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
       console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (rerank)`);
 
       const rerankBody: Record<string, unknown> = {
+        ...(endpoint.extraBody || {}),
         model: endpoint.modelName,
         query,
         documents,
@@ -1391,6 +1399,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
       apiKey: model.apiKey,
       modelName: model.name,
       extraHeaders: model.extraHeaders as Record<string, string> | null,
+      extraBody: model.extraBody as Record<string, any> | null,
     });
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
@@ -1421,7 +1430,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
           apiKey: endpoint.apiKey,
           modelName: endpoint.modelName,
           extraHeaders: endpoint.extraHeaders,
-          extraBody: model.extraBody as Record<string, any> | null,
+          extraBody: endpoint.extraBody,
         }, {
           prompt,
           n: n || undefined,

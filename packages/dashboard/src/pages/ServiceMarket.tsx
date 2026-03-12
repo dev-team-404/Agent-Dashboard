@@ -9,6 +9,7 @@ interface MarketService {
   description?: string;
   iconUrl?: string;
   docsUrl?: string;
+  serviceUrl?: string;
   type?: string;
   registeredBy?: string;
   registeredByDept?: string;
@@ -271,7 +272,18 @@ export default function ServiceMarket() {
                 </div>
 
                 {/* Action */}
-                <div className="border-t border-gray-100 px-5 py-3">
+                <div className="border-t border-gray-100 px-5 py-3 flex items-center gap-3">
+                  {service.serviceUrl && (
+                    <a
+                      href={service.serviceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      바로가기
+                    </a>
+                  )}
                   <button
                     onClick={() => handleServiceClick(service)}
                     className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
@@ -283,8 +295,8 @@ export default function ServiceMarket() {
                     {service.docsUrl ? (
                       <>
                         <BookOpen className="w-3.5 h-3.5" />
-                        설명서 보기
-                        <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        설명서
+                        <ArrowUpRight className="w-3 h-3" />
                       </>
                     ) : (
                       '설명서 없음'

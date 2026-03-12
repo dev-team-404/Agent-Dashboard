@@ -41,6 +41,7 @@ interface Service {
   description?: string;
   iconUrl?: string;
   docsUrl?: string;
+  serviceUrl?: string;
   type: 'STANDARD' | 'BACKGROUND';
   status: 'DEVELOPMENT' | 'DEPLOYED';
   enabled: boolean;
@@ -260,6 +261,17 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
               서비스 목록
             </button>
             <div className="flex items-center gap-2">
+              {service.serviceUrl && (
+                <a
+                  href={service.serviceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-500/80 rounded-lg hover:bg-blue-500 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  서비스 바로가기
+                </a>
+              )}
               {service.docsUrl && (
                 <a
                   href={service.docsUrl}
