@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, Loader2,
   Layers, ToggleLeft, ToggleRight, RefreshCw,
-  Zap, MessageSquare, Image, Cpu, ArrowUpDown,
+  Zap, MessageSquare, Image, Cpu, Sparkles,
   AlertTriangle, X, Edit2, Check
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -58,8 +58,8 @@ interface AliasGroup {
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
   CHAT: MessageSquare,
   IMAGE: Image,
-  EMBEDDING: Cpu,
-  RERANKING: ArrowUpDown,
+  EMBEDDING: Layers,
+  RERANKING: Sparkles,
 };
 
 const MODEL_TYPE_LABELS: Record<string, string> = {

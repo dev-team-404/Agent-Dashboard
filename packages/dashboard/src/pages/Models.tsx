@@ -755,15 +755,22 @@ export default function Models({ adminRole }: ModelsProps) {
                 <div className="p-5">
                   <div className="flex items-start gap-4">
                     {/* Model Icon */}
-                    <div className={`w-11 h-11 rounded-ios flex items-center justify-center flex-shrink-0 ${
-                      model.enabled ? 'bg-samsung-blue/10' : 'bg-gray-100'
-                    }`}>
-                      {(model.type === 'IMAGE') ? (
-                        <Image className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
-                      ) : (
-                        <Cpu className={`w-5 h-5 ${model.enabled ? 'text-samsung-blue' : 'text-gray-400'}`} />
-                      )}
-                    </div>
+                    {(() => {
+                      const iconConfig = {
+                        CHAT: { icon: MessageSquare, enabledBg: model.supportsVision ? 'bg-violet-100' : 'bg-samsung-blue/10', enabledText: model.supportsVision ? 'text-violet-600' : 'text-samsung-blue' },
+                        IMAGE: { icon: Image, enabledBg: 'bg-pink-100', enabledText: 'text-pink-600' },
+                        EMBEDDING: { icon: Layers, enabledBg: 'bg-emerald-100', enabledText: 'text-emerald-600' },
+                        RERANKING: { icon: Sparkles, enabledBg: 'bg-amber-100', enabledText: 'text-amber-600' },
+                      }[model.type] || { icon: Cpu, enabledBg: 'bg-samsung-blue/10', enabledText: 'text-samsung-blue' };
+                      const IconComp = iconConfig.icon;
+                      return (
+                        <div className={`w-11 h-11 rounded-ios flex items-center justify-center flex-shrink-0 ${
+                          model.enabled ? iconConfig.enabledBg : 'bg-gray-100'
+                        }`}>
+                          <IconComp className={`w-5 h-5 ${model.enabled ? iconConfig.enabledText : 'text-gray-400'}`} />
+                        </div>
+                      );
+                    })()}
 
                     {/* Model Info */}
                     <div className="flex-1 min-w-0">
@@ -776,12 +783,21 @@ export default function Models({ adminRole }: ModelsProps) {
                             비활성
                           </span>
                         )}
-                        {model.type === 'IMAGE' && (
-                          <span className="px-2 py-0.5 text-[10px] font-medium bg-pink-50 text-pink-600 rounded-full border border-pink-200">
-                            <Image className="w-2.5 h-2.5 inline mr-0.5" />IMAGE
-                          </span>
-                        )}
-                        {model.supportsVision && model.type !== 'IMAGE' && (
+                        {model.type !== 'CHAT' && (() => {
+                          const typeBadge = {
+                            IMAGE: { bg: 'bg-pink-50', text: 'text-pink-600', border: 'border-pink-200', icon: Image, label: 'IMAGE' },
+                            EMBEDDING: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: Layers, label: 'EMBEDDING' },
+                            RERANKING: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', icon: Sparkles, label: 'RERANKING' },
+                          }[model.type];
+                          if (!typeBadge) return null;
+                          const BadgeIcon = typeBadge.icon;
+                          return (
+                            <span className={`px-2 py-0.5 text-[10px] font-medium ${typeBadge.bg} ${typeBadge.text} rounded-full border ${typeBadge.border}`}>
+                              <BadgeIcon className="w-2.5 h-2.5 inline mr-0.5" />{typeBadge.label}
+                            </span>
+                          );
+                        })()}
+                        {model.supportsVision && (
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-violet-50 text-violet-600 rounded-full border border-violet-200">
                             <Eye className="w-2.5 h-2.5 inline mr-0.5" />Vision
                           </span>

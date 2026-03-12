@@ -642,7 +642,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 key={service.id}
                 className="bg-white rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-sm transition-all duration-150 flex flex-col"
               >
-                <div className="p-5 flex-1">
+                <div className="p-5 flex-1 cursor-pointer" onClick={() => navigate(`/my-services/${service.id}`)}>
                   {/* Card header */}
                   <div className="flex items-start gap-3 mb-3">
                     {service.iconUrl ? (

@@ -17,6 +17,7 @@ const MyServices = lazy(() => import('./pages/MyServices'));
 const RequestLogs = lazy(() => import('./pages/RequestLogs'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
+const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 
 interface User {
   id: string;
@@ -113,6 +114,7 @@ function App() {
           {/* All users */}
           <Route path="/services" element={<ServiceMarket />} />
           <Route path="/my-services" element={<MyServices user={user} adminRole={adminRole} />} />
+          <Route path="/my-services/:serviceId" element={<ServiceDetail user={user} adminRole={adminRole} />} />
           <Route path="/my-services/:serviceId/models" element={<ServiceModelConfig />} />
           <Route path="/my-usage" element={<MyUsage />} />
 
