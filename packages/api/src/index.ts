@@ -31,6 +31,7 @@ import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
+import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 
 import 'dotenv/config';
@@ -186,6 +187,9 @@ async function main() {
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();
+
+    // LLM 헬스체크 (10분마다)
+    startHealthCheckCron();
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Dashboard API server running on port ${PORT}`);

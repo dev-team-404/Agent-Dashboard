@@ -61,7 +61,7 @@ export default function Login({ onLogin }: LoginProps) {
   const handleSSOLogin = () => {
     setLoading(true);
     setError('');
-    const redirectUrl = window.location.origin + window.location.pathname;
+    const redirectUrl = window.location.origin + '/';
     const ssoUrl = new URL(SSO_PATH, SSO_BASE_URL);
     ssoUrl.searchParams.set('redirect_url', redirectUrl);
     window.location.href = ssoUrl.toString();

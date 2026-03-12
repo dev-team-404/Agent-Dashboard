@@ -96,6 +96,17 @@ interface LatencyHistory {
   [key: string]: LatencyHistoryPoint[];
 }
 
+interface HealthCheckPoint {
+  time: string;
+  latency: number | null;
+  success: boolean;
+  error?: string;
+}
+
+interface HealthCheckHistory {
+  [modelName: string]: HealthCheckPoint[];
+}
+
 // ── Animated Counter Hook ──
 function useAnimatedCounter(target: number, duration = 1200) {
   const [value, setValue] = useState(0);
@@ -189,6 +200,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [deptServiceCombos, setDeptServiceCombos] = useState<string[]>([]);
   const [latencyStats, setLatencyStats] = useState<LatencyStat[]>([]);
   const [latencyHistory, setLatencyHistory] = useState<LatencyHistory>({});
+  const [healthCheckHistory, setHealthCheckHistory] = useState<HealthCheckHistory>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
 
@@ -201,7 +213,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       const [
         globalRes, serviceDailyRes, deptRes,
         deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
-        latencyRes, latencyHistoryRes,
+        latencyRes, latencyHistoryRes, healthcheckRes,
       ] = await Promise.all([
         statsApi.globalOverview(),
         statsApi.globalByService(30),
@@ -211,6 +223,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         statsApi.globalByDeptServiceRequestsDaily(30, 10),
         statsApi.latency(),
         statsApi.latencyHistory(24, 10),
+        statsApi.latencyHealthcheck(24),
       ]);
 
       setGlobalOverview(globalRes.data.services || []);
@@ -225,6 +238,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
       setLatencyStats(latencyRes.data.stats || []);
       setLatencyHistory(latencyHistoryRes.data.history || {});
+      setHealthCheckHistory(healthcheckRes.data.history || {});
     } catch (error) {
       console.error('Failed to load main dashboard data:', error);
     } finally {
@@ -294,6 +308,29 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         return row;
       })
     : [];
+
+  // ── Healthcheck chart data ──
+  const hcModelNames = Object.keys(healthCheckHistory);
+  const hcRechartsData: Record<string, string | number>[] = (() => {
+    if (hcModelNames.length === 0) return [];
+    // Collect all unique timestamps
+    const allTimes = new Set<string>();
+    hcModelNames.forEach(name => {
+      healthCheckHistory[name]?.forEach(p => allTimes.add(p.time));
+    });
+    const sortedTimes = [...allTimes].sort();
+    return sortedTimes.map(t => {
+      const d = new Date(t);
+      const row: Record<string, string | number> = {
+        time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+      };
+      hcModelNames.forEach(name => {
+        const point = healthCheckHistory[name]?.find(p => p.time === t);
+        row[name] = point?.latency != null ? point.latency : 0;
+      });
+      return row;
+    });
+  })();
 
   // ── Loading skeleton ──
   if (loading) {
@@ -485,38 +522,80 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         );
 
       case 'latency':
-        return latencyRechartsData.length > 0 ? (
+        return (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-              {latencyStats.slice(0, 4).map((stat) => (
-                <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gray-50 rounded-lg border border-pastel-100">
-                  <p className="text-xs text-pastel-500 truncate" title={`${stat.serviceName} / ${stat.modelName}`}>
-                    {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
-                  </p>
-                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                    <div><span className="text-pastel-400">10분:</span> <span className="font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span></div>
-                    <div><span className="text-pastel-400">30분:</span> <span className="font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span></div>
-                    <div><span className="text-pastel-400">1시간:</span> <span className="font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span></div>
-                    <div><span className="text-pastel-400">24시간:</span> <span className="font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span></div>
-                  </div>
+            {/* Healthcheck Monitor (10분 간격 프로빙) */}
+            <div className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+                </span>
+                <h3 className="text-sm font-semibold text-pastel-700">헬스체크 모니터링</h3>
+                <span className="text-xs text-pastel-400 ml-1">10분 간격 자동 프로빙</span>
+              </div>
+              {hcRechartsData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={hcRechartsData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                      formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${value}ms`, undefined]}
+                    />
+                    <Legend />
+                    {hcModelNames.map((name, i) => (
+                      <RechartsLine key={name} type="monotone" dataKey={name} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-40 text-pastel-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                  헬스체크 데이터 수집 중... (최초 실행까지 약 1분 소요)
                 </div>
-              ))}
+              )}
             </div>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={latencyRechartsData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
-                <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]} />
-                <Legend />
-                {latencyKeys.map((key, i) => (
-                  <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+
+            {/* Usage-based latency */}
+            {latencyRechartsData.length > 0 && (
+              <>
+                <div className="border-t border-gray-100 pt-6 mb-4">
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">실제 사용 기반 응답 지연</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  {latencyStats.slice(0, 4).map((stat) => (
+                    <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gray-50 rounded-lg border border-pastel-100">
+                      <p className="text-xs text-pastel-500 truncate" title={`${stat.serviceName} / ${stat.modelName}`}>
+                        {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                        <div><span className="text-pastel-400">10분:</span> <span className="font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span></div>
+                        <div><span className="text-pastel-400">30분:</span> <span className="font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span></div>
+                        <div><span className="text-pastel-400">1시간:</span> <span className="font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span></div>
+                        <div><span className="text-pastel-400">24시간:</span> <span className="font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={latencyRechartsData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]} />
+                    <Legend />
+                    {latencyKeys.map((key, i) => (
+                      <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </>
+            )}
+            {latencyRechartsData.length === 0 && hcRechartsData.length === 0 && (
+              <div className="flex items-center justify-center h-72 text-pastel-400">지연 시간 데이터가 없습니다</div>
+            )}
           </>
-        ) : (
-          <div className="flex items-center justify-center h-72 text-pastel-400">지연 시간 데이터가 없습니다</div>
         );
 
       default:

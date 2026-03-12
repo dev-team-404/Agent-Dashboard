@@ -2315,7 +2315,7 @@ adminRoutes.get('/stats/overview', async (req: AuthenticatedRequest, res) => {
 
 /**
  * GET /admin/stats/daily
- * Get daily usage for charts
+ * Get daily usage for charts (UsageLog 직접 SQL 집계)
  * Query: ?serviceId= (optional), ?days=
  */
 adminRoutes.get('/stats/daily', async (req: AuthenticatedRequest, res) => {
@@ -2326,22 +2326,50 @@ adminRoutes.get('/stats/daily', async (req: AuthenticatedRequest, res) => {
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    const dailyStats = await prisma.dailyUsageStat.groupBy({
-      by: ['date'],
-      where: {
-        date: { gte: startDate },
-        ...getServiceFilter(serviceId),
-        ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-      orderBy: { date: 'asc' },
-    });
+    // UsageLog를 날짜별로 SQL 집계
+    let whereClause = `WHERE ul.timestamp >= $1`;
+    const params: unknown[] = [startDate];
+    let paramIdx = 2;
 
-    res.json({ dailyStats });
+    if (serviceId) {
+      whereClause += ` AND ul.service_id = $${paramIdx}`;
+      params.push(serviceId);
+      paramIdx++;
+    }
+    if (!req.isSuperAdmin && req.adminBusinessUnit) {
+      whereClause += ` AND u.business_unit = $${paramIdx}`;
+      params.push(req.adminBusinessUnit);
+      paramIdx++;
+    }
+
+    const dailyStats = await prisma.$queryRawUnsafe<Array<{
+      date: string;
+      total_input: bigint;
+      total_output: bigint;
+      req_count: bigint;
+    }>>(`
+      SELECT
+        DATE(ul.timestamp) as date,
+        COALESCE(SUM(ul.input_tokens), 0) as total_input,
+        COALESCE(SUM(ul.output_tokens), 0) as total_output,
+        COUNT(*) as req_count
+      FROM usage_logs ul
+      LEFT JOIN users u ON ul.user_id = u.id
+      ${whereClause}
+      GROUP BY DATE(ul.timestamp)
+      ORDER BY date ASC
+    `, ...params);
+
+    const result = dailyStats.map(r => ({
+      date: typeof r.date === 'string' ? r.date : new Date(r.date as any).toISOString().split('T')[0],
+      _sum: {
+        totalInputTokens: Number(r.total_input),
+        totalOutputTokens: Number(r.total_output),
+        requestCount: Number(r.req_count),
+      },
+    }));
+
+    res.json({ dailyStats: result });
   } catch (error) {
     console.error('Get daily stats error:', error);
     res.status(500).json({ error: 'Failed to get daily statistics' });
@@ -2458,7 +2486,7 @@ adminRoutes.get('/stats/by-model', async (req: AuthenticatedRequest, res) => {
 
 /**
  * GET /admin/stats/by-dept
- * Get usage grouped by department
+ * Get usage grouped by department (UsageLog 직접 SQL 집계)
  * Query: ?serviceId= (optional), ?days=
  */
 adminRoutes.get('/stats/by-dept', async (req: AuthenticatedRequest, res) => {
@@ -2468,26 +2496,49 @@ adminRoutes.get('/stats/by-dept', async (req: AuthenticatedRequest, res) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const deptStats = await prisma.dailyUsageStat.groupBy({
-      by: ['deptname'],
-      where: {
-        date: { gte: startDate },
-        ...getServiceFilter(serviceId),
-        ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-      orderBy: {
-        _sum: {
-          totalInputTokens: 'desc',
-        },
-      },
-    });
+    let whereClause = `WHERE ul.timestamp >= $1`;
+    const params: unknown[] = [startDate];
+    let paramIdx = 2;
 
-    res.json({ deptStats });
+    if (serviceId) {
+      whereClause += ` AND ul.service_id = $${paramIdx}`;
+      params.push(serviceId);
+      paramIdx++;
+    }
+    if (!req.isSuperAdmin && req.adminBusinessUnit) {
+      whereClause += ` AND u.business_unit = $${paramIdx}`;
+      params.push(req.adminBusinessUnit);
+      paramIdx++;
+    }
+
+    const deptStats = await prisma.$queryRawUnsafe<Array<{
+      deptname: string;
+      total_input: bigint;
+      total_output: bigint;
+      req_count: bigint;
+    }>>(`
+      SELECT
+        COALESCE(u.deptname, 'Unknown') as deptname,
+        COALESCE(SUM(ul.input_tokens), 0) as total_input,
+        COALESCE(SUM(ul.output_tokens), 0) as total_output,
+        COUNT(*) as req_count
+      FROM usage_logs ul
+      LEFT JOIN users u ON ul.user_id = u.id
+      ${whereClause}
+      GROUP BY u.deptname
+      ORDER BY total_input DESC
+    `, ...params);
+
+    const result = deptStats.map(r => ({
+      deptname: r.deptname,
+      _sum: {
+        totalInputTokens: Number(r.total_input),
+        totalOutputTokens: Number(r.total_output),
+        requestCount: Number(r.req_count),
+      },
+    }));
+
+    res.json({ deptStats: result });
   } catch (error) {
     console.error('Get dept stats error:', error);
     res.status(500).json({ error: 'Failed to get department statistics' });
@@ -3058,6 +3109,49 @@ adminRoutes.get('/stats/latency/history', async (req: AuthenticatedRequest, res)
   }
 });
 
+/**
+ * GET /admin/stats/latency/healthcheck
+ * 헬스체크 기반 응답 지연 이력 (10분 간격 프로빙 결과)
+ * Query: ?hours=24
+ */
+adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, res) => {
+  try {
+    const hours = Math.min(72, Math.max(1, parseInt(req.query['hours'] as string) || 24));
+    const startTime = new Date();
+    startTime.setHours(startTime.getHours() - hours);
+
+    const checks = await prisma.healthCheckLog.findMany({
+      where: { checkedAt: { gte: startTime } },
+      orderBy: { checkedAt: 'asc' },
+      select: {
+        modelName: true,
+        latencyMs: true,
+        success: true,
+        statusCode: true,
+        errorMessage: true,
+        checkedAt: true,
+      },
+    });
+
+    // 모델별로 그룹핑
+    const grouped: Record<string, Array<{ time: string; latency: number | null; success: boolean; error?: string }>> = {};
+    for (const c of checks) {
+      if (!grouped[c.modelName]) grouped[c.modelName] = [];
+      grouped[c.modelName].push({
+        time: c.checkedAt.toISOString(),
+        latency: c.latencyMs,
+        success: c.success,
+        error: c.errorMessage || undefined,
+      });
+    }
+
+    res.json({ history: grouped, startTime: startTime.toISOString() });
+  } catch (error) {
+    console.error('Get healthcheck history error:', error);
+    res.status(500).json({ error: 'Failed to get healthcheck history' });
+  }
+});
+
 // ==================== Global Statistics (전체 서비스 통합) ====================
 
 /**
@@ -3262,9 +3356,9 @@ adminRoutes.get('/stats/global/by-service', async (req: AuthenticatedRequest, re
 
     // Get daily stats per service
     const dailyStats = await prisma.$queryRaw<
-      Array<{ date: Date | string; service_id: string; total_tokens: bigint }>
+      Array<{ date: Date | string; service_id: string; total_tokens: bigint; req_count: bigint }>
     >`
-      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens
+      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COUNT(*) as req_count
       FROM usage_logs
       WHERE timestamp >= ${startDate}
         AND service_id IS NOT NULL
@@ -3301,9 +3395,27 @@ adminRoutes.get('/stats/global/by-service', async (req: AuthenticatedRequest, re
         ...serviceUsage,
       }));
 
+    // dailyData: 프론트엔드 ServiceDailyData[] 형태로도 변환
+    const serviceMap = new Map(services.map(s => [s.id, s]));
+    const dailyData: Array<{ date: string; serviceId: string; serviceName: string; requests: number; totalTokens: number }> = [];
+    for (const stat of dailyStats) {
+      const dateStr = formatDateToString(stat.date);
+      const svc = serviceMap.get(stat.service_id);
+      if (svc) {
+        dailyData.push({
+          date: dateStr,
+          serviceId: svc.id,
+          serviceName: svc.displayName || svc.name,
+          requests: Number(stat.req_count),
+          totalTokens: Number(stat.total_tokens),
+        });
+      }
+    }
+
     res.json({
       services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
       chartData,
+      dailyData,
     });
   } catch (error) {
     console.error('Get global by-service stats error:', error);

@@ -358,6 +358,23 @@ async function recordUsage(
 /**
  * RequestLog 저장 (요청 로그)
  */
+// 서비스별 콘텐츠 로깅 상태 캐시 (30초 TTL — 토글 반영 지연 최소화)
+const contentLoggingCache = new Map<string, { enabled: boolean; ts: number }>();
+const CONTENT_LOGGING_CACHE_TTL = 30 * 1000;
+
+async function isContentLoggingEnabled(serviceId: string): Promise<boolean> {
+  const cached = contentLoggingCache.get(serviceId);
+  if (cached && Date.now() - cached.ts < CONTENT_LOGGING_CACHE_TTL) return cached.enabled;
+  try {
+    const svc = await prisma.service.findUnique({ where: { id: serviceId }, select: { contentLoggingEnabled: true } });
+    const enabled = svc?.contentLoggingEnabled ?? false;
+    contentLoggingCache.set(serviceId, { enabled, ts: Date.now() });
+    return enabled;
+  } catch {
+    return false;
+  }
+}
+
 async function recordRequestLog(params: {
   serviceId: string;
   userId?: string | null;
@@ -374,8 +391,21 @@ async function recordRequestLog(params: {
   userAgent?: string | null;
   ipAddress?: string | null;
   stream?: boolean;
+  requestBody?: string | null;
+  responseBody?: string | null;
 }) {
   try {
+    // 콘텐츠 로깅이 활성화된 경우에만 requestBody/responseBody 저장
+    let saveRequestBody = params.requestBody || null;
+    let saveResponseBody = params.responseBody || null;
+    if (saveRequestBody || saveResponseBody) {
+      const loggingEnabled = await isContentLoggingEnabled(params.serviceId);
+      if (!loggingEnabled) {
+        saveRequestBody = null;
+        saveResponseBody = null;
+      }
+    }
+
     await prisma.requestLog.create({
       data: {
         serviceId: params.serviceId,
@@ -386,6 +416,8 @@ async function recordRequestLog(params: {
         method: params.method,
         path: params.path,
         statusCode: params.statusCode,
+        requestBody: saveRequestBody,
+        responseBody: saveResponseBody,
         inputTokens: params.inputTokens || null,
         outputTokens: params.outputTokens || null,
         latencyMs: params.latencyMs || null,
@@ -776,6 +808,8 @@ async function handleNonStreamingRequest(
           modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
           statusCode: 200, inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens,
           latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
+          requestBody: JSON.stringify(requestBody).substring(0, 50000),
+          responseBody: JSON.stringify(data).substring(0, 50000),
         }).catch(() => {});
       }
       res.json(data);
@@ -951,6 +985,7 @@ async function handleStreamingRequest(
       modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
       statusCode: 200, inputTokens: usageData?.prompt_tokens, outputTokens: usageData?.completion_tokens,
       latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: true,
+      requestBody: JSON.stringify(requestBody).substring(0, 50000),
     }).catch(() => {});
     res.end();
     return true;
@@ -1120,6 +1155,15 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
           recordUsage(user?.id || null, user?.loginid || null, model.id,
             inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
         }
+
+        recordRequestLog({
+          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          modelName: embeddingsBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings',
+          statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
+          userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
+          requestBody: JSON.stringify(embeddingsBody).substring(0, 50000),
+          responseBody: responseText.substring(0, 50000),
+        }).catch(() => {});
 
         res.setHeader('Content-Type', 'application/json');
         res.status(200).send(responseText);
@@ -1316,6 +1360,15 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
             inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
         }
 
+        recordRequestLog({
+          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          modelName: rerankBody.model as string, resolvedModel: model.name, method: 'POST', path: '/v1/rerank',
+          statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
+          userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
+          requestBody: JSON.stringify(rerankBody).substring(0, 50000),
+          responseBody: responseText.substring(0, 50000),
+        }).catch(() => {});
+
         res.setHeader('Content-Type', 'application/json');
         res.status(200).send(responseText);
         return;
@@ -1470,6 +1523,15 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
         // Usage 기록 (이미지는 토큰 0, 요청 횟수만 트래킹)
         recordUsage(user?.id || null, user?.loginid || null, model.id,
           0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+
+        recordRequestLog({
+          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations',
+          statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
+          userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
+          requestBody: JSON.stringify({ model: modelName, prompt, n, size, quality, style }).substring(0, 50000),
+          responseBody: JSON.stringify({ data: rewrittenData }).substring(0, 50000),
+        }).catch(() => {});
 
         return;
 

@@ -78,6 +78,12 @@ export const serviceApi = {
   removeMember: (id: string, userId: string) => api.delete(`/services/${id}/members/${userId}`),
   // Search users
   searchUsers: (q: string) => api.get('/services/search-users', { params: { q } }),
+  // Content Logging
+  getContentLogging: (id: string) => api.get(`/services/${id}`),
+  toggleContentLogging: (id: string, enabled: boolean) => api.put(`/services/${id}/content-logging`, { enabled }),
+  getLlmLogs: (id: string, params?: { page?: number; limit?: number; modelName?: string; startDate?: string; endDate?: string }) =>
+    api.get(`/services/${id}/llm-logs`, { params }),
+  deleteLlmLogContent: (id: string) => api.delete(`/services/${id}/llm-logs/content`),
 };
 
 export const modelsApi = {
@@ -203,6 +209,7 @@ export const statsApi = {
   // Latency stats
   latency: () => api.get('/admin/stats/latency'),
   latencyHistory: (hours = 24, interval = 10) => api.get('/admin/stats/latency/history', { params: { hours, interval } }),
+  latencyHealthcheck: (hours = 24) => api.get('/admin/stats/latency/healthcheck', { params: { hours } }),
 };
 
 // 개인 사용량 API

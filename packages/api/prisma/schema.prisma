@@ -42,6 +42,11 @@ model Service {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
+  // LLM 콘텐츠 로깅 (동의 기반)
+  contentLoggingEnabled   Boolean   @default(false) @map("content_logging_enabled")
+  contentLoggingConsentAt DateTime? @map("content_logging_consent_at")
+  contentLoggingConsentBy String?   @map("content_logging_consent_by")
+
   // 등록한 사용자 정보 (누구나 서비스 생성 가능)
   registeredBy             String?  @map("registered_by")              // loginid
   registeredByDept         String?  @map("registered_by_dept")         // deptname
@@ -162,6 +167,7 @@ model Model {
   dailyUsageStats DailyUsageStat[]
   subModels       SubModel[]
   serviceModels   ServiceModel[]
+  healthChecks    HealthCheckLog[]
 
   @@map("models")
 }
@@ -452,4 +458,26 @@ model AuditLog {
   @@index([timestamp])
   @@index([targetType])
   @@map("audit_logs")
+}
+
+// ============================================
+// LLM 헬스체크 로그 (10분 주기 프로빙)
+// ============================================
+model HealthCheckLog {
+  id          String   @id @default(uuid())
+  modelId     String   @map("model_id")
+  modelName   String   @map("model_name")
+  endpointUrl String   @map("endpoint_url")
+  latencyMs   Int?     @map("latency_ms")
+  statusCode  Int?     @map("status_code")
+  success     Boolean  @default(false)
+  errorMessage String? @map("error_message")
+  checkedAt   DateTime @default(now()) @map("checked_at")
+
+  model Model @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId])
+  @@index([checkedAt])
+  @@index([modelId, checkedAt])
+  @@map("health_check_logs")
 }
