@@ -34,7 +34,7 @@ interface Service {
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
   targetMM?: number | null;
-  serviceCategory?: string | null;
+  serviceCategory?: string[];
   standardMD?: number | null;
   jiraTicket?: string | null;
   createdAt: string;
@@ -63,7 +63,7 @@ interface ServiceFormData {
   docsUrl: string;
   serviceUrl: string;
   targetMM: string;
-  serviceCategory: string;
+  serviceCategory: string[];
   standardMD: string;
   jiraTicket: string;
 }
@@ -77,7 +77,7 @@ const EMPTY_FORM: ServiceFormData = {
   docsUrl: '',
   serviceUrl: '',
   targetMM: '',
-  serviceCategory: '',
+  serviceCategory: [],
   standardMD: '',
   jiraTicket: '',
 };
@@ -227,7 +227,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       docsUrl: service.docsUrl || '',
       serviceUrl: service.serviceUrl || '',
       targetMM: service.targetMM != null ? String(service.targetMM) : '',
-      serviceCategory: service.serviceCategory || '',
+      serviceCategory: service.serviceCategory || [],
       standardMD: service.standardMD != null ? String(service.standardMD) : '',
       jiraTicket: service.jiraTicket || '',
     });
@@ -250,7 +250,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     docsUrl: formData.docsUrl.trim() || null,
     serviceUrl: formData.serviceUrl.trim() || null,
     targetMM: formData.targetMM ? parseFloat(formData.targetMM) : null,
-    serviceCategory: formData.serviceCategory || null,
+    serviceCategory: formData.serviceCategory.length > 0 ? formData.serviceCategory : [],
     standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
     jiraTicket: formData.jiraTicket.trim() || null,
   });
@@ -527,10 +527,14 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </p>
 
                   {/* Category */}
-                  {service.serviceCategory && (
-                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded mb-2">
-                      {service.serviceCategory}
-                    </span>
+                  {service.serviceCategory && service.serviceCategory.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {service.serviceCategory.map(cat => (
+                        <span key={cat} className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded">
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
                   )}
 
                   {/* Meta */}
@@ -669,13 +673,18 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">카테고리</label>
-                  <div className="relative">
-                    <select value={formData.serviceCategory} onChange={(e) => setFormData({ ...formData, serviceCategory: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-                      <option value="">선택...</option>
-                      {SERVICE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">카테고리 (복수 선택)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {SERVICE_CATEGORIES.map(cat => {
+                      const selected = formData.serviceCategory.includes(cat);
+                      return (
+                        <button key={cat} type="button"
+                          onClick={() => setFormData({ ...formData, serviceCategory: selected ? formData.serviceCategory.filter(c => c !== cat) : [...formData.serviceCategory, cat] })}
+                          className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${selected ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                          {cat}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -835,7 +844,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 const WIZARD_STEPS = [
   { title: '기본 정보', desc: '서비스 코드와 이름을 설정합니다' },
   { title: '서비스 분류', desc: '타입과 카테고리를 선택합니다' },
-  { title: '사업 정보', desc: '목표 공수와 표준 M/D를 입력합니다' },
+  { title: '서비스 목표', desc: '목표 공수와 표준 M/D를 입력합니다' },
   { title: '링크 설정', desc: '관련 URL을 등록합니다 (선택)' },
   { title: '확인', desc: '입력한 정보를 확인하고 등록합니다' },
 ];
@@ -857,7 +866,7 @@ function ServiceCreationWizard({
   const canNext = (): boolean => {
     switch (wizardStep) {
       case 0: return !!(formData.name.trim() && formData.displayName.trim());
-      case 1: return !!(formData.serviceCategory);
+      case 1: return formData.serviceCategory.length > 0;
       case 2: return !!(formData.targetMM);
       default: return true;
     }
@@ -875,8 +884,8 @@ function ServiceCreationWizard({
         return;
       }
     }
-    if (wizardStep === 1 && !formData.serviceCategory) {
-      setFormError('서비스 카테고리를 선택해주세요.');
+    if (wizardStep === 1 && formData.serviceCategory.length === 0) {
+      setFormError('서비스 카테고리를 1개 이상 선택해주세요.');
       return;
     }
     if (wizardStep === 2 && !formData.targetMM) {
@@ -972,22 +981,25 @@ function ServiceCreationWizard({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 카테고리 <span className="text-red-500">*</span></label>
-                <p className="text-xs text-gray-400 mb-3">서비스의 주요 목적에 맞는 카테고리를 선택해주세요.</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 카테고리 <span className="text-red-500">*</span> <span className="text-xs text-gray-400 font-normal">(복수 선택 가능)</span></label>
+                <p className="text-xs text-gray-400 mb-3">서비스의 주요 목적에 맞는 카테고리를 모두 선택해주세요.</p>
                 <div className="grid grid-cols-1 gap-2">
-                  {SERVICE_CATEGORIES.map((cat) => (
-                    <button key={cat} onClick={() => setFormData({ ...formData, serviceCategory: cat })}
-                      className={`px-4 py-3 rounded-lg border text-left text-sm transition-all ${formData.serviceCategory === cat ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'}`}>
-                      {formData.serviceCategory === cat && <Check className="w-4 h-4 inline mr-2 text-blue-500" />}
-                      {cat}
-                    </button>
-                  ))}
+                  {SERVICE_CATEGORIES.map((cat) => {
+                    const selected = formData.serviceCategory.includes(cat);
+                    return (
+                      <button key={cat} onClick={() => setFormData({ ...formData, serviceCategory: selected ? formData.serviceCategory.filter(c => c !== cat) : [...formData.serviceCategory, cat] })}
+                        className={`px-4 py-3 rounded-lg border text-left text-sm transition-all ${selected ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50'}`}>
+                        {selected && <Check className="w-4 h-4 inline mr-2 text-blue-500" />}
+                        {cat}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Step 2: 사업 정보 */}
+          {/* Step 2: 서비스 목표 */}
           {wizardStep === 2 && (
             <div className="space-y-5">
               <div>
@@ -1062,7 +1074,7 @@ function ServiceCreationWizard({
                   ['표시 이름', formData.displayName],
                   ['설명', formData.description || '-'],
                   ['서비스 타입', formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'],
-                  ['카테고리', formData.serviceCategory || '-'],
+                  ['카테고리', formData.serviceCategory.length > 0 ? formData.serviceCategory.join(', ') : '-'],
                   ['목표 MM', formData.targetMM ? `${formData.targetMM} MM` : '-'],
                   ...(formData.type === 'BACKGROUND' ? [['Standard M/D', formData.standardMD ? `${formData.standardMD} M/D` : '-']] : []),
                   ['로고 URL', formData.iconUrl || '-'],

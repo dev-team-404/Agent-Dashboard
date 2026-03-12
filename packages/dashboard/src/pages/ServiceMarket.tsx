@@ -16,7 +16,7 @@ interface MarketService {
   registeredByBusinessUnit?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
-  serviceCategory?: string;
+  serviceCategory?: string[];
   jiraTicket?: string;
   createdAt?: string;
   _count?: { usageLogs: number; userServices: number; serviceModels: number };
@@ -229,10 +229,14 @@ export default function ServiceMarket() {
                   </p>
 
                   {/* Category */}
-                  {service.serviceCategory && (
-                    <span className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded mb-2">
-                      {service.serviceCategory}
-                    </span>
+                  {service.serviceCategory && service.serviceCategory.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {service.serviceCategory.map(cat => (
+                        <span key={cat} className="inline-block px-2 py-0.5 text-[10px] font-medium text-gray-500 bg-gray-100 rounded">
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
                   )}
 
                   {/* Stats */}

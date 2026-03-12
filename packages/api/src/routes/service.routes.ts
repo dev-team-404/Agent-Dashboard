@@ -117,7 +117,7 @@ const createServiceSchema = z.object({
   type: z.enum(['STANDARD', 'BACKGROUND']).default('STANDARD'),
   status: z.enum(['DEVELOPMENT', 'DEPLOYED']).default('DEVELOPMENT'),
   targetMM: z.number().min(0).max(9999).optional().nullable(),
-  serviceCategory: z.string().optional().nullable(),
+  serviceCategory: z.array(z.string()).optional().default([]),
   standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
 });
@@ -133,7 +133,7 @@ const updateServiceSchema = z.object({
   deployScope: z.enum(['ALL', 'BUSINESS_UNIT', 'TEAM']).optional(),
   deployScopeValue: z.array(z.string()).optional(),
   targetMM: z.number().min(0).max(9999).optional().nullable(),
-  serviceCategory: z.string().optional().nullable(),
+  serviceCategory: z.array(z.string()).optional().default([]),
   standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
 });
