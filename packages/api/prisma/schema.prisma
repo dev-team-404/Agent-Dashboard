@@ -158,7 +158,7 @@ model Model {
   // 공개 범위
   visibility      LlmVisibility @default(PUBLIC)
   visibilityScope String[]      @default([]) @map("visibility_scope")
-  // PUBLIC: [] (전체), BUSINESS_UNIT: ["S.LSI","DS"], TEAM: ["SW혁신팀(S.LSI)"], ADMIN_ONLY: []
+  // PUBLIC: [] (전체), BUSINESS_UNIT: ["S.LSI","DS"], TEAM: ["S/W혁신팀(S.LSI)"], ADMIN_ONLY: []
   adminVisible    Boolean       @default(false) @map("admin_visible")
   // true: 팀/사업부 공개와 별도로 모든 관리자(ADMIN+SUPER_ADMIN)도 접근 가능
 

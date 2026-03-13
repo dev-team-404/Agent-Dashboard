@@ -385,7 +385,7 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
 
 /**
  * 특정 서비스 + 부서의 Top K 사용자 (토큰 + API 호출 수)
- * deptname 형식: "팀명(사업부)" 예) "SW혁신팀(S.LSI)"
+ * deptname 형식: "팀명(사업부)" 예) "S/W혁신팀(S.LSI)"
  * topK보다 사용자가 적으면 존재하는 만큼만 반환
  */
 publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) => {
@@ -404,7 +404,7 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
 
     const deptname = req.query['deptname'] as string | undefined;
     if (!deptname) {
-      res.status(400).json({ error: 'deptname은 필수 파라미터입니다. (형식: 팀명(사업부), 예: SW혁신팀(S.LSI))' });
+      res.status(400).json({ error: 'deptname은 필수 파라미터입니다. (형식: 팀명(사업부), 예: S/W혁신팀(S.LSI))' });
       return;
     }
 

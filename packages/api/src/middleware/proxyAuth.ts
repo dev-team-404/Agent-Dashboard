@@ -96,7 +96,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   if (!deptNameHeader) {
     res.status(401).json({
       error: 'x-dept-name header is required',
-      message: 'All API calls must include x-dept-name header. Format: "팀명(사업부)" e.g., "SW혁신팀(S.LSI)"',
+      message: 'All API calls must include x-dept-name header. Format: "팀명(사업부)" e.g., "S/W혁신팀(S.LSI)"',
     });
     return;
   }

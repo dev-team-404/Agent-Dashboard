@@ -305,11 +305,11 @@ LLM 응답 예시:
 ## 예시: 한 건의 API 호출이 만드는 DB 레코드
 
 ```sql
--- 사용자 hong.gildong이 test-service를 통해 gpt-4o 호출
+-- 사용자 gildong.hong이 test-service를 통해 gpt-4o 호출
 
 -- 1. User (upsert - 이미 있으면 lastActive만 갱신)
-UPDATE users SET last_active = NOW(), deptname = 'SW혁신팀(S.LSI)'
-WHERE loginid = 'hong.gildong';
+UPDATE users SET last_active = NOW(), deptname = 'S/W혁신팀(S.LSI)'
+WHERE loginid = 'gildong.hong';
 
 -- 2. UsageLog (항상 INSERT)
 INSERT INTO usage_logs (
@@ -318,10 +318,10 @@ INSERT INTO usage_logs (
   latency_ms, timestamp
 ) VALUES (
   'uuid-xxx',
-  'user-uuid',           -- hong.gildong의 User.id
+  'user-uuid',           -- gildong.hong의 User.id
   'model-uuid',          -- gpt-4o의 Model.id
   'service-uuid',        -- test-service의 Service.id
-  'SW혁신팀(S.LSI)',
+  'S/W혁신팀(S.LSI)',
   1500,                  -- prompt_tokens
   800,                   -- completion_tokens
   2300,                  -- total
@@ -339,5 +339,5 @@ DO UPDATE SET last_active = NOW(), request_count = request_count + 1;
 -- HINCRBY daily_usage:2026-03-09 requests 1
 -- HINCRBY daily_usage:2026-03-09 inputTokens 1500
 -- HINCRBY daily_usage:2026-03-09 outputTokens 800
--- ZADD active_users <timestamp> hong.gildong
+-- ZADD active_users <timestamp> gildong.hong
 ```

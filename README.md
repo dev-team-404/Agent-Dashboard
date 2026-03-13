@@ -79,7 +79,7 @@ curl http://localhost:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: user.loginid" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
@@ -89,7 +89,7 @@ curl http://localhost:8090/v1/chat/completions \
 curl http://localhost:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: batch-service" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 

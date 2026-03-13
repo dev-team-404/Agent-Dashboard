@@ -40,7 +40,7 @@ API_BASE = os.getenv("API_BASE", "http://localhost:8090/api")
 PROXY_BASE = os.getenv("PROXY_BASE", "http://localhost:8090/v1")
 JWT_SECRET = os.getenv("JWT_SECRET", "your-jwt-secret-change-in-production")
 SUPER_ADMIN_LOGINID = "syngha.han"
-SUPER_ADMIN_DEPT = "SW혁신팀(S.LSI)"
+SUPER_ADMIN_DEPT = "S/W혁신팀(S.LSI)"
 
 NUM_SERVICES = 50
 NUM_USERS = 1000
@@ -63,7 +63,7 @@ TEST_MODELS = [
 VISIBILITY_MODELS = [
     {"name": "vis-public", "displayName": "Public Model", "visibility": "PUBLIC"},
     {"name": "vis-bu-only", "displayName": "BU-Only Model", "visibility": "BUSINESS_UNIT", "visibilityScope": ["S.LSI"]},
-    {"name": "vis-team-only", "displayName": "Team-Only Model", "visibility": "TEAM", "visibilityScope": ["SW혁신팀(S.LSI)"]},
+    {"name": "vis-team-only", "displayName": "Team-Only Model", "visibility": "TEAM", "visibilityScope": ["S/W혁신팀(S.LSI)"]},
     {"name": "vis-admin-only", "displayName": "Admin-Only Model", "visibility": "ADMIN_ONLY"},
     {"name": "vis-super-only", "displayName": "SuperAdmin-Only Model", "visibility": "SUPER_ADMIN_ONLY"},
 ]
@@ -438,7 +438,7 @@ async def test_visibility(session: aiohttp.ClientSession, results: TestResults):
     # Test 2: Regular admin visibility
     # First, register test.admin as a user, then promote to ADMIN via super admin API
     admin_login = "test.admin.stress"
-    admin_dept = "SW혁신팀(S.LSI)"
+    admin_dept = "S/W혁신팀(S.LSI)"
     admin_token = make_token(admin_login, admin_dept, "TestAdmin")
     admin_headers_auth = {"Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
 
@@ -474,14 +474,14 @@ async def test_visibility(session: aiohttp.ClientSession, results: TestResults):
     except:
         admin_headers = admin_headers_auth
 
-    print("  Testing Admin (SW혁신팀) visibility...")
+    print("  Testing Admin (S/W혁신팀) visibility...")
     try:
         async with session.get(f"{API_BASE}/models", headers=admin_headers) as resp:
             data = await resp.json()
             models = data.get("models", [])
             vis_names = {m["name"] for m in models}
 
-            # Should see: PUBLIC, BU(S.LSI), TEAM(SW혁신팀), ADMIN_ONLY
+            # Should see: PUBLIC, BU(S.LSI), TEAM(S/W혁신팀), ADMIN_ONLY
             for vm in VISIBILITY_MODELS:
                 should_see = vm["visibility"] in ["PUBLIC", "BUSINESS_UNIT", "TEAM", "ADMIN_ONLY"]
                 found = vm["name"] in vis_names
@@ -505,7 +505,7 @@ async def test_visibility(session: aiohttp.ClientSession, results: TestResults):
             proxy_headers = {
                 "x-service-id": svc_name,
                 "x-user-id": "test.user",
-                "x-dept-name": "SW혁신팀(S.LSI)",
+                "x-dept-name": "S/W혁신팀(S.LSI)",
                 "Content-Type": "application/json",
             }
             try:
@@ -562,7 +562,7 @@ async def test_visibility(session: aiohttp.ClientSession, results: TestResults):
                 proxy_headers = {
                     "x-service-id": admin_svc_name,
                     "x-user-id": "test.user",
-                    "x-dept-name": "SW혁신팀(S.LSI)",
+                    "x-dept-name": "S/W혁신팀(S.LSI)",
                     "Content-Type": "application/json",
                 }
                 try:
@@ -571,7 +571,7 @@ async def test_visibility(session: aiohttp.ClientSession, results: TestResults):
                         headers=proxy_headers,
                         json={"model": vm["name"], "messages": [{"role": "user", "content": "test"}]}
                     ) as resp:
-                        # Admin (SW혁신팀(S.LSI)) → can see PUBLIC, BU(S.LSI), TEAM(SW혁신팀), ADMIN_ONLY
+                        # Admin (S/W혁신팀(S.LSI)) → can see PUBLIC, BU(S.LSI), TEAM(S/W혁신팀), ADMIN_ONLY
                         # Cannot see: SUPER_ADMIN_ONLY
                         should_work = vm["visibility"] in ["PUBLIC", "BUSINESS_UNIT", "TEAM", "ADMIN_ONLY"]
                         worked = resp.status == 200
@@ -633,7 +633,7 @@ async def test_concurrent_proxy(session: aiohttp.ClientSession, results: TestRes
     # Generate user identities
     users = []
     depts = [
-        "SW혁신팀(S.LSI)", "AI Platform팀(S.LSI)", "설계혁신팀(DS)",
+        "S/W혁신팀(S.LSI)", "AI Platform팀(S.LSI)", "설계혁신팀(DS)",
         "데이터분석팀(DX)", "보안기술팀(S.LSI)", "클라우드팀(DS)",
         "QA팀(S.LSI)", "DevOps팀(DS)", "연구개발팀(DX)", "전략기획팀(S.LSI)",
     ]

@@ -153,7 +153,7 @@ cmd_init() {
 
   # Blue 먼저 (DB 마이그레이션 실행)
   log "2/4 Blue 슬롯 빌드 + 시작"
-  docker compose build api-blue dashboard-blue
+  docker compose build --no-cache api-blue dashboard-blue
   docker compose up -d api-blue dashboard-blue
   wait_healthy api-blue 90
   wait_healthy dashboard-blue 30
@@ -161,15 +161,15 @@ cmd_init() {
 
   # Green (Blue가 마이그레이션 완료 후)
   log "3/4 Green 슬롯 빌드 + 시작"
-  docker compose build api-green dashboard-green
+  docker compose build --no-cache api-green dashboard-green
   docker compose up -d api-green dashboard-green
   wait_healthy api-green 90
   wait_healthy dashboard-green 30
   echo ""
 
-  # Nginx
-  log "4/4 Nginx 빌드 + 시작"
-  docker compose build nginx
+  # Nginx + docs-site
+  log "4/4 Nginx(docs 포함) 빌드 + 시작"
+  docker compose build --no-cache nginx
   docker compose up -d nginx
   echo ""
 
@@ -206,14 +206,22 @@ cmd_deploy() {
   # ──────────────────────────────────────────
   # Step 1: 비활성 슬롯 빌드 (기존 서비스 계속 운영)
   # ──────────────────────────────────────────
-  log "Step 1/5: ${INACTIVE} 슬롯 이미지 빌드 (서비스 중단 없음)"
-  docker compose build "api-${INACTIVE}" "dashboard-${INACTIVE}"
+  log "Step 1/6: ${INACTIVE} 슬롯 이미지 빌드 (서비스 중단 없음)"
+  docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}"
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 2: 비활성 슬롯 컨테이너 재시작 + 헬스체크
+  # Step 2: Nginx + docs-site 재빌드
   # ──────────────────────────────────────────
-  log "Step 2/5: ${INACTIVE} 슬롯 컨테이너 재시작"
+  log "Step 2/6: Nginx(docs 포함) 재빌드"
+  docker compose build --no-cache nginx
+  docker compose up -d nginx
+  echo ""
+
+  # ──────────────────────────────────────────
+  # Step 3: 비활성 슬롯 컨테이너 재시작 + 헬스체크
+  # ──────────────────────────────────────────
+  log "Step 3/6: ${INACTIVE} 슬롯 컨테이너 재시작"
   docker compose up -d "api-${INACTIVE}" "dashboard-${INACTIVE}"
 
   if ! wait_healthy "api-${INACTIVE}" 90; then
@@ -227,9 +235,9 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 3: 트래픽 전환 (nginx reload, 다운타임 0)
+  # Step 4: 트래픽 전환 (nginx reload, 다운타임 0)
   # ──────────────────────────────────────────
-  log "Step 3/5: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
+  log "Step 4/6: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
 
   if ! switch_upstream "$INACTIVE"; then
     err "nginx reload 실패"
@@ -239,10 +247,10 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 4: 구 활성 슬롯(이제 비활성) 업데이트
+  # Step 5: 구 활성 슬롯(이제 비활성) 업데이트
   # ──────────────────────────────────────────
-  log "Step 4/5: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
-  docker compose build "api-${ACTIVE}" "dashboard-${ACTIVE}"
+  log "Step 5/6: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
+  docker compose build --no-cache "api-${ACTIVE}" "dashboard-${ACTIVE}"
   docker compose up -d "api-${ACTIVE}" "dashboard-${ACTIVE}"
 
   if ! wait_healthy "api-${ACTIVE}" 90; then
@@ -252,7 +260,7 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 5: 상태 저장 + 결과
+  # Step 6: 상태 저장 + 결과
   # ──────────────────────────────────────────
   echo "$INACTIVE" > "$STATE_FILE"
 
