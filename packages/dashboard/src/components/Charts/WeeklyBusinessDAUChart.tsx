@@ -16,6 +16,14 @@ interface ServiceInfo {
   id: string;
   name: string;
   displayName: string;
+  type?: string;
+}
+
+interface EstimationMeta {
+  callsPerPersonPerDay: number;
+  standardAvgDailyDAU: number;
+  standardAvgDailyCalls: number;
+  businessDays: number;
 }
 
 interface ChartDataItem {
@@ -52,6 +60,7 @@ export default function WeeklyBusinessDAUChart() {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(90);
   const [granularity, setGranularity] = useState<Granularity>('daily');
+  const [estimationMeta, setEstimationMeta] = useState<EstimationMeta | null>(null);
 
   useEffect(() => {
     loadData();
@@ -63,6 +72,7 @@ export default function WeeklyBusinessDAUChart() {
       const response = await statsApi.weeklyBusinessDau(days, granularity);
       setServices(response.data.services);
       setChartData(response.data.chartData);
+      setEstimationMeta(response.data.estimationMeta || null);
     } catch (error) {
       console.error('Failed to load business DAU data:', error);
     } finally {
@@ -198,20 +208,44 @@ export default function WeeklyBusinessDAUChart() {
         </div>
       </div>
 
+      {/* Estimation baseline info */}
+      {estimationMeta && estimationMeta.callsPerPersonPerDay > 0 && (
+        <div className="text-xs text-gray-400 text-right mb-4 space-y-0.5">
+          <div>
+            <span>1인당 하루 평균: <strong className="text-gray-600">{estimationMeta.callsPerPersonPerDay}건</strong></span>
+            <span className="mx-2">|</span>
+            <span>STANDARD 평균 DAU: <strong className="text-gray-600">{estimationMeta.standardAvgDailyDAU}명</strong></span>
+            <span className="mx-2">|</span>
+            <span>영업일: <strong className="text-gray-600">{estimationMeta.businessDays}일</strong></span>
+          </div>
+          <div className="flex items-center gap-1 justify-end text-gray-400">
+            <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
+            <span>= 추정 (BACKGROUND)</span>
+            <span className="mx-1">|</span>
+            <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
+            <span>= 실측 (STANDARD)</span>
+          </div>
+        </div>
+      )}
+
       {/* Service Stats Summary */}
       {topServices.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
           {topServices.map((service, index) => {
             const stats = serviceStats[service.id];
+            const isBg = service.type === 'BACKGROUND';
             return (
               <div
                 key={service.id}
                 className="p-3 bg-gray-50 rounded-lg border-l-4"
                 style={{ borderLeftColor: SERVICE_COLORS[index % SERVICE_COLORS.length] }}
               >
-                <p className="text-xs text-gray-500 truncate">{service.displayName}</p>
+                <p className="text-xs text-gray-500 truncate">
+                  {service.displayName}
+                  {isBg && <span className="ml-1 text-[10px] text-amber-500">(추정)</span>}
+                </p>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-lg font-bold text-gray-900">{stats?.latest || 0}</p>
+                  <p className="text-lg font-bold text-gray-900">{isBg ? '≈' : ''}{stats?.latest || 0}</p>
                   <p className="text-xs text-gray-400">최근</p>
                 </div>
                 <p className="text-[10px] text-gray-400">평균: {stats?.avg || 0} / 최대: {stats?.max || 0}</p>
@@ -245,22 +279,47 @@ export default function WeeklyBusinessDAUChart() {
                 allowDecimals={false}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: '#fff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                }}
-                formatter={(value: number, name: string) => {
-                  const service = services.find((s) => s.id === name);
-                  return [`${value}명`, service?.displayName || name];
-                }}
-                labelFormatter={(label) => {
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || payload.length === 0) return null;
                   const date = new Date(label);
-                  if (granularity === 'daily') {
-                    return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
-                  }
-                  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 주`;
+                  const dateLabel = granularity === 'daily'
+                    ? `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`
+                    : `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 주`;
+                  return (
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+                      <div className="font-semibold text-gray-800 mb-2 pb-2 border-b border-gray-100">{dateLabel}</div>
+                      <div className="space-y-1.5">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {payload.map((entry: any) => {
+                          const svcId = String(entry.dataKey || '');
+                          const svc = services.find(s => s.id === svcId);
+                          const displayName = svc?.displayName || svcId;
+                          const isBg = svc?.type === 'BACKGROUND';
+                          const value = entry.value ?? 0;
+                          const cpd = estimationMeta?.callsPerPersonPerDay;
+                          return (
+                            <div key={svcId}>
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                                <span className="text-gray-700">{displayName}:</span>
+                                <span className="font-semibold text-gray-900">
+                                  {isBg ? `≈${value}명` : `${value}명`}
+                                </span>
+                                <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
+                                  ({isBg ? '추정' : '실측'})
+                                </span>
+                              </div>
+                              {isBg && cpd && value > 0 && (
+                                <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
+                                  해당일 호출 {Math.round(value * cpd).toLocaleString()}회 &divide; 1인당 평균 {cpd}회 = {value}명
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
                 }}
               />
               <Legend
@@ -277,6 +336,7 @@ export default function WeeklyBusinessDAUChart() {
                   name={service.id}
                   stroke={SERVICE_COLORS[index % SERVICE_COLORS.length]}
                   strokeWidth={2}
+                  strokeDasharray={service.type === 'BACKGROUND' ? '5 3' : undefined}
                   dot={{ r: granularity === 'daily' ? 2 : 3, strokeWidth: 2 }}
                   activeDot={{ r: 5 }}
                 />

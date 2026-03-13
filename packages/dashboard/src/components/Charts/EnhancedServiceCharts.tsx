@@ -86,7 +86,16 @@ export default function EnhancedServiceCharts() {
   const [loading, setLoading] = useState(true);
   const [cumUsersData, setCumUsersData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [cumTokensData, setCumTokensData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
-  const [dauData, setDauData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
+  const [dauData, setDauData] = useState<{
+    data: Record<string, unknown>[];
+    serviceTypeMap?: Record<string, string>;
+    estimationMeta?: {
+      callsPerPersonPerDay: number;
+      standardAvgDailyDAU: number;
+      standardAvgDailyCalls: number;
+      businessDays: number;
+    } | null;
+  }>({ data: [] });
   const [requestsData, setRequestsData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [deptUsageData, setDeptUsageData] = useState<{ data: { serviceName: string; deptname: string; totalTokens: number; requestCount: number }[] }>({ data: [] });
   const [mauData, setMauData] = useState<{
@@ -124,7 +133,7 @@ export default function EnhancedServiceCharts() {
       ]);
       setCumUsersData(cumUsersRes.data);
       setCumTokensData(cumTokensRes.data);
-      setDauData(dauRes.data);
+      setDauData({ data: dauRes.data.data || [], serviceTypeMap: dauRes.data.serviceTypeMap, estimationMeta: dauRes.data.estimationMeta || null });
       setRequestsData(requestsRes.data);
       setDeptUsageData(deptRes.data);
       setMauData({ monthlyData: mauRes.data.monthlyData || [], services: mauRes.data.services || [], estimationMeta: mauRes.data.estimationMeta || null });
@@ -197,6 +206,94 @@ export default function EnhancedServiceCharts() {
               />
             ))}
           </AreaChart>
+        </ResponsiveContainer>
+        <OverflowTable data={data} keys={rest} label="요약" />
+      </>
+    );
+  };
+
+  const renderDauChart = () => {
+    const { data, serviceTypeMap, estimationMeta } = dauData;
+    if (data.length === 0) return <EmptyState />;
+    const { top, rest } = rankServiceKeys(data, 10);
+    const hasBg = top.some(k => serviceTypeMap?.[k] === 'BACKGROUND');
+    return (
+      <>
+        {hasBg && estimationMeta && estimationMeta.callsPerPersonPerDay > 0 && (
+          <div className="text-xs text-gray-400 text-right mb-3 space-y-0.5">
+            <div>
+              <span>1인당 하루 평균: <strong className="text-gray-600">{estimationMeta.callsPerPersonPerDay}건</strong></span>
+              <span className="mx-2">|</span>
+              <span>STANDARD 평균 DAU: <strong className="text-gray-600">{estimationMeta.standardAvgDailyDAU}명</strong></span>
+              <span className="mx-2">|</span>
+              <span>영업일: <strong className="text-gray-600">{estimationMeta.businessDays}일</strong></span>
+            </div>
+            <div className="flex items-center gap-1 justify-end text-gray-400">
+              <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
+              <span>= 추정 (BACKGROUND)</span>
+              <span className="mx-1">|</span>
+              <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
+              <span>= 실측 (STANDARD)</span>
+            </div>
+          </div>
+        )}
+        <ResponsiveContainer width="100%" height={360}>
+          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 11 }} />
+            <YAxis tickFormatter={formatNum} tick={{ fontSize: 11 }} />
+            <Tooltip
+              content={({ active, payload, label }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                return (
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+                    <div className="font-semibold text-gray-800 mb-2 pb-2 border-b border-gray-100">{label}</div>
+                    <div className="space-y-1.5">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {payload.map((entry: any) => {
+                        const key = String(entry.dataKey || '');
+                        const isBg = serviceTypeMap?.[key] === 'BACKGROUND';
+                        const value = entry.value ?? 0;
+                        const cpd = estimationMeta?.callsPerPersonPerDay;
+                        return (
+                          <div key={key}>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                              <span className="text-gray-700">{key}:</span>
+                              <span className="font-semibold text-gray-900">
+                                {isBg ? `≈${value}명` : `${value}명`}
+                              </span>
+                              <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
+                                ({isBg ? '추정' : '실측'})
+                              </span>
+                            </div>
+                            {isBg && cpd && value > 0 && (
+                              <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
+                                해당일 호출 {Math.round(value * cpd).toLocaleString()}회 &divide; 1인당 평균 {cpd}회 = {value}명
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {top.map((key, i) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={COLORS[i % COLORS.length]}
+                strokeWidth={2}
+                strokeDasharray={serviceTypeMap?.[key] === 'BACKGROUND' ? '5 3' : undefined}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            ))}
+          </LineChart>
         </ResponsiveContainer>
         <OverflowTable data={data} keys={rest} label="요약" />
       </>
@@ -426,7 +523,7 @@ export default function EnhancedServiceCharts() {
           <>
             {tab === 'cumUsers' && renderLineChart(cumUsersData.data)}
             {tab === 'cumTokens' && renderAreaChart(cumTokensData.data)}
-            {tab === 'dau' && renderLineChart(dauData.data)}
+            {tab === 'dau' && renderDauChart()}
             {tab === 'mau' && renderMauChart()}
             {tab === 'requests' && renderAreaChart(requestsData.data)}
             {tab === 'deptUsage' && renderDeptUsageChart()}

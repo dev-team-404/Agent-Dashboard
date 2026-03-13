@@ -3459,16 +3459,52 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    // Get all enabled services
+    // Get all enabled services (include type for BACKGROUND estimation)
     const services = await prisma.service.findMany({
       where: { enabled: true },
-      select: { id: true, name: true, displayName: true },
+      select: { id: true, name: true, displayName: true, type: true },
     });
 
     const serviceIds = services.map((s) => s.id);
+    const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+    const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+
+    // STANDARD baseline: 1인당 하루 평균 호출 수 (해당 기간 영업일 기준)
+    const [baselineDailyRes, baselineDauRes] = await Promise.all([
+      prisma.$queryRaw<Array<{ avg_daily_calls: number; business_days: bigint }>>`
+        WITH daily_calls AS (
+          SELECT DATE(timestamp) as d, COUNT(*) as cnt
+          FROM usage_logs
+          WHERE timestamp >= ${startDate}
+            AND service_id::text = ANY(${standardServiceIds})
+            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+          GROUP BY DATE(timestamp)
+        )
+        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+      `,
+      prisma.$queryRaw<Array<{ avg_daily_dau: number }>>`
+        WITH daily_dau AS (
+          SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ANY(${standardServiceIds})
+            AND u.loginid != 'anonymous'
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY DATE(ul.timestamp)
+        )
+        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+      `,
+    ]);
+
+    const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+    const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+    const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+    const businessDaysUsed = Number(baselineDailyRes[0]?.business_days || 0);
 
     if (granularity === 'daily') {
-      // Daily DAU per service (business days only)
+      // Daily DAU per service (business days only) — STANDARD
       const dailyStats = await prisma.$queryRaw<
         Array<{
           service_id: string;
@@ -3493,9 +3529,27 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         ORDER BY log_date ASC, service_id
       `;
 
+      // BACKGROUND services: daily total API calls (영업일)
+      const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw<
+        Array<{ service_id: string; log_date: Date; call_count: bigint }>
+      >`
+        SELECT
+          service_id::text as service_id,
+          DATE(timestamp) as log_date,
+          COUNT(*) as call_count
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+          AND service_id::text = ANY(${backgroundServiceIds})
+          AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+        GROUP BY service_id, DATE(timestamp)
+        ORDER BY log_date ASC
+      ` : [];
+
       // Process into chart data format
       const dateMap = new Map<string, Record<string, number>>();
 
+      // Collect all dates from STANDARD
       for (const stat of dailyStats) {
         const dateStr = formatDateToString(stat.log_date);
         if (!dateMap.has(dateStr)) {
@@ -3507,11 +3561,38 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         }
       }
 
+      // Also collect dates from BACKGROUND
+      for (const stat of bgDailyStats) {
+        const dateStr = formatDateToString(stat.log_date);
+        if (!dateMap.has(dateStr)) {
+          const initialData: Record<string, number> = {};
+          for (const serviceId of serviceIds) {
+            initialData[serviceId] = 0;
+          }
+          dateMap.set(dateStr, initialData);
+        }
+      }
+
+      // Fill STANDARD DAU (실측)
       for (const stat of dailyStats) {
         const dateStr = formatDateToString(stat.log_date);
         const existing = dateMap.get(dateStr);
         if (existing && serviceIds.includes(stat.service_id)) {
           existing[stat.service_id] = Number(stat.user_count);
+        }
+      }
+
+      // Fill BACKGROUND estimated DAU
+      const bgDailyDetailMap = new Map<string, number>(); // "serviceId|date" → dailyCalls
+      if (callsPerPersonPerDay > 0) {
+        for (const stat of bgDailyStats) {
+          const dateStr = formatDateToString(stat.log_date);
+          const existing = dateMap.get(dateStr);
+          const dailyCalls = Number(stat.call_count);
+          if (existing) {
+            existing[stat.service_id] = Math.round(dailyCalls / callsPerPersonPerDay);
+          }
+          bgDailyDetailMap.set(`${stat.service_id}|${dateStr}`, dailyCalls);
         }
       }
 
@@ -3523,12 +3604,18 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         }));
 
       res.json({
-        services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+        services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
         chartData,
         granularity,
+        estimationMeta: {
+          callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+          standardAvgDailyDAU: Math.round(avgDailyDau),
+          standardAvgDailyCalls: Math.round(avgDailyCalls),
+          businessDays: businessDaysUsed,
+        },
       });
     } else {
-      // Weekly average DAU
+      // Weekly average DAU — STANDARD
       const weeklyStats = await prisma.$queryRaw<
         Array<{
           service_id: string;
@@ -3564,6 +3651,28 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         ORDER BY week_start ASC, service_id
       `;
 
+      // BACKGROUND services: weekly average daily calls (영업일)
+      const bgWeeklyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw<
+        Array<{ service_id: string; week_start: Date; avg_daily_calls: number }>
+      >`
+        WITH daily_calls AS (
+          SELECT
+            service_id::text as service_id,
+            DATE_TRUNC('week', timestamp)::date as week_start,
+            DATE(timestamp) as d,
+            COUNT(*) as cnt
+          FROM usage_logs
+          WHERE timestamp >= ${startDate}
+            AND service_id::text = ANY(${backgroundServiceIds})
+            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+          GROUP BY service_id, DATE_TRUNC('week', timestamp), DATE(timestamp)
+        )
+        SELECT service_id, week_start, COALESCE(AVG(cnt), 0)::float as avg_daily_calls
+        FROM daily_calls GROUP BY service_id, week_start
+        ORDER BY week_start ASC
+      ` : [];
+
       // Process into chart data format
       const weekMap = new Map<string, Record<string, number>>();
 
@@ -3578,11 +3687,34 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         }
       }
 
+      for (const stat of bgWeeklyStats) {
+        const weekStr = formatDateToString(stat.week_start);
+        if (!weekMap.has(weekStr)) {
+          const initialData: Record<string, number> = {};
+          for (const serviceId of serviceIds) {
+            initialData[serviceId] = 0;
+          }
+          weekMap.set(weekStr, initialData);
+        }
+      }
+
+      // Fill STANDARD (실측)
       for (const stat of weeklyStats) {
         const weekStr = formatDateToString(stat.week_start);
         const existing = weekMap.get(weekStr);
         if (existing && serviceIds.includes(stat.service_id)) {
           existing[stat.service_id] = Math.round(stat.avg_daily_users);
+        }
+      }
+
+      // Fill BACKGROUND (추정)
+      if (callsPerPersonPerDay > 0) {
+        for (const stat of bgWeeklyStats) {
+          const weekStr = formatDateToString(stat.week_start);
+          const existing = weekMap.get(weekStr);
+          if (existing) {
+            existing[stat.service_id] = Math.round(stat.avg_daily_calls / callsPerPersonPerDay);
+          }
         }
       }
 
@@ -3594,9 +3726,15 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
         }));
 
       res.json({
-        services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+        services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
         chartData,
         granularity,
+        estimationMeta: {
+          callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+          standardAvgDailyDAU: Math.round(avgDailyDau),
+          standardAvgDailyCalls: Math.round(avgDailyCalls),
+          businessDays: businessDaysUsed,
+        },
       });
     }
   } catch (error) {
@@ -4312,13 +4450,16 @@ adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
 
-    // Get all enabled services
+    // Get all enabled services (include type for BACKGROUND estimation)
     const services = await prisma.service.findMany({
       where: { enabled: true },
-      select: { id: true, name: true, displayName: true },
+      select: { id: true, name: true, displayName: true, type: true },
     });
 
-    // Count distinct userIds per (date, service) from DailyUsageStat
+    const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+    const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+
+    // STANDARD DAU: Count distinct userIds per (date, service)
     const dauStats = await prisma.$queryRaw<
       Array<{ date: Date | string; service_id: string; dau: bigint }>
     >`
@@ -4334,6 +4475,51 @@ adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest
       ORDER BY date ASC
     `;
 
+    // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
+    const [baselineDailyRes, baselineDauRes] = await Promise.all([
+      prisma.$queryRaw<Array<{ avg_daily_calls: number; business_days: bigint }>>`
+        WITH daily_calls AS (
+          SELECT date, SUM("requestCount") as cnt
+          FROM daily_usage_stats
+          WHERE service_id::text = ANY(${standardServiceIds})
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
+        )
+        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+      `,
+      prisma.$queryRaw<Array<{ avg_daily_dau: number }>>`
+        WITH daily_dau AS (
+          SELECT date, COUNT(DISTINCT user_id) as dau
+          FROM daily_usage_stats
+          WHERE service_id::text = ANY(${standardServiceIds})
+            AND user_id IS NOT NULL
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
+        )
+        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+      `,
+    ]);
+
+    const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+    const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+    const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+
+    // BACKGROUND services: daily total calls (all days)
+    const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw<
+      Array<{ date: Date | string; service_id: string; total_calls: bigint }>
+    >`
+      SELECT date, service_id::text as service_id, SUM("requestCount") as total_calls
+      FROM daily_usage_stats
+      WHERE service_id::text = ANY(${backgroundServiceIds})
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
+    ` : [];
+
     // Build date range
     const dateRange: string[] = [];
     const endDate = new Date(now);
@@ -4348,7 +4534,18 @@ adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest
       dauMap.set(`${row.service_id}|${dateStr}`, Number(row.dau));
     }
 
-    // Build chart data
+    // Build BG lookup: "serviceId|date" -> daily calls
+    const bgCallsMap = new Map<string, number>();
+    if (callsPerPersonPerDay > 0) {
+      for (const row of bgDailyStats) {
+        const dateStr = formatDateToString(row.date);
+        const totalCalls = Number(row.total_calls);
+        dauMap.set(`${row.service_id}|${dateStr}`, Math.round(totalCalls / callsPerPersonPerDay));
+        bgCallsMap.set(`${row.service_id}|${dateStr}`, totalCalls);
+      }
+    }
+
+    // Build chart data (uses displayName as keys)
     const data = dateRange.map(date => {
       const row: Record<string, string | number> = { date };
       for (const s of services) {
@@ -4357,9 +4554,22 @@ adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest
       return row;
     });
 
+    // displayName → type lookup for frontend
+    const serviceTypeMap: Record<string, string> = {};
+    for (const s of services) {
+      serviceTypeMap[s.displayName] = s.type;
+    }
+
     res.json({
       data,
-      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+      services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+      serviceTypeMap,
+      estimationMeta: {
+        callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+        standardAvgDailyDAU: Math.round(avgDailyDau),
+        standardAvgDailyCalls: Math.round(avgDailyCalls),
+        businessDays: Number(baselineDailyRes[0]?.business_days || 0),
+      },
     });
   } catch (error) {
     console.error('Get DAU by service error:', error);
