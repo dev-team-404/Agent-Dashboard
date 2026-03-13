@@ -231,6 +231,20 @@ export const ratingApi = {
   stats: (days = 30, serviceId?: string) => api.get('/rating/stats', { params: { days, serviceId } }),
 };
 
+// Knox 임직원 인증 API
+export const knoxApi = {
+  search: (loginid: string) => api.get('/admin/knox/search', { params: { loginid } }),
+  register: (loginid: string, role?: 'ADMIN' | 'SUPER_ADMIN') =>
+    api.post('/admin/knox/register', { loginid, role }),
+  resetVerification: (userId: string) =>
+    api.post(`/admin/knox/reset-verification/${userId}`),
+  listVerifications: (params?: {
+    page?: number; limit?: number; search?: string;
+    success?: string; method?: string;
+    startDate?: string; endDate?: string;
+  }) => api.get('/admin/knox-verifications', { params }),
+};
+
 // 통합 사용자 관리 API
 export interface UnifiedUserFilters {
   page?: number;

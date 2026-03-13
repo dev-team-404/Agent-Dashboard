@@ -75,14 +75,15 @@ model Service {
 // 사용자 모델
 // ============================================
 model User {
-  id           String   @id @default(uuid())
-  loginid      String   @unique
-  username     String
-  deptname     String   @default("")
-  businessUnit String?  @map("business_unit")
-  firstSeen    DateTime @default(now())
-  lastActive   DateTime @default(now())
-  isActive     Boolean  @default(true)
+  id            String   @id @default(uuid())
+  loginid       String   @unique
+  username      String
+  deptname      String   @default("")
+  businessUnit  String?  @map("business_unit")
+  knoxVerified  Boolean  @default(false) @map("knox_verified")
+  firstSeen     DateTime @default(now())
+  lastActive    DateTime @default(now())
+  isActive      Boolean  @default(true)
 
   usageLogs       UsageLog[]
   dailyUsageStats DailyUsageStat[]
@@ -90,6 +91,28 @@ model User {
   rateLimits      UserRateLimit[]
 
   @@map("users")
+}
+
+// ============================================
+// Knox 임직원 인증 이력
+// ============================================
+model KnoxVerification {
+  id              String   @id @default(uuid())
+  loginid         String
+  username        String   @default("")          // Knox API 에서 가져온 한글이름
+  knoxDeptName    String   @default("") @map("knox_dept_name")   // Knox API 에서 가져온 부서명
+  claimedDeptName String   @default("") @map("claimed_dept_name") // 요청 시 입력한 부서명 (x-dept-name)
+  method          String                          // PROXY | DASHBOARD | ADMIN_REGISTER
+  endpoint        String?                         // 접근 endpoint (e.g., /v1/chat/completions)
+  success         Boolean  @default(true)
+  errorMessage    String?  @map("error_message")
+  ipAddress       String?  @map("ip_address")
+  timestamp       DateTime @default(now())
+
+  @@index([loginid])
+  @@index([timestamp])
+  @@index([success])
+  @@map("knox_verifications")
 }
 
 // ============================================

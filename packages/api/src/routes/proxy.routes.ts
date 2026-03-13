@@ -17,6 +17,7 @@ import { validateProxyHeaders, ProxyAuthRequest } from '../middleware/proxyAuth.
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
+import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
 
 export const proxyRoutes = Router();
 
@@ -200,32 +201,75 @@ function safeDecodeURIComponent(text: string): string {
 }
 
 /**
- * 사용자 조회 또는 생성 (background가 아닌 경우만)
+ * 사용자 조회 또는 생성 + Knox 임직원 인증
+ *
+ * BACKGROUND 서비스: 인증 스킵
+ * STANDARD 서비스:
+ *   - DB에 있고 knoxVerified=true → DB deptname vs x-dept-name 비교 → 불일치 시 reject
+ *   - DB에 있고 knoxVerified=false → Knox API 호출 → 인증+부서검증 → 마킹
+ *   - DB에 없음 (최초) → Knox API 호출 → 인증+부서검증 → 생성+마킹
  */
-async function getOrCreateUser(proxyReq: ProxyAuthRequest) {
-  if (proxyReq.isBackground || !proxyReq.userLoginId) return null;
+async function getOrCreateUser(
+  proxyReq: ProxyAuthRequest,
+  endpoint?: string,
+): Promise<{ user: Awaited<ReturnType<typeof prisma.user.findUnique>> | null; error?: { status: number; body: Record<string, unknown> } }> {
+  if (proxyReq.isBackground || !proxyReq.userLoginId) return { user: null };
 
   const loginid = proxyReq.userLoginId;
   const deptname = proxyReq.deptName;
-  const businessUnit = proxyReq.businessUnit;
-  const username = safeDecodeURIComponent((proxyReq.headers['x-user-name'] as string) || loginid);
+  const ipAddress = proxyReq.ip || (proxyReq.headers['x-forwarded-for'] as string) || undefined;
 
-  const user = await prisma.user.upsert({
-    where: { loginid },
-    update: {
-      lastActive: new Date(),
-      deptname,
-      businessUnit,
-    },
-    create: {
-      loginid,
-      username,
-      deptname,
-      businessUnit,
-    },
-  });
+  // 1. DB에서 사용자 조회
+  const existingUser = await prisma.user.findUnique({ where: { loginid } });
 
-  return user;
+  if (existingUser && existingUser.knoxVerified) {
+    // ✅ 이미 Knox 인증 완료 → DB deptname vs 헤더 x-dept-name 비교
+    if (deptname && existingUser.deptname && deptname !== existingUser.deptname) {
+      // 팀명 fallback: "팀명(사업부)" 형식에서 팀명만 추출하여 비교
+      const extractTeamName = (d: string) => d.replace(/\(.*\)$/, '').trim();
+      const claimedTeam = extractTeamName(deptname);
+      const dbTeam = extractTeamName(existingUser.deptname);
+
+      if (claimedTeam !== dbTeam) {
+        return {
+          user: null,
+          error: {
+            status: 403,
+            body: {
+              error: 'Department mismatch',
+              message: `부서 정보가 등록된 정보와 다릅니다. 등록: "${existingUser.deptname}", 요청: "${deptname}". 부서 변경이 있었다면 관리자에게 재인증을 요청하세요.`,
+            },
+          },
+        };
+      }
+    }
+    // lastActive 업데이트
+    const user = await prisma.user.update({
+      where: { id: existingUser.id },
+      data: { lastActive: new Date() },
+    });
+    return { user };
+  }
+
+  // 2. 미인증 (knoxVerified=false) 또는 최초 사용자 → Knox API 인증
+  const result = await verifyAndRegisterUser(loginid, deptname, 'PROXY', endpoint, ipAddress);
+
+  if (!result.success) {
+    return {
+      user: null,
+      error: {
+        status: 403,
+        body: {
+          error: 'Knox verification failed',
+          message: result.error || '임직원 인증에 실패했습니다.',
+        },
+      },
+    };
+  }
+
+  // Knox 인증 성공 → user 리턴
+  const user = result.user ? await prisma.user.findUnique({ where: { id: result.user.id } }) : null;
+  return { user };
 }
 
 /**
@@ -574,8 +618,13 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
     // ServiceModel 관계가 있으면 접근 허용 (visibility는 모델 할당 시 검증)
 
-    // 사용자 upsert (background가 아닌 경우)
-    const user = await getOrCreateUser(proxyReq);
+    // 사용자 upsert + Knox 인증 (background가 아닌 경우)
+    const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/chat/completions');
+    if (knoxError) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: knoxError.status, latencyMs: Date.now() - reqStartTime, errorMessage: (knoxError.body as Record<string, string>).message, userAgent, ipAddress, stream: stream || false }).catch(() => {});
+      res.status(knoxError.status).json(knoxError.body);
+      return;
+    }
 
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
@@ -1023,8 +1072,12 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     }
     const model = resolved.model;
 
-    // 사용자 upsert
-    const user = await getOrCreateUser(proxyReq);
+    // 사용자 upsert + Knox 인증
+    const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/embeddings');
+    if (knoxError) {
+      res.status(knoxError.status).json(knoxError.body);
+      return;
+    }
 
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
@@ -1214,8 +1267,12 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     }
     const model = resolved.model;
 
-    // 사용자 upsert
-    const user = await getOrCreateUser(proxyReq);
+    // 사용자 upsert + Knox 인증
+    const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/rerank');
+    if (knoxError) {
+      res.status(knoxError.status).json(knoxError.body);
+      return;
+    }
 
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
@@ -1394,8 +1451,12 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
       return;
     }
 
-    // 사용자 upsert
-    const user = await getOrCreateUser(proxyReq);
+    // 사용자 upsert + Knox 인증
+    const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/images/generations');
+    if (knoxError) {
+      res.status(knoxError.status).json(knoxError.body);
+      return;
+    }
 
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);

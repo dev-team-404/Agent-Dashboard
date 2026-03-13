@@ -16,6 +16,7 @@ const ServiceMarket = lazy(() => import('./pages/ServiceMarket'));
 const MyServices = lazy(() => import('./pages/MyServices'));
 const RequestLogs = lazy(() => import('./pages/RequestLogs'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
+const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 
@@ -135,6 +136,7 @@ function App() {
               <Route path="/holidays" element={<Holidays />} />
               <Route path="/request-logs" element={<RequestLogs />} />
               <Route path="/audit-logs" element={<AuditLogs />} />
+              <Route path="/knox-verifications" element={<KnoxVerifications />} />
             </>
           )}
 

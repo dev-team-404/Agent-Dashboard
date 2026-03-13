@@ -14,6 +14,7 @@ import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { z } from 'zod';
+import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
 
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
@@ -5225,5 +5226,237 @@ adminRoutes.get('/stats/global/estimated-dau-mau', async (_req: AuthenticatedReq
   } catch (error) {
     console.error('Get estimated DAU/MAU error:', error);
     res.status(500).json({ error: 'Failed to get estimated DAU/MAU' });
+  }
+});
+
+// ==================== Knox 임직원 인증 관리 ====================
+
+/**
+ * GET /admin/knox/search?loginid=
+ * Knox ID로 임직원 검색 (관리자 사전 등록용)
+ */
+adminRoutes.get('/knox/search', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const loginid = (req.query['loginid'] as string || '').trim();
+    if (!loginid) {
+      res.status(400).json({ error: 'loginid 파라미터가 필요합니다.' });
+      return;
+    }
+
+    const employee = await lookupEmployee(loginid);
+    if (!employee) {
+      res.status(404).json({ error: `임직원 정보를 찾을 수 없습니다: ${loginid}` });
+      return;
+    }
+
+    // DB에 이미 등록되어 있는지 확인
+    const existingUser = await prisma.user.findUnique({ where: { loginid } });
+    const existingAdmin = await prisma.admin.findUnique({ where: { loginid } });
+
+    res.json({
+      employee: {
+        loginid: employee.userId,
+        fullName: employee.fullName,
+        enFullName: employee.enFullName,
+        departmentName: employee.departmentName,
+        enDepartmentName: employee.enDepartmentName,
+        companyName: employee.companyName,
+        titleName: employee.titleName,
+        gradeName: employee.gradeName,
+        emailAddress: employee.emailAddress,
+        employeeStatus: employee.employeeStatus === 'B' ? '재직' : '휴직',
+      },
+      existingUser: existingUser ? {
+        id: existingUser.id,
+        loginid: existingUser.loginid,
+        username: existingUser.username,
+        deptname: existingUser.deptname,
+        knoxVerified: existingUser.knoxVerified,
+      } : null,
+      existingAdmin: existingAdmin ? {
+        role: existingAdmin.role,
+        designatedBy: existingAdmin.designatedBy,
+      } : null,
+    });
+  } catch (error) {
+    console.error('Knox search error:', error);
+    res.status(500).json({ error: '임직원 검색에 실패했습니다.' });
+  }
+});
+
+/**
+ * POST /admin/knox/register
+ * Knox 확인 후 관리자 사전 등록
+ * Body: { loginid: string, role?: 'ADMIN' | 'SUPER_ADMIN' }
+ */
+adminRoutes.post('/knox/register', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { loginid, role } = req.body;
+    if (!loginid) {
+      res.status(400).json({ error: 'loginid가 필요합니다.' });
+      return;
+    }
+
+    const adminRole = role || 'ADMIN';
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(adminRole)) {
+      res.status(400).json({ error: 'role은 ADMIN 또는 SUPER_ADMIN이어야 합니다.' });
+      return;
+    }
+
+    const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || undefined;
+
+    // Knox API로 인증 + 사용자 생성
+    const result = await verifyAndRegisterUser(loginid, '', 'ADMIN_REGISTER', '/admin/knox/register', ipAddress);
+
+    if (!result.success || !result.user) {
+      res.status(400).json({ error: result.error || '임직원 인증에 실패했습니다.' });
+      return;
+    }
+
+    // Admin 레코드 생성/업데이트
+    const admin = await prisma.admin.upsert({
+      where: { loginid },
+      update: {
+        role: adminRole,
+        deptname: result.user.deptname,
+        businessUnit: extractBusinessUnit(result.user.deptname),
+        designatedBy: req.user!.loginid,
+      },
+      create: {
+        loginid,
+        role: adminRole,
+        deptname: result.user.deptname,
+        businessUnit: extractBusinessUnit(result.user.deptname),
+        designatedBy: req.user!.loginid,
+      },
+    });
+
+    recordAudit(req, 'KNOX_REGISTER_ADMIN', loginid, 'User', {
+      username: result.user.username,
+      role: adminRole,
+      knoxFullName: result.employee?.fullName,
+      knoxDept: result.employee?.departmentName,
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: `${result.user.username} (${loginid})을 ${adminRole}로 등록했습니다.`,
+      user: result.user,
+      admin: { role: admin.role, designatedBy: admin.designatedBy },
+    });
+  } catch (error) {
+    console.error('Knox register error:', error);
+    res.status(500).json({ error: '관리자 등록에 실패했습니다.' });
+  }
+});
+
+/**
+ * POST /admin/knox/reset-verification/:id
+ * 사용자 Knox 인증 초기화 (부서 변경 시 재인증 필요)
+ */
+adminRoutes.post('/knox/reset-verification/:id', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id },
+      data: { knoxVerified: false },
+    });
+
+    recordAudit(req, 'RESET_KNOX_VERIFICATION', user.loginid, 'User', { username: user.username }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: `${user.username} (${user.loginid})의 Knox 인증이 초기화되었습니다. 다음 접근 시 재인증됩니다.`,
+    });
+  } catch (error) {
+    console.error('Reset Knox verification error:', error);
+    res.status(500).json({ error: 'Knox 인증 초기화에 실패했습니다.' });
+  }
+});
+
+// ==================== Knox 인증 기록 ====================
+
+/**
+ * GET /admin/knox-verifications
+ * Knox 인증 기록 조회 (SUPER_ADMIN only)
+ * Query: ?page=, ?limit=, ?search=, ?success=, ?method=, ?startDate=, ?endDate=
+ */
+adminRoutes.get('/knox-verifications', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = Math.min(100, parseInt(req.query['limit'] as string) || 50);
+    const skip = (page - 1) * limit;
+    const search = req.query['search'] as string | undefined;
+    const success = req.query['success'] as string | undefined;
+    const method = req.query['method'] as string | undefined;
+    const startDate = req.query['startDate'] as string | undefined;
+    const endDate = req.query['endDate'] as string | undefined;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { loginid: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { knoxDeptName: { contains: search, mode: 'insensitive' } },
+        { claimedDeptName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (success === 'true') where.success = true;
+    else if (success === 'false') where.success = false;
+
+    if (method) where.method = method;
+
+    if (startDate || endDate) {
+      where.timestamp = {};
+      if (startDate) where.timestamp.gte = new Date(startDate);
+      if (endDate) where.timestamp.lte = new Date(endDate + 'T23:59:59.999+09:00');
+    }
+
+    const [records, total] = await Promise.all([
+      prisma.knoxVerification.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { timestamp: 'desc' },
+      }),
+      prisma.knoxVerification.count({ where }),
+    ]);
+
+    // 통계 (필터 적용)
+    const stats = await prisma.knoxVerification.groupBy({
+      by: ['success'],
+      where,
+      _count: true,
+    });
+
+    const successCount = stats.find(s => s.success)?._count || 0;
+    const failCount = stats.find(s => !s.success)?._count || 0;
+
+    res.json({
+      records,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      stats: {
+        total: successCount + failCount,
+        success: successCount,
+        fail: failCount,
+      },
+    });
+  } catch (error) {
+    console.error('Get Knox verifications error:', error);
+    res.status(500).json({ error: 'Knox 인증 기록 조회에 실패했습니다.' });
   }
 });

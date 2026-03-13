@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle } from 'lucide-react';
-import { unifiedUsersApi, usersApi } from '../services/api';
+import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle, UserPlus, RefreshCw, CheckCircle } from 'lucide-react';
+import { unifiedUsersApi, usersApi, knoxApi } from '../services/api';
 
 interface ServiceStat {
   serviceId: string;
@@ -67,6 +67,20 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
   const [deletingUser, setDeletingUser] = useState<UnifiedUser | null>(null);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Knox registration modal
+  const [showKnoxModal, setShowKnoxModal] = useState(false);
+  const [knoxSearchId, setKnoxSearchId] = useState('');
+  const [knoxSearching, setKnoxSearching] = useState(false);
+  const [knoxResult, setKnoxResult] = useState<{
+    employee: { loginid: string; fullName: string; enFullName: string; departmentName: string; titleName: string; gradeName: string; emailAddress: string; employeeStatus: string };
+    existingUser: { id: string; loginid: string; username: string; deptname: string; knoxVerified: boolean } | null;
+    existingAdmin: { role: string; designatedBy: string } | null;
+  } | null>(null);
+  const [knoxSearchError, setKnoxSearchError] = useState('');
+  const [knoxRegisterRole, setKnoxRegisterRole] = useState<'ADMIN' | 'SUPER_ADMIN'>('ADMIN');
+  const [knoxRegistering, setKnoxRegistering] = useState(false);
+  const [knoxRegisterSuccess, setKnoxRegisterSuccess] = useState('');
 
   // Column resize state
   const [columnWidths, setColumnWidths] = useState({
@@ -254,6 +268,62 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
     ];
   };
 
+  // Knox 임직원 검색
+  const handleKnoxSearch = async () => {
+    if (!knoxSearchId.trim()) return;
+    setKnoxSearching(true);
+    setKnoxResult(null);
+    setKnoxSearchError('');
+    setKnoxRegisterSuccess('');
+    try {
+      const res = await knoxApi.search(knoxSearchId.trim());
+      setKnoxResult(res.data);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      setKnoxSearchError(err.response?.data?.error || '검색에 실패했습니다.');
+    } finally {
+      setKnoxSearching(false);
+    }
+  };
+
+  // Knox 관리자 등록
+  const handleKnoxRegister = async () => {
+    if (!knoxResult?.employee) return;
+    setKnoxRegistering(true);
+    setKnoxRegisterSuccess('');
+    try {
+      const res = await knoxApi.register(knoxResult.employee.loginid, knoxRegisterRole);
+      setKnoxRegisterSuccess(res.data.message);
+      setKnoxResult(null);
+      loadUsers();
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      setKnoxSearchError(err.response?.data?.error || '등록에 실패했습니다.');
+    } finally {
+      setKnoxRegistering(false);
+    }
+  };
+
+  const closeKnoxModal = () => {
+    setShowKnoxModal(false);
+    setKnoxSearchId('');
+    setKnoxResult(null);
+    setKnoxRegisterRole('ADMIN');
+    setKnoxSearchError('');
+    setKnoxRegisterSuccess('');
+  };
+
+  // Knox 인증 초기화
+  const handleResetVerification = async (userId: string) => {
+    if (!confirm('Knox 인증을 초기화하시겠습니까? 다음 접근 시 재인증됩니다.')) return;
+    try {
+      await knoxApi.resetVerification(userId);
+      loadUsers();
+    } catch {
+      alert('Knox 인증 초기화에 실패했습니다.');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -269,12 +339,23 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
-          </span>
-          <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}명</span>
+        <div className="flex items-center gap-3">
+          {isSuperAdmin && (
+            <button
+              onClick={() => setShowKnoxModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-samsung-blue text-white rounded-lg shadow-sm hover:bg-samsung-blue/90 transition-all duration-200 text-sm font-semibold"
+            >
+              <UserPlus className="w-4 h-4" />
+              관리자 사전 등록
+            </button>
+          )}
+          <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
+            </span>
+            <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}명</span>
+          </div>
         </div>
       </div>
 
@@ -580,6 +661,15 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                           >
                             권한 변경
                           </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => handleResetVerification(user.id)}
+                              className="p-1.5 text-pastel-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg border border-transparent hover:border-amber-200/60 transition-all duration-200"
+                              title="Knox 인증 초기화"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => openDeleteModal(user)}
                             className="p-1.5 text-pastel-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200/60 transition-all duration-200"
@@ -689,6 +779,124 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
               >
                 {deleting ? '삭제 중...' : '삭제'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Knox Registration Modal */}
+      {showKnoxModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full shadow-modal animate-scale-in">
+            <div className="p-6 border-b border-gray-100/80 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-lg bg-samsung-blue/10">
+                  <UserPlus className="w-5 h-5 text-samsung-blue" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-pastel-800">관리자 사전 등록</h2>
+                  <p className="text-sm text-pastel-500">Knox ID로 임직원을 검색하여 관리자로 등록합니다</p>
+                </div>
+              </div>
+              <button onClick={closeKnoxModal} className="p-2 text-pastel-400 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* Search */}
+              <div className="flex gap-3 mb-5">
+                <input
+                  type="text"
+                  placeholder="Knox ID 입력 (예: syngha.han)"
+                  value={knoxSearchId}
+                  onChange={e => setKnoxSearchId(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleKnoxSearch()}
+                  className="flex-1 px-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                  autoFocus
+                />
+                <button
+                  onClick={handleKnoxSearch}
+                  disabled={knoxSearching || !knoxSearchId.trim()}
+                  className="px-5 py-3 bg-samsung-blue text-white rounded-lg text-sm font-semibold hover:bg-samsung-blue/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {knoxSearching ? '검색 중...' : '검색'}
+                </button>
+              </div>
+
+              {/* Error */}
+              {knoxSearchError && (
+                <div className="p-4 rounded-xl bg-red-50 border border-red-200/60 mb-5">
+                  <p className="text-sm text-red-700 font-medium">{knoxSearchError}</p>
+                </div>
+              )}
+
+              {/* Success */}
+              {knoxRegisterSuccess && (
+                <div className="p-4 rounded-xl bg-accent-emerald/10 border border-accent-emerald/20 mb-5 flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-accent-emerald flex-shrink-0" />
+                  <p className="text-sm text-accent-emerald font-medium">{knoxRegisterSuccess}</p>
+                </div>
+              )}
+
+              {/* Result */}
+              {knoxResult && (
+                <div className="space-y-5">
+                  <div className="p-5 rounded-xl bg-pastel-50 border border-pastel-100/80">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-samsung-blue/20 to-samsung-blue/5 flex items-center justify-center">
+                        <span className="text-base font-bold text-samsung-blue">{knoxResult.employee.fullName.charAt(0)}</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-pastel-800">{knoxResult.employee.fullName}</p>
+                        <p className="text-xs text-pastel-500">{knoxResult.employee.loginid} · {knoxResult.employee.enFullName}</p>
+                      </div>
+                      <span className="ml-auto px-2.5 py-1 text-xs font-semibold bg-accent-emerald/10 text-accent-emerald rounded-full">{knoxResult.employee.employeeStatus}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><span className="text-pastel-500">부서</span><p className="font-medium text-pastel-800">{knoxResult.employee.departmentName}</p></div>
+                      <div><span className="text-pastel-500">직급</span><p className="font-medium text-pastel-800">{knoxResult.employee.titleName} ({knoxResult.employee.gradeName})</p></div>
+                      <div className="col-span-2"><span className="text-pastel-500">이메일</span><p className="font-medium text-pastel-800">{knoxResult.employee.emailAddress}</p></div>
+                    </div>
+
+                    {knoxResult.existingUser && (
+                      <div className="mt-4 pt-4 border-t border-pastel-200/60">
+                        <p className="text-xs font-semibold text-pastel-500 mb-1">기존 등록 정보</p>
+                        <p className="text-sm text-pastel-700">
+                          {knoxResult.existingUser.username} · {knoxResult.existingUser.deptname}
+                          {knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-accent-emerald/10 text-accent-emerald rounded">인증완료</span>}
+                          {!knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded">미인증</span>}
+                        </p>
+                        {knoxResult.existingAdmin && (
+                          <p className="text-xs text-pastel-500 mt-1">
+                            현재 역할: <span className="font-semibold">{knoxResult.existingAdmin.role}</span>
+                            {knoxResult.existingAdmin.designatedBy && <span> (지정: {knoxResult.existingAdmin.designatedBy})</span>}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Role selection + Register */}
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={knoxRegisterRole}
+                      onChange={e => setKnoxRegisterRole(e.target.value as 'ADMIN' | 'SUPER_ADMIN')}
+                      className="flex-1 px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                    >
+                      <option value="ADMIN">시스템 관리자 (ADMIN)</option>
+                      <option value="SUPER_ADMIN">슈퍼 관리자 (SUPER_ADMIN)</option>
+                    </select>
+                    <button
+                      onClick={handleKnoxRegister}
+                      disabled={knoxRegistering}
+                      className="px-6 py-2.5 bg-samsung-blue text-white rounded-lg text-sm font-semibold hover:bg-samsung-blue/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {knoxRegistering ? '등록 중...' : '등록'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -32,6 +32,10 @@ x-api-common: &api-common
     JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
     SSO_CERT_PATH: /app/cert/cert.cer
     DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
+    KNOX_API_URL: ${KNOX_API_URL:-https://openapi.samsung.net/employee/api/v2.0}
+    KNOX_SYSTEM_ID: ${KNOX_SYSTEM_ID:-}
+    KNOX_AUTH_TOKEN: ${KNOX_AUTH_TOKEN:-}
+    KNOX_COMPANY_CODE: ${KNOX_COMPANY_CODE:-C10}
     PORT: ${API_PORT:-3000}
   volumes:
     - ./cert:/app/cert:ro
