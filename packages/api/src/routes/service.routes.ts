@@ -376,11 +376,12 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
     // 현재 사용자 ID 조회
     const currentUser = await prisma.user.findUnique({ where: { loginid } });
 
-    // 역할별 조회 조건 구성
+    // strict=true: SUPER_ADMIN도 직접 관리 서비스만 조회 (모델 복사 등)
+    const strict = req.query.strict === 'true';
     const isSuperAdmin = req.adminRole === 'SUPER_ADMIN';
     let whereClause: Record<string, unknown> = {};
 
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin || strict) {
       const whereConditions: Record<string, unknown>[] = [];
       // 내가 만든 서비스
       whereConditions.push({ registeredBy: loginid });
@@ -395,7 +396,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
       }
 
       // System ADMIN: 내 팀 서비스
-      if (req.adminRole === 'ADMIN') {
+      if (req.adminRole === 'ADMIN' || (isSuperAdmin && strict)) {
         const dept = req.adminDept || req.user?.deptname || '';
         if (dept) {
           whereConditions.push({ registeredByDept: dept });
@@ -404,7 +405,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
 
       whereClause = { OR: whereConditions };
     }
-    // SUPER_ADMIN: whereClause stays {} → no filter → all services
+    // SUPER_ADMIN (strict 아님): whereClause stays {} → no filter → all services
 
     const services = await prisma.service.findMany({
       where: whereClause,

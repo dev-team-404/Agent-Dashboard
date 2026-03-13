@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, Layers, ArrowUpDown, Users, Zap, Coins, Ticket, ExternalLink, FileText } from 'lucide-react';
+import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, Layers, ArrowUpDown, Users, Zap, Coins, Ticket, ExternalLink, FileText, MessageSquareWarning } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface MarketService {
@@ -278,28 +278,30 @@ export default function ServiceMarket() {
                 </div>
 
                 {/* Shortcut buttons */}
-                {(service.serviceUrl || service.docsUrl || service.jiraTicket) && (
-                  <div className="border-t border-gray-100 px-5 py-2 flex items-center gap-1.5">
-                    {service.serviceUrl && (
-                      <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
-                        <ExternalLink className="w-3 h-3" />서비스
-                      </a>
-                    )}
-                    {service.docsUrl && (
-                      <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
-                        <FileText className="w-3 h-3" />문서
-                      </a>
-                    )}
-                    {service.jiraTicket && (
-                      <a href={service.jiraTicket} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-violet-600 bg-violet-50 rounded hover:bg-violet-100 transition-colors">
-                        <Ticket className="w-3 h-3" />Jira
-                      </a>
-                    )}
-                  </div>
-                )}
+                <div className="border-t border-gray-100 px-5 py-2 flex items-center gap-1.5">
+                  {service.serviceUrl && (
+                    <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
+                      <ExternalLink className="w-3 h-3" />서비스
+                    </a>
+                  )}
+                  {service.docsUrl && (
+                    <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
+                      <FileText className="w-3 h-3" />문서
+                    </a>
+                  )}
+                  {service.jiraTicket && (
+                    <a href={service.jiraTicket} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-violet-600 bg-violet-50 rounded hover:bg-violet-100 transition-colors">
+                      <Ticket className="w-3 h-3" />Jira
+                    </a>
+                  )}
+                  <a href="https://jira.samsungds.net/projects/SWSUPPORT/summary" target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-orange-600 bg-orange-50 rounded hover:bg-orange-100 transition-colors">
+                    <MessageSquareWarning className="w-3 h-3" />VOC
+                  </a>
+                </div>
               </div>
             );
           })}

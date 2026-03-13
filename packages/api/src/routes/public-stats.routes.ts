@@ -501,7 +501,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       where: { status: 'DEPLOYED' },
       select: {
         id: true, name: true, displayName: true, description: true,
-        type: true, status: true, enabled: true,
+        type: true, status: true, enabled: true, iconUrl: true,
         targetMM: true, serviceCategory: true, standardMD: true,
         jiraTicket: true, serviceUrl: true, docsUrl: true,
         registeredBy: true, registeredByDept: true, createdAt: true,
@@ -657,6 +657,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         type: s.type,
         status: s.status,
         enabled: s.enabled,
+        iconUrl: s.iconUrl,
         targetMM: s.targetMM,
         serviceCategory: s.serviceCategory,
         standardMD: s.standardMD,

@@ -19,6 +19,7 @@ interface ServiceData {
   isEstimated: boolean;
   enabled: boolean;
   registeredByDept: string;
+  iconUrl?: string;
 }
 
 type MetricKey = 'dau' | 'totalTokens' | 'totalCallCount';
@@ -161,7 +162,10 @@ function ChartTooltip({ active, payload, metric }: {
   const data = payload[0].payload;
   return (
     <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm">
-      <p className="font-semibold text-pastel-800 mb-1">{data.displayName}</p>
+      <p className="font-semibold text-pastel-800 mb-0.5">{data.fullName || data.displayName}</p>
+      {data.registeredByDept && (
+        <p className="text-[11px] text-pastel-400 mb-1.5">{data.registeredByDept}</p>
+      )}
       <div className="flex items-center gap-2 text-pastel-600">
         <span className="font-mono font-bold" style={{ color: metric.color }}>
           {metric.format(data[metric.key])}
@@ -172,6 +176,39 @@ function ChartTooltip({ active, payload, metric }: {
         <p className="text-[10px] text-amber-600 mt-1">* BACKGROUND 서비스 추정값</p>
       )}
     </div>
+  );
+}
+
+// ── Custom Y-axis Tick with Logo ──
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function YAxisTickWithLogo({ x, y, payload, chartData }: any) {
+  const entry = chartData?.find((d: { displayName: string }) => d.displayName === payload?.value);
+  const iconUrl = entry?.iconUrl;
+  const logoSize = 16;
+  const gap = 6;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {iconUrl ? (
+        <>
+          <image
+            href={iconUrl}
+            x={-logoSize - gap - (payload?.value?.length || 0) * 5.5}
+            y={-logoSize / 2}
+            width={logoSize}
+            height={logoSize}
+            style={{ borderRadius: 3 }}
+          />
+          <text x={-gap} y={0} textAnchor="end" fill="#4B5563" fontSize={11} dominantBaseline="central">
+            {payload?.value}
+          </text>
+        </>
+      ) : (
+        <text x={-gap} y={0} textAnchor="end" fill="#4B5563" fontSize={11} dominantBaseline="central">
+          {payload?.value}
+        </text>
+      )}
+    </g>
   );
 }
 
@@ -195,11 +232,15 @@ function MetricChart({ services, metric, rank }: {
     );
   }
 
-  const chartData = sorted.map(s => ({
-    ...s,
-    displayName: s.displayName.length > 16 ? s.displayName.slice(0, 15) + '…' : s.displayName,
-    fullName: s.displayName,
-  }));
+  const chartData = sorted.map(s => {
+    const dept = s.registeredByDept ? ` (${s.registeredByDept})` : '';
+    const label = s.displayName + dept;
+    return {
+      ...s,
+      displayName: label.length > 24 ? label.slice(0, 23) + '…' : label,
+      fullName: s.displayName,
+    };
+  });
 
   const Icon = metric.icon;
 
@@ -248,8 +289,8 @@ function MetricChart({ services, metric, rank }: {
             <YAxis
               type="category"
               dataKey="displayName"
-              width={130}
-              tick={{ fontSize: 11, fill: '#4B5563' }}
+              width={220}
+              tick={<YAxisTickWithLogo chartData={chartData} />}
               axisLine={false}
               tickLine={false}
             />

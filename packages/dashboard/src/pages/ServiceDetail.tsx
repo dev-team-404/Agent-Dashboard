@@ -1164,7 +1164,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
     setCopyMode('merge');
     setCopyResult(null);
     try {
-      const res = await serviceApi.listMy();
+      const res = await serviceApi.listMy(true);
       const services = (res.data.services || []).filter((s: { id: string }) => s.id !== serviceId);
       setMyServices(services);
     } catch { setMyServices([]); }

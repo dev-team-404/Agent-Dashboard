@@ -666,8 +666,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">서비스 타입</label>
                   <div className="relative">
                     <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-                      <option value="STANDARD">표준</option>
-                      <option value="BACKGROUND">백그라운드</option>
+                      <option value="STANDARD">표준 — UI 있음 (ex. Chatbot)</option>
+                      <option value="BACKGROUND">백그라운드 — 자동 실행 (ex. Auto Code Review)</option>
                     </select>
                     <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
@@ -967,8 +967,8 @@ function ServiceCreationWizard({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 타입 <span className="text-red-500">*</span></label>
                 <div className="grid grid-cols-2 gap-3">
-                  {([['STANDARD', '표준 (Standard)', '일반 API 서비스. 사용자 요청에 실시간 응답합니다.', Cpu],
-                     ['BACKGROUND', '백그라운드 (Background)', '비동기 배치 처리용 서비스. 정기적으로 자동 실행됩니다.', Server]] as const).map(([val, label, desc, Icon]) => (
+                  {([['STANDARD', '표준 (Standard)', 'UI가 있어 사용자가 직접 조작·소통하는 서비스 (ex. Chatbot)', Cpu],
+                     ['BACKGROUND', '백그라운드 (Background)', 'UI 없이 일정 조건에 의해 자동으로 돌아가는 서비스 (ex. Auto Code Review)', Server]] as const).map(([val, label, desc, Icon]) => (
                     <button key={val} onClick={() => setFormData({ ...formData, type: val as 'STANDARD' | 'BACKGROUND' })}
                       className={`p-4 rounded-lg border-2 text-left transition-all ${formData.type === val ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <div className="flex items-center gap-2 mb-1.5">

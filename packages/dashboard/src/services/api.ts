@@ -49,7 +49,7 @@ export const serviceApi = {
   list: () => api.get('/services'),
   listAll: () => api.get('/services/all'),
   listNames: () => api.get('/services/names'),
-  listMy: () => api.get('/services/my'),
+  listMy: (strict?: boolean) => api.get(`/services/my${strict ? '?strict=true' : ''}`),
   get: (id: string) => api.get(`/services/${id}`),
   create: (data: CreateServiceData) => api.post('/services', data),
   update: (id: string, data: Partial<CreateServiceData>) => api.put(`/services/${id}`, data),
