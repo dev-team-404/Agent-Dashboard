@@ -43,7 +43,6 @@ interface LayoutProps {
 
 const getUserNavItems = (adminRole: AdminRole) => [
   { path: '/public-dashboard', label: '공개 대시보드', icon: BarChart3 },
-  { path: '/models', label: 'LLM 모델', icon: Cpu },
   { path: '/services', label: '서비스 마켓', icon: Store },
   { path: '/my-services', label: adminRole ? '서비스 관리' : '내 서비스', icon: Wrench },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
@@ -88,7 +87,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   const getCurrentPageLabel = () => {
     if (location.pathname === '/') return '통합 대시보드';
     if (location.pathname === '/public-dashboard') return '공개 대시보드';
-    if (location.pathname === '/models') return 'LLM 모델';
+    if (location.pathname === '/models') return 'LLM 모델 관리';
     if (location.pathname === '/users') return '사용자 관리';
     if (location.pathname === '/holidays') return '휴일 관리';
     if (location.pathname === '/my-usage') return '내 사용량';
@@ -179,6 +178,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               )}
               <div className="space-y-0.5">
                 <NavLink path="/" label="통합 대시보드" icon={Home} />
+                <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
                 <NavLink path="/users" label="사용자 관리" icon={Users} />
               </div>
             </div>
