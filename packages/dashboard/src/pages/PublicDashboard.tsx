@@ -179,34 +179,31 @@ function ChartTooltip({ active, payload, metric }: {
   );
 }
 
-// ── Custom Y-axis Tick with Logo ──
+// ── Custom Bar Label with Logo ──
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function YAxisTickWithLogo({ x, y, payload, chartData }: any) {
-  const entry = chartData?.find((d: { displayName: string }) => d.displayName === payload?.value);
+function BarLabelWithLogo({ x, y, width, height, value, chartData, metric }: any) {
+  const entry = chartData?.find((d: { [key: string]: number }) => d[metric.key] === value);
   const iconUrl = entry?.iconUrl;
-  const logoSize = 16;
-  const gap = 6;
+  const formatted = metric.format(value);
+  const logoSize = 14;
+  const gap = 4;
+  const textX = (x || 0) + (width || 0) + 6;
+  const centerY = (y || 0) + (height || 0) / 2;
+
   return (
-    <g transform={`translate(${x},${y})`}>
-      {iconUrl ? (
-        <>
-          <image
-            href={iconUrl}
-            x={-logoSize - gap - (payload?.value?.length || 0) * 5.5}
-            y={-logoSize / 2}
-            width={logoSize}
-            height={logoSize}
-            style={{ borderRadius: 3 }}
-          />
-          <text x={-gap} y={0} textAnchor="end" fill="#4B5563" fontSize={11} dominantBaseline="central">
-            {payload?.value}
-          </text>
-        </>
-      ) : (
-        <text x={-gap} y={0} textAnchor="end" fill="#4B5563" fontSize={11} dominantBaseline="central">
-          {payload?.value}
-        </text>
+    <g>
+      <text x={textX} y={centerY} fill="#6B7280" fontSize={10} fontWeight={500} dominantBaseline="central">
+        {formatted}
+      </text>
+      {iconUrl && (
+        <image
+          href={iconUrl}
+          x={textX + formatted.length * 6 + gap}
+          y={centerY - logoSize / 2}
+          width={logoSize}
+          height={logoSize}
+        />
       )}
     </g>
   );
@@ -275,7 +272,7 @@ function MetricChart({ services, metric, rank }: {
           <BarChart
             data={chartData}
             layout="vertical"
-            margin={{ top: 4, right: 60, left: 8, bottom: 4 }}
+            margin={{ top: 4, right: 90, left: 8, bottom: 4 }}
             barCategoryGap="20%"
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
@@ -289,8 +286,8 @@ function MetricChart({ services, metric, rank }: {
             <YAxis
               type="category"
               dataKey="displayName"
-              width={220}
-              tick={<YAxisTickWithLogo chartData={chartData} />}
+              width={200}
+              tick={{ fontSize: 11, fill: '#4B5563' }}
               axisLine={false}
               tickLine={false}
             />
@@ -302,11 +299,7 @@ function MetricChart({ services, metric, rank }: {
               dataKey={metric.key}
               radius={[0, 6, 6, 0]}
               maxBarSize={28}
-              label={{
-                position: 'right',
-                formatter: (v: number) => metric.format(v),
-                style: { fontSize: 10, fill: '#6B7280', fontWeight: 500 },
-              }}
+              label={<BarLabelWithLogo chartData={chartData} metric={metric} />}
             >
               {chartData.map((entry, i) => (
                 <Cell
