@@ -94,6 +94,7 @@ function extractBusinessUnit(deptname: string): string {
 publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
   try {
     const services = await prisma.service.findMany({
+      where: { status: 'DEPLOYED' },
       select: {
         id: true,
         name: true,
@@ -495,9 +496,16 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
 
-    // Get all services with type
+    // Get deployed services with metadata
     const services = await prisma.service.findMany({
-      select: { id: true, name: true, displayName: true, type: true, enabled: true },
+      where: { status: 'DEPLOYED' },
+      select: {
+        id: true, name: true, displayName: true, description: true,
+        type: true, status: true, enabled: true,
+        targetMM: true, serviceCategory: true, standardMD: true,
+        jiraTicket: true, serviceUrl: true, docsUrl: true,
+        registeredBy: true, registeredByDept: true, createdAt: true,
+      },
       orderBy: { name: 'asc' },
     });
 
@@ -644,8 +652,19 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         serviceId: s.id,
         name: s.name,
         displayName: s.displayName,
+        description: s.description,
         type: s.type,
+        status: s.status,
         enabled: s.enabled,
+        targetMM: s.targetMM,
+        serviceCategory: s.serviceCategory,
+        standardMD: s.standardMD,
+        jiraTicket: s.jiraTicket,
+        serviceUrl: s.serviceUrl,
+        docsUrl: s.docsUrl,
+        registeredBy: s.registeredBy,
+        registeredByDept: s.registeredByDept,
+        createdAt: s.createdAt,
         totalCallCount: usage.totalCallCount,
         totalInputTokens: usage.totalInputTokens,
         totalOutputTokens: usage.totalOutputTokens,

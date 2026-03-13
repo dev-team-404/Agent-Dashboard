@@ -66,10 +66,12 @@ export const swaggerSpec = {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/stats/services': {
       get: {
-        summary: 'All Service ID List (전체 서비스 ID 목록)',
+        summary: 'Deployed Service List (배포된 서비스 목록)',
         description:
-          'Returns ID, name, display name, type, status, and metadata of all registered services.\n' +
-          '등록된 모든 서비스의 ID, 이름, 표시명, 타입, 활성 상태, 메타데이터를 반환합니다.\n\n' +
+          'Returns ID, name, display name, type, status, and metadata of **deployed** services only (status=DEPLOYED).\n' +
+          '**배포 완료(status=DEPLOYED)** 상태인 서비스의 ID, 이름, 표시명, 타입, 메타데이터를 반환합니다.\n' +
+          'Services in DEVELOPMENT status are excluded.\n' +
+          '개발 중(DEVELOPMENT) 상태의 서비스는 제외됩니다.\n\n' +
           'Use this endpoint to retrieve the UUID needed for the `serviceId` parameter of other APIs.\n' +
           '다른 API의 `serviceId` 파라미터에 사용할 UUID를 여기서 조회하세요.',
         tags: ['Services (서비스)'],
@@ -431,8 +433,10 @@ export const swaggerSpec = {
       get: {
         summary: 'DAU / MAU per Service by Year-Month (서비스별 DAU / MAU, 년/월 기준)',
         description:
-          'Returns DAU (Daily Active Users) and MAU (Monthly Active Users) for **all services** for the specified year/month.\n' +
-          '지정된 연도/월에 대해 **모든 서비스**의 DAU(일간 활성 사용자)와 MAU(월간 활성 사용자)를 반환합니다.\n\n' +
+          'Returns DAU (Daily Active Users) and MAU (Monthly Active Users) for **deployed services** (status=DEPLOYED) for the specified year/month.\n' +
+          '지정된 연도/월에 대해 **배포 완료(status=DEPLOYED)** 서비스의 DAU(일간 활성 사용자)와 MAU(월간 활성 사용자)를 반환합니다.\n' +
+          'Includes full service metadata (category, targetMM, URLs, etc.). Services in DEVELOPMENT status are excluded.\n' +
+          '서비스 메타데이터(카테고리, 목표MM, URL 등)가 포함됩니다. 개발 중(DEVELOPMENT) 상태의 서비스는 제외됩니다.\n\n' +
           '## Calculation Method by Service Type (서비스 타입별 산출 방식)\n\n' +
           '| Type 타입 | DAU | MAU |\n' +
           '|-----------|-----|-----|\n' +
@@ -490,8 +494,19 @@ export const swaggerSpec = {
                           serviceId: { type: 'string', format: 'uuid', description: 'Service UUID (서비스 UUID)' },
                           name: { type: 'string', description: 'Service system name (서비스 시스템명)' },
                           displayName: { type: 'string', description: 'Service display name (서비스 표시명)' },
+                          description: { type: 'string', nullable: true, description: 'Service description (서비스 설명)' },
                           type: { type: 'string', enum: ['STANDARD', 'BACKGROUND'], description: 'Service type (서비스 타입)' },
+                          status: { type: 'string', enum: ['DEPLOYED'], description: 'Always DEPLOYED (항상 DEPLOYED)' },
                           enabled: { type: 'boolean', description: 'Active status (활성 상태)' },
+                          targetMM: { type: 'number', nullable: true, description: 'Target MM (Men/Month) (목표 MM)' },
+                          serviceCategory: { type: 'array', items: { type: 'string' }, description: 'Service categories (서비스 카테고리)' },
+                          standardMD: { type: 'number', nullable: true, description: 'Standard M/D for BACKGROUND (표준 M/D)' },
+                          jiraTicket: { type: 'string', nullable: true, description: 'Jira ticket URL' },
+                          serviceUrl: { type: 'string', nullable: true, description: 'Service URL (서비스 URL)' },
+                          docsUrl: { type: 'string', nullable: true, description: 'API docs URL (API 문서 URL)' },
+                          registeredBy: { type: 'string', nullable: true, description: 'Registered by (등록자 ID)' },
+                          registeredByDept: { type: 'string', nullable: true, description: 'Registered by dept (등록자 부서)' },
+                          createdAt: { type: 'string', format: 'date-time', description: 'Created at (생성일시)' },
                           totalCallCount: { type: 'integer', description: 'Total API call count in the month (해당 월 총 API 호출 수)' },
                           totalInputTokens: { type: 'integer', description: 'Total input tokens in the month (해당 월 총 입력 토큰)' },
                           totalOutputTokens: { type: 'integer', description: 'Total output tokens in the month (해당 월 총 출력 토큰)' },
@@ -519,8 +534,8 @@ export const swaggerSpec = {
                   year: 2026,
                   month: 3,
                   data: [
-                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', type: 'STANDARD', enabled: true, totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
-                    { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'auto-review', displayName: 'Auto Review Bot', type: 'BACKGROUND', enabled: true, totalCallCount: 5060, totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, dau: 15, mau: 33, isEstimated: true, estimationDetail: { avgDailyApiCalls: 230, totalMonthlyApiCalls: 5060, avgCallsPerPersonPerDay: 15.3, avgCallsPerPersonPerMonth: 152.4 } },
+                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: null, registeredBy: 'syngha.han', registeredByDept: 'SW혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z', totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
+                    { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'auto-review', displayName: 'Auto Review Bot', description: '자동 코드 리뷰 봇', type: 'BACKGROUND', status: 'DEPLOYED', enabled: true, targetMM: 1.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: 0.5, jiraTicket: 'https://jira.example.com/browse/AR-1', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', createdAt: '2025-07-15T10:30:00.000Z', totalCallCount: 5060, totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, dau: 15, mau: 33, isEstimated: true, estimationDetail: { avgDailyApiCalls: 230, totalMonthlyApiCalls: 5060, avgCallsPerPersonPerDay: 15.3, avgCallsPerPersonPerMonth: 152.4 } },
                   ],
                 },
               },
