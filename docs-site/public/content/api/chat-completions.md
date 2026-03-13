@@ -50,8 +50,8 @@ x-dept-name: <부서명>
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -79,8 +79,8 @@ response = requests.post(
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-service",
-        "x-user-id": "hong.gildong",
-        "x-dept-name": "SW혁신팀(S.LSI)",
+        "x-user-id": "gildong.hong",
+        "x-dept-name": "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -148,8 +148,8 @@ print(result["choices"][0]["message"]["content"])
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -185,8 +185,8 @@ response = requests.post(
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-service",
-        "x-user-id": "hong.gildong",
-        "x-dept-name": "SW혁신팀(S.LSI)",
+        "x-user-id": "gildong.hong",
+        "x-dept-name": "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -217,8 +217,8 @@ const response = await fetch('http://a2g.samsungds.net:8090/v1/chat/completions'
   headers: {
     'Content-Type': 'application/json',
     'x-service-id': 'my-service',
-    'x-user-id': 'hong.gildong',
-    'x-dept-name': 'SW혁신팀(S.LSI)',
+    'x-user-id': 'gildong.hong',
+    'x-dept-name': 'S/W혁신팀(S.LSI)',
   },
   body: JSON.stringify({
     model: 'gpt-4o',
@@ -254,8 +254,8 @@ while (true) {
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [

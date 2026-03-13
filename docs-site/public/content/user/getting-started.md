@@ -68,8 +68,8 @@ http://a2g.samsungds.net:8090
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -85,8 +85,8 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)"
 ```
 
 ## 서비스 마켓

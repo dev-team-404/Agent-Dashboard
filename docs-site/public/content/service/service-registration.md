@@ -91,8 +91,8 @@ ab               (3자 미만)
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"안녕하세요"}]}'
 ```
 
@@ -110,7 +110,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: batch-pipeline" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"데이터 요약해줘"}]}'
 ```
 

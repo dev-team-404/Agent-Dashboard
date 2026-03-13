@@ -111,7 +111,7 @@ export const swaggerSpec = {
                 },
                 example: {
                   data: [
-                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: 'https://docs.example.com/nexus', registeredBy: 'syngha.han', registeredByDept: 'SW혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z' },
+                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: 'https://docs.example.com/nexus', registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z' },
                     { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'hanseol', displayName: 'Hanseol', description: '한글 문서 자동 생성', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 1.5, serviceCategory: ['문서 및 요구사항 지능형 처리', '코드개발/분석/검증 지원'], standardMD: null, jiraTicket: 'https://jira.example.com/browse/HS-100', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', createdAt: '2025-07-15T10:30:00.000Z' },
                   ],
                 },
@@ -132,7 +132,7 @@ export const swaggerSpec = {
         description:
           'Returns token usage and API call count **per team (department)** for the specified service within the given date range.\n' +
           '지정된 서비스의 기간 내 **팀(부서)별** 토큰 사용량과 API 호출 수를 반환합니다.\n\n' +
-          '- `deptname`: Department name, e.g. `SW혁신팀(S.LSI)` / 부서명\n' +
+          '- `deptname`: Department name, e.g. `S/W혁신팀(S.LSI)` / 부서명\n' +
           '- `businessUnit`: Auto-extracted from parentheses, e.g. `S.LSI` / 괄호 안 사업부 자동 추출\n' +
           '- Tokens: input, output, and total are all provided / 토큰: 입력/출력/합계 모두 제공\n' +
           '- `uniqueUsers`: Unique user count who used this service in the team / 해당 팀에서 해당 서비스를 사용한 고유 사용자 수',
@@ -169,7 +169,7 @@ export const swaggerSpec = {
                 },
                 example: {
                   data: [
-                    { deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, requestCount: 3200, uniqueUsers: 15 },
+                    { deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, requestCount: 3200, uniqueUsers: 15 },
                     { deptname: 'AI플랫폼팀(DS)', businessUnit: 'DS', totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, requestCount: 2100, uniqueUsers: 8 },
                   ],
                 },
@@ -230,8 +230,8 @@ export const swaggerSpec = {
                 },
                 example: {
                   data: [
-                    { deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', serviceName: 'nexus-coder', serviceDisplayName: 'Nexus Coder', totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, requestCount: 3200, uniqueUsers: 15 },
-                    { deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', serviceName: 'hanseol', serviceDisplayName: 'Hanseol', totalInputTokens: 500000, totalOutputTokens: 200000, totalTokens: 700000, requestCount: 1500, uniqueUsers: 8 },
+                    { deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', serviceName: 'nexus-coder', serviceDisplayName: 'Nexus Coder', totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, requestCount: 3200, uniqueUsers: 15 },
+                    { deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', serviceName: 'hanseol', serviceDisplayName: 'Hanseol', totalInputTokens: 500000, totalOutputTokens: 200000, totalTokens: 700000, requestCount: 1500, uniqueUsers: 8 },
                   ],
                 },
               },
@@ -297,7 +297,7 @@ export const swaggerSpec = {
                           userId: { type: 'string', format: 'uuid', description: 'User UUID (사용자 UUID)' },
                           loginId: { type: 'string', description: 'User login ID (employee number) (사용자 로그인 ID, 사번)', example: 'syngha.han' },
                           username: { type: 'string', description: 'User display name (사용자 이름)', example: '한승하' },
-                          deptname: { type: 'string', description: 'Department name (부서명)', example: 'SW혁신팀(S.LSI)' },
+                          deptname: { type: 'string', description: 'Department name (부서명)', example: 'S/W혁신팀(S.LSI)' },
                           businessUnit: { type: 'string', description: 'Business unit (사업부)', example: 'S.LSI' },
                           totalInputTokens: { type: 'integer', description: 'Total input tokens (총 입력 토큰)', example: 850000 },
                           totalOutputTokens: { type: 'integer', description: 'Total output tokens (총 출력 토큰)', example: 420000 },
@@ -313,7 +313,7 @@ export const swaggerSpec = {
                   totalUsers: 42,
                   returnedCount: 5,
                   data: [
-                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
+                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
                     { rank: 2, userId: 'uuid-2', loginId: 'young87.kim', username: '김영수', deptname: 'AI플랫폼팀(DS)', businessUnit: 'DS', totalInputTokens: 720000, totalOutputTokens: 350000, totalTokens: 1070000, requestCount: 1320 },
                     { rank: 3, userId: 'uuid-3', loginId: 'jieun.park', username: '박지은', deptname: 'DevOps팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 600000, totalOutputTokens: 280000, totalTokens: 880000, requestCount: 950 },
                   ],
@@ -338,8 +338,8 @@ export const swaggerSpec = {
           '지정된 서비스 + 부서에서 **토큰 사용량 기준 상위 K명**의 사용자 정보와 사용량을 반환합니다.\n\n' +
           '## Parameters (파라미터 설명)\n' +
           '- `serviceId`: Service UUID (required) / 서비스 UUID (필수)\n' +
-          '- `deptname`: Department name in **TeamName(BusinessUnit)** format (required). Example: `SW혁신팀(S.LSI)`\n' +
-          '  부서명, **팀명(사업부)** 형식 (필수). 예: `SW혁신팀(S.LSI)`\n' +
+          '- `deptname`: Department name in **TeamName(BusinessUnit)** format (required). Example: `S/W혁신팀(S.LSI)`\n' +
+          '  부서명, **팀명(사업부)** 형식 (필수). 예: `S/W혁신팀(S.LSI)`\n' +
           '- `topK`: Maximum number of users to return (default: 10, min: 1, max: 100)\n' +
           '  반환할 최대 사용자 수 (기본값: 10, 최소: 1, 최대: 100)\n' +
           '- If total users in the dept < topK, returns only as many as exist\n' +
@@ -364,7 +364,7 @@ export const swaggerSpec = {
             in: 'query',
             required: true,
             description: 'Department name in TeamName(BusinessUnit) format. Use deptname from /stats/team-usage response. / 부서명 (팀명(사업부) 형식). /stats/team-usage 응답의 deptname 값을 사용하세요.',
-            schema: { type: 'string', example: 'SW혁신팀(S.LSI)' },
+            schema: { type: 'string', example: 'S/W혁신팀(S.LSI)' },
           },
           {
             name: 'topK',
@@ -383,7 +383,7 @@ export const swaggerSpec = {
                   type: 'object',
                   properties: {
                     topK: { type: 'integer', description: 'Requested K value (요청한 K값)', example: 3 },
-                    deptname: { type: 'string', description: 'Queried department name (조회한 부서명)', example: 'SW혁신팀(S.LSI)' },
+                    deptname: { type: 'string', description: 'Queried department name (조회한 부서명)', example: 'S/W혁신팀(S.LSI)' },
                     totalUsersInDept: { type: 'integer', description: 'Total users in the department (해당 부서의 전체 사용자 수)', example: 12 },
                     returnedCount: { type: 'integer', description: 'Actual returned user count (실제 반환된 사용자 수)', example: 3 },
                     data: {
@@ -395,7 +395,7 @@ export const swaggerSpec = {
                           userId: { type: 'string', format: 'uuid', description: 'User UUID (사용자 UUID)' },
                           loginId: { type: 'string', description: 'User login ID (employee number) (사용자 로그인 ID, 사번)', example: 'syngha.han' },
                           username: { type: 'string', description: 'User display name (사용자 이름)', example: '한승하' },
-                          deptname: { type: 'string', description: 'Department name (부서명)', example: 'SW혁신팀(S.LSI)' },
+                          deptname: { type: 'string', description: 'Department name (부서명)', example: 'S/W혁신팀(S.LSI)' },
                           businessUnit: { type: 'string', description: 'Business unit (사업부)', example: 'S.LSI' },
                           totalInputTokens: { type: 'integer', description: 'Total input tokens (총 입력 토큰)', example: 850000 },
                           totalOutputTokens: { type: 'integer', description: 'Total output tokens (총 출력 토큰)', example: 420000 },
@@ -408,19 +408,19 @@ export const swaggerSpec = {
                 },
                 example: {
                   topK: 3,
-                  deptname: 'SW혁신팀(S.LSI)',
+                  deptname: 'S/W혁신팀(S.LSI)',
                   totalUsersInDept: 12,
                   returnedCount: 3,
                   data: [
-                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
-                    { rank: 2, userId: 'uuid-2', loginId: 'minjae.lee', username: '이민재', deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 620000, totalOutputTokens: 310000, totalTokens: 930000, requestCount: 1120 },
-                    { rank: 3, userId: 'uuid-3', loginId: 'suji.choi', username: '최수지', deptname: 'SW혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 480000, totalOutputTokens: 220000, totalTokens: 700000, requestCount: 890 },
+                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
+                    { rank: 2, userId: 'uuid-2', loginId: 'minjae.lee', username: '이민재', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 620000, totalOutputTokens: 310000, totalTokens: 930000, requestCount: 1120 },
+                    { rank: 3, userId: 'uuid-3', loginId: 'suji.choi', username: '최수지', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 480000, totalOutputTokens: 220000, totalTokens: 700000, requestCount: 890 },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid request (잘못된 요청)', 'deptname is required (format: TeamName(BusinessUnit), e.g. SW혁신팀(S.LSI)). deptname은 필수 파라미터입니다.'),
+          '400': errorResponse('Invalid request (잘못된 요청)', 'deptname is required (format: TeamName(BusinessUnit), e.g. S/W혁신팀(S.LSI)). deptname은 필수 파라미터입니다.'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
@@ -534,7 +534,7 @@ export const swaggerSpec = {
                   year: 2026,
                   month: 3,
                   data: [
-                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: null, registeredBy: 'syngha.han', registeredByDept: 'SW혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z', totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
+                    { serviceId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: null, registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', createdAt: '2025-06-01T09:00:00.000Z', totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
                     { serviceId: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'auto-review', displayName: 'Auto Review Bot', description: '자동 코드 리뷰 봇', type: 'BACKGROUND', status: 'DEPLOYED', enabled: true, targetMM: 1.0, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: 0.5, jiraTicket: 'https://jira.example.com/browse/AR-1', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', createdAt: '2025-07-15T10:30:00.000Z', totalCallCount: 5060, totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, dau: 15, mau: 33, isEstimated: true, estimationDetail: { avgDailyApiCalls: 230, totalMonthlyApiCalls: 5060, avgCallsPerPersonPerDay: 15.3, avgCallsPerPersonPerMonth: 152.4 } },
                   ],
                 },

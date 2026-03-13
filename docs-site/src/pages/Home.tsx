@@ -197,8 +197,8 @@ function QuickStartSection() {
               <div className="text-gray-500">$ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \</div>
               <div className="text-brand-400 ml-4">-H "Content-Type: application/json" \</div>
               <div className="text-brand-400 ml-4">-H "x-service-id: my-service" \</div>
-              <div className="text-brand-400 ml-4">-H "x-user-id: hong.gildong" \</div>
-              <div className="text-brand-400 ml-4">-H "x-dept-name: SW혁신팀(S.LSI)" \</div>
+              <div className="text-brand-400 ml-4">-H "x-user-id: gildong.hong" \</div>
+              <div className="text-brand-400 ml-4">-H "x-dept-name: S/W혁신팀(S.LSI)" \</div>
               <div className="text-emerald-400 ml-4">-d '{`{"model":"gpt-4o","messages":[...]}`}'</div>
               <div className="mt-3 text-gray-500"># 200 OK</div>
               <div className="text-green-400">{`{"choices":[{"message":{"content":"안녕하세요!"}}]}`}</div>

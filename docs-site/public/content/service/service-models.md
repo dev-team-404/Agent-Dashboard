@@ -124,8 +124,8 @@
 ```bash
 curl http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-chatbot" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)"
 ```
 
 ```json

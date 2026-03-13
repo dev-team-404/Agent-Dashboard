@@ -79,8 +79,8 @@ LLM 등록이 완료되면 팀원들에게 아래 정보를 안내합니다.
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [{"role": "user", "content": "안녕하세요"}]

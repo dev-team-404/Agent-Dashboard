@@ -13,8 +13,8 @@ Agent Dashboard LLM Proxy는 **OpenAI 호환 API**를 제공합니다. 기존 Op
 | 헤더 | 필수 | 설명 | 예시 |
 |------|------|------|------|
 | `x-service-id` | O | Dashboard에 등록된 서비스 ID | `my-chatbot` |
-| `x-user-id` | O* | API 호출 사용자 ID | `hong.gildong` |
-| `x-dept-name` | O | 부서명 (`팀명(사업부)` 형식) | `SW혁신팀(S.LSI)` |
+| `x-user-id` | O* | API 호출 사용자 ID | `gildong.hong` |
+| `x-dept-name` | O | 부서명 (`팀명(사업부)` 형식) | `S/W혁신팀(S.LSI)` |
 
 > *Background 서비스는 `x-user-id` 생략 가능
 
@@ -40,8 +40,8 @@ response = requests.post(
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-chatbot",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -69,8 +69,8 @@ response = requests.post(
     headers={
         "Content-Type": "application/json",
         "x-service-id": "my-chatbot",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -103,8 +103,8 @@ async def main():
             headers={
                 "Content-Type": "application/json",
                 "x-service-id": "my-chatbot",
-                "x-user-id":    "hong.gildong",
-                "x-dept-name":  "SW혁신팀(S.LSI)",
+                "x-user-id":    "gildong.hong",
+                "x-dept-name":  "S/W혁신팀(S.LSI)",
             },
             json={
                 "model": "gpt-4o",
@@ -126,8 +126,8 @@ const response = await fetch("http://a2g.samsungds.net:8090/v1/chat/completions"
   headers: {
     "Content-Type": "application/json",
     "x-service-id": "my-chatbot",
-    "x-user-id":    "hong.gildong",
-    "x-dept-name":  "SW혁신팀(S.LSI)",
+    "x-user-id":    "gildong.hong",
+    "x-dept-name":  "S/W혁신팀(S.LSI)",
   },
   body: JSON.stringify({
     model: "gpt-4o",
@@ -152,8 +152,8 @@ const response = await fetch("http://a2g.samsungds.net:8090/v1/chat/completions"
   headers: {
     "Content-Type": "application/json",
     "x-service-id": "my-chatbot",
-    "x-user-id":    "hong.gildong",
-    "x-dept-name":  "SW혁신팀(S.LSI)",
+    "x-user-id":    "gildong.hong",
+    "x-dept-name":  "S/W혁신팀(S.LSI)",
   },
   body: JSON.stringify({
     model: "gpt-4o",
@@ -207,8 +207,8 @@ func main() {
     )
     req.Header.Set("Content-Type", "application/json")
     req.Header.Set("x-service-id", "my-chatbot")
-    req.Header.Set("x-user-id", "hong.gildong")
-    req.Header.Set("x-dept-name", "SW혁신팀(S.LSI)")
+    req.Header.Set("x-user-id", "gildong.hong")
+    req.Header.Set("x-dept-name", "S/W혁신팀(S.LSI)")
 
     resp, err := http.DefaultClient.Do(req)
     if err != nil {
@@ -234,8 +234,8 @@ func main() {
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
-  -H "x-user-id: hong.gildong" \
-  -H "x-dept-name: SW혁신팀(S.LSI)" \
+  -H "x-user-id: gildong.hong" \
+  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -260,8 +260,8 @@ client = OpenAI(
     base_url="http://a2g.samsungds.net:8090/v1",
     default_headers={
         "x-service-id": "my-chatbot",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
 )
 
@@ -281,7 +281,7 @@ client = OpenAI(
     base_url="http://a2g.samsungds.net:8090/v1",
     default_headers={
         "x-service-id": "my-chatbot",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
 )
 
@@ -304,8 +304,8 @@ client = AsyncOpenAI(
     base_url="http://a2g.samsungds.net:8090/v1",
     default_headers={
         "x-service-id": "my-chatbot",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
 )
 
@@ -349,8 +349,8 @@ const client = new OpenAI({
   baseURL: "http://a2g.samsungds.net:8090/v1",
   defaultHeaders: {
     "x-service-id": "my-chatbot",
-    "x-user-id":    "hong.gildong",
-    "x-dept-name":  "SW혁신팀(S.LSI)",
+    "x-user-id":    "gildong.hong",
+    "x-dept-name":  "S/W혁신팀(S.LSI)",
   },
 });
 
@@ -417,8 +417,8 @@ func main() {
         option.WithBaseURL("http://a2g.samsungds.net:8090/v1"),
         option.WithAPIKey("not-used"),
         option.WithHeader("x-service-id", "my-chatbot"),
-        option.WithHeader("x-user-id", "hong.gildong"),
-        option.WithHeader("x-dept-name", "SW혁신팀(S.LSI)"),
+        option.WithHeader("x-user-id", "gildong.hong"),
+        option.WithHeader("x-dept-name", "S/W혁신팀(S.LSI)"),
     )
 
     response, err := client.Chat.Completions.New(
@@ -482,8 +482,8 @@ func main() {
         base: http.DefaultTransport,
         headers: map[string]string{
             "x-service-id": "my-chatbot",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     }
 
@@ -527,8 +527,8 @@ llm = ChatOpenAI(
     api_key="not-used",
     default_headers={
         "x-service-id": "my-chatbot",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
 )
 
@@ -574,8 +574,8 @@ const llm = new ChatOpenAI({
     baseURL: "http://a2g.samsungds.net:8090/v1",
     defaultHeaders: {
       "x-service-id": "my-chatbot",
-      "x-user-id":    "hong.gildong",
-      "x-dept-name":  "SW혁신팀(S.LSI)",
+      "x-user-id":    "gildong.hong",
+      "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
   },
   apiKey: "not-used",
@@ -606,8 +606,8 @@ llm = ChatOpenAI(
     api_key="not-used",
     default_headers={
         "x-service-id": "my-agent-service",
-        "x-user-id":    "hong.gildong",
-        "x-dept-name":  "SW혁신팀(S.LSI)",
+        "x-user-id":    "gildong.hong",
+        "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
 )
 
@@ -665,8 +665,8 @@ agent = LlmAgent(
         api_key="not-used",
         extra_headers={
             "x-service-id": "my-adk-agent",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     ),
     name="my_agent",
@@ -694,8 +694,8 @@ agent = LlmAgent(
         api_key="not-used",
         extra_headers={
             "x-service-id": "my-adk-agent",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     ),
     name="weather_agent",
@@ -727,8 +727,8 @@ const agent = new LlmAgent({
     api_key: "not-used",
     extra_headers: {
       "x-service-id": "my-adk-agent",
-      "x-user-id":    "hong.gildong",
-      "x-dept-name":  "SW혁신팀(S.LSI)",
+      "x-user-id":    "gildong.hong",
+      "x-dept-name":  "S/W혁신팀(S.LSI)",
     },
   }),
   name: "my_agent",
@@ -775,8 +775,8 @@ func main() {
         option.WithBaseURL("http://a2g.samsungds.net:8090/v1"),
         option.WithAPIKey("not-used"),
         option.WithHeader("x-service-id", "my-chatbot"),
-        option.WithHeader("x-user-id", "hong.gildong"),
-        option.WithHeader("x-dept-name", "SW혁신팀(S.LSI)"),
+        option.WithHeader("x-user-id", "gildong.hong"),
+        option.WithHeader("x-dept-name", "S/W혁신팀(S.LSI)"),
     )
 
     response, err := client.Chat.Completions.New(
@@ -823,8 +823,8 @@ agent = Agent(
         base_url="http://a2g.samsungds.net:8090/v1",
         default_headers={
             "x-service-id": "my-agno-service",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     ),
 )
@@ -845,8 +845,8 @@ agent = Agent(
         base_url="http://a2g.samsungds.net:8090/v1",
         default_headers={
             "x-service-id": "my-agno-service",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     ),
 )
@@ -868,8 +868,8 @@ agent = Agent(
         base_url="http://a2g.samsungds.net:8090/v1",
         default_headers={
             "x-service-id": "my-agno-service",
-            "x-user-id":    "hong.gildong",
-            "x-dept-name":  "SW혁신팀(S.LSI)",
+            "x-user-id":    "gildong.hong",
+            "x-dept-name":  "S/W혁신팀(S.LSI)",
         },
     ),
     tools=[DuckDuckGoTools()],
@@ -907,7 +907,7 @@ agent.print_response("최신 AI 뉴스를 검색해주세요.")
 ::: warning
 - `api_key`는 프록시에서 무시되지만 SDK 초기화 시 필수이므로 `"not-used"` 등 임의 값을 입력하세요.
 - `base_url`은 반드시 `/v1`까지 포함해야 합니다: `http://a2g.samsungds.net:8090/v1`
-- `x-dept-name`은 반드시 `팀명(사업부)` 형식이어야 합니다 (예: `SW혁신팀(S.LSI)`)
+- `x-dept-name`은 반드시 `팀명(사업부)` 형식이어야 합니다 (예: `S/W혁신팀(S.LSI)`)
 - Background 서비스 타입으로 등록된 서비스만 `x-user-id`를 생략할 수 있습니다.
 :::
 

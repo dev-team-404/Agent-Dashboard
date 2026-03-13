@@ -124,7 +124,7 @@ Rate Limit 윈도우는 **슬라이딩 윈도우** 방식으로 동작합니다.
 서비스 Rate Limit: 100,000 tokens / DAY (전체 기본)
 
 사용자별 Rate Limit:
-  hong.gildong  → 200,000 tokens / DAY (파워 유저, 상향)
+  gildong.hong  → 200,000 tokens / DAY (파워 유저, 상향)
   kim.chulsoo   → 50,000 tokens / DAY (제한 필요, 하향)
   lee.younghee  → (미설정) → 서비스 Rate Limit 100,000 적용
 ```
