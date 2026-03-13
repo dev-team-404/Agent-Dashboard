@@ -90,7 +90,7 @@ app.use('/admin', adminLogsRoutes);
 app.use('/v1', proxyRoutes);
 
 // Public Stats API (인증 불필요)
-app.use('/api/public/stats', publicStatsRoutes);
+app.use('/public/stats', publicStatsRoutes);
 
 // Swagger / OpenAPI documentation
 app.get('/api-docs', (_req, res) => {
