@@ -580,6 +580,7 @@ export function getSwaggerUiHtml(): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent Stats - API Documentation</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
   <style>
     html { box-sizing: border-box; overflow-y: scroll; }

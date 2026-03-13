@@ -1317,6 +1317,120 @@ serviceRoutes.delete('/:id/service-models/:serviceModelId', authenticateToken, a
 });
 
 // ============================================
+// 서비스 모델 복사 (Copy from another service)
+// ============================================
+
+/**
+ * POST /services/:id/models/copy-from/:sourceId
+ * 소스 서비스의 모델 설정을 대상 서비스에 복사
+ * 양쪽 서비스 모두 관리 권한 필요
+ * mode: 'merge' (기존 유지 + 추가) | 'replace' (기존 삭제 후 복사)
+ */
+serviceRoutes.post('/:id/models/copy-from/:sourceId', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const targetId = req.params.id as string;
+    const sourceId = req.params.sourceId as string;
+    const mode = (req.body?.mode || 'merge') as 'merge' | 'replace';
+
+    if (targetId === sourceId) {
+      res.status(400).json({ error: '같은 서비스에서 복사할 수 없습니다.' });
+      return;
+    }
+
+    // 양쪽 서비스 존재 확인
+    const [targetService, sourceService] = await Promise.all([
+      prisma.service.findUnique({ where: { id: targetId } }),
+      prisma.service.findUnique({ where: { id: sourceId } }),
+    ]);
+    if (!targetService) { res.status(404).json({ error: '대상 서비스를 찾을 수 없습니다.' }); return; }
+    if (!sourceService) { res.status(404).json({ error: '소스 서비스를 찾을 수 없습니다.' }); return; }
+
+    // 양쪽 서비스 모두 관리 권한 확인
+    if (!(await canManageService(req, targetId))) {
+      res.status(403).json({ error: '대상 서비스에 대한 관리 권한이 없습니다.' });
+      return;
+    }
+    if (!(await canManageService(req, sourceId))) {
+      res.status(403).json({ error: '소스 서비스에 대한 관리 권한이 없습니다.' });
+      return;
+    }
+
+    // 소스 서비스의 모델 설정 가져오기
+    const sourceModels = await prisma.serviceModel.findMany({
+      where: { serviceId: sourceId },
+      include: { model: { select: { id: true, enabled: true, visibility: true } } },
+    });
+
+    if (sourceModels.length === 0) {
+      res.status(400).json({ error: '소스 서비스에 설정된 모델이 없습니다.' });
+      return;
+    }
+
+    // replace 모드: 기존 모델 설정 삭제
+    if (mode === 'replace') {
+      await prisma.serviceModel.deleteMany({ where: { serviceId: targetId } });
+    }
+
+    let copied = 0;
+    let skipped = 0;
+    const skippedReasons: string[] = [];
+
+    for (const sm of sourceModels) {
+      // 모델 접근 가능 여부 확인
+      if (!sm.model.enabled) {
+        skipped++;
+        skippedReasons.push(`${sm.aliasName}/${sm.model.id}: 비활성 모델`);
+        continue;
+      }
+
+      // 중복 확인 (merge 모드에서)
+      if (mode === 'merge') {
+        const existing = await prisma.serviceModel.findUnique({
+          where: { serviceId_modelId_aliasName: { serviceId: targetId, modelId: sm.modelId, aliasName: sm.aliasName } },
+        });
+        if (existing) {
+          skipped++;
+          skippedReasons.push(`${sm.aliasName}/${sm.model.id}: 이미 존재`);
+          continue;
+        }
+      }
+
+      await prisma.serviceModel.create({
+        data: {
+          serviceId: targetId,
+          modelId: sm.modelId,
+          aliasName: sm.aliasName,
+          weight: sm.weight,
+          sortOrder: sm.sortOrder,
+          enabled: sm.enabled,
+          addedBy: req.user?.loginid || '',
+        },
+      });
+      copied++;
+    }
+
+    await recordAudit(req, 'COPY_SERVICE_MODELS', targetId, 'SERVICE', {
+      sourceServiceId: sourceId,
+      sourceServiceName: sourceService.name,
+      targetServiceName: targetService.name,
+      mode,
+      copied,
+      skipped,
+    });
+
+    res.json({
+      message: `${copied}개 모델 설정이 복사되었습니다.`,
+      copied,
+      skipped,
+      skippedReasons: skippedReasons.length > 0 ? skippedReasons : undefined,
+    });
+  } catch (error) {
+    console.error('Copy service models error:', error);
+    res.status(500).json({ error: '모델 설정 복사에 실패했습니다.' });
+  }
+});
+
+// ============================================
 // 서비스 멤버 관리 (UserService)
 // ============================================
 

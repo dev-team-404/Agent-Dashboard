@@ -71,6 +71,9 @@ export const serviceApi = {
   removeModel: (id: string, modelId: string) => api.delete(`/services/${id}/models/${modelId}`),
   removeServiceModel: (id: string, serviceModelId: string) =>
     api.delete(`/services/${id}/service-models/${serviceModelId}`),
+  // Copy models from another service
+  copyModels: (targetId: string, sourceId: string, mode: 'merge' | 'replace' = 'merge') =>
+    api.post(`/services/${targetId}/models/copy-from/${sourceId}`, { mode }),
   // Service Members
   listMembers: (id: string) => api.get(`/services/${id}/members`),
   addMember: (id: string, loginid: string, role?: string) => api.post(`/services/${id}/members`, { loginid, role }),

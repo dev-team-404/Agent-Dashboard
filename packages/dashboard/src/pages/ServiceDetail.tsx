@@ -9,6 +9,7 @@ import {
   Activity, TrendingUp, Hash, BarChart3, CalendarDays,
   Globe, Building2, Lock, ExternalLink,
   FileText, ChevronLeft, ChevronRight, Eye, EyeOff, Ticket,
+  Copy,
 } from 'lucide-react';
 import { api, serviceApi, serviceRateLimitScopedApi, statsApi } from '../services/api';
 import {
@@ -1058,6 +1059,13 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
   const [addWeight, setAddWeight] = useState(1);
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [editAliasValue, setEditAliasValue] = useState('');
+  // Copy models state
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [myServices, setMyServices] = useState<{ id: string; name: string; displayName: string }[]>([]);
+  const [copySourceId, setCopySourceId] = useState('');
+  const [copyMode, setCopyMode] = useState<'merge' | 'replace'>('merge');
+  const [copying, setCopying] = useState(false);
+  const [copyResult, setCopyResult] = useState<{ message: string; copied: number; skipped: number } | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -1150,17 +1158,154 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
     } catch (err: unknown) { alert((err as { response?: { data?: { error?: string } } })?.response?.data?.error || '실패'); } finally { setSaving(false); }
   };
 
+  const openCopyModal = async () => {
+    setShowCopyModal(true);
+    setCopySourceId('');
+    setCopyMode('merge');
+    setCopyResult(null);
+    try {
+      const res = await serviceApi.listMy();
+      const services = (res.data.services || []).filter((s: { id: string }) => s.id !== serviceId);
+      setMyServices(services);
+    } catch { setMyServices([]); }
+  };
+
+  const handleCopy = async () => {
+    if (!copySourceId) return;
+    setCopying(true);
+    setCopyResult(null);
+    try {
+      const res = await serviceApi.copyModels(serviceId, copySourceId, copyMode);
+      setCopyResult(res.data);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(msg || '모델 설정 복사에 실패했습니다.');
+    } finally {
+      setCopying(false);
+    }
+  };
+
   if (loading) return <TabSkeleton />;
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Info banner */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl px-5 py-4">
-        <p className="text-sm text-blue-800 font-medium">v1/models 가상 모델 설정</p>
-        <p className="text-xs text-blue-600 mt-1 leading-relaxed">
-          <strong>표시 모델명</strong>을 만들고 실제 LLM 모델을 배치하세요. 내부적으로 <strong>가중치 기반 라운드로빈</strong>으로 분배됩니다.
-        </p>
+      {/* Info banner + Copy button */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl px-5 py-4">
+          <p className="text-sm text-blue-800 font-medium">v1/models 가상 모델 설정</p>
+          <p className="text-xs text-blue-600 mt-1 leading-relaxed">
+            <strong>표시 모델명</strong>을 만들고 실제 LLM 모델을 배치하세요. 내부적으로 <strong>가중치 기반 라운드로빈</strong>으로 분배됩니다.
+          </p>
+        </div>
+        <button
+          onClick={openCopyModal}
+          className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+          title="다른 서비스에서 모델 설정 복사"
+        >
+          <Copy className="w-3.5 h-3.5" />
+          설정 복사
+        </button>
       </div>
+
+      {/* Copy Modal */}
+      {showCopyModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCopyModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Copy className="w-4 h-4 text-indigo-500" />
+                <h3 className="text-sm font-semibold text-gray-900">다른 서비스에서 모델 설정 복사</h3>
+              </div>
+              <button onClick={() => setShowCopyModal(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {/* Source selection */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">소스 서비스 선택</label>
+                <select
+                  value={copySourceId}
+                  onChange={e => { setCopySourceId(e.target.value); setCopyResult(null); }}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                >
+                  <option value="">서비스를 선택하세요...</option>
+                  {myServices.map(s => (
+                    <option key={s.id} value={s.id}>{s.displayName} ({s.name})</option>
+                  ))}
+                </select>
+                {myServices.length === 0 && (
+                  <p className="text-[11px] text-gray-400 mt-1">관리 가능한 다른 서비스가 없습니다.</p>
+                )}
+              </div>
+
+              {/* Mode selection */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">복사 방식</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setCopyMode('merge'); setCopyResult(null); }}
+                    className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      copyMode === 'merge'
+                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-semibold">병합</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 유지 + 새로 추가</div>
+                  </button>
+                  <button
+                    onClick={() => { setCopyMode('replace'); setCopyResult(null); }}
+                    className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      copyMode === 'replace'
+                        ? 'bg-red-50 border-red-300 text-red-700'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-semibold">덮어쓰기</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 삭제 후 복사</div>
+                  </button>
+                </div>
+                {copyMode === 'replace' && (
+                  <p className="text-[11px] text-red-500 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    기존 모델 설정이 모두 삭제됩니다.
+                  </p>
+                )}
+              </div>
+
+              {/* Result */}
+              {copyResult && (
+                <div className={`px-3 py-2.5 rounded-lg text-xs ${copyResult.copied > 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                  <p className="font-medium">{copyResult.message}</p>
+                  {copyResult.skipped > 0 && (
+                    <p className="mt-1 text-[11px] opacity-70">건너뜀: {copyResult.skipped}개 (중복 또는 비활성)</p>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowCopyModal(false)}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                {copyResult ? '닫기' : '취소'}
+              </button>
+              {!copyResult && (
+                <button
+                  onClick={handleCopy}
+                  disabled={!copySourceId || copying}
+                  className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    copyMode === 'replace' ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
+                >
+                  {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+                  {copyMode === 'replace' ? '덮어쓰기' : '복사'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alias Groups */}
       {aliasGroups.map((group, gi) => {

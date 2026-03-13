@@ -4,9 +4,9 @@ import {
   ArrowLeft, Plus, Trash2, ChevronDown, Loader2,
   Layers, ToggleLeft, ToggleRight, RefreshCw,
   Zap, MessageSquare, Image, Cpu, Sparkles,
-  AlertTriangle, X, Edit2, Check
+  AlertTriangle, X, Edit2, Check, Copy
 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, serviceApi } from '../services/api';
 
 // ── Types ──
 
@@ -101,6 +101,13 @@ export default function ServiceModelConfig() {
   // alias 이름 수정
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [editAliasValue, setEditAliasValue] = useState('');
+  // 모델 설정 복사
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [myServices, setMyServices] = useState<{ id: string; name: string; displayName: string }[]>([]);
+  const [copySourceId, setCopySourceId] = useState('');
+  const [copyMode, setCopyMode] = useState<'merge' | 'replace'>('merge');
+  const [copying, setCopying] = useState(false);
+  const [copyResult, setCopyResult] = useState<{ message: string; copied: number; skipped: number } | null>(null);
 
   // ── Load data ──
   const loadData = useCallback(async () => {
@@ -279,6 +286,35 @@ export default function ServiceModelConfig() {
     }
   };
 
+  // ── Copy models ──
+  const openCopyModal = async () => {
+    setShowCopyModal(true);
+    setCopySourceId('');
+    setCopyMode('merge');
+    setCopyResult(null);
+    try {
+      const res = await serviceApi.listMy();
+      const services = (res.data.services || []).filter((s: { id: string }) => s.id !== serviceId);
+      setMyServices(services);
+    } catch { setMyServices([]); }
+  };
+
+  const handleCopy = async () => {
+    if (!serviceId || !copySourceId) return;
+    setCopying(true);
+    setCopyResult(null);
+    try {
+      const res = await serviceApi.copyModels(serviceId, copySourceId, copyMode);
+      setCopyResult(res.data);
+      await loadData();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      alert(msg || '모델 설정 복사에 실패했습니다.');
+    } finally {
+      setCopying(false);
+    }
+  };
+
   // ── Render ──
   if (loading) {
     return (
@@ -321,6 +357,14 @@ export default function ServiceModelConfig() {
           </p>
         </div>
         <button
+          onClick={openCopyModal}
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+          title="다른 서비스에서 모델 설정 복사"
+        >
+          <Copy className="w-3.5 h-3.5" />
+          설정 복사
+        </button>
+        <button
           onClick={loadData}
           disabled={saving}
           className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -329,6 +373,91 @@ export default function ServiceModelConfig() {
           <RefreshCw className={`w-4.5 h-4.5 ${saving ? 'animate-spin' : ''}`} />
         </button>
       </div>
+
+      {/* Copy Modal */}
+      {showCopyModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowCopyModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Copy className="w-4 h-4 text-indigo-500" />
+                <h3 className="text-sm font-semibold text-gray-900">다른 서비스에서 모델 설정 복사</h3>
+              </div>
+              <button onClick={() => setShowCopyModal(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">소스 서비스 선택</label>
+                <select
+                  value={copySourceId}
+                  onChange={e => { setCopySourceId(e.target.value); setCopyResult(null); }}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                >
+                  <option value="">서비스를 선택하세요...</option>
+                  {myServices.map(s => (
+                    <option key={s.id} value={s.id}>{s.displayName} ({s.name})</option>
+                  ))}
+                </select>
+                {myServices.length === 0 && (
+                  <p className="text-[11px] text-gray-400 mt-1">관리 가능한 다른 서비스가 없습니다.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">복사 방식</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setCopyMode('merge'); setCopyResult(null); }}
+                    className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      copyMode === 'merge' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-semibold">병합</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 유지 + 새로 추가</div>
+                  </button>
+                  <button
+                    onClick={() => { setCopyMode('replace'); setCopyResult(null); }}
+                    className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                      copyMode === 'replace' ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="font-semibold">덮어쓰기</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 삭제 후 복사</div>
+                  </button>
+                </div>
+                {copyMode === 'replace' && (
+                  <p className="text-[11px] text-red-500 mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    기존 모델 설정이 모두 삭제됩니다.
+                  </p>
+                )}
+              </div>
+              {copyResult && (
+                <div className={`px-3 py-2.5 rounded-lg text-xs ${copyResult.copied > 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                  <p className="font-medium">{copyResult.message}</p>
+                  {copyResult.skipped > 0 && <p className="mt-1 text-[11px] opacity-70">건너뜀: {copyResult.skipped}개 (중복 또는 비활성)</p>}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setShowCopyModal(false)} className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+                {copyResult ? '닫기' : '취소'}
+              </button>
+              {!copyResult && (
+                <button
+                  onClick={handleCopy}
+                  disabled={!copySourceId || copying}
+                  className={`inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    copyMode === 'replace' ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
+                >
+                  {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
+                  {copyMode === 'replace' ? '덮어쓰기' : '복사'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Info banner */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl px-5 py-4 mb-6">
