@@ -34,3 +34,6 @@ npm-debug.log*
 # Temporary files
 tmp/
 temp/
+
+# Blue-Green deploy state
+.deploy-state

@@ -15,6 +15,9 @@ RUN npm run build
 # Stage 2: Nginx with docs baked in
 FROM nginx:alpine
 
+# 기본 conf.d 정리 (upstream.conf만 볼륨 마운트로 사용)
+RUN rm -f /etc/nginx/conf.d/default.conf
+
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=docs-builder /app/dist /var/www/html/docs
 

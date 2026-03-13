@@ -1,5 +1,6 @@
 # ============================================
 # Agent 사용량 집계 시스템 - Docker Compose
+# Blue-Green 무중단 배포 지원
 # ============================================
 
 x-timezone: &timezone
@@ -9,11 +10,59 @@ x-proxy-env: &proxy-env
   <<: *timezone
   HTTP_PROXY: "${HTTP_PROXY:-}"
   HTTPS_PROXY: "${HTTPS_PROXY:-}"
-  NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api,dashboard,nginx}"
+  NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api-blue,api-green,dashboard-blue,dashboard-green,nginx}"
   http_proxy: "${HTTP_PROXY:-}"
   https_proxy: "${HTTPS_PROXY:-}"
-  no_proxy: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api,dashboard,nginx}"
+  no_proxy: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api-blue,api-green,dashboard-blue,dashboard-green,nginx}"
   NODE_TLS_REJECT_UNAUTHORIZED: "${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
+
+# ─── Blue-Green 공통 설정 ───
+x-api-common: &api-common
+  build:
+    context: ./packages/api
+    dockerfile: Dockerfile
+    args:
+      <<: *proxy-env
+  restart: unless-stopped
+  environment:
+    <<: *proxy-env
+    NODE_ENV: production
+    DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=200&pool_timeout=30
+    REDIS_URL: redis://redis:6379
+    JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
+    SSO_CERT_PATH: /app/cert/cert.cer
+    DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
+    PORT: ${API_PORT:-3000}
+  volumes:
+    - ./cert:/app/cert:ro
+  expose:
+    - "3000"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+    interval: 10s
+    timeout: 3s
+    start_period: 30s
+    retries: 3
+
+x-dashboard-common: &dashboard-common
+  build:
+    context: ./packages/dashboard
+    dockerfile: Dockerfile
+    args:
+      <<: *proxy-env
+  restart: unless-stopped
+  environment:
+    <<: *proxy-env
+    VITE_API_URL: /api
+  expose:
+    - "80"
 
 services:
   # PostgreSQL Database
@@ -55,58 +104,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # API Server
-  api:
-    build:
-      context: ./packages/api
-      dockerfile: Dockerfile
-      args:
-        <<: *proxy-env
-    container_name: agent-stats-api
-    restart: unless-stopped
-    environment:
-      <<: *proxy-env
-      NODE_ENV: production
-      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=200&pool_timeout=30
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
-      SSO_CERT_PATH: /app/cert/cert.cer
-      DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
-      PORT: ${API_PORT:-3000}
-    volumes:
-      - ./cert:/app/cert:ro
-    expose:
-      - "3000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
-      interval: 10s
-      timeout: 3s
-      start_period: 30s
-      retries: 3
+  # ─── Blue-Green: API Server ───
+  api-blue:
+    <<: *api-common
+    container_name: agent-stats-api-blue
 
-  # React Dashboard
-  dashboard:
-    build:
-      context: ./packages/dashboard
-      dockerfile: Dockerfile
-      args:
-        <<: *proxy-env
-    container_name: agent-stats-frontend
-    restart: unless-stopped
-    environment:
-      <<: *proxy-env
-      VITE_API_URL: /api
-    expose:
-      - "80"
-    depends_on:
-      - api
+  api-green:
+    <<: *api-common
+    container_name: agent-stats-api-green
+
+  # ─── Blue-Green: React Dashboard ───
+  dashboard-blue:
+    <<: *dashboard-common
+    container_name: agent-stats-frontend-blue
+
+  dashboard-green:
+    <<: *dashboard-common
+    container_name: agent-stats-frontend-green
 
   # Nginx Reverse Proxy (includes docs-site build)
   nginx:
@@ -121,10 +135,16 @@ services:
       <<: *timezone
     ports:
       - "${PROXY_PORT:-8090}:8090"
+    volumes:
+      - ./nginx/active-upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
     depends_on:
-      api:
+      api-blue:
         condition: service_healthy
-      dashboard:
+      api-green:
+        condition: service_healthy
+      dashboard-blue:
+        condition: service_started
+      dashboard-green:
         condition: service_started
 
 volumes:
