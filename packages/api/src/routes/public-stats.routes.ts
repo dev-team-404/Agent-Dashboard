@@ -542,11 +542,12 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       GROUP BY ul.service_id
     `;
 
-    // Estimation baseline from STANDARD (for BACKGROUND)
-    // Use last 30 business days from the end of the requested month
-    const baselineEnd = endDate > new Date() ? new Date() : endDate;
-    const baselineStart = new Date(baselineEnd);
-    baselineStart.setDate(baselineStart.getDate() - 30);
+    // Estimation baseline: 해당 월의 STANDARD 데이터 사용
+    // 과거 월 → 고정값 (해당 월 전체), 이번 달 → 실시간 (누적 데이터)
+    const now = new Date();
+    const isCurrentMonth = now.getFullYear() === year && (now.getMonth() + 1) === month;
+    const baselineStart = startDate;
+    const baselineEnd = isCurrentMonth ? now : endDate;
 
     const [baselineDailyCalls, baselineDailyDau, baselineMonthly] = await Promise.all([
       prisma.$queryRaw<Array<{ avg_daily_calls: number }>>`
@@ -699,6 +700,16 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     res.json({
       year,
       month,
+      isCurrentMonth,
+      estimationBaseline: {
+        callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+        callsPerPersonPerMonth: Math.round(callsPerPersonPerMonth * 10) / 10,
+        standardAvgDailyDAU: Math.round(avgDau),
+        standardMAU: baseMau,
+        standardTotalCalls: totalCalls,
+        baselinePeriod: { start: baselineStart, end: baselineEnd },
+        isFixed: !isCurrentMonth,
+      },
       data,
     });
   } catch (err) {

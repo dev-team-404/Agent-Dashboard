@@ -89,7 +89,22 @@ export default function EnhancedServiceCharts() {
   const [dauData, setDauData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [requestsData, setRequestsData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [deptUsageData, setDeptUsageData] = useState<{ data: { serviceName: string; deptname: string; totalTokens: number; requestCount: number }[] }>({ data: [] });
-  const [mauData, setMauData] = useState<{ monthlyData: Record<string, unknown>[]; services: { id: string; displayName: string; type: string }[] }>({ monthlyData: [], services: [] });
+  const [mauData, setMauData] = useState<{
+    monthlyData: Record<string, unknown>[];
+    services: { id: string; displayName: string; type: string }[];
+    estimationMeta?: {
+      monthlyBaseline?: Record<string, {
+        callsPerPersonPerDay: number;
+        callsPerPersonPerMonth: number;
+        standardMAU: number;
+        standardTotalCalls: number;
+        avgDailyDAU: number;
+        businessDays: number;
+        isFixed: boolean;
+      }>;
+      backgroundMonthlyDetail?: Record<string, { totalCalls: number; estimatedMAU: number }>;
+    } | null;
+  }>({ monthlyData: [], services: [] });
 
   useEffect(() => {
     loadChartData();
@@ -112,7 +127,7 @@ export default function EnhancedServiceCharts() {
       setDauData(dauRes.data);
       setRequestsData(requestsRes.data);
       setDeptUsageData(deptRes.data);
-      setMauData({ monthlyData: mauRes.data.monthlyData || [], services: mauRes.data.services || [] });
+      setMauData({ monthlyData: mauRes.data.monthlyData || [], services: mauRes.data.services || [], estimationMeta: mauRes.data.estimationMeta || null });
     } catch (err) {
       console.error('Failed to load enhanced charts:', err);
     } finally {
@@ -189,7 +204,7 @@ export default function EnhancedServiceCharts() {
   };
 
   const renderMauChart = () => {
-    const { monthlyData, services } = mauData;
+    const { monthlyData, services, estimationMeta } = mauData;
     if (monthlyData.length === 0 || services.length === 0) return <EmptyState />;
 
     // Rank by latest month's MAU
@@ -206,13 +221,52 @@ export default function EnhancedServiceCharts() {
             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip
-              formatter={(value: number, name: string) => {
-                const svc = services.find(s => s.id === name);
-                const label = svc?.displayName || name;
-                const isBg = svc?.type === 'BACKGROUND';
-                return [`${value}명${isBg ? ' (추정)' : ''}`, label];
+              content={({ active, payload, label: monthLabel }) => {
+                if (!active || !payload || payload.length === 0) return null;
+                const baseline = estimationMeta?.monthlyBaseline?.[monthLabel as string];
+                const isFixed = baseline?.isFixed ?? true;
+                return (
+                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+                    <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                      <span className="font-semibold text-gray-800">{monthLabel}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isFixed ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                        {isFixed ? '확정' : '실시간'}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {payload.map((entry: any) => {
+                        const svcId = String(entry.dataKey || '');
+                        const svc = services.find(s => s.id === svcId);
+                        const displayName = svc?.displayName || svcId;
+                        const isBg = svc?.type === 'BACKGROUND';
+                        const value = entry.value ?? 0;
+                        const bgDetail = estimationMeta?.backgroundMonthlyDetail?.[`${svcId}|${monthLabel}`];
+                        const callsPerMonth = baseline?.callsPerPersonPerMonth;
+                        return (
+                          <div key={svcId}>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                              <span className="text-gray-700">{displayName}:</span>
+                              <span className="font-semibold text-gray-900">
+                                {isBg ? `≈${value}명` : `${value}명`}
+                              </span>
+                              <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
+                                ({isBg ? '추정' : '실측'})
+                              </span>
+                            </div>
+                            {isBg && bgDetail && callsPerMonth && (
+                              <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
+                                해당 월 호출 {bgDetail.totalCalls.toLocaleString()}회 &divide; 1인당 월평균 {callsPerMonth}회 = {bgDetail.estimatedMAU}명
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
               }}
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
             />
             <Legend
               formatter={(value: string) => {

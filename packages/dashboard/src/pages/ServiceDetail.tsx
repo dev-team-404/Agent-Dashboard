@@ -403,7 +403,12 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
   const [serviceStats, setServiceStats] = useState<{ avgDailyActiveUsers: number; avgDailyActiveUsersExcluding: number } | null>(null);
   const [serviceMauData, setServiceMauData] = useState<{
     latestMau: number; prevMau: number; isEstimated: boolean;
-    avgDailyApiCalls?: number; avgCallsPerPersonPerDay?: number; avgCallsPerPersonPerMonth?: number; businessDaysUsed?: number;
+    latestMonth?: string;
+    totalCalls?: number;
+    callsPerPersonPerDay?: number;
+    callsPerPersonPerMonth?: number;
+    businessDays?: number;
+    isFixed?: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -428,15 +433,19 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
           const latestMau = (mauMonthly[mauMonthly.length - 1]?.[serviceId] as number) || 0;
           const prevMau = mauMonthly.length > 1 ? (mauMonthly[mauMonthly.length - 2]?.[serviceId] as number) || 0 : 0;
           const meta = mauRes.data.estimationMeta;
-          const bgInfo = meta?.backgroundServices?.[serviceId];
+          const latestMonthKey = mauMonthly[mauMonthly.length - 1]?.month as string | undefined;
+          const baseline = latestMonthKey ? meta?.monthlyBaseline?.[latestMonthKey] : null;
+          const bgDetail = latestMonthKey ? meta?.backgroundMonthlyDetail?.[`${serviceId}|${latestMonthKey}`] : null;
           setServiceMauData({
             latestMau,
             prevMau,
             isEstimated: thisSvc.type === 'BACKGROUND',
-            avgDailyApiCalls: bgInfo?.avgDailyApiCalls,
-            avgCallsPerPersonPerDay: meta?.avgCallsPerPersonPerDay,
-            avgCallsPerPersonPerMonth: meta?.avgCallsPerPersonPerMonth,
-            businessDaysUsed: meta?.businessDaysUsed,
+            latestMonth: latestMonthKey,
+            totalCalls: bgDetail?.totalCalls,
+            callsPerPersonPerDay: baseline?.callsPerPersonPerDay,
+            callsPerPersonPerMonth: baseline?.callsPerPersonPerMonth,
+            businessDays: baseline?.businessDays,
+            isFixed: baseline?.isFixed,
           });
         }
       } catch { /* */ } finally { setLoading(false); }
@@ -467,22 +476,43 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
         <div className="flex items-start gap-3 px-5 py-3 rounded-xl bg-amber-50 border border-amber-100">
           <CalendarDays className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-amber-700">
-            <span className="font-medium">추정 DAU/MAU</span>
-            <span className="mx-1.5">—</span>
-            <span>이 서비스는 BACKGROUND 타입으로 사용자 정보가 없어 추정값을 사용합니다.</span>
-            {serviceMauData.avgDailyApiCalls != null && (
-              <span className="block mt-1 text-xs text-amber-600">
-                영업일 하루 평균 API 호출: <strong>{serviceMauData.avgDailyApiCalls}건</strong>
-                {serviceMauData.avgCallsPerPersonPerDay != null && (
-                  <> / 1인당 하루 평균: <strong>{serviceMauData.avgCallsPerPersonPerDay}건</strong></>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">추정 DAU/MAU</span>
+              <span className="mx-0.5">—</span>
+              <span>이 서비스는 BACKGROUND 타입으로 사용자 정보가 없어 추정값을 사용합니다.</span>
+              {serviceMauData.latestMonth && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${serviceMauData.isFixed ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
+                  {serviceMauData.isFixed ? '확정' : '실시간'}
+                </span>
+              )}
+            </div>
+            {(serviceMauData.callsPerPersonPerDay != null || serviceMauData.totalCalls != null) && (
+              <div className="mt-2 space-y-1 text-xs text-amber-600">
+                {serviceMauData.latestMonth && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-amber-400">기준월:</span>
+                    <strong>{serviceMauData.latestMonth}</strong>
+                  </div>
                 )}
-                {serviceMauData.avgCallsPerPersonPerMonth != null && (
-                  <> / 1인당 월 평균: <strong>{serviceMauData.avgCallsPerPersonPerMonth}건</strong></>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  {serviceMauData.callsPerPersonPerDay != null && (
+                    <span>1인당 하루 평균: <strong>{serviceMauData.callsPerPersonPerDay}건</strong></span>
+                  )}
+                  {serviceMauData.callsPerPersonPerMonth != null && (
+                    <span>1인당 월 평균: <strong>{serviceMauData.callsPerPersonPerMonth}건</strong></span>
+                  )}
+                  {serviceMauData.businessDays != null && (
+                    <span>영업일: <strong>{serviceMauData.businessDays}일</strong></span>
+                  )}
+                </div>
+                {serviceMauData.totalCalls != null && serviceMauData.callsPerPersonPerMonth != null && (
+                  <div className="pt-1 border-t border-amber-200/50 text-amber-500">
+                    해당 월 호출 <strong className="text-amber-600">{serviceMauData.totalCalls.toLocaleString()}회</strong>
+                    {' '}&divide; 1인당 월평균 <strong className="text-amber-600">{serviceMauData.callsPerPersonPerMonth}회</strong>
+                    {' '}= 추정 MAU <strong className="text-amber-600">{serviceMauData.latestMau}명</strong>
+                  </div>
                 )}
-                {serviceMauData.businessDaysUsed != null && (
-                  <> / 영업일 수: <strong>{serviceMauData.businessDaysUsed}일</strong></>
-                )}
-              </span>
+              </div>
             )}
           </div>
         </div>

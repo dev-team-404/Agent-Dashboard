@@ -201,10 +201,16 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [mauMonthlyData, setMauMonthlyData] = useState<Record<string, unknown>[]>([]);
   const [mauServices, setMauServices] = useState<{ id: string; name: string; displayName: string; type: string }[]>([]);
   const [mauEstimationMeta, setMauEstimationMeta] = useState<{
-    avgCallsPerPersonPerDay: number;
-    avgCallsPerPersonPerMonth: number;
-    businessDaysUsed: number;
-    backgroundServices: Record<string, { avgDailyApiCalls: number; estimatedDAU: number; estimatedMAU: number; isEstimated: boolean }>;
+    monthlyBaseline?: Record<string, {
+      callsPerPersonPerDay: number;
+      callsPerPersonPerMonth: number;
+      standardMAU: number;
+      standardTotalCalls: number;
+      avgDailyDAU: number;
+      businessDays: number;
+      isFixed: boolean;
+    }>;
+    backgroundMonthlyDetail?: Record<string, { totalCalls: number; estimatedMAU: number }>;
   } | null>(null);
   const [avgMau, setAvgMau] = useState(0);
   const [latencyStats, setLatencyStats] = useState<LatencyStat[]>([]);
@@ -801,24 +807,31 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <p className="text-sm text-gray-500 mt-0.5">서비스별 월간 활성 사용자 추이 (BACKGROUND: 추정)</p>
               </div>
             </div>
-            {mauEstimationMeta && (
-              <div className="text-xs text-gray-400 text-right space-y-0.5">
-                <div>
-                  <span>1인당 하루 평균: <strong className="text-gray-600">{mauEstimationMeta.avgCallsPerPersonPerDay}건</strong></span>
-                  <span className="mx-2">|</span>
-                  <span>1인당 월 평균: <strong className="text-gray-600">{mauEstimationMeta.avgCallsPerPersonPerMonth}건</strong></span>
-                  <span className="mx-2">|</span>
-                  <span>영업일: <strong className="text-gray-600">{mauEstimationMeta.businessDaysUsed}일</strong></span>
+            {mauEstimationMeta && (() => {
+              const baselineMonths = Object.keys(mauEstimationMeta.monthlyBaseline || {}).sort();
+              const latestBaselineKey = baselineMonths[baselineMonths.length - 1];
+              const latestBaseline = latestBaselineKey ? mauEstimationMeta.monthlyBaseline?.[latestBaselineKey] : null;
+              return (
+                <div className="text-xs text-gray-400 text-right space-y-0.5">
+                  {latestBaseline && (
+                    <div>
+                      <span>1인당 하루 평균: <strong className="text-gray-600">{latestBaseline.callsPerPersonPerDay}건</strong></span>
+                      <span className="mx-2">|</span>
+                      <span>1인당 월 평균: <strong className="text-gray-600">{latestBaseline.callsPerPersonPerMonth}건</strong></span>
+                      <span className="mx-2">|</span>
+                      <span>영업일: <strong className="text-gray-600">{latestBaseline.businessDays}일</strong></span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1 justify-end text-gray-400">
+                    <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
+                    <span>= 추정 (BACKGROUND)</span>
+                    <span className="mx-1">|</span>
+                    <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
+                    <span>= 실측 (STANDARD)</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 justify-end text-gray-400">
-                  <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
-                  <span>= 추정 (BACKGROUND)</span>
-                  <span className="mx-1">|</span>
-                  <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
-                  <span>= 실측 (STANDARD)</span>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
           {/* Service summary cards */}
           {(() => {
@@ -828,7 +841,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             });
             const topMauServices = rankedSvcs.slice(0, 10);
             const restMauServices = rankedSvcs.slice(10);
-            const bgMeta = mauEstimationMeta?.backgroundServices || {};
+            const bgMonthlyDetail = mauEstimationMeta?.backgroundMonthlyDetail || {};
+            const latestMonthKey = mauMonthlyData.length > 0 ? (mauMonthlyData[mauMonthlyData.length - 1]?.month as string) : null;
             return (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
@@ -837,6 +851,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     const prevMau = mauMonthlyData.length > 1 ? (mauMonthlyData[mauMonthlyData.length - 2]?.[svc.id] as number) || 0 : 0;
                     const diff = latestMau - prevMau;
                     const isBg = svc.type === 'BACKGROUND';
+                    const bgDetail = latestMonthKey ? bgMonthlyDetail[`${svc.id}|${latestMonthKey}`] : null;
                     return (
                       <div key={svc.id} className="p-3 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: CHART_COLORS[i % CHART_COLORS.length] }}>
                         <p className="text-xs text-gray-500 truncate">
@@ -851,9 +866,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                             </span>
                           )}
                         </div>
-                        {isBg && bgMeta[svc.id] && (
+                        {isBg && bgDetail && (
                           <p className="text-[10px] text-amber-500">
-                            일평균 API: {bgMeta[svc.id].avgDailyApiCalls}건
+                            월 호출: {bgDetail.totalCalls.toLocaleString()}건
                           </p>
                         )}
                       </div>
@@ -877,12 +892,51 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                         allowDecimals={false}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                        formatter={(value: number, name: string) => {
-                          const svc = mauServices.find(s => s.id === name);
-                          const label = svc?.displayName || name;
-                          const isBg = svc?.type === 'BACKGROUND';
-                          return [`${value}명${isBg ? ' (추정)' : ''}`, label];
+                        content={({ active, payload, label: monthLabel }) => {
+                          if (!active || !payload || payload.length === 0) return null;
+                          const baseline = mauEstimationMeta?.monthlyBaseline?.[monthLabel as string];
+                          const isFixed = baseline?.isFixed ?? true;
+                          return (
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+                              <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                                <span className="font-semibold text-gray-800">{monthLabel}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isFixed ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                                  {isFixed ? '확정' : '실시간'}
+                                </span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                                {payload.map((entry: any) => {
+                                  const svcId = String(entry.dataKey || '');
+                                  const svc = mauServices.find(s => s.id === svcId);
+                                  const displayName = svc?.displayName || svcId;
+                                  const isBg = svc?.type === 'BACKGROUND';
+                                  const value = entry.value ?? 0;
+                                  const bgDetail = mauEstimationMeta?.backgroundMonthlyDetail?.[`${svcId}|${monthLabel}`];
+                                  const callsPerMonth = baseline?.callsPerPersonPerMonth;
+                                  return (
+                                    <div key={svcId}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+                                        <span className="text-gray-700">{displayName}:</span>
+                                        <span className="font-semibold text-gray-900">
+                                          {isBg ? `≈${value}명` : `${value}명`}
+                                        </span>
+                                        <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
+                                          ({isBg ? '추정' : '실측'})
+                                        </span>
+                                      </div>
+                                      {isBg && bgDetail && callsPerMonth && (
+                                        <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
+                                          해당 월 호출 {bgDetail.totalCalls.toLocaleString()}회 &divide; 1인당 월평균 {callsPerMonth}회 = {bgDetail.estimatedMAU}명
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
                         }}
                       />
                       <Legend

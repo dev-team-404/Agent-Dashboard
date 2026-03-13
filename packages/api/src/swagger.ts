@@ -448,17 +448,24 @@ export const swaggerSpec = {
           'BACKGROUND 서비스는 사용자 식별 헤더(`x-user-id`)를 전송하지 않으므로 DAU/MAU를 직접 측정할 수 없습니다. ' +
           'STANDARD 서비스 데이터에서 "1인당 평균 API 호출 수"를 산출하여 역으로 추정합니다.\n\n' +
           '### Estimated DAU (추정 DAU)\n' +
-          '1. `Avg API calls per person per day` = Avg daily API calls of all STANDARD services (business days, last 30 days) / Avg daily DAU of all STANDARD services\n' +
-          '   `1인당 하루 평균 API 호출 수` = STANDARD 전체 영업일 하루 평균 API 호출 수 ÷ STANDARD 전체 영업일 하루 평균 DAU\n' +
+          '1. `Avg API calls per person per day` = Avg daily API calls of all STANDARD services (business days, **same month**) / Avg daily DAU of all STANDARD services (**same month**)\n' +
+          '   `1인당 하루 평균 API 호출 수` = STANDARD 전체 **해당 월** 영업일 하루 평균 API 호출 수 ÷ STANDARD 전체 **해당 월** 영업일 하루 평균 DAU\n' +
           '2. `Estimated DAU` = Avg daily API calls of the BACKGROUND service (business days) / Avg API calls per person per day\n' +
           '   `추정 DAU` = 해당 BACKGROUND 서비스의 영업일 하루 평균 API 호출 수 ÷ 1인당 하루 평균 API 호출 수\n\n' +
           '### Estimated MAU (추정 MAU)\n' +
-          '1. `Avg API calls per person per month` = Total API calls of all STANDARD services (last 30 days) / MAU of all STANDARD services (last 30 days)\n' +
-          '   `1인당 월 평균 API 호출 수` = STANDARD 전체 직전 30일 총 API 호출 수 ÷ STANDARD 전체 직전 30일 MAU\n' +
+          '1. `Avg API calls per person per month` = Total API calls of all STANDARD services **in the same month** / MAU of all STANDARD services **in the same month**\n' +
+          '   `1인당 월 평균 API 호출 수` = STANDARD 전체 **해당 월** 총 API 호출 수 ÷ STANDARD 전체 **해당 월** MAU\n' +
           '2. `Estimated MAU` = Total API calls of the BACKGROUND service in the month / Avg API calls per person per month\n' +
           '   `추정 MAU` = 해당 BACKGROUND 서비스의 해당 월 총 API 호출 수 ÷ 1인당 월 평균 API 호출 수\n\n' +
+          '## Baseline Period (기준 기간)\n\n' +
+          '- **Past months (지난 달)**: Baseline uses that month\'s complete data → **fixed value** (조회 시점에 관계없이 동일)\n' +
+          '- **Current month (이번 달)**: Baseline uses accumulated data so far → **real-time** (매일 점점 정확해짐)\n\n' +
+          '> All dates/times are in **KST (Asia/Seoul)**.\n' +
+          '> 모든 날짜/시간은 **KST (한국 표준시)** 기준입니다.\n\n' +
           '> BACKGROUND services include `isEstimated: true` and `estimationDetail` in the response.\n' +
-          '> BACKGROUND 서비스의 응답에는 `isEstimated: true`와 `estimationDetail`이 포함됩니다.',
+          '> BACKGROUND 서비스의 응답에는 `isEstimated: true`와 `estimationDetail`이 포함됩니다.\n\n' +
+          '> Response includes `estimationBaseline` with the baseline values used for estimation.\n' +
+          '> 응답에 추정에 사용된 기준값이 `estimationBaseline`으로 포함됩니다.',
         tags: ['DAU / MAU'],
         parameters: [
           {
@@ -486,6 +493,19 @@ export const swaggerSpec = {
                   properties: {
                     year: { type: 'integer', description: 'Queried year (조회 연도)', example: 2026 },
                     month: { type: 'integer', description: 'Queried month (조회 월)', example: 3 },
+                    isCurrentMonth: { type: 'boolean', description: 'Whether this is the current month (이번 달 여부). true=real-time, false=fixed (true=실시간, false=확정)' },
+                    estimationBaseline: {
+                      type: 'object',
+                      description: 'STANDARD baseline values used for BACKGROUND estimation (BACKGROUND 추정에 사용된 STANDARD 기준값)',
+                      properties: {
+                        callsPerPersonPerDay: { type: 'number', description: 'Avg calls per person per day (1인당 하루 평균 호출 수)' },
+                        callsPerPersonPerMonth: { type: 'number', description: 'Avg calls per person per month (1인당 월 평균 호출 수)' },
+                        standardAvgDailyDAU: { type: 'integer', description: 'STANDARD avg daily DAU (STANDARD 영업일 평균 DAU)' },
+                        standardMAU: { type: 'integer', description: 'STANDARD MAU for the month (STANDARD 월간 MAU)' },
+                        standardTotalCalls: { type: 'integer', description: 'STANDARD total calls for the month (STANDARD 월 총 호출 수)' },
+                        isFixed: { type: 'boolean', description: 'Whether baseline is fixed (past month) or real-time (current month) (확정 여부)' },
+                      },
+                    },
                     data: {
                       type: 'array',
                       items: {
