@@ -206,22 +206,14 @@ cmd_deploy() {
   # ──────────────────────────────────────────
   # Step 1: 비활성 슬롯 빌드 (기존 서비스 계속 운영)
   # ──────────────────────────────────────────
-  log "Step 1/6: ${INACTIVE} 슬롯 이미지 빌드 (서비스 중단 없음)"
-  docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}"
+  log "Step 1/6: 이미지 빌드 (서비스 중단 없음)"
+  docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}" nginx
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 2: Nginx + docs-site 재빌드
+  # Step 2: 비활성 슬롯 컨테이너 재시작 + 헬스체크
   # ──────────────────────────────────────────
-  log "Step 2/6: Nginx(docs 포함) 재빌드"
-  docker compose build --no-cache nginx
-  docker compose up -d nginx
-  echo ""
-
-  # ──────────────────────────────────────────
-  # Step 3: 비활성 슬롯 컨테이너 재시작 + 헬스체크
-  # ──────────────────────────────────────────
-  log "Step 3/6: ${INACTIVE} 슬롯 컨테이너 재시작"
+  log "Step 2/6: ${INACTIVE} 슬롯 컨테이너 재시작"
   docker compose up -d "api-${INACTIVE}" "dashboard-${INACTIVE}"
 
   if ! wait_healthy "api-${INACTIVE}" 90; then
@@ -235,9 +227,9 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 4: 트래픽 전환 (nginx reload, 다운타임 0)
+  # Step 3: 트래픽 전환 (nginx reload, 다운타임 0)
   # ──────────────────────────────────────────
-  log "Step 4/6: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
+  log "Step 3/6: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
 
   if ! switch_upstream "$INACTIVE"; then
     err "nginx reload 실패"
@@ -247,9 +239,9 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 5: 구 활성 슬롯(이제 비활성) 업데이트
+  # Step 4: 구 활성 슬롯(이제 비활성) 업데이트
   # ──────────────────────────────────────────
-  log "Step 5/6: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
+  log "Step 4/6: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
   docker compose build --no-cache "api-${ACTIVE}" "dashboard-${ACTIVE}"
   docker compose up -d "api-${ACTIVE}" "dashboard-${ACTIVE}"
 
@@ -257,6 +249,13 @@ cmd_deploy() {
     warn "api-${ACTIVE} 헬스체크 실패 — 서비스에는 영향 없음 (${INACTIVE} 활성 중)"
   fi
   wait_healthy "dashboard-${ACTIVE}" 30 || true
+  echo ""
+
+  # ──────────────────────────────────────────
+  # Step 5: Nginx(docs 포함) 컨테이너 교체
+  # ──────────────────────────────────────────
+  log "Step 5/6: Nginx 컨테이너 교체 (이미지는 Step 1에서 빌드 완료)"
+  docker compose up -d nginx
   echo ""
 
   # ──────────────────────────────────────────
