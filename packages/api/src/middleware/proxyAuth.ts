@@ -11,7 +11,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../index.js';
-import { extractBusinessUnit, isSuperAdminByEnv, isModelVisibleTo } from './auth.js';
+import { extractBusinessUnit } from './auth.js';
 
 export interface ProxyAuthRequest extends Request {
   serviceId: string;
@@ -23,12 +23,6 @@ export interface ProxyAuthRequest extends Request {
   teamName: string;
   businessUnit: string;
   isBackground: boolean;
-  // 서비스 등록 admin 정보 (LLM 접근 권한 판단용)
-  registeredByLoginId?: string;
-  registeredByDept?: string;
-  registeredByBU?: string;
-  registeredByIsSuperAdmin?: boolean;
-  registeredByIsAdmin?: boolean;
 }
 
 function safeDecodeURIComponent(text: string): string {
@@ -115,27 +109,28 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   const teamName = deptNameHeader.match(/^([^(]+)/)?.[1]?.trim() || deptNameHeader;
   const businessUnit = extractBusinessUnit(deptNameHeader);
 
-  // 6. 서비스 등록 admin 정보 설정
-  let registeredByIsSuperAdmin = false;
-  let registeredByIsAdmin = false;
-  let registeredByDept = service.registeredByDept || '';
-  let registeredByBU = service.registeredByBusinessUnit || '';
+  // 6. 서비스 배포 범위(deployScope) 접근 제어
+  //    ALL → 누구나 호출 가능
+  //    BUSINESS_UNIT → 호출자의 사업부가 deployScopeValue에 포함
+  //    TEAM → 호출자의 부서명이 deployScopeValue에 포함
+  const scope = service.deployScope; // ALL | BUSINESS_UNIT | TEAM
+  const scopeValues = service.deployScopeValue || [];
 
-  if (service.registeredBy) {
-    if (isSuperAdminByEnv(service.registeredBy)) {
-      registeredByIsSuperAdmin = true;
-      registeredByIsAdmin = true;
-    } else {
-      const admin = await prisma.admin.findUnique({
-        where: { loginid: service.registeredBy },
-        select: { role: true, deptname: true, businessUnit: true },
+  if (scope === 'BUSINESS_UNIT' && scopeValues.length > 0) {
+    if (!scopeValues.includes(businessUnit)) {
+      res.status(403).json({
+        error: `This service is restricted to specific business units`,
+        message: `Your business unit '${businessUnit}' does not have access to service '${service.name}'.`,
       });
-      if (admin) {
-        registeredByIsAdmin = true;
-        registeredByIsSuperAdmin = admin.role === 'SUPER_ADMIN';
-        registeredByDept = admin.deptname || registeredByDept;
-        registeredByBU = admin.businessUnit || registeredByBU;
-      }
+      return;
+    }
+  } else if (scope === 'TEAM' && scopeValues.length > 0) {
+    if (!scopeValues.includes(deptNameHeader) && !scopeValues.includes(teamName)) {
+      res.status(403).json({
+        error: `This service is restricted to specific teams`,
+        message: `Your team '${deptNameHeader}' does not have access to service '${service.name}'.`,
+      });
+      return;
     }
   }
 
@@ -148,33 +143,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   proxyReq.teamName = teamName;
   proxyReq.businessUnit = businessUnit;
   proxyReq.isBackground = isBackground;
-  proxyReq.registeredByLoginId = service.registeredBy || undefined;
-  proxyReq.registeredByDept = registeredByDept;
-  proxyReq.registeredByBU = registeredByBU;
-  proxyReq.registeredByIsSuperAdmin = registeredByIsSuperAdmin;
-  proxyReq.registeredByIsAdmin = registeredByIsAdmin;
 
   next();
 }
 
-/**
- * 서비스가 특정 LLM에 접근 가능한지 확인
- * 서비스는 등록한 admin의 LLM 접근 권한을 계승
- */
-export function canServiceAccessModel(
-  proxyReq: ProxyAuthRequest,
-  model: { visibility: string; visibilityScope: string[]; adminVisible?: boolean }
-): boolean {
-  // 등록 admin이 super admin이면 모든 LLM 접근 가능
-  if (proxyReq.registeredByIsSuperAdmin) return true;
-
-  // 등록 admin이 admin이 아니면 접근 불가 (서비스는 admin만 등록 가능하므로 이론상 발생하지 않음)
-  if (!proxyReq.registeredByIsAdmin) return false;
-
-  return isModelVisibleTo(
-    model,
-    proxyReq.registeredByDept || '',
-    proxyReq.registeredByBU || '',
-    true // admin이므로
-  );
-}

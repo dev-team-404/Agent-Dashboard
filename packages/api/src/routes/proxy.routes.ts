@@ -13,7 +13,7 @@ import { Router, Request, Response } from 'express';
 import path from 'node:path';
 import { prisma, redis } from '../index.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
-import { validateProxyHeaders, canServiceAccessModel, ProxyAuthRequest } from '../middleware/proxyAuth.js';
+import { validateProxyHeaders, ProxyAuthRequest } from '../middleware/proxyAuth.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
@@ -477,7 +477,6 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
 
     for (const sm of serviceModels) {
       if (aliasSet.has(sm.aliasName)) continue;
-      if (!canServiceAccessModel(proxyReq, sm.model)) continue;
       aliasSet.add(sm.aliasName);
       result.push({
         id: sm.aliasName,
@@ -534,12 +533,6 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
       return;
     }
 
-    // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, serviceModel.model)) {
-      res.status(403).json({ error: `Model '${modelName}' is not accessible by this service` });
-      return;
-    }
-
     res.json({
       id: serviceModel.aliasName,
       object: 'model',
@@ -579,15 +572,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     }
     const model = resolved.model;
 
-    // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, model)) {
-      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 403, latencyMs: Date.now() - reqStartTime, errorMessage: 'Model not accessible by service', userAgent, ipAddress }).catch(() => {});
-      res.status(403).json({
-        error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-        message: 'This model is not available for your service. Check the LLM visibility settings.',
-      });
-      return;
-    }
+    // ServiceModel 관계가 있으면 접근 허용 (visibility는 모델 할당 시 검증)
 
     // 사용자 upsert (background가 아닌 경우)
     const user = await getOrCreateUser(proxyReq);
@@ -1038,14 +1023,6 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     }
     const model = resolved.model;
 
-    // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, model)) {
-      res.status(403).json({
-        error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-      });
-      return;
-    }
-
     // 사용자 upsert
     const user = await getOrCreateUser(proxyReq);
 
@@ -1237,14 +1214,6 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     }
     const model = resolved.model;
 
-    // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, model)) {
-      res.status(403).json({
-        error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-      });
-      return;
-    }
-
     // 사용자 upsert
     const user = await getOrCreateUser(proxyReq);
 
@@ -1422,14 +1391,6 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
 
     if (model.type !== 'IMAGE') {
       res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
-      return;
-    }
-
-    // 서비스 접근 권한 확인
-    if (!canServiceAccessModel(proxyReq, model)) {
-      res.status(403).json({
-        error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-      });
       return;
     }
 
