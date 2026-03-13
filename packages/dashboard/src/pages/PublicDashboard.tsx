@@ -234,7 +234,7 @@ function MetricChart({ services, metric, rank }: {
     const label = s.displayName + dept;
     return {
       ...s,
-      displayName: label.length > 24 ? label.slice(0, 23) + '…' : label,
+      displayName: label,
       fullName: s.displayName,
     };
   });
@@ -286,7 +286,7 @@ function MetricChart({ services, metric, rank }: {
             <YAxis
               type="category"
               dataKey="displayName"
-              width={200}
+              width={280}
               tick={{ fontSize: 11, fill: '#4B5563' }}
               axisLine={false}
               tickLine={false}
