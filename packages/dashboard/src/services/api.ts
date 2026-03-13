@@ -206,6 +206,10 @@ export const statsApi = {
   globalDeptUsageByService: (days = 30, topN = 10) => api.get('/admin/stats/global/dept-usage-by-service', { params: { days, topN } }),
   globalServiceDailyRequests: (days = 30) => api.get('/admin/stats/global/service-daily-requests', { params: { days } }),
 
+  // MAU & Estimated DAU/MAU
+  globalMauByService: (months = 6) => api.get('/admin/stats/global/mau-by-service', { params: { months } }),
+  globalEstimatedDauMau: () => api.get('/admin/stats/global/estimated-dau-mau'),
+
   // Latency stats
   latency: () => api.get('/admin/stats/latency'),
   latencyHistory: (hours = 24, interval = 10) => api.get('/admin/stats/latency/history', { params: { hours, interval } }),

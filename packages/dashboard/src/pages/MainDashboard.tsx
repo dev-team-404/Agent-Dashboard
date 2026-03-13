@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Users, Activity, Zap, TrendingUp,
-  Clock, BarChart3, Layers,
+  Clock, BarChart3, Layers, CalendarDays,
 } from 'lucide-react';
 import { statsApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -198,6 +198,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [deptUsersBUs, setDeptUsersBUs] = useState<string[]>([]);
   const [deptServiceRequestsData, setDeptServiceRequestsData] = useState<DeptServiceRequestsDaily[]>([]);
   const [deptServiceCombos, setDeptServiceCombos] = useState<string[]>([]);
+  const [mauMonthlyData, setMauMonthlyData] = useState<Record<string, unknown>[]>([]);
+  const [mauServices, setMauServices] = useState<{ id: string; name: string; displayName: string; type: string }[]>([]);
+  const [mauEstimationMeta, setMauEstimationMeta] = useState<{
+    avgCallsPerPersonPerDay: number;
+    avgCallsPerPersonPerMonth: number;
+    businessDaysUsed: number;
+    backgroundServices: Record<string, { avgDailyApiCalls: number; estimatedDAU: number; estimatedMAU: number; isEstimated: boolean }>;
+  } | null>(null);
+  const [avgMau, setAvgMau] = useState(0);
   const [latencyStats, setLatencyStats] = useState<LatencyStat[]>([]);
   const [latencyHistory, setLatencyHistory] = useState<LatencyHistory>({});
   const [healthCheckHistory, setHealthCheckHistory] = useState<HealthCheckHistory>({});
@@ -214,6 +223,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         globalRes, serviceDailyRes, deptRes,
         deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
         latencyRes, latencyHistoryRes, healthcheckRes,
+        mauRes,
       ] = await Promise.all([
         statsApi.globalOverview(),
         statsApi.globalByService(30),
@@ -224,6 +234,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         statsApi.latency(),
         statsApi.latencyHistory(24, 10),
         statsApi.latencyHealthcheck(24),
+        statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
       ]);
 
       setGlobalOverview(globalRes.data.services || []);
@@ -236,6 +247,20 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setDeptUsersBUs(deptUsersDailyRes.data.businessUnits || []);
       setDeptServiceRequestsData(deptServiceReqsRes.data.chartData || []);
       setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
+      setMauServices(mauRes.data.services || []);
+      setMauMonthlyData(mauRes.data.monthlyData || []);
+      setMauEstimationMeta(mauRes.data.estimationMeta || null);
+      // Calculate avg MAU from last 3 months
+      const mData = mauRes.data.monthlyData || [];
+      if (mData.length > 0) {
+        const recentMonths = mData.slice(-3);
+        const allServiceIds = (mauRes.data.services || []).map((s: { id: string }) => s.id);
+        const monthTotals = recentMonths.map((m: Record<string, unknown>) =>
+          allServiceIds.reduce((sum: number, sid: string) => sum + ((m[sid] as number) || 0), 0)
+        );
+        const avg = monthTotals.reduce((a: number, b: number) => a + b, 0) / monthTotals.length;
+        setAvgMau(Math.round(avg));
+      }
       setLatencyStats(latencyRes.data.stats || []);
       setLatencyHistory(latencyHistoryRes.data.history || {});
       setHealthCheckHistory(healthcheckRes.data.history || {});
@@ -619,12 +644,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Hero Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 lg:gap-5">
         <StatCard label="전체 사용자" value={totalUsers} icon={Users} gradient="bg-gradient-to-r from-blue-500 to-blue-600" description="모든 서비스 합계" delay={0} />
         <StatCard label="오늘 DAU" value={todayActive} icon={Activity} gradient="bg-gradient-to-r from-emerald-500 to-teal-500" description="실시간 활성 사용자" delay={80} />
         <StatCard label="영업일 평균 DAU" value={Math.round(avgDailyActiveExcluding)} icon={Activity} gradient="bg-gradient-to-r from-orange-500 to-amber-500" description="최근 30일, 주말/휴일 제외" highlight delay={160} />
-        <StatCard label="총 토큰 사용" value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description="누적 합계" delay={240} />
-        <StatCard label="총 API 요청" value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description="누적 합계" delay={320} />
+        <StatCard label="평균 MAU" value={avgMau} icon={CalendarDays} gradient="bg-gradient-to-r from-indigo-500 to-blue-500" description="최근 3개월 평균" delay={240} />
+        <StatCard label="총 토큰 사용" value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description="누적 합계" delay={320} />
+        <StatCard label="총 API 요청" value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description="누적 합계" delay={400} />
       </div>
       {/* Real-time indicator */}
       {todayActive > 0 && (
@@ -761,6 +787,163 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
       {/* Weekly Business DAU */}
       <WeeklyBusinessDAUChart />
+
+      {/* MAU Monthly Chart */}
+      {mauMonthlyData.length > 0 && mauServices.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-50 rounded-xl">
+                <CalendarDays className="w-5 h-5 text-indigo-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">MAU 월별 변화</h2>
+                <p className="text-sm text-gray-500 mt-0.5">서비스별 월간 활성 사용자 추이 (BACKGROUND: 추정)</p>
+              </div>
+            </div>
+            {mauEstimationMeta && (
+              <div className="text-xs text-gray-400 text-right space-y-0.5">
+                <div>
+                  <span>1인당 하루 평균: <strong className="text-gray-600">{mauEstimationMeta.avgCallsPerPersonPerDay}건</strong></span>
+                  <span className="mx-2">|</span>
+                  <span>1인당 월 평균: <strong className="text-gray-600">{mauEstimationMeta.avgCallsPerPersonPerMonth}건</strong></span>
+                  <span className="mx-2">|</span>
+                  <span>영업일: <strong className="text-gray-600">{mauEstimationMeta.businessDaysUsed}일</strong></span>
+                </div>
+                <div className="flex items-center gap-1 justify-end text-gray-400">
+                  <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
+                  <span>= 추정 (BACKGROUND)</span>
+                  <span className="mx-1">|</span>
+                  <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
+                  <span>= 실측 (STANDARD)</span>
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Service summary cards */}
+          {(() => {
+            const rankedSvcs = [...mauServices].sort((a, b) => {
+              const lastMonth = mauMonthlyData[mauMonthlyData.length - 1];
+              return ((lastMonth?.[b.id] as number) || 0) - ((lastMonth?.[a.id] as number) || 0);
+            });
+            const topMauServices = rankedSvcs.slice(0, 10);
+            const restMauServices = rankedSvcs.slice(10);
+            const bgMeta = mauEstimationMeta?.backgroundServices || {};
+            return (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+                  {topMauServices.map((svc, i) => {
+                    const latestMau = (mauMonthlyData[mauMonthlyData.length - 1]?.[svc.id] as number) || 0;
+                    const prevMau = mauMonthlyData.length > 1 ? (mauMonthlyData[mauMonthlyData.length - 2]?.[svc.id] as number) || 0 : 0;
+                    const diff = latestMau - prevMau;
+                    const isBg = svc.type === 'BACKGROUND';
+                    return (
+                      <div key={svc.id} className="p-3 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: CHART_COLORS[i % CHART_COLORS.length] }}>
+                        <p className="text-xs text-gray-500 truncate">
+                          {svc.displayName}
+                          {isBg && <span className="ml-1 text-[10px] text-amber-500 font-medium">(추정)</span>}
+                        </p>
+                        <div className="flex items-baseline gap-2">
+                          <p className="text-lg font-bold text-gray-900">{latestMau}</p>
+                          {diff !== 0 && (
+                            <span className={`text-xs font-medium ${diff > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                              {diff > 0 ? '+' : ''}{diff}
+                            </span>
+                          )}
+                        </div>
+                        {isBg && bgMeta[svc.id] && (
+                          <p className="text-[10px] text-amber-500">
+                            일평균 API: {bgMeta[svc.id].avgDailyApiCalls}건
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={mauMonthlyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                      />
+                      <YAxis
+                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                        formatter={(value: number, name: string) => {
+                          const svc = mauServices.find(s => s.id === name);
+                          const label = svc?.displayName || name;
+                          const isBg = svc?.type === 'BACKGROUND';
+                          return [`${value}명${isBg ? ' (추정)' : ''}`, label];
+                        }}
+                      />
+                      <Legend
+                        formatter={(value: string) => {
+                          const svc = mauServices.find(s => s.id === value);
+                          return svc?.displayName || value;
+                        }}
+                      />
+                      {topMauServices.map((svc, i) => (
+                        <RechartsLine
+                          key={svc.id}
+                          type="monotone"
+                          dataKey={svc.id}
+                          name={svc.id}
+                          stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                          strokeWidth={2}
+                          strokeDasharray={svc.type === 'BACKGROUND' ? '5 3' : undefined}
+                          dot={{ r: 4, strokeWidth: 2 }}
+                          activeDot={{ r: 6 }}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+                {restMauServices.length > 0 && (
+                  <div className="mt-4 border-t border-gray-100 pt-4 px-2">
+                    <p className="text-xs text-gray-500 mb-2">그 외 {restMauServices.length}개 서비스</p>
+                    <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-gray-50">
+                          <tr>
+                            <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
+                            <th className="text-right py-2 px-3 font-medium text-gray-500">최근 MAU</th>
+                            <th className="text-right py-2 px-3 font-medium text-gray-500">타입</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {restMauServices.map((svc, i) => {
+                            const latestMau = (mauMonthlyData[mauMonthlyData.length - 1]?.[svc.id] as number) || 0;
+                            return (
+                              <tr key={svc.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{svc.displayName}</td>
+                                <td className="text-right py-1.5 px-3 text-gray-600">{latestMau}</td>
+                                <td className="text-right py-1.5 px-3">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${svc.type === 'BACKGROUND' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                    {svc.type === 'BACKGROUND' ? '추정' : '실측'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Enhanced Service Metrics */}
       <EnhancedServiceCharts />

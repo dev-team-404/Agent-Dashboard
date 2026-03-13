@@ -6,7 +6,7 @@ import {
   Zap, MessageSquare, Image, Cpu, Sparkles,
   AlertTriangle, X, Check, UserPlus, Users,
   Crown, Shield, User, Gauge, Server,
-  Activity, TrendingUp, Hash, BarChart3,
+  Activity, TrendingUp, Hash, BarChart3, CalendarDays,
   Globe, Building2, Lock, ExternalLink,
   FileText, ChevronLeft, ChevronRight, Eye, EyeOff, Ticket,
 } from 'lucide-react';
@@ -401,19 +401,44 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
 function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: AdminRole }) {
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [serviceStats, setServiceStats] = useState<{ avgDailyActiveUsers: number; avgDailyActiveUsersExcluding: number } | null>(null);
+  const [serviceMauData, setServiceMauData] = useState<{
+    latestMau: number; prevMau: number; isEstimated: boolean;
+    avgDailyApiCalls?: number; avgCallsPerPersonPerDay?: number; avgCallsPerPersonPerMonth?: number; businessDaysUsed?: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [ovRes, glRes] = await Promise.all([
+        const [ovRes, glRes, mauRes] = await Promise.all([
           statsApi.overview(serviceId),
           statsApi.globalOverview(),
+          statsApi.globalMauByService(3).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
         ]);
         setOverview(ovRes.data);
         const svc = glRes.data.services?.find((s: { serviceId: string }) => s.serviceId === serviceId);
         if (svc) setServiceStats(svc);
+
+        // Extract MAU for this service
+        const mauMonthly = mauRes.data.monthlyData || [];
+        const mauSvcs = mauRes.data.services || [];
+        const thisSvc = mauSvcs.find((s: { id: string }) => s.id === serviceId);
+        if (thisSvc && mauMonthly.length > 0) {
+          const latestMau = (mauMonthly[mauMonthly.length - 1]?.[serviceId] as number) || 0;
+          const prevMau = mauMonthly.length > 1 ? (mauMonthly[mauMonthly.length - 2]?.[serviceId] as number) || 0 : 0;
+          const meta = mauRes.data.estimationMeta;
+          const bgInfo = meta?.backgroundServices?.[serviceId];
+          setServiceMauData({
+            latestMau,
+            prevMau,
+            isEstimated: thisSvc.type === 'BACKGROUND',
+            avgDailyApiCalls: bgInfo?.avgDailyApiCalls,
+            avgCallsPerPersonPerDay: meta?.avgCallsPerPersonPerDay,
+            avgCallsPerPersonPerMonth: meta?.avgCallsPerPersonPerMonth,
+            businessDaysUsed: meta?.businessDaysUsed,
+          });
+        }
       } catch { /* */ } finally { setLoading(false); }
     })();
   }, [serviceId]);
@@ -425,17 +450,43 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ── Stat Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
           { label: '활성 사용자', value: overview?.activeUsers || 0, icon: Activity, color: 'emerald', desc: '최근 30분' },
           { label: '전체 사용자', value: overview?.totalUsers || 0, icon: Users, color: 'blue', desc: '서비스 등록 사용자' },
           { label: '일평균 DAU', value: serviceStats?.avgDailyActiveUsersExcluding || 0, icon: TrendingUp, color: 'orange', desc: '영업일 기준, 1개월' },
+          { label: serviceMauData?.isEstimated ? '추정 MAU' : 'MAU', value: serviceMauData?.latestMau || 0, icon: CalendarDays, color: 'indigo', desc: serviceMauData?.isEstimated ? '추정값 (최근 월)' : '최근 월' },
           { label: '오늘 요청', value: overview?.todayUsage?.requests || 0, icon: Zap, color: 'amber', desc: 'API 호출 수' },
           { label: '오늘 토큰', value: todayTokens, icon: Hash, color: 'violet', desc: '입력 + 출력' },
         ].map((s, i) => (
           <StatCard key={s.label} {...s} delay={i * 60} />
         ))}
       </div>
+      {/* ── Estimation detail for BACKGROUND ── */}
+      {serviceMauData?.isEstimated && (
+        <div className="flex items-start gap-3 px-5 py-3 rounded-xl bg-amber-50 border border-amber-100">
+          <CalendarDays className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-amber-700">
+            <span className="font-medium">추정 DAU/MAU</span>
+            <span className="mx-1.5">—</span>
+            <span>이 서비스는 BACKGROUND 타입으로 사용자 정보가 없어 추정값을 사용합니다.</span>
+            {serviceMauData.avgDailyApiCalls != null && (
+              <span className="block mt-1 text-xs text-amber-600">
+                영업일 하루 평균 API 호출: <strong>{serviceMauData.avgDailyApiCalls}건</strong>
+                {serviceMauData.avgCallsPerPersonPerDay != null && (
+                  <> / 1인당 하루 평균: <strong>{serviceMauData.avgCallsPerPersonPerDay}건</strong></>
+                )}
+                {serviceMauData.avgCallsPerPersonPerMonth != null && (
+                  <> / 1인당 월 평균: <strong>{serviceMauData.avgCallsPerPersonPerMonth}건</strong></>
+                )}
+                {serviceMauData.businessDaysUsed != null && (
+                  <> / 영업일 수: <strong>{serviceMauData.businessDaysUsed}일</strong></>
+                )}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Active users pulse ── */}
       {(overview?.activeUsers || 0) > 0 && (
@@ -491,6 +542,7 @@ function StatCard({ label, value, icon: Icon, color, desc, delay }: {
     orange: { bg: 'bg-orange-50', text: 'text-orange-600', ring: 'ring-orange-100' },
     amber: { bg: 'bg-amber-50', text: 'text-amber-600', ring: 'ring-amber-100' },
     violet: { bg: 'bg-violet-50', text: 'text-violet-600', ring: 'ring-violet-100' },
+    indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600', ring: 'ring-indigo-100' },
   };
   const c = colorMap[color] || colorMap.blue;
 

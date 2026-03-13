@@ -3,7 +3,7 @@ import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
-import { TrendingUp, Users, Zap, BarChart3, Activity } from 'lucide-react';
+import { TrendingUp, Users, Zap, BarChart3, Activity, CalendarDays } from 'lucide-react';
 import { statsApi } from '../../services/api';
 
 const COLORS = [
@@ -12,12 +12,13 @@ const COLORS = [
   '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
-type ChartType = 'cumUsers' | 'cumTokens' | 'dau' | 'requests' | 'deptUsage';
+type ChartType = 'cumUsers' | 'cumTokens' | 'dau' | 'mau' | 'requests' | 'deptUsage';
 
 const TABS: { key: ChartType; label: string; icon: React.ElementType }[] = [
   { key: 'cumUsers', label: '누적 사용자', icon: Users },
   { key: 'cumTokens', label: '누적 토큰', icon: Zap },
   { key: 'dau', label: '서비스별 DAU', icon: Activity },
+  { key: 'mau', label: '서비스별 MAU', icon: CalendarDays },
   { key: 'requests', label: '일별 요청수', icon: BarChart3 },
   { key: 'deptUsage', label: '부서별 사용량', icon: TrendingUp },
 ];
@@ -88,6 +89,7 @@ export default function EnhancedServiceCharts() {
   const [dauData, setDauData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [requestsData, setRequestsData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [deptUsageData, setDeptUsageData] = useState<{ data: { serviceName: string; deptname: string; totalTokens: number; requestCount: number }[] }>({ data: [] });
+  const [mauData, setMauData] = useState<{ monthlyData: Record<string, unknown>[]; services: { id: string; displayName: string; type: string }[] }>({ monthlyData: [], services: [] });
 
   useEffect(() => {
     loadChartData();
@@ -96,18 +98,21 @@ export default function EnhancedServiceCharts() {
   const loadChartData = async () => {
     setLoading(true);
     try {
-      const [cumUsersRes, cumTokensRes, dauRes, requestsRes, deptRes] = await Promise.all([
+      const months = days <= 30 ? 3 : days <= 90 ? 6 : 12;
+      const [cumUsersRes, cumTokensRes, dauRes, requestsRes, deptRes, mauRes] = await Promise.all([
         statsApi.globalCumulativeUsersByService(days),
         statsApi.globalCumulativeTokensByService(days),
         statsApi.globalDauByService(days),
         statsApi.globalServiceDailyRequests(days),
         statsApi.globalDeptUsageByService(days),
+        statsApi.globalMauByService(months).catch(() => ({ data: { services: [], monthlyData: [] } })),
       ]);
       setCumUsersData(cumUsersRes.data);
       setCumTokensData(cumTokensRes.data);
       setDauData(dauRes.data);
       setRequestsData(requestsRes.data);
       setDeptUsageData(deptRes.data);
+      setMauData({ monthlyData: mauRes.data.monthlyData || [], services: mauRes.data.services || [] });
     } catch (err) {
       console.error('Failed to load enhanced charts:', err);
     } finally {
@@ -179,6 +184,86 @@ export default function EnhancedServiceCharts() {
           </AreaChart>
         </ResponsiveContainer>
         <OverflowTable data={data} keys={rest} label="요약" />
+      </>
+    );
+  };
+
+  const renderMauChart = () => {
+    const { monthlyData, services } = mauData;
+    if (monthlyData.length === 0 || services.length === 0) return <EmptyState />;
+
+    // Rank by latest month's MAU
+    const lastMonth = monthlyData[monthlyData.length - 1] || {};
+    const ranked = [...services].sort((a, b) => ((lastMonth[b.id] as number) || 0) - ((lastMonth[a.id] as number) || 0));
+    const topSvcs = ranked.slice(0, 10);
+    const restSvcs = ranked.slice(10);
+
+    return (
+      <>
+        <ResponsiveContainer width="100%" height={360}>
+          <LineChart data={monthlyData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip
+              formatter={(value: number, name: string) => {
+                const svc = services.find(s => s.id === name);
+                const label = svc?.displayName || name;
+                const isBg = svc?.type === 'BACKGROUND';
+                return [`${value}명${isBg ? ' (추정)' : ''}`, label];
+              }}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+            />
+            <Legend
+              formatter={(value: string) => {
+                const svc = services.find(s => s.id === value);
+                return svc?.displayName || value;
+              }}
+              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+            />
+            {topSvcs.map((svc, i) => (
+              <Line
+                key={svc.id}
+                type="monotone"
+                dataKey={svc.id}
+                stroke={COLORS[i % COLORS.length]}
+                strokeWidth={2}
+                strokeDasharray={svc.type === 'BACKGROUND' ? '5 3' : undefined}
+                dot={{ r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+        {restSvcs.length > 0 && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="text-xs text-gray-500 mb-2">그 외 {restSvcs.length}개 서비스</p>
+            <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-gray-50">
+                  <tr>
+                    <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-500">최근 MAU</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-500">타입</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {restSvcs.map((svc, i) => (
+                    <tr key={svc.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="py-1.5 px-3 text-gray-700 truncate max-w-[200px]">{svc.displayName}</td>
+                      <td className="text-right py-1.5 px-3 text-gray-600">{(lastMonth[svc.id] as number) || 0}</td>
+                      <td className="text-right py-1.5 px-3">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${svc.type === 'BACKGROUND' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                          {svc.type === 'BACKGROUND' ? '추정' : '실측'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </>
     );
   };
@@ -288,6 +373,7 @@ export default function EnhancedServiceCharts() {
             {tab === 'cumUsers' && renderLineChart(cumUsersData.data)}
             {tab === 'cumTokens' && renderAreaChart(cumTokensData.data)}
             {tab === 'dau' && renderLineChart(dauData.data)}
+            {tab === 'mau' && renderMauChart()}
             {tab === 'requests' && renderAreaChart(requestsData.data)}
             {tab === 'deptUsage' && renderDeptUsageChart()}
           </>
