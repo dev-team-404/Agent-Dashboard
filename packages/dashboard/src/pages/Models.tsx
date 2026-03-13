@@ -70,6 +70,7 @@ interface TestImageResult {
 
 interface ModelsProps {
   adminRole?: AdminRole;
+  isAdmin?: boolean;
 }
 
 type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
@@ -206,7 +207,7 @@ function MultiSelectDropdown({
 /* ──────────────────────────────────────────────
    Main Component
    ────────────────────────────────────────────── */
-export default function Models({ adminRole }: ModelsProps) {
+export default function Models({ adminRole, isAdmin }: ModelsProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -270,14 +271,14 @@ export default function Models({ adminRole }: ModelsProps) {
 
   const loadModels = useCallback(async () => {
     try {
-      const res = await modelsApi.list();
+      const res = isAdmin ? await modelsApi.list() : await modelsApi.browse();
       setModels(res.data.models || []);
     } catch (error) {
       console.error('Failed to load models:', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   const resetTestStates = () => {
     setTestResult(null);
@@ -631,6 +632,7 @@ export default function Models({ adminRole }: ModelsProps) {
 
   // Admin can modify?
   const canModify = (model: Model) => {
+    if (!isAdmin) return false;
     if (adminRole === 'SUPER_ADMIN') return true;
     if (model.createdBySuperAdmin) return false;
     return true;
@@ -673,7 +675,7 @@ export default function Models({ adminRole }: ModelsProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-pastel-800">LLM 모델 관리</h1>
+          <h1 className="text-2xl font-bold text-pastel-800">{isAdmin ? 'LLM 모델 관리' : 'LLM 모델'}</h1>
           <p className="text-sm text-pastel-500 mt-1">
             {models.length}개 모델 | 서비스와 독립적으로 관리됩니다
           </p>
@@ -681,15 +683,17 @@ export default function Models({ adminRole }: ModelsProps) {
             LLM 모델을 등록하고 관리합니다. 같은 모델 ID로 여러 개 등록하면 서비스별 라운드로빈에 사용할 수 있습니다.
           </p>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
-                     hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
-                     transform active:scale-[0.97] transition-all duration-200"
-        >
-          <Plus className="w-4 h-4" />
-          새 모델 추가
-        </button>
+        {isAdmin && (
+          <button
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
+                       hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
+                       transform active:scale-[0.97] transition-all duration-200"
+          >
+            <Plus className="w-4 h-4" />
+            새 모델 추가
+          </button>
+        )}
       </div>
 
       {/* Search & Filters */}
@@ -805,6 +809,11 @@ export default function Models({ adminRole }: ModelsProps) {
                         {model.createdBySuperAdmin && (
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded-full border border-amber-200">
                             <Shield className="w-2.5 h-2.5 inline mr-0.5" />Super
+                          </span>
+                        )}
+                        {model.createdByBusinessUnit && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80 rounded-full">
+                            {model.createdByBusinessUnit}
                           </span>
                         )}
                       </div>

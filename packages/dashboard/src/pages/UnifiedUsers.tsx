@@ -16,6 +16,7 @@ interface UnifiedUser {
   username: string;
   deptname: string;
   businessUnit: string | null;
+  knoxVerified: boolean;
   globalRole: string | null;
   serviceStats: ServiceStat[];
   totalRequests: number;
@@ -555,7 +556,18 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm text-pastel-800 truncate">{user.username}</p>
-                          <p className="text-xs text-pastel-400 truncate">{user.loginid}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <p className="text-xs text-pastel-400 truncate">{user.loginid}</p>
+                            {user.knoxVerified ? (
+                              <span title="Knox 인증 완료">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                              </span>
+                            ) : (
+                              <span title="Knox 미인증">
+                                <Shield className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

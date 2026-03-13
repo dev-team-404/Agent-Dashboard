@@ -1962,6 +1962,7 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
         username: u.username,
         deptname: u.deptname,
         businessUnit: u.businessUnit,
+        knoxVerified: u.knoxVerified,
         globalRole,
         firstSeen: u.firstSeen,
         lastActive: u.lastActive,
@@ -3182,7 +3183,7 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
  * GET /admin/stats/global/overview
  * 전체 서비스 통합 통계 (Main Dashboard용)
  */
-adminRoutes.get('/stats/global/overview', async (_req: AuthenticatedRequest, res) => {
+adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res) => {
   try {
     // Get all services with stats
     const services = await prisma.service.findMany({

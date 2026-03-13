@@ -32,6 +32,48 @@ async function recordAudit(req: AuthenticatedRequest, action: string, target: st
 }
 
 /**
+ * GET /models/browse
+ * 모델 공개 목록 (모든 인증 사용자 접근 가능)
+ * - ADMIN_ONLY, SUPER_ADMIN_ONLY 제외
+ * - 민감 정보 마스킹 (apiKey, endpointUrl)
+ * - 팀/사업부 태그 포함
+ */
+modelsRoutes.get('/browse', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const models = await prisma.model.findMany({
+      where: {
+        enabled: true,
+        visibility: { notIn: ['ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+    });
+
+    // Mask sensitive fields for public viewing
+    const publicModels = models.map(m => ({
+      id: m.id,
+      name: m.name,
+      displayName: m.displayName,
+      type: m.type,
+      supportsVision: m.supportsVision,
+      visibility: m.visibility,
+      visibilityScope: m.visibilityScope,
+      maxTokens: m.maxTokens,
+      enabled: m.enabled,
+      sortOrder: m.sortOrder,
+      createdByDept: m.createdByDept,
+      createdByBusinessUnit: m.createdByBusinessUnit,
+      createdBySuperAdmin: m.createdBySuperAdmin,
+      createdAt: m.createdAt,
+    }));
+
+    res.json({ models: publicModels });
+  } catch (error) {
+    console.error('Browse models error:', error);
+    res.status(500).json({ error: 'Failed to browse models' });
+  }
+});
+
+/**
  * GET /models
  * 모델 목록 (권한에 따라 필터링)
  * Admin/SuperAdmin만 접근 가능 (Dashboard UI용)

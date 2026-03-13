@@ -17,6 +17,7 @@ type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 interface MainDashboardProps {
   adminRole: AdminRole;
+  isAdmin?: boolean;
 }
 
 interface GlobalOverviewService {

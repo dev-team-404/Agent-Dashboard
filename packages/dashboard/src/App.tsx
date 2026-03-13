@@ -19,6 +19,7 @@ const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
+const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
 
 interface User {
   id: string;
@@ -113,6 +114,8 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* All users */}
+          <Route path="/public-dashboard" element={<PublicDashboard />} />
+          <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} />} />
           <Route path="/services" element={<ServiceMarket />} />
           <Route path="/my-services" element={<MyServices user={user} adminRole={adminRole} />} />
           <Route path="/my-services/:serviceId" element={<ServiceDetail user={user} adminRole={adminRole} />} />
@@ -122,8 +125,7 @@ function App() {
           {/* System Admin (ADMIN + SUPER_ADMIN) */}
           {isAdmin && (
             <>
-              <Route path="/" element={<MainDashboard adminRole={adminRole} />} />
-              <Route path="/models" element={<Models adminRole={adminRole} />} />
+              <Route path="/" element={<MainDashboard adminRole={adminRole} isAdmin={isAdmin} />} />
               <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
@@ -142,7 +144,7 @@ function App() {
 
           <Route
             path="*"
-            element={<Navigate to={isAdmin ? '/' : '/services'} replace />}
+            element={<Navigate to={isAdmin ? '/' : '/public-dashboard'} replace />}
           />
         </Routes>
       </Suspense>

@@ -88,6 +88,7 @@ export const serviceApi = {
 
 export const modelsApi = {
   list: () => api.get('/models'),
+  browse: () => api.get('/models/browse'),
   get: (id: string) => api.get(`/models/${id}`),
   create: (data: CreateModelData) => api.post('/models', data),
   update: (id: string, data: Partial<CreateModelData>) => api.put(`/models/${id}`, data),
@@ -377,4 +378,10 @@ export const holidaysApi = {
     api.put<{ holiday: Holiday }>(`/holidays/${id}`, data),
   delete: (id: string) =>
     api.delete<{ message: string }>(`/holidays/${id}`),
+};
+
+// 공개 통계 API (인증 불필요)
+export const publicStatsApi = {
+  dauMau: (year: number, month: number) =>
+    api.get('/public/stats/dau-mau', { params: { year, month } }),
 };
