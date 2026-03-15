@@ -647,6 +647,24 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const bgDailyMap = new Map(bgDailyResult.map(r => [r.service_id, r.avg_daily_calls]));
     const bgMonthlyMap = new Map(bgMonthlyResult.map(r => [r.service_id, Number(r.total_calls)]));
 
+    // 전체 중복제거 DAU/MAU 계산
+    // STANDARD: 이미 교차 서비스 중복제거된 avgDau / baseMau 사용
+    // BACKGROUND: 유저 식별 불가하므로 추정 DAU 합산
+    let totalBgEstimatedDau = 0;
+    let totalBgEstimatedMau = 0;
+    if (callsPerPersonPerDay > 0) {
+      for (const dailyCalls of bgDailyMap.values()) {
+        totalBgEstimatedDau += Math.round(dailyCalls / callsPerPersonPerDay);
+      }
+    }
+    if (callsPerPersonPerMonth > 0) {
+      for (const monthlyCalls of bgMonthlyMap.values()) {
+        totalBgEstimatedMau += Math.round(monthlyCalls / callsPerPersonPerMonth);
+      }
+    }
+    const overallAvgDailyDAU = Math.round(avgDau) + totalBgEstimatedDau;
+    const overallMAU = baseMau + totalBgEstimatedMau;
+
     const data = services.map(s => {
       const usage = usageMap.get(s.id) || { totalCallCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0 };
       const base = {
@@ -702,6 +720,8 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       year,
       month,
       isCurrentMonth,
+      overallAvgDailyDAU,
+      overallMAU,
       estimationBaseline: {
         callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
         callsPerPersonPerMonth: Math.round(callsPerPersonPerMonth * 10) / 10,

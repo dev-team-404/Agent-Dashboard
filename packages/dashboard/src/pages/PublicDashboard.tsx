@@ -333,6 +333,7 @@ export default function PublicDashboard() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [services, setServices] = useState<ServiceData[]>([]);
+  const [overallDAU, setOverallDAU] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -346,6 +347,7 @@ export default function PublicDashboard() {
       setError('');
       const res = await publicStatsApi.dauMau(year, month);
       setServices(res.data.data || []);
+      setOverallDAU(res.data.overallAvgDailyDAU || 0);
     } catch (err) {
       console.error('Failed to load public dashboard:', err);
       setError('데이터를 불러올 수 없습니다.');
@@ -367,7 +369,7 @@ export default function PublicDashboard() {
 
   // Aggregated totals
   const enabledServices = services.filter(s => s.enabled);
-  const totalDAU = enabledServices.reduce((s, d) => s + d.dau, 0);
+  const totalDAU = overallDAU; // API에서 교차 서비스 중복제거된 값 사용
   const totalTokens = enabledServices.reduce((s, d) => s + d.totalTokens, 0);
   const totalCalls = enabledServices.reduce((s, d) => s + d.totalCallCount, 0);
 
