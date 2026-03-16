@@ -17,6 +17,7 @@ const MyServices = lazy(() => import('./pages/MyServices'));
 const RequestLogs = lazy(() => import('./pages/RequestLogs'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
+const ServiceTargets = lazy(() => import('./pages/ServiceTargets'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
@@ -127,6 +128,7 @@ function App() {
               <Route path="/" element={<MainDashboard adminRole={adminRole} isAdmin={isAdmin} />} />
               <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} />} />
               <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
+              <Route path="/service-targets" element={<ServiceTargets />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
             </>

@@ -28,6 +28,7 @@ import { serviceRoutes } from './routes/service.routes.js';
 import { holidaysRoutes } from './routes/holidays.routes.js';
 import { publicStatsRoutes } from './routes/public-stats.routes.js';
 import { adminLogsRoutes } from './routes/admin-logs.routes.js';
+import { serviceTargetsRoutes } from './routes/service-targets.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
@@ -87,6 +88,7 @@ app.use('/my-usage', myUsageRoutes);
 app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 app.use('/admin', adminLogsRoutes);
+app.use('/admin', serviceTargetsRoutes);
 
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);

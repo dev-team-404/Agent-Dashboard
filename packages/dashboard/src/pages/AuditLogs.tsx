@@ -40,6 +40,7 @@ const ACTION_OPTIONS = [
   'UPDATE_SERVICE',
   'DELETE_SERVICE',
   'DEPLOY_SERVICE',
+  'UPDATE_SERVICE_TARGET',
   'ADD_MODEL',
   'UPDATE_MODEL',
   'REMOVE_MODEL',
@@ -58,7 +59,7 @@ const ACTION_OPTIONS = [
   'CLEANUP_REQUEST_LOGS',
 ];
 
-const TARGET_TYPE_OPTIONS = ['Service', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog'];
+const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog'];
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
@@ -85,6 +86,10 @@ export default function AuditLogs() {
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
+  // Quick filter tab
+  type QuickTab = 'all' | 'service-targets';
+  const [quickTab, setQuickTab] = useState<QuickTab>('all');
+
   // Filters
   const [loginid, setLoginid] = useState('');
   const [action, setAction] = useState('');
@@ -98,7 +103,7 @@ export default function AuditLogs() {
 
   useEffect(() => {
     loadLogs();
-  }, [pagination.page, action, targetType, startDate, endDate]);
+  }, [pagination.page, action, targetType, startDate, endDate, quickTab]);
 
   // Debounced loginid search
   useEffect(() => {
@@ -120,8 +125,16 @@ export default function AuditLogs() {
         limit: pagination.limit,
       };
       if (loginid) params.loginid = loginid;
-      if (action) params.action = action;
-      if (targetType) params.targetType = targetType;
+
+      // quickTab overrides action/targetType filters
+      if (quickTab === 'service-targets') {
+        params.action = 'UPDATE_SERVICE_TARGET';
+        params.targetType = 'ServiceTarget';
+      } else {
+        if (action) params.action = action;
+        if (targetType) params.targetType = targetType;
+      }
+
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
 
@@ -133,7 +146,7 @@ export default function AuditLogs() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, loginid, action, targetType, startDate, endDate]);
+  }, [pagination.page, pagination.limit, loginid, action, targetType, startDate, endDate, quickTab]);
 
   const toggleExpanded = (id: string) => {
     setExpandedRows(prev => {
@@ -148,6 +161,7 @@ export default function AuditLogs() {
   };
 
   const clearFilters = () => {
+    setQuickTab('all');
     setLoginid('');
     setAction('');
     setTargetType('');
@@ -220,6 +234,33 @@ export default function AuditLogs() {
         </div>
       </div>
 
+      {/* Quick Filter Tabs */}
+      <div className="flex items-center gap-1 bg-white rounded-lg shadow-sm border border-gray-100/80 p-1">
+        {([
+          ['all', '전체 로그'],
+          ['service-targets', '서비스 목표 변경'],
+        ] as [QuickTab, string][]).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => {
+              setQuickTab(tab);
+              if (tab === 'service-targets') {
+                setAction('');
+                setTargetType('');
+              }
+              setPagination(prev => ({ ...prev, page: 1 }));
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 ${
+              quickTab === tab
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-800'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Search and Filters */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -261,9 +302,10 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">작업</label>
               <select
-                value={action}
+                value={quickTab === 'service-targets' ? 'UPDATE_SERVICE_TARGET' : action}
                 onChange={e => { setAction(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                disabled={quickTab === 'service-targets'}
+                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${quickTab === 'service-targets' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <option value="">전체</option>
                 {ACTION_OPTIONS.map(a => (
@@ -275,9 +317,10 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">대상 유형</label>
               <select
-                value={targetType}
+                value={quickTab === 'service-targets' ? 'ServiceTarget' : targetType}
                 onChange={e => { setTargetType(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
-                className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
+                disabled={quickTab === 'service-targets'}
+                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${quickTab === 'service-targets' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <option value="">전체</option>
                 {TARGET_TYPE_OPTIONS.map(t => (

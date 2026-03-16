@@ -116,7 +116,7 @@ const createServiceSchema = z.object({
   enabled: z.boolean().default(true),
   type: z.enum(['STANDARD', 'BACKGROUND']).default('STANDARD'),
   status: z.enum(['DEVELOPMENT', 'DEPLOYED']).default('DEVELOPMENT'),
-  targetMM: z.number().min(0).max(9999).optional().nullable(),
+  // targetMM → 서비스 생성 후 /admin/service-targets 에서 설정 (감사 로그 기록 필수)
   serviceCategory: z.array(z.string()).optional().default([]),
   standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
@@ -132,7 +132,7 @@ const updateServiceSchema = z.object({
   type: z.enum(['STANDARD', 'BACKGROUND']).optional(),
   deployScope: z.enum(['ALL', 'BUSINESS_UNIT', 'TEAM']).optional(),
   deployScopeValue: z.array(z.string()).optional(),
-  targetMM: z.number().min(0).max(9999).optional().nullable(),
+  // targetMM, savedMM → /admin/service-targets 전용 (감사 로그 기록 필수)
   serviceCategory: z.array(z.string()).optional().default([]),
   standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),

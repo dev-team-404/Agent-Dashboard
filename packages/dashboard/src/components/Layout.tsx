@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -89,6 +89,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/public-dashboard') return '공개 대시보드';
     if (location.pathname === '/models') return 'LLM 모델 관리';
     if (location.pathname === '/users') return '사용자 관리';
+    if (location.pathname === '/service-targets') return '서비스 목표 관리';
     if (location.pathname === '/holidays') return '휴일 관리';
     if (location.pathname === '/my-usage') return '내 사용량';
     if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
@@ -180,6 +181,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/" label="통합 대시보드" icon={Home} />
                 <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
                 <NavLink path="/users" label="사용자 관리" icon={Users} />
+                <NavLink path="/service-targets" label="서비스 목표 관리" icon={Target} />
               </div>
             </div>
           )}

@@ -62,7 +62,6 @@ interface ServiceFormData {
   iconUrl: string;
   docsUrl: string;
   serviceUrl: string;
-  targetMM: string;
   serviceCategory: string[];
   standardMD: string;
   jiraTicket: string;
@@ -76,7 +75,6 @@ const EMPTY_FORM: ServiceFormData = {
   iconUrl: '',
   docsUrl: '',
   serviceUrl: '',
-  targetMM: '',
   serviceCategory: [],
   standardMD: '',
   jiraTicket: '',
@@ -226,7 +224,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       iconUrl: service.iconUrl || '',
       docsUrl: service.docsUrl || '',
       serviceUrl: service.serviceUrl || '',
-      targetMM: service.targetMM != null ? String(service.targetMM) : '',
       serviceCategory: service.serviceCategory || [],
       standardMD: service.standardMD != null ? String(service.standardMD) : '',
       jiraTicket: service.jiraTicket || '',
@@ -249,7 +246,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     iconUrl: formData.iconUrl.trim() || null,
     docsUrl: formData.docsUrl.trim() || null,
     serviceUrl: formData.serviceUrl.trim() || null,
-    targetMM: formData.targetMM ? parseFloat(formData.targetMM) : null,
+    // targetMM, savedMM은 서비스 목표 관리 페이지에서만 수정 (감사 로그 기록 필수)
     serviceCategory: formData.serviceCategory.length > 0 ? formData.serviceCategory : [],
     standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
     jiraTicket: formData.jiraTicket.trim() || null,
@@ -688,18 +685,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              {formData.type === 'BACKGROUND' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">목표 MM</label>
-                  <input type="number" step="0.1" min="0" value={formData.targetMM} onChange={(e) => setFormData({ ...formData, targetMM: e.target.value })} placeholder="예: 3.5" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Standard M/D</label>
+                  <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })} placeholder="예: 0.1" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                  <p className="mt-1 text-xs text-gray-400">해당 작업을 인간이 수행 시 소요되는 표준 공수 (M/D)</p>
                 </div>
-                {formData.type === 'BACKGROUND' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Standard M/D</label>
-                    <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })} placeholder="예: 0.1" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                  </div>
-                )}
-              </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
                 <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
@@ -844,7 +836,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 const WIZARD_STEPS = [
   { title: '기본 정보', desc: '서비스 코드와 이름을 설정합니다' },
   { title: '서비스 분류', desc: '타입과 카테고리를 선택합니다' },
-  { title: '서비스 목표', desc: '목표 공수와 표준 M/D를 입력합니다' },
   { title: '링크 설정', desc: '관련 URL을 등록합니다 (선택)' },
   { title: '확인', desc: '입력한 정보를 확인하고 등록합니다' },
 ];
@@ -867,7 +858,6 @@ function ServiceCreationWizard({
     switch (wizardStep) {
       case 0: return !!(formData.name.trim() && formData.displayName.trim());
       case 1: return formData.serviceCategory.length > 0;
-      case 2: return !!(formData.targetMM);
       default: return true;
     }
   };
@@ -886,10 +876,6 @@ function ServiceCreationWizard({
     }
     if (wizardStep === 1 && formData.serviceCategory.length === 0) {
       setFormError('서비스 카테고리를 1개 이상 선택해주세요.');
-      return;
-    }
-    if (wizardStep === 2 && !formData.targetMM) {
-      setFormError('목표 MM을 입력해주세요.');
       return;
     }
     setWizardStep(wizardStep + 1);
@@ -999,38 +985,8 @@ function ServiceCreationWizard({
             </div>
           )}
 
-          {/* Step 2: 서비스 목표 */}
+          {/* Step 2: 링크 설정 */}
           {wizardStep === 2 && (
-            <div className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">목표 MM (Men/Month) <span className="text-red-500">*</span></label>
-                <input type="number" step="0.1" min="0" value={formData.targetMM} onChange={(e) => setFormData({ ...formData, targetMM: e.target.value })}
-                  placeholder="예: 3.5" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">이 서비스가 절감하거나 대체할 것으로 예상되는 인력 공수입니다.</p>
-              </div>
-              {formData.type === 'BACKGROUND' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Standard M/D (Man/Day) <span className="text-red-500">*</span></label>
-                  <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })}
-                    placeholder="예: 0.1" className={inputClass} />
-                  <p className="mt-1.5 text-xs text-gray-400">해당 작업을 숙련된 인간이 수행 시 소요되는 표준 공수입니다. 예: 코드 리뷰 1건 = 0.1 M/D</p>
-                </div>
-              )}
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
-                <p className="text-xs text-blue-700 leading-relaxed">
-                  <strong>MM (Men/Month)</strong>은 서비스의 사업적 가치를 측정하는 핵심 지표입니다.
-                  AI 서비스가 자동화하는 업무량을 인력 기준으로 환산하여 입력해주세요.
-                  {formData.type === 'BACKGROUND' && (
-                    <><br /><br /><strong>Standard M/D</strong>는 백그라운드 서비스가 처리하는 단위 작업의 인간 기준 소요 공수입니다.
-                    서비스의 처리 건수와 곱하여 총 절감 공수를 산출하는 데 사용됩니다.</>
-                  )}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: 링크 설정 */}
-          {wizardStep === 3 && (
             <div className="space-y-5">
               <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 mb-2">
                 <p className="text-xs text-gray-500">아래 항목은 모두 선택사항입니다. 나중에 수정할 수 있습니다.</p>
@@ -1065,8 +1021,8 @@ function ServiceCreationWizard({
             </div>
           )}
 
-          {/* Step 4: 확인 */}
-          {wizardStep === 4 && (
+          {/* Step 3: 확인 */}
+          {wizardStep === 3 && (
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">
                 {([
@@ -1075,8 +1031,6 @@ function ServiceCreationWizard({
                   ['설명', formData.description || '-'],
                   ['서비스 타입', formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'],
                   ['카테고리', formData.serviceCategory.length > 0 ? formData.serviceCategory.join(', ') : '-'],
-                  ['목표 MM', formData.targetMM ? `${formData.targetMM} MM` : '-'],
-                  ...(formData.type === 'BACKGROUND' ? [['Standard M/D', formData.standardMD ? `${formData.standardMD} M/D` : '-']] : []),
                   ['로고 URL', formData.iconUrl || '-'],
                   ['서비스 URL', formData.serviceUrl || '-'],
                   ['API 문서 URL', formData.docsUrl || '-'],
