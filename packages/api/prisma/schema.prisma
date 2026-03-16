@@ -17,7 +17,7 @@ enum ServiceType {
 
 enum ServiceStatus {
   DEVELOPMENT  // 개발 중 (생성 시 기본)
-  DEPLOYED     // 배포 완료 (서비스 마켓에 노출)
+  DEPLOYED     // 배포 완료 (서비스 목록에 노출)
 }
 
 enum DeployScope {

@@ -1,4 +1,4 @@
-# Agent Dashboard
+# Agent Registry
 
 LLM 서비스 통합 관리 대시보드 — 3-Tier 권한, 헤더 기반 인증, LLM 가시성 제어
 

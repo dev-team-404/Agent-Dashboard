@@ -1,7 +1,7 @@
 /**
  * Service Routes (v2)
  *
- * 서비스 등록/관리 - 누구나 서비스 생성 가능, 배포 후 서비스 마켓 노출
+ * 서비스 등록/관리 - 누구나 서비스 생성 가능, 배포 후 서비스 목록 노출
  * - Super Admin: 모든 서비스 CRUD
  * - Admin: 본인 dept 내 서비스 관리
  * - User: 본인 서비스 생성/관리, DEPLOYED 서비스 열람
@@ -294,7 +294,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
 
 // ============================================
 // GET /services/names
-// DEPLOYED 서비스 이름 목록 (서비스 마켓용)
+// DEPLOYED 서비스 이름 목록 (서비스 목록용)
 // ============================================
 serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {

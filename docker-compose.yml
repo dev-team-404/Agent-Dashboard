@@ -72,7 +72,7 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: agent-stats-db
+    container_name: agent-registry-db
     restart: unless-stopped
     command: postgres -c max_connections=1000 -c shared_buffers=2GB -c work_mem=16MB -c effective_cache_size=6GB
     environment:
@@ -93,7 +93,7 @@ services:
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: agent-stats-redis
+    container_name: agent-registry-redis
     restart: unless-stopped
     environment:
       <<: *timezone
@@ -111,20 +111,20 @@ services:
   # ─── Blue-Green: API Server ───
   api-blue:
     <<: *api-common
-    container_name: agent-stats-api-blue
+    container_name: agent-registry-api-blue
 
   api-green:
     <<: *api-common
-    container_name: agent-stats-api-green
+    container_name: agent-registry-api-green
 
   # ─── Blue-Green: React Dashboard ───
   dashboard-blue:
     <<: *dashboard-common
-    container_name: agent-stats-frontend-blue
+    container_name: agent-registry-frontend-blue
 
   dashboard-green:
     <<: *dashboard-common
-    container_name: agent-stats-frontend-green
+    container_name: agent-registry-frontend-green
 
   # Nginx Reverse Proxy (includes docs-site build)
   nginx:
@@ -133,7 +133,7 @@ services:
       dockerfile: nginx/Dockerfile
       args:
         <<: *proxy-env
-    container_name: agent-stats-proxy
+    container_name: agent-registry-proxy
     restart: unless-stopped
     environment:
       <<: *timezone
