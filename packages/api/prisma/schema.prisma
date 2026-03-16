@@ -153,6 +153,7 @@ enum ModelType {
   IMAGE      // 이미지 생성 모델
   EMBEDDING  // 임베딩 모델
   RERANKING  // 리랭킹 모델
+  ASR        // 음성 인식 모델 (STT)
 }
 
 model Model {
@@ -174,6 +175,7 @@ model Model {
   // 모델 타입
   type          ModelType @default(CHAT) @map("model_type")
   imageProvider String?  @map("image_provider")  // IMAGE 타입: OPENAI, COMFYUI 등
+  asrMethod     String?  @map("asr_method")      // ASR 타입: AUDIO_URL, OPENAI_TRANSCRIBE
 
   // Vision Language Model 지원 여부
   supportsVision Boolean @default(false) @map("supports_vision")

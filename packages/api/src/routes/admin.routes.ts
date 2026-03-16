@@ -128,6 +128,38 @@ function buildRerankUrl(endpointUrl: string): string {
   return `${url}/rerank`;
 }
 
+function buildAudioTranscriptionsUrl(endpointUrl: string): string {
+  let url = endpointUrl.trim().replace(/\/+$/, '');
+  if (url.endsWith('/audio/transcriptions')) return url;
+  if (url.endsWith('/v1')) return `${url}/audio/transcriptions`;
+  url = url.replace(/\/(chat\/completions|embeddings|rerank|images\/generations)$/, '');
+  return `${url}/audio/transcriptions`;
+}
+
+/**
+ * 1초 무음 WAV 파일 생성 (16kHz mono 16-bit PCM)
+ */
+function generateSilentWavBuffer(durationSec: number): Buffer {
+  const sampleRate = 16000;
+  const numSamples = sampleRate * durationSec;
+  const dataSize = numSamples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);           // PCM
+  buffer.writeUInt16LE(1, 22);           // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);           // block align
+  buffer.writeUInt16LE(16, 34);          // bits per sample
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  return buffer;
+}
+
 /**
  * endpointUrl → /images/generations URL
  */
@@ -398,8 +430,9 @@ const modelSchema = z.object({
   supportsVision: z.boolean().default(false),
   visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY']).default('PUBLIC'),
   visibilityScope: z.array(z.string()).default([]),
-  type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING']).optional(),
+  type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR']).optional(),
   imageProvider: z.string().optional(),
+  asrMethod: z.string().optional(),
 });
 
 /**
@@ -1578,6 +1611,139 @@ adminRoutes.post('/models/test-rerank', async (req: AuthenticatedRequest, res) =
   } catch (error) {
     console.error('Model test-rerank error:', error);
     res.status(500).json({ error: 'Failed to test rerank model' });
+  }
+});
+
+/**
+ * POST /admin/models/test-asr
+ * ASR (음성 인식) 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders?, asrMethod? }
+ * asrMethod: AUDIO_URL (vLLM chat/completions) | OPENAI_TRANSCRIBE (Whisper multipart)
+ */
+adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
+  try {
+    const testSchema = z.object({
+      endpointUrl: z.string().url(),
+      modelName: z.string().min(1),
+      apiKey: z.string().optional(),
+      extraHeaders: z.record(z.string()).optional(),
+      asrMethod: z.string().optional(),
+    });
+
+    const validation = testSchema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+
+    const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, asrMethod } = validation.data;
+    const method = asrMethod || 'AUDIO_URL';
+
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    if (extraHdrs) {
+      for (const [key, value] of Object.entries(extraHdrs)) {
+        const lk = key.toLowerCase();
+        if (lk !== 'content-type' && lk !== 'authorization') headers[key] = value;
+      }
+    }
+
+    // 1초 무음 WAV 생성
+    const wavBuffer = generateSilentWavBuffer(1);
+    const startTime = Date.now();
+    let asr: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+    try {
+      if (method === 'OPENAI_TRANSCRIBE') {
+        // Whisper 호환: multipart/form-data → /audio/transcriptions
+        const url = buildAudioTranscriptionsUrl(endpointUrl);
+
+        const formData = new FormData();
+        formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'test.wav');
+        formData.append('model', modelName);
+        formData.append('response_format', 'json');
+
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: formData,
+        }, 60000); // ASR 테스트 60초 타임아웃
+
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          asr = { passed: false, status: response.status, message: `ASR request failed (${response.status}): ${responseText.substring(0, 500)}`, latencyMs };
+        } else {
+          try {
+            const data = JSON.parse(responseText);
+            if (data.text !== undefined) {
+              asr = { passed: true, status: response.status, message: `OK: Transcription received (${data.text.length} chars)`, latencyMs };
+            } else {
+              asr = { passed: false, status: response.status, message: 'Response missing "text" field', latencyMs };
+            }
+          } catch {
+            asr = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+          }
+        }
+      } else {
+        // AUDIO_URL: base64 audio → /chat/completions (vLLM 방식)
+        const url = buildChatCompletionsUrl(endpointUrl);
+        const wavBase64 = wavBuffer.toString('base64');
+
+        headers['Content-Type'] = 'application/json';
+        const requestBody = {
+          model: modelName,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_audio',
+                  input_audio: { data: wavBase64, format: 'wav' },
+                },
+              ],
+            },
+          ],
+          max_tokens: 256,
+          temperature: 0.0,
+          stream: false,
+        };
+
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        }, 60000);
+
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          asr = { passed: false, status: response.status, message: `ASR request failed (${response.status}): ${responseText.substring(0, 500)}`, latencyMs };
+        } else {
+          try {
+            const data = JSON.parse(responseText);
+            const content = data?.choices?.[0]?.message?.content;
+            if (content !== undefined) {
+              asr = { passed: true, status: response.status, message: `OK: ASR response received (${String(content).length} chars)`, latencyMs };
+            } else {
+              asr = { passed: false, status: response.status, message: 'Response missing choices[0].message.content', latencyMs };
+            }
+          } catch {
+            asr = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+          }
+        }
+      }
+    } catch (err: any) {
+      asr = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+    }
+
+    console.log(`[Test-ASR] Model "${modelName}" method=${method} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+    res.json({ asr, passed: asr.passed });
+  } catch (error) {
+    console.error('Model test-asr error:', error);
+    res.status(500).json({ error: 'Failed to test ASR model' });
   }
 });
 

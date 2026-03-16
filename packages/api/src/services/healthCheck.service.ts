@@ -36,6 +36,9 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
     case 'IMAGE':
       // 이미지 생성은 비용이 크므로 헬스체크 스킵
       return null;
+    case 'ASR':
+      // ASR은 오디오 파일 필요하므로 헬스체크 스킵
+      return null;
     default:
       return {
         url: '/chat/completions',

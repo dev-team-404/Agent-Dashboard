@@ -11,6 +11,7 @@
 
 import { Router, Request, Response } from 'express';
 import path from 'node:path';
+import multer from 'multer';
 import { prisma, redis } from '../index.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
 import { validateProxyHeaders, ProxyAuthRequest } from '../middleware/proxyAuth.js';
@@ -18,6 +19,12 @@ import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
+
+// ASR multipart 업로드 설정
+const asrUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+});
 
 export const proxyRoutes = Router();
 
@@ -63,7 +70,203 @@ proxyRoutes.get('/images/files/:fileName', async (req: Request, res: Response) =
   }
 });
 
-// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙 제외)
+// ============================================
+// POST /v1/audio/transcriptions (ASR — multipart)
+// multer → validateProxyHeaders 순서로 적용 (multipart body 파싱이 먼저 필요)
+// ============================================
+
+const ASR_TIMEOUT_MS = 600000; // 10분
+
+function buildAudioTranscriptionsUrl(endpointUrl: string): string {
+  let url = endpointUrl.trim();
+  if (url.endsWith('/audio/transcriptions')) return url;
+  if (url.endsWith('/')) url = url.slice(0, -1);
+  if (url.endsWith('/v1')) return `${url}/audio/transcriptions`;
+  url = url.replace(/\/(chat\/completions|embeddings|rerank|images\/generations)$/, '');
+  return `${url}/audio/transcriptions`;
+}
+
+proxyRoutes.post(
+  '/audio/transcriptions',
+  asrUpload.single('file') as any,
+  validateProxyHeaders as any,
+  async (req: Request, res: Response) => {
+    const proxyReq = req as ProxyAuthRequest;
+    const startTime = Date.now();
+    const userAgent = req.headers['user-agent'] || null;
+    const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || null;
+
+    try {
+      const modelName = req.body?.model;
+      if (!modelName) {
+        res.status(400).json({ error: 'model is required' });
+        return;
+      }
+      if (!req.file) {
+        res.status(400).json({ error: 'audio file is required (field: "file")' });
+        return;
+      }
+
+      // 파일 크기 검증 (500MB)
+      if (req.file.size > 500 * 1024 * 1024) {
+        res.status(413).json({ error: 'Audio file too large. Maximum size is 500MB.' });
+        return;
+      }
+
+      // 모델 조회: 서비스 alias 기반
+      const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+      if (!resolved.found || !resolved.model) {
+        res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
+        return;
+      }
+      const model = resolved.model;
+
+      // 사용자 upsert + Knox 인증
+      const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/audio/transcriptions');
+      if (knoxError) {
+        recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: knoxError.status, latencyMs: Date.now() - startTime, errorMessage: (knoxError.body as Record<string, string>).message, userAgent, ipAddress, stream: false }).catch(() => {});
+        res.status(knoxError.status).json(knoxError.body);
+        return;
+      }
+
+      // Rate limit 체크
+      const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+      if (rateLimitResult) {
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: false }).catch(() => {});
+        res.status(rateLimitResult.status).json(rateLimitResult.body);
+        return;
+      }
+
+      // 라운드로빈 + Failover
+      const endpoints = await getModelEndpoints(model.id, {
+        endpointUrl: model.endpointUrl,
+        apiKey: model.apiKey,
+        modelName: model.name,
+        extraHeaders: model.extraHeaders as Record<string, string> | null,
+        extraBody: model.extraBody as Record<string, any> | null,
+      });
+      const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+
+      const isSingleEndpoint = endpoints.length === 1;
+      const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+      let lastError: string | undefined;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
+        const endpoint = endpoints[idx]!;
+
+        if (attempt > 0) {
+          if (isSingleEndpoint) {
+            console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+            await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+          } else {
+            console.log(`[Failover] ASR model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+          }
+        }
+
+        const url = buildAudioTranscriptionsUrl(endpoint.endpointUrl);
+        const loginid = user?.loginid || proxyReq.serviceName;
+        console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} fileSize=${req.file.size} (audio/transcriptions)`);
+
+        // multipart FormData 구성
+        const formData = new FormData();
+        formData.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname || 'audio.wav');
+        formData.append('model', endpoint.modelName);
+        if (req.body.language) formData.append('language', req.body.language);
+        if (req.body.prompt) formData.append('prompt', req.body.prompt);
+        if (req.body.response_format) formData.append('response_format', req.body.response_format);
+        if (req.body.temperature) formData.append('temperature', String(req.body.temperature));
+        if (req.body.timestamp_granularities) formData.append('timestamp_granularities', String(req.body.timestamp_granularities));
+
+        const headers: Record<string, string> = {};
+        if (endpoint.apiKey) headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
+        if (endpoint.extraHeaders) {
+          for (const [key, value] of Object.entries(endpoint.extraHeaders)) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+              headers[key] = value;
+            }
+          }
+        }
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), ASR_TIMEOUT_MS);
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: formData,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+          const latencyMs = Date.now() - startTime;
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[LLM-Error] ASR | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
+
+            // 4xx는 즉시 반환 (재시도 안함)
+            if (response.status >= 400 && response.status < 500) {
+              try {
+                const errorJson = JSON.parse(errorText);
+                res.status(response.status).json(errorJson);
+              } catch {
+                res.status(response.status).send(errorText);
+              }
+              return;
+            }
+
+            console.error(`[Failover] ASR endpoint ${url} returned ${response.status}`);
+            lastError = errorText;
+            continue;
+          }
+
+          // 성공
+          const responseText = await response.text();
+
+          // Usage: Whisper 호환 API는 토큰 미반환 → 요청 건수 + latency로 추적
+          recordUsage(user?.id || null, user?.loginid || null, model.id,
+            0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+
+          recordRequestLog({
+            serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+            modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions',
+            statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
+            userAgent, ipAddress, stream: false,
+          }).catch(() => {});
+
+          res.setHeader('Content-Type', 'application/json');
+          res.status(200).send(responseText);
+          return;
+
+        } catch (error) {
+          console.error(`[Failover] ASR endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
+          lastError = error instanceof Error ? error.message : 'Connection failed';
+          continue;
+        }
+      }
+
+      // 모든 시도 실패
+      const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+      console.error(`[Failover] ${label} failed for ASR model "${model.name}"`);
+      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => {});
+      res.status(503).json({
+        error: 'Service temporarily unavailable',
+        message: `Failed ${label}. Please try again later.`,
+      });
+
+    } catch (error) {
+      console.error('ASR transcription proxy error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to process audio transcription request' });
+      }
+    }
+  },
+);
+
+// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙, 오디오 전사 제외)
 proxyRoutes.use(validateProxyHeaders as any);
 
 // ============================================

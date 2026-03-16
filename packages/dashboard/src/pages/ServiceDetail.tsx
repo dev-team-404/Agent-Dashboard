@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Edit2, Trash2, ChevronDown, Loader2,
   Layers, ToggleLeft, ToggleRight, Search,
-  Zap, MessageSquare, Image, Cpu, Sparkles,
+  Zap, MessageSquare, Image, Cpu, Sparkles, Mic,
   AlertTriangle, X, Check, UserPlus, Users,
   Crown, Shield, User, Gauge, Server,
   Activity, TrendingUp, Hash, BarChart3, CalendarDays,
@@ -136,10 +136,10 @@ const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
 ];
 
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
-  CHAT: MessageSquare, IMAGE: Image, EMBEDDING: Layers, RERANKING: Sparkles,
+  CHAT: MessageSquare, IMAGE: Image, EMBEDDING: Layers, RERANKING: Sparkles, ASR: Mic,
 };
 const MODEL_TYPE_LABELS: Record<string, string> = {
-  CHAT: '채팅', IMAGE: '이미지', EMBEDDING: '임베딩', RERANKING: '리랭킹',
+  CHAT: '채팅', IMAGE: '이미지', EMBEDDING: '임베딩', RERANKING: '리랭킹', ASR: '음성 인식',
 };
 const GROUP_COLORS = [
   'border-l-blue-400', 'border-l-emerald-400', 'border-l-amber-400',

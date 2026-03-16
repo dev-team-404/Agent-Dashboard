@@ -3,7 +3,7 @@ import {
   Plus, Edit2, Trash2, Check, X, Layers,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
   Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
-  ShieldCheck, Image, MessageSquare
+  ShieldCheck, Image, MessageSquare, Mic
 } from 'lucide-react';
 import { modelsApi, scopeApi } from '../services/api';
 
@@ -20,8 +20,9 @@ interface Model {
   maxTokens: number;
   enabled: boolean;
   supportsVision: boolean;
-  type: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING';
+  type: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING' | 'ASR';
   imageProvider: string | null;
+  asrMethod: string | null;
   visibility: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
   visibilityScope: string[];
   adminVisible: boolean;
@@ -93,8 +94,9 @@ const emptyForm = {
   maxTokens: 128000,
   enabled: true,
   supportsVision: false,
-  type: 'CHAT' as 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING',
+  type: 'CHAT' as 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING' | 'ASR',
   imageProvider: '' as string,
+  asrMethod: '' as string,
   visibility: 'PUBLIC' as VisibilityType,
   visibilityScope: [] as string[],
   adminVisible: false,
@@ -237,6 +239,8 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
   const [embeddingTestResult, setEmbeddingTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
   const [rerankTestRunning, setRerankTestRunning] = useState(false);
   const [rerankTestResult, setRerankTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
+  const [asrTestRunning, setAsrTestRunning] = useState(false);
+  const [asrTestResult, setAsrTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
 
   // Scope options for multi-select
   const [scopeOptions, setScopeOptions] = useState<string[]>([]);
@@ -286,6 +290,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
     setImageTestResult(null);
     setEmbeddingTestResult(null);
     setRerankTestResult(null);
+    setAsrTestResult(null);
   };
 
   const openCreateModal = () => {
@@ -310,6 +315,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
       supportsVision: model.supportsVision,
       type: model.type || 'CHAT',
       imageProvider: model.imageProvider || '',
+      asrMethod: (model as any).asrMethod || '',
       visibility: model.visibility,
       visibilityScope: model.visibilityScope || [],
       adminVisible: model.adminVisible ?? false,
@@ -458,6 +464,28 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
     }
   };
 
+  const runAsrTest = async () => {
+    if (!form.endpointUrl || !form.name) {
+      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      return;
+    }
+    setAsrTestRunning(true);
+    setAsrTestResult(null);
+    setFormError('');
+    try {
+      const res = await modelsApi.testAsr({
+        ...buildTestPayload(),
+        asrMethod: form.asrMethod || undefined,
+      });
+      setAsrTestResult({ passed: res.data.passed, message: res.data.asr?.message });
+    } catch (error: any) {
+      setAsrTestResult({ passed: false, message: error.response?.data?.error || 'ASR 테스트 실패' });
+      setFormError(error.response?.data?.error || 'ASR 테스트 실행에 실패했습니다.');
+    } finally {
+      setAsrTestRunning(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!form.name || !form.displayName || !form.endpointUrl) {
       setFormError('이름, 표시 이름, 엔드포인트 URL은 필수입니다.');
@@ -547,6 +575,18 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
       }
     }
 
+    // ASR type: require ASR test
+    if (form.type === 'ASR') {
+      if (!asrTestResult) {
+        setFormError('ASR 모델은 저장 전에 ASR 테스트를 실행해야 합니다.');
+        return;
+      }
+      if (!asrTestResult.passed) {
+        setFormError('ASR 테스트를 통과해야 ASR 모델로 등록할 수 있습니다.');
+        return;
+      }
+    }
+
     setSaving(true);
     setFormError('');
 
@@ -563,6 +603,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
         supportsVision: form.type === 'CHAT' ? form.supportsVision : false,
         type: form.type,
         imageProvider: form.type === 'IMAGE' ? (form.imageProvider || undefined) : undefined,
+        asrMethod: form.type === 'ASR' ? (form.asrMethod || undefined) : undefined,
         visibility: form.visibility,
         visibilityScope: form.visibilityScope.length > 0 ? form.visibilityScope : [],
         adminVisible: (form.visibility === 'BUSINESS_UNIT' || form.visibility === 'TEAM') ? form.adminVisible : false,
@@ -765,6 +806,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                         IMAGE: { icon: Image, enabledBg: 'bg-pink-100', enabledText: 'text-pink-600' },
                         EMBEDDING: { icon: Layers, enabledBg: 'bg-emerald-100', enabledText: 'text-emerald-600' },
                         RERANKING: { icon: Sparkles, enabledBg: 'bg-amber-100', enabledText: 'text-amber-600' },
+                        ASR: { icon: Mic, enabledBg: 'bg-sky-100', enabledText: 'text-sky-600' },
                       }[model.type] || { icon: Cpu, enabledBg: 'bg-samsung-blue/10', enabledText: 'text-samsung-blue' };
                       const IconComp = iconConfig.icon;
                       return (
@@ -792,6 +834,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                             IMAGE: { bg: 'bg-pink-50', text: 'text-pink-600', border: 'border-pink-200', icon: Image, label: 'IMAGE' },
                             EMBEDDING: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: Layers, label: 'EMBEDDING' },
                             RERANKING: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-200', icon: Sparkles, label: 'RERANKING' },
+                            ASR: { bg: 'bg-sky-50', text: 'text-sky-600', border: 'border-sky-200', icon: Mic, label: 'ASR' },
                           }[model.type];
                           if (!typeBadge) return null;
                           const BadgeIcon = typeBadge.icon;
@@ -822,6 +865,9 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                         {getVisibilityBadge(model.visibility)}
                         {model.imageProvider && (
                           <span className="px-1.5 py-0.5 bg-pink-50 text-pink-600 rounded text-[11px] font-mono">{model.imageProvider}</span>
+                        )}
+                        {(model as any).asrMethod && (
+                          <span className="px-1.5 py-0.5 bg-sky-50 text-sky-600 rounded text-[11px] font-mono">{(model as any).asrMethod}</span>
                         )}
                         {model.createdByDept && (
                           <span className="hidden sm:inline">{model.createdByDept}</span>
@@ -960,6 +1006,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                       { value: 'IMAGE' as const, label: '이미지 생성', desc: '이미지 생성 모델', icon: Image },
                       { value: 'EMBEDDING' as const, label: '임베딩', desc: '텍스트 임베딩 모델', icon: Layers },
                       { value: 'RERANKING' as const, label: '리랭킹', desc: '문서 리랭킹 모델', icon: Sparkles },
+                      { value: 'ASR' as const, label: '음성 인식', desc: 'STT/ASR 모델', icon: Mic },
                     ]).map(opt => {
                       const isSelected = form.type === opt.value;
                       const Icon = opt.icon;
@@ -1004,6 +1051,27 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                       <option value="OPENAI">OPENAI</option>
                       <option value="COMFYUI">COMFYUI</option>
                     </select>
+                  </div>
+                )}
+
+                {/* ASR Method (only for ASR type) */}
+                {form.type === 'ASR' && (
+                  <div className="animate-slide-down">
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">ASR Method</label>
+                    <select
+                      value={form.asrMethod}
+                      onChange={e => setForm({ ...form, asrMethod: e.target.value })}
+                      className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm bg-white
+                                 focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
+                    >
+                      <option value="">선택하세요</option>
+                      <option value="AUDIO_URL">AUDIO_URL (vLLM chat/completions)</option>
+                      <option value="OPENAI_TRANSCRIBE">OPENAI_TRANSCRIBE (Whisper multipart)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-pastel-400">
+                      AUDIO_URL: base64 오디오를 JSON body로 전송 (VibeVoice-ASR, Qwen3-ASR)<br/>
+                      OPENAI_TRANSCRIBE: 오디오 파일을 multipart로 전송 (Whisper)
+                    </p>
                   </div>
                 )}
 
@@ -1495,6 +1563,43 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                           : <XCircle className="w-4 h-4 text-red-600" />}
                         <p className={`text-xs font-medium ${rerankTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
                           {rerankTestResult.message || (rerankTestResult.passed ? '리랭킹 테스트 통과' : '리랭킹 테스트 실패')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── ASR Test (ASR type) ── */}
+              {form.type === 'ASR' && (
+                <div className="border-t border-pastel-100 pt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-samsung-blue" />
+                      ASR 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={runAsrTest}
+                      disabled={asrTestRunning || !form.endpointUrl || !form.name}
+                      className="px-4 py-2 rounded-ios text-xs font-medium bg-samsung-blue text-white
+                                 hover:bg-samsung-blue-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+                                 flex items-center gap-1.5"
+                    >
+                      {asrTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                      ASR 테스트
+                    </button>
+                  </div>
+                  {asrTestResult && (
+                    <div className="space-y-2">
+                      <div className={`flex items-center gap-2 p-2 rounded-ios border ${
+                        asrTestResult.passed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                      }`}>
+                        {asrTestResult.passed
+                          ? <CheckCircle className="w-4 h-4 text-green-600" />
+                          : <XCircle className="w-4 h-4 text-red-600" />}
+                        <p className={`text-xs font-medium ${asrTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
+                          {asrTestResult.message || (asrTestResult.passed ? 'ASR 테스트 통과' : 'ASR 테스트 실패')}
                         </p>
                       </div>
                     </div>

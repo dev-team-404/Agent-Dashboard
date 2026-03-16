@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, Loader2,
   Layers, ToggleLeft, ToggleRight, RefreshCw,
-  Zap, MessageSquare, Image, Cpu, Sparkles,
+  Zap, MessageSquare, Image, Cpu, Sparkles, Mic,
   AlertTriangle, X, Edit2, Check, Copy
 } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
@@ -60,6 +60,7 @@ const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
   IMAGE: Image,
   EMBEDDING: Layers,
   RERANKING: Sparkles,
+  ASR: Mic,
 };
 
 const MODEL_TYPE_LABELS: Record<string, string> = {
@@ -67,6 +68,7 @@ const MODEL_TYPE_LABELS: Record<string, string> = {
   IMAGE: '이미지',
   EMBEDDING: '임베딩',
   RERANKING: '리랭킹',
+  ASR: '음성 인식',
 };
 
 const GROUP_COLORS = [

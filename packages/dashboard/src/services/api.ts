@@ -116,6 +116,8 @@ export const modelsApi = {
     api.post('/admin/models/test-embedding', data),
   testRerank: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string> }) =>
     api.post('/admin/models/test-rerank', data),
+  testAsr: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string>; asrMethod?: string }) =>
+    api.post('/admin/models/test-asr', data),
 };
 
 // Scope options API (for visibility dropdowns)
@@ -299,7 +301,8 @@ interface CreateModelData {
   maxTokens?: number;
   enabled?: boolean;
   supportsVision?: boolean;
-  type?: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING';
+  type?: 'CHAT' | 'IMAGE' | 'EMBEDDING' | 'RERANKING' | 'ASR';
+  asrMethod?: string;
   imageProvider?: string;
   visibility?: 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
   visibilityScope?: string[];
