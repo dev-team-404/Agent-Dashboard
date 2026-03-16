@@ -15,7 +15,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
-import { getDepartmentHierarchy } from '../services/knoxEmployee.service.js';
+import { getDepartmentHierarchy, lookupEmployee } from '../services/knoxEmployee.service.js';
 import { z } from 'zod';
 
 export const serviceRoutes = Router();
@@ -619,15 +619,34 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
     const deptname = req.adminDept || req.user?.deptname || '';
     const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
 
-    // 등록자의 조직 계층 정보 조회 (DB 캐시 우선)
+    // 등록자의 조직 계층 정보 조회 (DB 캐시 우선, 없으면 Knox API fallback)
     let team: string | null = null;
     let center2Name: string | null = null;
     let center1Name: string | null = null;
     try {
       const loginid = req.user?.loginid || '';
       const user = await prisma.user.findUnique({ where: { loginid } });
-      if (user?.departmentCode && user?.enDeptName) {
-        const hierarchy = await getDepartmentHierarchy(user.departmentCode, deptname, user.enDeptName);
+      let departmentCode = user?.departmentCode || '';
+      let enDeptName = user?.enDeptName || '';
+
+      // departmentCode가 없으면 Knox Employee API로 조회 (첫 사용자 대비)
+      if (!departmentCode) {
+        const employee = await lookupEmployee(loginid);
+        if (employee) {
+          departmentCode = employee.departmentCode;
+          enDeptName = employee.enDepartmentName;
+          // User DB에도 저장
+          if (user) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { departmentCode, enDeptName },
+            });
+          }
+        }
+      }
+
+      if (departmentCode && enDeptName) {
+        const hierarchy = await getDepartmentHierarchy(departmentCode, deptname, enDeptName);
         if (hierarchy) {
           team = hierarchy.team || null;
           center2Name = hierarchy.center2Name || null;

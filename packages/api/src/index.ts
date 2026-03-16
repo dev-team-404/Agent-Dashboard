@@ -179,17 +179,21 @@ async function backfillEmptyVisibilityScope() {
 }
 
 /**
- * 기존 사용자 Knox 인증 일괄 리셋
+ * departmentCode가 없는 사용자만 Knox 인증 리셋
  * → 다음 API 호출 시 Knox 재인증 + 영문 부서명/부서코드/계층 정보 수집
+ * (departmentCode가 이미 있는 사용자는 이미 새 스키마로 인증된 것이므로 스킵)
  */
-async function resetKnoxVerifications() {
+async function resetKnoxForMissingDeptCode() {
   try {
     const result = await prisma.user.updateMany({
-      where: { knoxVerified: true },
+      where: {
+        knoxVerified: true,
+        departmentCode: null,
+      },
       data: { knoxVerified: false },
     });
     if (result.count > 0) {
-      console.log(`[Backfill] Reset Knox verification for ${result.count} user(s) — will re-verify on next request`);
+      console.log(`[Backfill] Reset Knox verification for ${result.count} user(s) without departmentCode — will re-verify on next request`);
     }
   } catch (error) {
     console.error('[Backfill] Failed to reset Knox verifications:', error);
@@ -291,8 +295,8 @@ async function main() {
     // 빈 visibilityScope 자동 보정 (기존 모델 대상)
     await backfillEmptyVisibilityScope();
 
-    // Knox 인증 리셋 + 서비스 조직 계층 backfill
-    await resetKnoxVerifications();
+    // departmentCode 미수집 사용자 Knox 인증 리셋 + 서비스 조직 계층 backfill
+    await resetKnoxForMissingDeptCode();
     await backfillServiceHierarchy();
 
     // 만료 이미지 자동 삭제 (1시간마다)
