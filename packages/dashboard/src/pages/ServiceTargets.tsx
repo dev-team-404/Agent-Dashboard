@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Search, Save, Loader2, TrendingUp, AlertCircle, Check } from 'lucide-react';
+import { Target, Search, Save, Loader2, AlertCircle, Check } from 'lucide-react';
 import { api } from '../services/api';
 
 interface ServiceTarget {
@@ -136,14 +136,6 @@ export default function ServiceTargets() {
     return 'text-red-500';
   };
 
-  const getAchievementBg = (pct: number | null): string => {
-    if (pct == null) return 'bg-gray-100';
-    if (pct >= 100) return 'bg-emerald-50 ring-1 ring-emerald-200/80';
-    if (pct >= 70) return 'bg-blue-50 ring-1 ring-blue-200/80';
-    if (pct >= 40) return 'bg-amber-50 ring-1 ring-amber-200/80';
-    return 'bg-red-50 ring-1 ring-red-200/80';
-  };
-
   // Summary stats
   const totalServices = services.length;
   const withTargets = services.filter(s => s.targetMM != null).length;
@@ -212,7 +204,7 @@ export default function ServiceTargets() {
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ minWidth: '900px' }}>
+          <table className="w-full" style={{ minWidth: '980px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">서비스</th>
@@ -221,7 +213,7 @@ export default function ServiceTargets() {
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">등록 부서</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">목표 M/M</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">Saved M/M</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">달성률</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">달성률</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">작업</th>
               </tr>
             </thead>
@@ -321,15 +313,25 @@ export default function ServiceTargets() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3">
                         {isEditing ? (
                           <span className="text-xs text-pastel-400">-</span>
+                        ) : pct != null ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  pct >= 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-400'
+                                }`}
+                                style={{ width: `${Math.min(pct, 100)}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-bold tabular-nums w-10 text-right ${getAchievementColor(pct)}`}>
+                              {pct}%
+                            </span>
+                          </div>
                         ) : (
-                          <span className={`inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full ${getAchievementBg(pct)} ${getAchievementColor(pct)}`}>
-                            {pct != null ? (
-                              <><TrendingUp className="w-3 h-3 mr-1" />{pct}%</>
-                            ) : '-'}
-                          </span>
+                          <span className="text-xs text-pastel-300 text-center block">-</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
