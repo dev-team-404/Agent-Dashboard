@@ -247,7 +247,7 @@ export default function ServiceTargets() {
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">목표 M/M</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">Saved M/M</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">달성률</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]" title="전일 DAU 기준, 매일 자정(KST) 갱신">AI 추정</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]" title="최근 5영업일 평균 DAU 기준, 매일 자정(KST) 갱신">AI 추정</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">작업</th>
               </tr>
             </thead>
@@ -399,8 +399,8 @@ export default function ServiceTargets() {
                                   <p className="text-xs text-pastel-600 leading-relaxed">{ai.reasoning}</p>
                                   <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-pastel-400 space-y-0.5">
                                     <div className="flex items-center gap-3">
-                                      <span>전일 DAU {ai.dauUsed}{ai.isEstimatedDau ? ' (추정)' : ''}</span>
-                                      <span>호출 {ai.totalCalls.toLocaleString()}</span>
+                                      <span>5영업일 평균 DAU {ai.dauUsed}{ai.isEstimatedDau ? ' (추정)' : ''}</span>
+                                      <span>호출 {ai.totalCalls.toLocaleString()}/일</span>
                                     </div>
                                     <div>매일 자정(KST) 갱신 | {new Date(ai.createdAt).toLocaleDateString('ko-KR')}</div>
                                   </div>

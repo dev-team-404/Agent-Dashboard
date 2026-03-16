@@ -93,7 +93,7 @@ function buildPrompt(service: {
   targetMM: number | null;
   savedMM: number | null;
   createdAt: Date;
-}, dau: number, isEstimatedDau: boolean, totalCalls: number): string {
+}, avgDau: number, isEstimatedDau: boolean, avgCalls: number, numDays: number): string {
   const lines = [
     `Estimate the M/M savings for this AI service:`,
     ``,
@@ -108,9 +108,9 @@ function buildPrompt(service: {
 
   lines.push(
     ``,
-    `Yesterday's data:`,
-    `- DAU: ${dau}${isEstimatedDau ? ' (estimated from API call volume)' : ''}`,
-    `- Total API calls: ${totalCalls}`,
+    `Recent usage (avg of last ${numDays} business days, excluding weekends/holidays):`,
+    `- Avg daily DAU: ${avgDau}${isEstimatedDau ? ' (estimated from API call volume)' : ''}`,
+    `- Avg daily API calls: ${avgCalls}`,
     ``,
     `Context:`,
     `- Running since: ${service.createdAt.toISOString().split('T')[0]}`,
@@ -150,52 +150,103 @@ function parseEstimation(raw: string): { estimatedMM: number; confidence: string
   }
 }
 
-// ── 전일 DAU + 호출 수 조회 ──
-async function getYesterdayStats(yesterday: Date) {
-  const dayStart = new Date(yesterday);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(yesterday);
-  dayEnd.setHours(23, 59, 59, 999);
+// ── 최근 5영업일 평균 DAU + 호출 수 조회 (주말/휴일 제외, 오늘 제외) ──
+async function getRecentBusinessDayStats(todayKST: Date) {
+  // 오늘 제외, 과거 30일 범위에서 영업일 5일을 찾음
+  const rangeEnd = new Date(todayKST);
+  rangeEnd.setDate(rangeEnd.getDate() - 1); // 어제부터
+  rangeEnd.setHours(23, 59, 59, 999);
+  const rangeStart = new Date(todayKST);
+  rangeStart.setDate(rangeStart.getDate() - 31); // 넉넉히 31일 전
+  rangeStart.setHours(0, 0, 0, 0);
 
-  // STANDARD: 서비스별 실제 DAU + 호출 수
-  const standardStats = await prisma.$queryRaw<
-    Array<{ service_id: string; dau: bigint; calls: bigint }>
+  // STANDARD: 서비스별 일별 DAU + 호출 수 (영업일만)
+  const standardDaily = await prisma.$queryRaw<
+    Array<{ service_id: string; d: Date; dau: bigint; calls: bigint }>
   >`
     SELECT ul.service_id::text as service_id,
+           DATE(ul.timestamp) as d,
            COUNT(DISTINCT ul.user_id) as dau,
            COUNT(*) as calls
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
-    WHERE ul.timestamp >= ${dayStart} AND ul.timestamp <= ${dayEnd}
+    WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
       AND u.loginid != 'anonymous'
       AND ul.service_id IS NOT NULL
-    GROUP BY ul.service_id
+      AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+      AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+    GROUP BY ul.service_id, DATE(ul.timestamp)
+    ORDER BY DATE(ul.timestamp) DESC
   `;
 
-  // BACKGROUND: 호출 수만 (DAU는 추정 필요)
-  const bgStats = await prisma.$queryRaw<
-    Array<{ service_id: string; calls: bigint }>
+  // BACKGROUND: 일별 호출 수 (영업일만)
+  const bgDaily = await prisma.$queryRaw<
+    Array<{ service_id: string; d: Date; calls: bigint }>
   >`
-    SELECT service_id::text as service_id, COUNT(*) as calls
+    SELECT service_id::text as service_id,
+           DATE(timestamp) as d,
+           COUNT(*) as calls
     FROM usage_logs
-    WHERE timestamp >= ${dayStart} AND timestamp <= ${dayEnd}
+    WHERE timestamp >= ${rangeStart} AND timestamp <= ${rangeEnd}
       AND service_id IS NOT NULL
-    GROUP BY service_id
+      AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+      AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+    GROUP BY service_id, DATE(timestamp)
+    ORDER BY DATE(timestamp) DESC
   `;
 
-  // STANDARD 기준 1인당 하루 평균 호출 수 (추정 베이스라인)
+  // 영업일 목록 (최근 5일만)
+  const bizDaysSet = new Set<string>();
+  for (const r of [...standardDaily, ...bgDaily]) {
+    bizDaysSet.add(new Date(r.d).toISOString().split('T')[0]);
+  }
+  const bizDays = [...bizDaysSet].sort().reverse().slice(0, 5);
+  const bizDaySet = new Set(bizDays);
+  const numDays = bizDays.length;
+
+  if (numDays === 0) {
+    return { stdMap: new Map(), bgMap: new Map(), callsPerPersonPerDay: 0, numDays: 0 };
+  }
+
+  // STANDARD: 5영업일 평균 DAU + 호출 수
+  const stdAgg = new Map<string, { totalDau: number; totalCalls: number }>();
+  for (const r of standardDaily) {
+    const day = new Date(r.d).toISOString().split('T')[0];
+    if (!bizDaySet.has(day)) continue;
+    const cur = stdAgg.get(r.service_id) || { totalDau: 0, totalCalls: 0 };
+    cur.totalDau += Number(r.dau);
+    cur.totalCalls += Number(r.calls);
+    stdAgg.set(r.service_id, cur);
+  }
+  const stdMap = new Map<string, { dau: number; calls: number }>();
+  for (const [id, v] of stdAgg) {
+    stdMap.set(id, { dau: Math.round(v.totalDau / numDays), calls: Math.round(v.totalCalls / numDays) });
+  }
+
+  // BACKGROUND: 5영업일 평균 호출 수
+  const bgAgg = new Map<string, number>();
+  for (const r of bgDaily) {
+    const day = new Date(r.d).toISOString().split('T')[0];
+    if (!bizDaySet.has(day)) continue;
+    bgAgg.set(r.service_id, (bgAgg.get(r.service_id) || 0) + Number(r.calls));
+  }
+  const bgMap = new Map<string, number>();
+  for (const [id, total] of bgAgg) {
+    bgMap.set(id, Math.round(total / numDays));
+  }
+
+  // STANDARD 기준 1인당 하루 평균 호출 수 (BACKGROUND DAU 추정 베이스라인)
   let totalStdCalls = 0;
   let totalStdDau = 0;
-  for (const row of standardStats) {
-    totalStdCalls += Number(row.calls);
-    totalStdDau += Number(row.dau);
+  for (const v of stdAgg.values()) {
+    totalStdCalls += v.totalCalls;
+    totalStdDau += v.totalDau;
   }
-  const callsPerPersonPerDay = totalStdDau > 0 ? totalStdCalls / totalStdDau : 0;
+  const avgStdCalls = totalStdCalls / numDays;
+  const avgStdDau = totalStdDau / numDays;
+  const callsPerPersonPerDay = avgStdDau > 0 ? avgStdCalls / avgStdDau : 0;
 
-  const stdMap = new Map(standardStats.map(r => [r.service_id, { dau: Number(r.dau), calls: Number(r.calls) }]));
-  const bgMap = new Map(bgStats.map(r => [r.service_id, Number(r.calls)]));
-
-  return { stdMap, bgMap, callsPerPersonPerDay };
+  return { stdMap, bgMap, callsPerPersonPerDay, numDays };
 }
 
 // ── 메인 실행 ──
@@ -216,12 +267,10 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
     return { processed: 0, errors: 0 };
   }
 
-  // 2. 전일 날짜 (KST)
+  // 2. 오늘 날짜 (KST)
   const now = new Date();
   const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  const yesterday = new Date(kstNow);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayDate = new Date(Date.UTC(yesterday.getUTCFullYear(), yesterday.getUTCMonth(), yesterday.getUTCDate()));
+  const todayKST = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
 
   // 3. 배포된 서비스 목록
   const services = await prisma.service.findMany({
@@ -237,8 +286,13 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
     return { processed: 0, errors: 0 };
   }
 
-  // 4. 전일 사용 통계
-  const { stdMap, bgMap, callsPerPersonPerDay } = await getYesterdayStats(yesterdayDate);
+  // 4. 최근 5영업일 평균 사용 통계
+  const { stdMap, bgMap, callsPerPersonPerDay, numDays } = await getRecentBusinessDayStats(todayKST);
+
+  if (numDays === 0) {
+    console.log('[AiEstimation] No recent business days with data — skipping');
+    return { processed: 0, errors: 0 };
+  }
 
   let processed = 0;
   let errors = 0;
@@ -247,25 +301,25 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
 
   for (const svc of services) {
     try {
-      let dau: number;
+      let avgDau: number;
       let isEstimatedDau: boolean;
-      let totalCalls: number;
+      let avgCalls: number;
 
       if (svc.type === 'STANDARD') {
         const stats = stdMap.get(svc.id);
-        dau = stats?.dau || 0;
-        totalCalls = stats?.calls || 0;
+        avgDau = stats?.dau || 0;
+        avgCalls = stats?.calls || 0;
         isEstimatedDau = false;
       } else {
-        totalCalls = bgMap.get(svc.id) || 0;
-        dau = callsPerPersonPerDay > 0 ? Math.round(totalCalls / callsPerPersonPerDay) : 0;
+        avgCalls = bgMap.get(svc.id) || 0;
+        avgDau = callsPerPersonPerDay > 0 ? Math.round(avgCalls / callsPerPersonPerDay) : 0;
         isEstimatedDau = true;
       }
 
       // 사용량 0이면 스킵
-      if (totalCalls === 0) continue;
+      if (avgCalls === 0) continue;
 
-      const prompt = buildPrompt(svc, dau, isEstimatedDau, totalCalls);
+      const prompt = buildPrompt(svc, avgDau, isEstimatedDau, avgCalls, numDays);
       const raw = await callSystemLlm(model, prompt);
       const result = parseEstimation(raw);
 
@@ -276,25 +330,25 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
       }
 
       await prisma.aiEstimation.upsert({
-        where: { serviceId_date: { serviceId: svc.id, date: yesterdayDate } },
+        where: { serviceId_date: { serviceId: svc.id, date: todayKST } },
         update: {
           estimatedMM: result.estimatedMM,
           confidence: result.confidence,
           reasoning: result.reasoning,
-          dauUsed: dau,
+          dauUsed: avgDau,
           isEstimatedDau,
-          totalCalls,
+          totalCalls: avgCalls,
           modelId: model.id,
         },
         create: {
           serviceId: svc.id,
-          date: yesterdayDate,
+          date: todayKST,
           estimatedMM: result.estimatedMM,
           confidence: result.confidence,
           reasoning: result.reasoning,
-          dauUsed: dau,
+          dauUsed: avgDau,
           isEstimatedDau,
-          totalCalls,
+          totalCalls: avgCalls,
           modelId: model.id,
         },
       });
