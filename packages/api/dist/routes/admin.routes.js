@@ -13,15 +13,16 @@ import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { z } from 'zod';
+import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
- * (PG DATE는 midnight UTC로 반환되므로 toISOString 사용 OK)
+ * KST(Asia/Seoul) 기준으로 통일 — toISOString()은 UTC 기반이라 날짜 경계에서 1일 밀릴 수 있음
  */
 function formatDateToString(date) {
     if (typeof date === 'string') {
         return date.split('T')[0] || date;
     }
-    return date.toISOString().split('T')[0];
+    return toLocalDateString(date);
 }
 /**
  * Helper: JS Date를 로컬(KST) 기준 YYYY-MM-DD 문자열로 변환
@@ -44,6 +45,27 @@ export const adminRoutes = Router();
 // Apply authentication and admin check to all routes
 adminRoutes.use(authenticateToken);
 adminRoutes.use(requireAdmin);
+/**
+ * Helper: 감사 로그 기록
+ */
+async function recordAudit(req, action, target, targetType, details) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                adminId: req.adminId || undefined,
+                loginid: req.user?.loginid || 'unknown',
+                action,
+                target,
+                targetType,
+                details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+                ipAddress: req.ip || req.headers['x-forwarded-for'] || undefined,
+            },
+        });
+    }
+    catch (err) {
+        console.error('[AuditLog] Failed to record:', err);
+    }
+}
 // ==================== Models Management ====================
 /**
  * 모델 엔드포인트 Health Check
@@ -90,6 +112,38 @@ function buildRerankUrl(endpointUrl) {
         return `${url}/rerank`;
     url = url.replace(/\/(chat\/completions|embeddings|images\/generations)$/, '');
     return `${url}/rerank`;
+}
+function buildAudioTranscriptionsUrl(endpointUrl) {
+    let url = endpointUrl.trim().replace(/\/+$/, '');
+    if (url.endsWith('/audio/transcriptions'))
+        return url;
+    if (url.endsWith('/v1'))
+        return `${url}/audio/transcriptions`;
+    url = url.replace(/\/(chat\/completions|embeddings|rerank|images\/generations)$/, '');
+    return `${url}/audio/transcriptions`;
+}
+/**
+ * 1초 무음 WAV 파일 생성 (16kHz mono 16-bit PCM)
+ */
+function generateSilentWavBuffer(durationSec) {
+    const sampleRate = 16000;
+    const numSamples = sampleRate * durationSec;
+    const dataSize = numSamples * 2;
+    const buffer = Buffer.alloc(44 + dataSize);
+    buffer.write('RIFF', 0);
+    buffer.writeUInt32LE(36 + dataSize, 4);
+    buffer.write('WAVE', 8);
+    buffer.write('fmt ', 12);
+    buffer.writeUInt32LE(16, 16);
+    buffer.writeUInt16LE(1, 20); // PCM
+    buffer.writeUInt16LE(1, 22); // mono
+    buffer.writeUInt32LE(sampleRate, 24);
+    buffer.writeUInt32LE(sampleRate * 2, 28);
+    buffer.writeUInt16LE(2, 32); // block align
+    buffer.writeUInt16LE(16, 34); // bits per sample
+    buffer.write('data', 36);
+    buffer.writeUInt32LE(dataSize, 40);
+    return buffer;
 }
 /**
  * endpointUrl → /images/generations URL
@@ -317,8 +371,9 @@ const modelSchema = z.object({
     supportsVision: z.boolean().default(false),
     visibility: z.enum(['PUBLIC', 'BUSINESS_UNIT', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY']).default('PUBLIC'),
     visibilityScope: z.array(z.string()).default([]),
-    type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING']).optional(),
+    type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR']).optional(),
     imageProvider: z.string().optional(),
+    asrMethod: z.enum(['AUDIO_URL', 'OPENAI_TRANSCRIBE']).optional(),
 });
 /**
  * GET /admin/models
@@ -380,8 +435,8 @@ adminRoutes.post('/models', async (req, res) => {
             res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
             return;
         }
-        // Health check: 엔드포인트 연결 확인
-        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        // Health check: 엔드포인트 연결 확인 (ASR/IMAGE는 별도 테스트 필요 → 스킵)
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true' || validation.data.type === 'ASR' || validation.data.type === 'IMAGE';
         if (!skipHealthCheck) {
             const healthResult = await checkModelEndpointHealth(validation.data.endpointUrl, validation.data.name, validation.data.apiKey, validation.data.extraHeaders);
             console.log(`[HealthCheck] Model "${validation.data.name}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
@@ -478,10 +533,12 @@ adminRoutes.put('/models/:id', async (req, res) => {
             return;
         }
         // Health check: endpointUrl, apiKey, name, extraHeaders 중 실제로 변경된 경우만 연결 확인
-        const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+        // ASR/IMAGE 타입은 별도 테스트 엔드포인트 사용 → chat/completions 기반 헬스체크 스킵
+        const skipHealthCheck = req.query['skipHealthCheck'] === 'true' || validation.data.type === 'ASR' || validation.data.type === 'IMAGE';
         if (!skipHealthCheck) {
-            const existing = await prisma.model.findUnique({ where: { id }, select: { endpointUrl: true, apiKey: true, name: true, extraHeaders: true } });
-            if (existing) {
+            const existing = await prisma.model.findUnique({ where: { id }, select: { endpointUrl: true, apiKey: true, name: true, extraHeaders: true, type: true } });
+            // 기존 모델이 ASR/IMAGE인 경우에도 스킵
+            if (existing && existing.type !== 'ASR' && existing.type !== 'IMAGE') {
                 const endpointChanged = validation.data.endpointUrl !== undefined && validation.data.endpointUrl !== existing.endpointUrl;
                 const apiKeyChanged = validation.data.apiKey !== undefined && validation.data.apiKey !== (existing.apiKey || undefined);
                 const nameChanged = validation.data.name !== undefined && validation.data.name !== existing.name;
@@ -504,10 +561,31 @@ adminRoutes.put('/models/:id', async (req, res) => {
                 }
             }
         }
+        const oldModel = await prisma.model.findUnique({ where: { id }, select: { displayName: true } });
         const model = await prisma.model.update({
             where: { id },
             data: validation.data,
         });
+        // displayName이 변경된 경우 로그 테이블들의 스냅샷도 일괄 갱신
+        if (oldModel && validation.data.displayName && validation.data.displayName !== oldModel.displayName) {
+            const oldName = oldModel.displayName;
+            const newName = validation.data.displayName;
+            await Promise.all([
+                prisma.healthCheckLog.updateMany({
+                    where: { modelId: id },
+                    data: { modelName: newName },
+                }),
+                prisma.requestLog.updateMany({
+                    where: { modelName: oldName },
+                    data: { modelName: newName },
+                }),
+                prisma.ratingFeedback.updateMany({
+                    where: { modelName: oldName },
+                    data: { modelName: newName },
+                }),
+            ]);
+            console.log(`[Model] displayName changed: "${oldName}" → "${newName}" — updated logs`);
+        }
         res.json({ model });
     }
     catch (error) {
@@ -1364,6 +1442,135 @@ adminRoutes.post('/models/test-rerank', async (req, res) => {
         res.status(500).json({ error: 'Failed to test rerank model' });
     }
 });
+/**
+ * POST /admin/models/test-asr
+ * ASR (음성 인식) 모델 테스트
+ * Body: { endpointUrl, modelName, apiKey?, extraHeaders?, asrMethod? }
+ * asrMethod: AUDIO_URL (vLLM chat/completions) | OPENAI_TRANSCRIBE (Whisper multipart)
+ */
+adminRoutes.post('/models/test-asr', async (req, res) => {
+    try {
+        const testSchema = z.object({
+            endpointUrl: z.string().url(),
+            modelName: z.string().min(1),
+            apiKey: z.string().optional(),
+            extraHeaders: z.record(z.string()).optional(),
+            asrMethod: z.string().optional(),
+        });
+        const validation = testSchema.safeParse(req.body);
+        if (!validation.success) {
+            res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+            return;
+        }
+        const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, asrMethod } = validation.data;
+        const method = asrMethod || 'AUDIO_URL';
+        const headers = {};
+        if (apiKey)
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        if (extraHdrs) {
+            for (const [key, value] of Object.entries(extraHdrs)) {
+                const lk = key.toLowerCase();
+                if (lk !== 'content-type' && lk !== 'authorization')
+                    headers[key] = value;
+            }
+        }
+        // 1초 무음 WAV 생성
+        const wavBuffer = generateSilentWavBuffer(1);
+        const startTime = Date.now();
+        let asr;
+        try {
+            if (method === 'OPENAI_TRANSCRIBE') {
+                // Whisper 호환: multipart/form-data → /audio/transcriptions
+                const url = buildAudioTranscriptionsUrl(endpointUrl);
+                const formData = new FormData();
+                formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'test.wav');
+                formData.append('model', modelName);
+                formData.append('response_format', 'json');
+                const response = await fetchWithTimeout(url, {
+                    method: 'POST',
+                    headers,
+                    body: formData,
+                }, 60000); // ASR 테스트 60초 타임아웃
+                const latencyMs = Date.now() - startTime;
+                const responseText = await response.text();
+                if (!response.ok) {
+                    asr = { passed: false, status: response.status, message: `ASR request failed (${response.status}): ${responseText.substring(0, 500)}`, latencyMs };
+                }
+                else {
+                    try {
+                        const data = JSON.parse(responseText);
+                        if (data.text !== undefined) {
+                            asr = { passed: true, status: response.status, message: `OK: Transcription received (${data.text.length} chars)`, latencyMs };
+                        }
+                        else {
+                            asr = { passed: false, status: response.status, message: 'Response missing "text" field', latencyMs };
+                        }
+                    }
+                    catch {
+                        asr = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                    }
+                }
+            }
+            else {
+                // AUDIO_URL: base64 audio → /chat/completions (vLLM 방식)
+                const url = buildChatCompletionsUrl(endpointUrl);
+                const wavBase64 = wavBuffer.toString('base64');
+                headers['Content-Type'] = 'application/json';
+                const requestBody = {
+                    model: modelName,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'input_audio',
+                                    input_audio: { data: wavBase64, format: 'wav' },
+                                },
+                            ],
+                        },
+                    ],
+                    max_tokens: 256,
+                    temperature: 0.0,
+                    stream: false,
+                };
+                const response = await fetchWithTimeout(url, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(requestBody),
+                }, 60000);
+                const latencyMs = Date.now() - startTime;
+                const responseText = await response.text();
+                if (!response.ok) {
+                    asr = { passed: false, status: response.status, message: `ASR request failed (${response.status}): ${responseText.substring(0, 500)}`, latencyMs };
+                }
+                else {
+                    try {
+                        const data = JSON.parse(responseText);
+                        const content = data?.choices?.[0]?.message?.content;
+                        if (content !== undefined) {
+                            asr = { passed: true, status: response.status, message: `OK: ASR response received (${String(content).length} chars)`, latencyMs };
+                        }
+                        else {
+                            asr = { passed: false, status: response.status, message: 'Response missing choices[0].message.content', latencyMs };
+                        }
+                    }
+                    catch {
+                        asr = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+                    }
+                }
+            }
+        }
+        catch (err) {
+            asr = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+        }
+        console.log(`[Test-ASR] Model "${modelName}" method=${method} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+        res.json({ asr, passed: asr.passed });
+    }
+    catch (error) {
+        console.error('Model test-asr error:', error);
+        res.status(500).json({ error: 'Failed to test ASR model' });
+    }
+});
 // ==================== Users Management ====================
 /**
  * GET /admin/users
@@ -1519,8 +1726,8 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        if (!role || role !== 'ADMIN') {
-            res.status(400).json({ error: 'role must be ADMIN' });
+        if (!role || !['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+            res.status(400).json({ error: 'role must be ADMIN or SUPER_ADMIN' });
             return;
         }
         // Get user
@@ -1554,6 +1761,7 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin, async (req, res) => {
                 designatedBy: req.user.loginid,
             },
         });
+        recordAudit(req, 'PROMOTE_USER', user.loginid, 'User', { username: user.username, role }).catch(() => { });
         res.json({
             success: true,
             admin,
@@ -1597,6 +1805,7 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
         await prisma.admin.delete({
             where: { loginid: user.loginid },
         });
+        recordAudit(req, 'DEMOTE_USER', user.loginid, 'User', { username: user.username, previousRole: admin.role }).catch(() => { });
         res.json({
             success: true,
             message: `${user.username} demoted from admin`,
@@ -1610,10 +1819,12 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
 // ==================== Unified Users (SUPER_ADMIN) ====================
 /**
  * GET /admin/unified-users
- * 전체 사용자 통합 관리 (서비스별 통계 포함)
+ * 사용자 관리 (SYSTEM ADMIN 이상)
+ * - SUPER_ADMIN: 전체 사용자
+ * - ADMIN: 본인 팀(dept) 사용자만
  * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
  */
-adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
+adminRoutes.get('/unified-users', async (req, res) => {
     try {
         const page = parseInt(req.query['page']) || 1;
         const limit = Math.min(100, parseInt(req.query['limit']) || 50);
@@ -1626,6 +1837,13 @@ adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
         const whereClause = {
             loginid: { not: 'anonymous' },
         };
+        // SYSTEM ADMIN: 본인 팀 사용자만 보이게 제한
+        if (req.adminRole !== 'SUPER_ADMIN') {
+            const adminDept = req.adminDept || req.user?.deptname || '';
+            if (adminDept) {
+                whereClause.deptname = adminDept;
+            }
+        }
         if (search) {
             whereClause.OR = [
                 { loginid: { contains: search, mode: 'insensitive' } },
@@ -1699,6 +1917,7 @@ adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
                 username: u.username,
                 deptname: u.deptname,
                 businessUnit: u.businessUnit,
+                knoxVerified: u.knoxVerified,
                 globalRole,
                 firstSeen: u.firstSeen,
                 lastActive: u.lastActive,
@@ -1743,10 +1962,12 @@ adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
 });
 /**
  * PUT /admin/unified-users/:id/permissions
- * 사용자 권한 변경 (SUPER_ADMIN만)
- * Body: { globalRole?: 'ADMIN' }
+ * 사용자 권한 변경
+ * - SUPER_ADMIN: 모든 역할 변경 가능 (ADMIN, SUPER_ADMIN, USER)
+ * - ADMIN: ADMIN 역할만 지정/해제 가능 (본인 팀 사용자만)
+ * Body: { globalRole?: 'ADMIN' | 'SUPER_ADMIN' }
  */
-adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin, async (req, res) => {
+adminRoutes.put('/unified-users/:id/permissions', async (req, res) => {
     try {
         const { id } = req.params;
         const { globalRole } = req.body;
@@ -1762,27 +1983,41 @@ adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin, async (req,
             res.status(400).json({ error: 'Cannot modify environment super admin' });
             return;
         }
-        if (globalRole === 'ADMIN') {
+        // SYSTEM ADMIN 제한: 본인 팀만 + ADMIN 역할만
+        if (req.adminRole !== 'SUPER_ADMIN') {
+            const adminDept = req.adminDept || req.user?.deptname || '';
+            if (user.deptname !== adminDept) {
+                res.status(403).json({ error: 'Can only modify users in your department' });
+                return;
+            }
+            if (globalRole === 'SUPER_ADMIN') {
+                res.status(403).json({ error: 'Only Super Admin can assign Super Admin role' });
+                return;
+            }
+        }
+        if (globalRole === 'ADMIN' || globalRole === 'SUPER_ADMIN') {
             await prisma.admin.upsert({
                 where: { loginid: user.loginid },
                 update: {
-                    role: 'ADMIN',
+                    role: globalRole,
                     deptname: user.deptname || '',
                     businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
                     designatedBy: req.user.loginid,
                 },
                 create: {
                     loginid: user.loginid,
-                    role: 'ADMIN',
+                    role: globalRole,
                     deptname: user.deptname || '',
                     businessUnit: user.businessUnit || extractBusinessUnit(user.deptname || ''),
                     designatedBy: req.user.loginid,
                 },
             });
+            recordAudit(req, `SET_ROLE_${globalRole}`, user.loginid, 'User', { username: user.username, role: globalRole }).catch(() => { });
         }
         else {
-            // globalRole undefined or not ADMIN → demote
+            // globalRole undefined → demote to user
             await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
+            recordAudit(req, 'DEMOTE_TO_USER', user.loginid, 'User', { username: user.username }).catch(() => { });
         }
         res.json({ success: true, message: `${user.username} permissions updated` });
     }
@@ -2025,7 +2260,7 @@ adminRoutes.get('/stats/overview', async (req, res) => {
 });
 /**
  * GET /admin/stats/daily
- * Get daily usage for charts
+ * Get daily usage for charts (UsageLog 직접 SQL 집계)
  * Query: ?serviceId= (optional), ?days=
  */
 adminRoutes.get('/stats/daily', async (req, res) => {
@@ -2035,21 +2270,41 @@ adminRoutes.get('/stats/daily', async (req, res) => {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
-        const dailyStats = await prisma.dailyUsageStat.groupBy({
-            by: ['date'],
-            where: {
-                date: { gte: startDate },
-                ...getServiceFilter(serviceId),
-                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
-            },
+        // UsageLog를 날짜별로 SQL 집계
+        let whereClause = `WHERE ul.timestamp >= $1`;
+        const params = [startDate];
+        let paramIdx = 2;
+        if (serviceId) {
+            whereClause += ` AND ul.service_id = $${paramIdx}`;
+            params.push(serviceId);
+            paramIdx++;
+        }
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            whereClause += ` AND u.business_unit = $${paramIdx}`;
+            params.push(req.adminBusinessUnit);
+            paramIdx++;
+        }
+        const dailyStats = await prisma.$queryRawUnsafe(`
+      SELECT
+        DATE(ul.timestamp) as date,
+        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+        COUNT(*) as req_count
+      FROM usage_logs ul
+      LEFT JOIN users u ON ul.user_id = u.id
+      ${whereClause}
+      GROUP BY DATE(ul.timestamp)
+      ORDER BY date ASC
+    `, ...params);
+        const result = dailyStats.map(r => ({
+            date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
             _sum: {
-                totalInputTokens: true,
-                totalOutputTokens: true,
-                requestCount: true,
+                totalInputTokens: Number(r.total_input),
+                totalOutputTokens: Number(r.total_output),
+                requestCount: Number(r.req_count),
             },
-            orderBy: { date: 'asc' },
-        });
-        res.json({ dailyStats });
+        }));
+        res.json({ dailyStats: result });
     }
     catch (error) {
         console.error('Get daily stats error:', error);
@@ -2158,7 +2413,7 @@ adminRoutes.get('/stats/by-model', async (req, res) => {
 });
 /**
  * GET /admin/stats/by-dept
- * Get usage grouped by department
+ * Get usage grouped by department (UsageLog 직접 SQL 집계)
  * Query: ?serviceId= (optional), ?days=
  */
 adminRoutes.get('/stats/by-dept', async (req, res) => {
@@ -2167,25 +2422,40 @@ adminRoutes.get('/stats/by-dept', async (req, res) => {
         const serviceId = req.query['serviceId'];
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
-        const deptStats = await prisma.dailyUsageStat.groupBy({
-            by: ['deptname'],
-            where: {
-                date: { gte: startDate },
-                ...getServiceFilter(serviceId),
-                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { deptname: { startsWith: req.adminBusinessUnit } } : {}),
-            },
+        let whereClause = `WHERE ul.timestamp >= $1`;
+        const params = [startDate];
+        let paramIdx = 2;
+        if (serviceId) {
+            whereClause += ` AND ul.service_id = $${paramIdx}`;
+            params.push(serviceId);
+            paramIdx++;
+        }
+        if (!req.isSuperAdmin && req.adminBusinessUnit) {
+            whereClause += ` AND u.business_unit = $${paramIdx}`;
+            params.push(req.adminBusinessUnit);
+            paramIdx++;
+        }
+        const deptStats = await prisma.$queryRawUnsafe(`
+      SELECT
+        COALESCE(u.deptname, 'Unknown') as deptname,
+        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+        COUNT(*) as req_count
+      FROM usage_logs ul
+      LEFT JOIN users u ON ul.user_id = u.id
+      ${whereClause}
+      GROUP BY u.deptname
+      ORDER BY total_input DESC
+    `, ...params);
+        const result = deptStats.map(r => ({
+            deptname: r.deptname,
             _sum: {
-                totalInputTokens: true,
-                totalOutputTokens: true,
-                requestCount: true,
+                totalInputTokens: Number(r.total_input),
+                totalOutputTokens: Number(r.total_output),
+                requestCount: Number(r.req_count),
             },
-            orderBy: {
-                _sum: {
-                    totalInputTokens: 'desc',
-                },
-            },
-        });
-        res.json({ deptStats });
+        }));
+        res.json({ deptStats: result });
     }
     catch (error) {
         console.error('Get dept stats error:', error);
@@ -2690,12 +2960,53 @@ adminRoutes.get('/stats/latency/history', async (req, res) => {
         res.status(500).json({ error: 'Failed to get latency history' });
     }
 });
+/**
+ * GET /admin/stats/latency/healthcheck
+ * 헬스체크 기반 응답 지연 이력 (10분 간격 프로빙 결과)
+ * Query: ?hours=24
+ */
+adminRoutes.get('/stats/latency/healthcheck', async (req, res) => {
+    try {
+        const hours = Math.min(72, Math.max(1, parseInt(req.query['hours']) || 24));
+        const startTime = new Date();
+        startTime.setHours(startTime.getHours() - hours);
+        const checks = await prisma.healthCheckLog.findMany({
+            where: { checkedAt: { gte: startTime } },
+            orderBy: { checkedAt: 'asc' },
+            select: {
+                modelName: true,
+                latencyMs: true,
+                success: true,
+                statusCode: true,
+                errorMessage: true,
+                checkedAt: true,
+            },
+        });
+        // 모델별로 그룹핑
+        const grouped = {};
+        for (const c of checks) {
+            if (!grouped[c.modelName])
+                grouped[c.modelName] = [];
+            grouped[c.modelName].push({
+                time: c.checkedAt.toISOString(),
+                latency: c.latencyMs,
+                success: c.success,
+                error: c.errorMessage || undefined,
+            });
+        }
+        res.json({ history: grouped, startTime: startTime.toISOString() });
+    }
+    catch (error) {
+        console.error('Get healthcheck history error:', error);
+        res.status(500).json({ error: 'Failed to get healthcheck history' });
+    }
+});
 // ==================== Global Statistics (전체 서비스 통합) ====================
 /**
  * GET /admin/stats/global/overview
  * 전체 서비스 통합 통계 (Main Dashboard용)
  */
-adminRoutes.get('/stats/global/overview', async (_req, res) => {
+adminRoutes.get('/stats/global/overview', async (req, res) => {
     try {
         // Get all services with stats
         const services = await prisma.service.findMany({
@@ -2878,7 +3189,7 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
         });
         // Get daily stats per service
         const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens
+      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COUNT(*) as req_count
       FROM usage_logs
       WHERE timestamp >= ${startDate}
         AND service_id IS NOT NULL
@@ -2910,9 +3221,26 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
             date,
             ...serviceUsage,
         }));
+        // dailyData: 프론트엔드 ServiceDailyData[] 형태로도 변환
+        const serviceMap = new Map(services.map(s => [s.id, s]));
+        const dailyData = [];
+        for (const stat of dailyStats) {
+            const dateStr = formatDateToString(stat.date);
+            const svc = serviceMap.get(stat.service_id);
+            if (svc) {
+                dailyData.push({
+                    date: dateStr,
+                    serviceId: svc.id,
+                    serviceName: svc.displayName || svc.name,
+                    requests: Number(stat.req_count),
+                    totalTokens: Number(stat.total_tokens),
+                });
+            }
+        }
         res.json({
             services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
             chartData,
+            dailyData,
         });
     }
     catch (error) {
@@ -2932,14 +3260,48 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services
+        // Get all enabled services (include type for BACKGROUND estimation)
         const services = await prisma.service.findMany({
             where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
+            select: { id: true, name: true, displayName: true, type: true },
         });
         const serviceIds = services.map((s) => s.id);
+        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+        // STANDARD baseline: 1인당 하루 평균 호출 수 (해당 기간 영업일 기준)
+        const [baselineDailyRes, baselineDauRes] = await Promise.all([
+            prisma.$queryRaw `
+        WITH daily_calls AS (
+          SELECT DATE(timestamp) as d, COUNT(*) as cnt
+          FROM usage_logs
+          WHERE timestamp >= ${startDate}
+            AND service_id::text = ANY(${standardServiceIds})
+            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+          GROUP BY DATE(timestamp)
+        )
+        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+      `,
+            prisma.$queryRaw `
+        WITH daily_dau AS (
+          SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ANY(${standardServiceIds})
+            AND u.loginid != 'anonymous'
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY DATE(ul.timestamp)
+        )
+        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+      `,
+        ]);
+        const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+        const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+        const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+        const businessDaysUsed = Number(baselineDailyRes[0]?.business_days || 0);
         if (granularity === 'daily') {
-            // Daily DAU per service (business days only)
+            // Daily DAU per service (business days only) — STANDARD
             const dailyStats = await prisma.$queryRaw `
         SELECT
           ul.service_id::text as service_id,
@@ -2957,8 +3319,23 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
         GROUP BY ul.service_id, DATE(ul.timestamp)
         ORDER BY log_date ASC, service_id
       `;
+            // BACKGROUND services: daily total API calls (영업일)
+            const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
+        SELECT
+          service_id::text as service_id,
+          DATE(timestamp) as log_date,
+          COUNT(*) as call_count
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+          AND service_id::text = ANY(${backgroundServiceIds})
+          AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+        GROUP BY service_id, DATE(timestamp)
+        ORDER BY log_date ASC
+      ` : [];
             // Process into chart data format
             const dateMap = new Map();
+            // Collect all dates from STANDARD
             for (const stat of dailyStats) {
                 const dateStr = formatDateToString(stat.log_date);
                 if (!dateMap.has(dateStr)) {
@@ -2969,11 +3346,36 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
                     dateMap.set(dateStr, initialData);
                 }
             }
+            // Also collect dates from BACKGROUND
+            for (const stat of bgDailyStats) {
+                const dateStr = formatDateToString(stat.log_date);
+                if (!dateMap.has(dateStr)) {
+                    const initialData = {};
+                    for (const serviceId of serviceIds) {
+                        initialData[serviceId] = 0;
+                    }
+                    dateMap.set(dateStr, initialData);
+                }
+            }
+            // Fill STANDARD DAU (실측)
             for (const stat of dailyStats) {
                 const dateStr = formatDateToString(stat.log_date);
                 const existing = dateMap.get(dateStr);
                 if (existing && serviceIds.includes(stat.service_id)) {
                     existing[stat.service_id] = Number(stat.user_count);
+                }
+            }
+            // Fill BACKGROUND estimated DAU
+            const bgDailyDetailMap = new Map(); // "serviceId|date" → dailyCalls
+            if (callsPerPersonPerDay > 0) {
+                for (const stat of bgDailyStats) {
+                    const dateStr = formatDateToString(stat.log_date);
+                    const existing = dateMap.get(dateStr);
+                    const dailyCalls = Number(stat.call_count);
+                    if (existing) {
+                        existing[stat.service_id] = Math.round(dailyCalls / callsPerPersonPerDay);
+                    }
+                    bgDailyDetailMap.set(`${stat.service_id}|${dateStr}`, dailyCalls);
                 }
             }
             const chartData = Array.from(dateMap.entries())
@@ -2983,13 +3385,19 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
                 ...serviceUsage,
             }));
             res.json({
-                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
                 chartData,
                 granularity,
+                estimationMeta: {
+                    callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                    standardAvgDailyDAU: Math.round(avgDailyDau),
+                    standardAvgDailyCalls: Math.round(avgDailyCalls),
+                    businessDays: businessDaysUsed,
+                },
             });
         }
         else {
-            // Weekly average DAU
+            // Weekly average DAU — STANDARD
             const weeklyStats = await prisma.$queryRaw `
         WITH business_day_users AS (
           SELECT
@@ -3017,6 +3425,25 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
         GROUP BY service_id, week_start
         ORDER BY week_start ASC, service_id
       `;
+            // BACKGROUND services: weekly average daily calls (영업일)
+            const bgWeeklyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
+        WITH daily_calls AS (
+          SELECT
+            service_id::text as service_id,
+            DATE_TRUNC('week', timestamp)::date as week_start,
+            DATE(timestamp) as d,
+            COUNT(*) as cnt
+          FROM usage_logs
+          WHERE timestamp >= ${startDate}
+            AND service_id::text = ANY(${backgroundServiceIds})
+            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+          GROUP BY service_id, DATE_TRUNC('week', timestamp), DATE(timestamp)
+        )
+        SELECT service_id, week_start, COALESCE(AVG(cnt), 0)::float as avg_daily_calls
+        FROM daily_calls GROUP BY service_id, week_start
+        ORDER BY week_start ASC
+      ` : [];
             // Process into chart data format
             const weekMap = new Map();
             for (const stat of weeklyStats) {
@@ -3029,11 +3456,32 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
                     weekMap.set(weekStr, initialData);
                 }
             }
+            for (const stat of bgWeeklyStats) {
+                const weekStr = formatDateToString(stat.week_start);
+                if (!weekMap.has(weekStr)) {
+                    const initialData = {};
+                    for (const serviceId of serviceIds) {
+                        initialData[serviceId] = 0;
+                    }
+                    weekMap.set(weekStr, initialData);
+                }
+            }
+            // Fill STANDARD (실측)
             for (const stat of weeklyStats) {
                 const weekStr = formatDateToString(stat.week_start);
                 const existing = weekMap.get(weekStr);
                 if (existing && serviceIds.includes(stat.service_id)) {
                     existing[stat.service_id] = Math.round(stat.avg_daily_users);
+                }
+            }
+            // Fill BACKGROUND (추정)
+            if (callsPerPersonPerDay > 0) {
+                for (const stat of bgWeeklyStats) {
+                    const weekStr = formatDateToString(stat.week_start);
+                    const existing = weekMap.get(weekStr);
+                    if (existing) {
+                        existing[stat.service_id] = Math.round(stat.avg_daily_calls / callsPerPersonPerDay);
+                    }
                 }
             }
             const chartData = Array.from(weekMap.entries())
@@ -3043,9 +3491,15 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
                 ...serviceUsage,
             }));
             res.json({
-                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
                 chartData,
                 granularity,
+                estimationMeta: {
+                    callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                    standardAvgDailyDAU: Math.round(avgDailyDau),
+                    standardAvgDailyCalls: Math.round(avgDailyCalls),
+                    businessDays: businessDaysUsed,
+                },
             });
         }
     }
@@ -3697,12 +4151,14 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
         const startDate = new Date(now);
         startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services
+        // Get all enabled services (include type for BACKGROUND estimation)
         const services = await prisma.service.findMany({
             where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
+            select: { id: true, name: true, displayName: true, type: true },
         });
-        // Count distinct userIds per (date, service) from DailyUsageStat
+        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+        // STANDARD DAU: Count distinct userIds per (date, service)
         const dauStats = await prisma.$queryRaw `
       SELECT
         date,
@@ -3715,6 +4171,46 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
       GROUP BY date, service_id
       ORDER BY date ASC
     `;
+        // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
+        const [baselineDailyRes, baselineDauRes] = await Promise.all([
+            prisma.$queryRaw `
+        WITH daily_calls AS (
+          SELECT date, SUM("requestCount") as cnt
+          FROM daily_usage_stats
+          WHERE service_id::text = ANY(${standardServiceIds})
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
+        )
+        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+      `,
+            prisma.$queryRaw `
+        WITH daily_dau AS (
+          SELECT date, COUNT(DISTINCT user_id) as dau
+          FROM daily_usage_stats
+          WHERE service_id::text = ANY(${standardServiceIds})
+            AND user_id IS NOT NULL
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
+        )
+        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+      `,
+        ]);
+        const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+        const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+        const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+        // BACKGROUND services: daily total calls (all days)
+        const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
+      SELECT date, service_id::text as service_id, SUM("requestCount") as total_calls
+      FROM daily_usage_stats
+      WHERE service_id::text = ANY(${backgroundServiceIds})
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
+    ` : [];
         // Build date range
         const dateRange = [];
         const endDate = new Date(now);
@@ -3727,7 +4223,17 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
             const dateStr = formatDateToString(row.date);
             dauMap.set(`${row.service_id}|${dateStr}`, Number(row.dau));
         }
-        // Build chart data
+        // Build BG lookup: "serviceId|date" -> daily calls
+        const bgCallsMap = new Map();
+        if (callsPerPersonPerDay > 0) {
+            for (const row of bgDailyStats) {
+                const dateStr = formatDateToString(row.date);
+                const totalCalls = Number(row.total_calls);
+                dauMap.set(`${row.service_id}|${dateStr}`, Math.round(totalCalls / callsPerPersonPerDay));
+                bgCallsMap.set(`${row.service_id}|${dateStr}`, totalCalls);
+            }
+        }
+        // Build chart data (uses displayName as keys)
         const data = dateRange.map(date => {
             const row = { date };
             for (const s of services) {
@@ -3735,9 +4241,21 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
             }
             return row;
         });
+        // displayName → type lookup for frontend
+        const serviceTypeMap = {};
+        for (const s of services) {
+            serviceTypeMap[s.displayName] = s.type;
+        }
         res.json({
             data,
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+            serviceTypeMap,
+            estimationMeta: {
+                callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                standardAvgDailyDAU: Math.round(avgDailyDau),
+                standardAvgDailyCalls: Math.round(avgDailyCalls),
+                businessDays: Number(baselineDailyRes[0]?.business_days || 0),
+            },
         });
     }
     catch (error) {
@@ -4047,6 +4565,495 @@ adminRoutes.delete('/service-rate-limit', async (req, res) => {
     catch (error) {
         console.error('Delete service rate limit error:', error);
         res.status(500).json({ error: 'Failed to delete service rate limit' });
+    }
+});
+/**
+ * GET /admin/stats/global/mau-by-service
+ * 서비스별 월간 MAU (BACKGROUND 서비스는 추정 MAU)
+ * Query: ?months= (1-12, default 6)
+ */
+adminRoutes.get('/stats/global/mau-by-service', async (req, res) => {
+    try {
+        const months = Math.min(12, Math.max(1, parseInt(req.query['months']) || 6));
+        // Calculate start date
+        const now = new Date();
+        const startDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
+        startDate.setHours(0, 0, 0, 0);
+        // Get all enabled services with type
+        const services = await prisma.service.findMany({
+            where: { enabled: true },
+            select: { id: true, name: true, displayName: true, type: true },
+        });
+        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        // 1. STANDARD services: real MAU per month
+        const standardMau = await prisma.$queryRaw `
+      SELECT
+        ul.service_id::text as service_id,
+        TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
+        COUNT(DISTINCT ul.user_id) as mau
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${startDate}
+        AND u.loginid != 'anonymous'
+        AND ul.service_id::text = ANY(${standardServiceIds})
+      GROUP BY ul.service_id, TO_CHAR(ul.timestamp, 'YYYY-MM')
+      ORDER BY month ASC
+    `;
+        // 2. 월별 STANDARD baseline (해당 월 데이터 사용 → 과거 월 고정, 이번 달 실시간)
+        const perMonthBaseline = await prisma.$queryRaw `
+      WITH monthly_totals AS (
+        SELECT
+          TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
+          COUNT(*) as total_calls,
+          COUNT(DISTINCT ul.user_id) as mau
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${startDate}
+          AND ul.service_id::text = ANY(${standardServiceIds})
+          AND u.loginid != 'anonymous'
+        GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM')
+      ),
+      daily_stats AS (
+        SELECT
+          TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
+          DATE(ul.timestamp) as d,
+          COUNT(*) as calls,
+          COUNT(DISTINCT ul.user_id) as dau
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${startDate}
+          AND ul.service_id::text = ANY(${standardServiceIds})
+          AND u.loginid != 'anonymous'
+          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+        GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM'), DATE(ul.timestamp)
+      ),
+      daily_agg AS (
+        SELECT month, AVG(calls)::float as avg_daily_calls, AVG(dau)::float as avg_daily_dau, COUNT(*) as business_days
+        FROM daily_stats GROUP BY month
+      )
+      SELECT mt.month, mt.total_calls, mt.mau, COALESCE(da.avg_daily_calls, 0) as avg_daily_calls,
+        COALESCE(da.avg_daily_dau, 0) as avg_daily_dau, COALESCE(da.business_days, 0) as business_days
+      FROM monthly_totals mt LEFT JOIN daily_agg da ON mt.month = da.month
+      ORDER BY mt.month
+    `;
+        // 월별 baseline lookup: callsPerPersonPerMonth
+        const baselineMap = new Map();
+        for (const row of perMonthBaseline) {
+            const mau = Number(row.mau);
+            const totalCalls = Number(row.total_calls);
+            const avgDailyDau = row.avg_daily_dau || 0;
+            const avgDailyCalls = row.avg_daily_calls || 0;
+            baselineMap.set(row.month, {
+                callsPerPersonPerDay: avgDailyDau > 0 ? Math.round((avgDailyCalls / avgDailyDau) * 10) / 10 : 0,
+                callsPerPersonPerMonth: mau > 0 ? Math.round((totalCalls / mau) * 10) / 10 : 0,
+                standardMAU: mau,
+                standardTotalCalls: totalCalls,
+                avgDailyDAU: Math.round(avgDailyDau),
+                businessDays: Number(row.business_days),
+                isFixed: row.month !== currentMonth,
+            });
+        }
+        // 3. BACKGROUND services: 월별 API 호출 수
+        const backgroundMonthlyCallsByMonth = await prisma.$queryRaw `
+      SELECT
+        service_id::text as service_id,
+        TO_CHAR(timestamp, 'YYYY-MM') as month,
+        COUNT(*) as total_calls
+      FROM usage_logs
+      WHERE timestamp >= ${startDate}
+        AND service_id::text = ANY(${backgroundServiceIds})
+      GROUP BY service_id, TO_CHAR(timestamp, 'YYYY-MM')
+      ORDER BY month ASC
+    `;
+        // BG 호출 수 lookup: "serviceId|month" → totalCalls
+        const bgCallsMap = new Map();
+        for (const row of backgroundMonthlyCallsByMonth) {
+            bgCallsMap.set(`${row.service_id}|${row.month}`, Number(row.total_calls));
+        }
+        // Build month list
+        const monthList = [];
+        for (let d = new Date(startDate); d <= now; d.setMonth(d.getMonth() + 1)) {
+            monthList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
+        // Build MAU lookup
+        const mauMap = new Map();
+        for (const row of standardMau) {
+            mauMap.set(`${row.service_id}|${row.month}`, Number(row.mau));
+        }
+        // Background: 월별 baseline 적용하여 추정 MAU 계산
+        for (const row of backgroundMonthlyCallsByMonth) {
+            const baseline = baselineMap.get(row.month);
+            const cpp = baseline?.callsPerPersonPerMonth || 0;
+            const estMau = cpp > 0 ? Math.round(Number(row.total_calls) / cpp) : 0;
+            mauMap.set(`${row.service_id}|${row.month}`, estMau);
+        }
+        // Build monthlyData
+        const monthlyData = monthList.map(month => {
+            const row = { month };
+            for (const s of services) {
+                row[s.id] = mauMap.get(`${s.id}|${month}`) || 0;
+            }
+            return row;
+        });
+        // Build per-month baseline for frontend tooltip
+        const monthlyBaseline = {};
+        for (const [month, bl] of baselineMap) {
+            monthlyBaseline[month] = bl;
+        }
+        // Build per-BG-service per-month detail
+        const bgMonthlyDetail = {};
+        for (const [key, totalCalls] of bgCallsMap) {
+            const month = key.split('|')[1];
+            const baseline = baselineMap.get(month);
+            const cpp = baseline?.callsPerPersonPerMonth || 0;
+            bgMonthlyDetail[key] = {
+                totalCalls,
+                estimatedMAU: cpp > 0 ? Math.round(totalCalls / cpp) : 0,
+            };
+        }
+        res.json({
+            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+            monthlyData,
+            estimationMeta: {
+                monthlyBaseline,
+                backgroundMonthlyDetail: bgMonthlyDetail,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Get MAU by service error:', error);
+        res.status(500).json({ error: 'Failed to get MAU by service' });
+    }
+});
+/**
+ * GET /admin/stats/global/estimated-dau-mau
+ * BACKGROUND 서비스 추정 DAU/MAU 상세
+ * 이번 달 1일~현재 STANDARD 서비스의 1인당 평균 API Call을 산출하고,
+ * 이를 기반으로 BACKGROUND 서비스의 DAU/MAU를 추정 (실시간)
+ */
+adminRoutes.get('/stats/global/estimated-dau-mau', async (_req, res) => {
+    try {
+        const services = await prisma.service.findMany({
+            where: { enabled: true },
+            select: { id: true, name: true, displayName: true, type: true },
+        });
+        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+        const backgroundServices = services.filter(s => s.type === 'BACKGROUND');
+        // 이번 달 1일부터 현재까지를 baseline으로 사용 (실시간)
+        const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        thisMonthStart.setHours(0, 0, 0, 0);
+        // STANDARD baseline: 이번 달 데이터
+        const [dailyCallsRes, dailyDauRes, monthlyRes] = await Promise.all([
+            prisma.$queryRaw `
+        WITH daily_calls AS (
+          SELECT DATE(timestamp) as log_date, COUNT(*) as call_count
+          FROM usage_logs
+          WHERE timestamp >= ${thisMonthStart}
+            AND service_id::text = ANY(${standardServiceIds})
+            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+          GROUP BY DATE(timestamp)
+        )
+        SELECT COALESCE(AVG(call_count), 0)::float as avg_daily_calls, COUNT(*) as business_days
+        FROM daily_calls
+      `,
+            prisma.$queryRaw `
+        WITH daily_dau AS (
+          SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${thisMonthStart}
+            AND ul.service_id::text = ANY(${standardServiceIds})
+            AND u.loginid != 'anonymous'
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY DATE(ul.timestamp)
+        )
+        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+      `,
+            prisma.$queryRaw `
+        SELECT COUNT(*) as total_calls, COUNT(DISTINCT ul.user_id) as monthly_mau
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${thisMonthStart}
+          AND ul.service_id::text = ANY(${standardServiceIds})
+          AND u.loginid != 'anonymous'
+      `,
+        ]);
+        const avgDailyCalls = dailyCallsRes[0]?.avg_daily_calls || 0;
+        const businessDays = Number(dailyCallsRes[0]?.business_days || 0);
+        const avgDailyDau = dailyDauRes[0]?.avg_daily_dau || 0;
+        const avgCallsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+        const totalMonthlyCalls = Number(monthlyRes[0]?.total_calls || 0);
+        const monthlyMau = Number(monthlyRes[0]?.monthly_mau || 0);
+        const avgCallsPerPersonPerMonth = monthlyMau > 0 ? totalMonthlyCalls / monthlyMau : 0;
+        // BACKGROUND services: daily + total calls
+        const bgResults = await Promise.all(backgroundServices.map(async (svc) => {
+            const [dailyRes, totalRes] = await Promise.all([
+                prisma.$queryRaw `
+            WITH daily AS (
+              SELECT DATE(timestamp) as d, COUNT(*) as cnt
+              FROM usage_logs
+              WHERE timestamp >= ${thisMonthStart}
+                AND service_id::text = ${svc.id}
+                AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+              GROUP BY DATE(timestamp)
+            )
+            SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily
+          `,
+                prisma.$queryRaw `
+            SELECT COUNT(*) as total_calls
+            FROM usage_logs
+            WHERE timestamp >= ${thisMonthStart}
+              AND service_id::text = ${svc.id}
+          `,
+            ]);
+            const avgDaily = dailyRes[0]?.avg_daily_calls || 0;
+            const totalCalls = Number(totalRes[0]?.total_calls || 0);
+            return {
+                serviceId: svc.id,
+                serviceName: svc.name,
+                serviceDisplayName: svc.displayName,
+                avgDailyApiCalls: Math.round(avgDaily),
+                estimatedDAU: avgCallsPerPersonPerDay > 0 ? Math.round(avgDaily / avgCallsPerPersonPerDay) : 0,
+                totalMonthlyApiCalls: totalCalls,
+                estimatedMAU: avgCallsPerPersonPerMonth > 0 ? Math.round(totalCalls / avgCallsPerPersonPerMonth) : 0,
+                isEstimated: true,
+            };
+        }));
+        res.json({
+            standardBaseline: {
+                avgDailyApiCalls: Math.round(avgDailyCalls),
+                avgDailyDAU: Math.round(avgDailyDau),
+                avgCallsPerPersonPerDay: Math.round(avgCallsPerPersonPerDay * 10) / 10,
+                totalMonthlyApiCalls: totalMonthlyCalls,
+                monthlyMAU: monthlyMau,
+                avgCallsPerPersonPerMonth: Math.round(avgCallsPerPersonPerMonth * 10) / 10,
+                businessDaysUsed: businessDays,
+            },
+            backgroundEstimates: bgResults,
+        });
+    }
+    catch (error) {
+        console.error('Get estimated DAU/MAU error:', error);
+        res.status(500).json({ error: 'Failed to get estimated DAU/MAU' });
+    }
+});
+// ==================== Knox 임직원 인증 관리 ====================
+/**
+ * GET /admin/knox/search?loginid=
+ * Knox ID로 임직원 검색 (관리자 사전 등록용)
+ */
+adminRoutes.get('/knox/search', requireSuperAdmin, async (req, res) => {
+    try {
+        const loginid = (req.query['loginid'] || '').trim();
+        if (!loginid) {
+            res.status(400).json({ error: 'loginid 파라미터가 필요합니다.' });
+            return;
+        }
+        const employee = await lookupEmployee(loginid);
+        if (!employee) {
+            res.status(404).json({ error: `임직원 정보를 찾을 수 없습니다: ${loginid}` });
+            return;
+        }
+        // DB에 이미 등록되어 있는지 확인
+        const existingUser = await prisma.user.findUnique({ where: { loginid } });
+        const existingAdmin = await prisma.admin.findUnique({ where: { loginid } });
+        res.json({
+            employee: {
+                loginid: employee.userId,
+                fullName: employee.fullName,
+                enFullName: employee.enFullName,
+                departmentName: employee.departmentName,
+                enDepartmentName: employee.enDepartmentName,
+                companyName: employee.companyName,
+                titleName: employee.titleName,
+                gradeName: employee.gradeName,
+                emailAddress: employee.emailAddress,
+                employeeStatus: employee.employeeStatus === 'B' ? '재직' : '휴직',
+            },
+            existingUser: existingUser ? {
+                id: existingUser.id,
+                loginid: existingUser.loginid,
+                username: existingUser.username,
+                deptname: existingUser.deptname,
+                knoxVerified: existingUser.knoxVerified,
+            } : null,
+            existingAdmin: existingAdmin ? {
+                role: existingAdmin.role,
+                designatedBy: existingAdmin.designatedBy,
+            } : null,
+        });
+    }
+    catch (error) {
+        console.error('Knox search error:', error);
+        res.status(500).json({ error: '임직원 검색에 실패했습니다.' });
+    }
+});
+/**
+ * POST /admin/knox/register
+ * Knox 확인 후 관리자 사전 등록
+ * Body: { loginid: string, role?: 'ADMIN' | 'SUPER_ADMIN' }
+ */
+adminRoutes.post('/knox/register', requireSuperAdmin, async (req, res) => {
+    try {
+        const { loginid, role } = req.body;
+        if (!loginid) {
+            res.status(400).json({ error: 'loginid가 필요합니다.' });
+            return;
+        }
+        const adminRole = role || 'ADMIN';
+        if (!['ADMIN', 'SUPER_ADMIN'].includes(adminRole)) {
+            res.status(400).json({ error: 'role은 ADMIN 또는 SUPER_ADMIN이어야 합니다.' });
+            return;
+        }
+        const ipAddress = req.ip || req.headers['x-forwarded-for'] || undefined;
+        // Knox API로 인증 + 사용자 생성
+        const result = await verifyAndRegisterUser(loginid, '', 'ADMIN_REGISTER', '/admin/knox/register', ipAddress);
+        if (!result.success || !result.user) {
+            res.status(400).json({ error: result.error || '임직원 인증에 실패했습니다.' });
+            return;
+        }
+        // Admin 레코드 생성/업데이트
+        const admin = await prisma.admin.upsert({
+            where: { loginid },
+            update: {
+                role: adminRole,
+                deptname: result.user.deptname,
+                businessUnit: extractBusinessUnit(result.user.deptname),
+                designatedBy: req.user.loginid,
+            },
+            create: {
+                loginid,
+                role: adminRole,
+                deptname: result.user.deptname,
+                businessUnit: extractBusinessUnit(result.user.deptname),
+                designatedBy: req.user.loginid,
+            },
+        });
+        recordAudit(req, 'KNOX_REGISTER_ADMIN', loginid, 'User', {
+            username: result.user.username,
+            role: adminRole,
+            knoxFullName: result.employee?.fullName,
+            knoxDept: result.employee?.departmentName,
+        }).catch(() => { });
+        res.json({
+            success: true,
+            message: `${result.user.username} (${loginid})을 ${adminRole}로 등록했습니다.`,
+            user: result.user,
+            admin: { role: admin.role, designatedBy: admin.designatedBy },
+        });
+    }
+    catch (error) {
+        console.error('Knox register error:', error);
+        res.status(500).json({ error: '관리자 등록에 실패했습니다.' });
+    }
+});
+/**
+ * POST /admin/knox/reset-verification/:id
+ * 사용자 Knox 인증 초기화 (부서 변경 시 재인증 필요)
+ */
+adminRoutes.post('/knox/reset-verification/:id', requireSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await prisma.user.findUnique({ where: { id } });
+        if (!user) {
+            res.status(404).json({ error: '사용자를 찾을 수 없습니다.' });
+            return;
+        }
+        await prisma.user.update({
+            where: { id },
+            data: { knoxVerified: false },
+        });
+        recordAudit(req, 'RESET_KNOX_VERIFICATION', user.loginid, 'User', { username: user.username }).catch(() => { });
+        res.json({
+            success: true,
+            message: `${user.username} (${user.loginid})의 Knox 인증이 초기화되었습니다. 다음 접근 시 재인증됩니다.`,
+        });
+    }
+    catch (error) {
+        console.error('Reset Knox verification error:', error);
+        res.status(500).json({ error: 'Knox 인증 초기화에 실패했습니다.' });
+    }
+});
+// ==================== Knox 인증 기록 ====================
+/**
+ * GET /admin/knox-verifications
+ * Knox 인증 기록 조회 (SUPER_ADMIN only)
+ * Query: ?page=, ?limit=, ?search=, ?success=, ?method=, ?startDate=, ?endDate=
+ */
+adminRoutes.get('/knox-verifications', requireSuperAdmin, async (req, res) => {
+    try {
+        const page = parseInt(req.query['page']) || 1;
+        const limit = Math.min(100, parseInt(req.query['limit']) || 50);
+        const skip = (page - 1) * limit;
+        const search = req.query['search'];
+        const success = req.query['success'];
+        const method = req.query['method'];
+        const startDate = req.query['startDate'];
+        const endDate = req.query['endDate'];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const where = {};
+        if (search) {
+            where.OR = [
+                { loginid: { contains: search, mode: 'insensitive' } },
+                { username: { contains: search, mode: 'insensitive' } },
+                { knoxDeptName: { contains: search, mode: 'insensitive' } },
+                { claimedDeptName: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+        if (success === 'true')
+            where.success = true;
+        else if (success === 'false')
+            where.success = false;
+        if (method)
+            where.method = method;
+        if (startDate || endDate) {
+            where.timestamp = {};
+            if (startDate)
+                where.timestamp.gte = new Date(startDate);
+            if (endDate)
+                where.timestamp.lte = new Date(endDate + 'T23:59:59.999+09:00');
+        }
+        const [records, total] = await Promise.all([
+            prisma.knoxVerification.findMany({
+                where,
+                skip,
+                take: limit,
+                orderBy: { timestamp: 'desc' },
+            }),
+            prisma.knoxVerification.count({ where }),
+        ]);
+        // 통계 (필터 적용)
+        const stats = await prisma.knoxVerification.groupBy({
+            by: ['success'],
+            where,
+            _count: true,
+        });
+        const successCount = stats.find(s => s.success)?._count || 0;
+        const failCount = stats.find(s => !s.success)?._count || 0;
+        res.json({
+            records,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+            stats: {
+                total: successCount + failCount,
+                success: successCount,
+                fail: failCount,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Get Knox verifications error:', error);
+        res.status(500).json({ error: 'Knox 인증 기록 조회에 실패했습니다.' });
     }
 });
 //# sourceMappingURL=admin.routes.js.map

@@ -13,6 +13,9 @@ interface ServiceTarget {
   savedMM: number | null;
   registeredBy: string | null;
   registeredByDept: string | null;
+  team?: string | null;
+  center2Name?: string | null;
+  center1Name?: string | null;
   createdAt: string;
 }
 
@@ -278,6 +281,11 @@ export default function ServiceTargets() {
                         <span className="text-xs text-pastel-600 truncate block max-w-[120px]" title={s.registeredByDept || '-'}>
                           {s.registeredByDept || '-'}
                         </span>
+                        {s.team && (
+                          <span className="text-[10px] text-gray-400 truncate block max-w-[160px]" title={[s.center1Name, s.center2Name, s.team].filter(Boolean).join(' > ')}>
+                            {[s.center1Name, s.center2Name, s.team].filter(Boolean).join(' > ')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isEditing ? (

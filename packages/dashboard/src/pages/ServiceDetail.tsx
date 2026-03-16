@@ -53,6 +53,9 @@ interface Service {
   registeredBy?: string;
   registeredByDept?: string;
   registeredByBusinessUnit?: string;
+  team?: string;
+  center2Name?: string;
+  center1Name?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
   targetMM?: number | null;
@@ -356,6 +359,15 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
                   </span>
                 )}
               </div>
+              {(service.team || service.center2Name || service.center1Name) && (
+                <div className="flex items-center gap-1.5 mt-2 text-xs text-white/30">
+                  {service.center1Name && <span>{service.center1Name}</span>}
+                  {service.center1Name && service.center2Name && <span className="text-white/20">&rsaquo;</span>}
+                  {service.center2Name && <span>{service.center2Name}</span>}
+                  {service.center2Name && service.team && <span className="text-white/20">&rsaquo;</span>}
+                  {service.team && <span className="text-white/50 font-medium">{service.team}</span>}
+                </div>
+              )}
             </div>
           </div>
         </div>

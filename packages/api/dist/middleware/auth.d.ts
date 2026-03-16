@@ -37,12 +37,12 @@ export declare function isHardcodedSuperAdmin(loginid: string): boolean;
 export declare function isSuperAdminByEnv(loginid: string): boolean;
 /**
  * deptname에서 businessUnit 추출
- * "SW혁신팀(S.LSI)" → "S.LSI"
+ * "S/W혁신팀(S.LSI)" → "S.LSI"
  */
 export declare function extractBusinessUnit(deptname: string): string;
 /**
  * deptname에서 팀명 추출
- * "SW혁신팀(S.LSI)" → "SW혁신팀"
+ * "S/W혁신팀(S.LSI)" → "S/W혁신팀"
  */
 export declare function extractTeamName(deptname: string): string;
 /**

@@ -1,5 +1,5 @@
 /**
- * Agent Dashboard API Server (v2)
+ * Agent Registry API Server (v2)
  *
  * 3단계 권한 체계 + 헤더 기반 프록시 인증
  */

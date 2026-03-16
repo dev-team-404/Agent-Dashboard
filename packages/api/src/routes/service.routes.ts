@@ -15,6 +15,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
+import { getDepartmentHierarchy } from '../services/knoxEmployee.service.js';
 import { z } from 'zod';
 
 export const serviceRoutes = Router();
@@ -218,6 +219,9 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
+        team: true,
+        center2Name: true,
+        center1Name: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { usageLogs: true } },
@@ -279,6 +283,9 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
+        team: true,
+        center2Name: true,
+        center1Name: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { usageLogs: true } },
@@ -323,6 +330,9 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
+        team: true,
+        center2Name: true,
+        center1Name: true,
         createdAt: true,
         _count: { select: { usageLogs: true, userServices: true, serviceModels: true } },
       },
@@ -429,6 +439,9 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
         registeredBy: true,
         registeredByDept: true,
         registeredByBusinessUnit: true,
+        team: true,
+        center2Name: true,
+        center1Name: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { usageLogs: true, userServices: true, serviceModels: true } },
@@ -606,6 +619,25 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
     const deptname = req.adminDept || req.user?.deptname || '';
     const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
 
+    // 등록자의 조직 계층 정보 조회 (DB 캐시 우선)
+    let team: string | null = null;
+    let center2Name: string | null = null;
+    let center1Name: string | null = null;
+    try {
+      const loginid = req.user?.loginid || '';
+      const user = await prisma.user.findUnique({ where: { loginid } });
+      if (user?.departmentCode && user?.enDeptName) {
+        const hierarchy = await getDepartmentHierarchy(user.departmentCode, deptname, user.enDeptName);
+        if (hierarchy) {
+          team = hierarchy.team || null;
+          center2Name = hierarchy.center2Name || null;
+          center1Name = hierarchy.center1Name || null;
+        }
+      }
+    } catch (err) {
+      console.error('[Service] Failed to lookup dept hierarchy:', err);
+    }
+
     const service = await prisma.service.create({
       data: {
         ...validation.data,
@@ -613,6 +645,9 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
         registeredBy: req.user?.loginid || '',
         registeredByDept: deptname,
         registeredByBusinessUnit: businessUnit,
+        team,
+        center2Name,
+        center1Name,
       },
     });
 

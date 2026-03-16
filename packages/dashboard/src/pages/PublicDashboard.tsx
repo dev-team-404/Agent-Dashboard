@@ -19,6 +19,9 @@ interface ServiceData {
   isEstimated: boolean;
   enabled: boolean;
   registeredByDept: string;
+  team?: string;
+  center2Name?: string;
+  center1Name?: string;
   iconUrl?: string;
 }
 
@@ -164,7 +167,10 @@ function ChartTooltip({ active, payload, metric }: {
     <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm">
       <p className="font-semibold text-pastel-800 mb-0.5">{data.fullName || data.displayName}</p>
       {data.registeredByDept && (
-        <p className="text-[11px] text-pastel-400 mb-1.5">{data.registeredByDept}</p>
+        <p className="text-[11px] text-pastel-400 mb-0.5">{data.registeredByDept}</p>
+      )}
+      {(data.team || data.center2Name) && (
+        <p className="text-[10px] text-pastel-300 mb-1.5">{[data.center1Name, data.center2Name, data.team].filter(Boolean).join(' > ')}</p>
       )}
       <div className="flex items-center gap-2 text-pastel-600">
         <span className="font-mono font-bold" style={{ color: metric.color }}>

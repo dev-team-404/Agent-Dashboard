@@ -31,6 +31,9 @@ interface Service {
   registeredBy?: string;
   registeredByDept?: string;
   registeredByBusinessUnit?: string;
+  team?: string;
+  center2Name?: string;
+  center1Name?: string;
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
   targetMM?: number | null;
@@ -511,6 +514,11 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                           {!service._isCreator && !service._isServiceAdmin && (
                             <span className="text-[10px] text-gray-400">
                               등록자: {service.registeredBy} ({service.registeredByDept})
+                            </span>
+                          )}
+                          {(service.team || service.center2Name) && (
+                            <span className="text-[10px] text-gray-400">
+                              {[service.center1Name, service.center2Name, service.team].filter(Boolean).join(' > ')}
                             </span>
                           )}
                         </div>

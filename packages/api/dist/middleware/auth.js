@@ -31,7 +31,7 @@ export function isSuperAdminByEnv(loginid) {
 }
 /**
  * deptname에서 businessUnit 추출
- * "SW혁신팀(S.LSI)" → "S.LSI"
+ * "S/W혁신팀(S.LSI)" → "S.LSI"
  */
 export function extractBusinessUnit(deptname) {
     if (!deptname)
@@ -44,7 +44,7 @@ export function extractBusinessUnit(deptname) {
 }
 /**
  * deptname에서 팀명 추출
- * "SW혁신팀(S.LSI)" → "SW혁신팀"
+ * "S/W혁신팀(S.LSI)" → "S/W혁신팀"
  */
 export function extractTeamName(deptname) {
     if (!deptname)

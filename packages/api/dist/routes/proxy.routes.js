@@ -10,11 +10,18 @@
  */
 import { Router } from 'express';
 import path from 'node:path';
+import multer from 'multer';
 import { prisma, redis } from '../index.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
-import { validateProxyHeaders, canServiceAccessModel } from '../middleware/proxyAuth.js';
+import { validateProxyHeaders } from '../middleware/proxyAuth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
+import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
+// ASR multipart 업로드 설정
+const asrUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+});
 export const proxyRoutes = Router();
 // 이미지 파일 서빙 — 인증 불필요 (UUID 파일명으로 보안)
 proxyRoutes.get('/images/files/:fileName', async (req, res) => {
@@ -53,7 +60,195 @@ proxyRoutes.get('/images/files/:fileName', async (req, res) => {
         }
     }
 });
-// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙 제외)
+// ============================================
+// POST /v1/audio/transcriptions (ASR — multipart)
+// multer → validateProxyHeaders 순서로 적용 (multipart body 파싱이 먼저 필요)
+// ============================================
+const ASR_TIMEOUT_MS = 600000; // 10분
+function buildAudioTranscriptionsUrl(endpointUrl) {
+    let url = endpointUrl.trim();
+    if (url.endsWith('/audio/transcriptions'))
+        return url;
+    if (url.endsWith('/'))
+        url = url.slice(0, -1);
+    if (url.endsWith('/v1'))
+        return `${url}/audio/transcriptions`;
+    url = url.replace(/\/(chat\/completions|embeddings|rerank|images\/generations)$/, '');
+    return `${url}/audio/transcriptions`;
+}
+proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProxyHeaders, async (req, res) => {
+    const proxyReq = req;
+    const startTime = Date.now();
+    const userAgent = req.headers['user-agent'] || null;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
+    try {
+        const modelName = req.body?.model;
+        if (!modelName) {
+            res.status(400).json({ error: 'model is required' });
+            return;
+        }
+        if (!req.file) {
+            res.status(400).json({ error: 'audio file is required (field: "file")' });
+            return;
+        }
+        // 모델 조회: 서비스 alias 기반
+        const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+        if (!resolved.found || !resolved.model) {
+            res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
+            return;
+        }
+        const model = resolved.model;
+        // 사용자 upsert + Knox 인증
+        const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/audio/transcriptions');
+        if (knoxError) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: knoxError.status, latencyMs: Date.now() - startTime, errorMessage: knoxError.body.message, userAgent, ipAddress, stream: false }).catch(() => { });
+            res.status(knoxError.status).json(knoxError.body);
+            return;
+        }
+        // Rate limit 체크
+        const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+        if (rateLimitResult) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: false }).catch(() => { });
+            res.status(rateLimitResult.status).json(rateLimitResult.body);
+            return;
+        }
+        // 라운드로빈 + Failover
+        const endpoints = await getModelEndpoints(model.id, {
+            endpointUrl: model.endpointUrl,
+            apiKey: model.apiKey,
+            modelName: model.name,
+            extraHeaders: model.extraHeaders,
+            extraBody: model.extraBody,
+        });
+        const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+        const isSingleEndpoint = endpoints.length === 1;
+        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+        let lastError;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
+            const endpoint = endpoints[idx];
+            if (attempt > 0) {
+                if (isSingleEndpoint) {
+                    console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+                }
+                else {
+                    console.log(`[Failover] ASR model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
+                }
+            }
+            const url = buildAudioTranscriptionsUrl(endpoint.endpointUrl);
+            const loginid = user?.loginid || proxyReq.serviceName;
+            console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} fileSize=${req.file.size} (audio/transcriptions)`);
+            // multipart FormData 구성
+            const formData = new FormData();
+            formData.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname || 'audio.wav');
+            formData.append('model', endpoint.modelName);
+            if (req.body.language)
+                formData.append('language', req.body.language);
+            if (req.body.prompt)
+                formData.append('prompt', req.body.prompt);
+            if (req.body.response_format)
+                formData.append('response_format', req.body.response_format);
+            if (req.body.temperature)
+                formData.append('temperature', String(req.body.temperature));
+            if (req.body.timestamp_granularities) {
+                const granularities = Array.isArray(req.body.timestamp_granularities)
+                    ? req.body.timestamp_granularities
+                    : [req.body.timestamp_granularities];
+                for (const g of granularities) {
+                    formData.append('timestamp_granularities[]', String(g));
+                }
+            }
+            const headers = {};
+            if (endpoint.apiKey)
+                headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
+            if (endpoint.extraHeaders) {
+                for (const [key, value] of Object.entries(endpoint.extraHeaders)) {
+                    const lowerKey = key.toLowerCase();
+                    if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+                        headers[key] = value;
+                    }
+                }
+            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), ASR_TIMEOUT_MS);
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers,
+                    body: formData,
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutId);
+                const latencyMs = Date.now() - startTime;
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[LLM-Error] ASR | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
+                    // 4xx는 즉시 반환 (재시도 안함)
+                    if (response.status >= 400 && response.status < 500) {
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            res.status(response.status).json(errorJson);
+                        }
+                        catch {
+                            res.status(response.status).send(errorText);
+                        }
+                        return;
+                    }
+                    console.error(`[Failover] ASR endpoint ${url} returned ${response.status}`);
+                    lastError = errorText;
+                    continue;
+                }
+                // 성공
+                const responseText = await response.text();
+                // Usage: Whisper 호환 API는 토큰 미반환 → 요청 건수 + latency로 추적
+                recordUsage(user?.id || null, user?.loginid || null, model.id, 0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                recordRequestLog({
+                    serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+                    modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions',
+                    statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
+                    userAgent, ipAddress, stream: false,
+                }).catch(() => { });
+                res.setHeader('Content-Type', 'application/json');
+                res.status(200).send(responseText);
+                return;
+            }
+            catch (error) {
+                clearTimeout(timeoutId);
+                console.error(`[Failover] ASR endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
+                lastError = error instanceof Error ? error.message : 'Connection failed';
+                continue;
+            }
+        }
+        // 모든 시도 실패
+        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        console.error(`[Failover] ${label} failed for ASR model "${model.name}"`);
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => { });
+        res.status(503).json({
+            error: 'Service temporarily unavailable',
+            message: `Failed ${label}. Please try again later.`,
+        });
+    }
+    catch (error) {
+        console.error('ASR transcription proxy error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to process audio transcription request' });
+        }
+    }
+});
+// Multer 에러 핸들러 (파일 크기 초과 등)
+proxyRoutes.use('/audio/transcriptions', ((err, _req, res, next) => {
+    if (err && err.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({ error: 'Audio file too large. Maximum size is 500MB.' });
+        return;
+    }
+    if (err && err.name === 'MulterError') {
+        res.status(400).json({ error: err.message });
+        return;
+    }
+    next(err);
+}));
+// 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙, 오디오 전사 제외)
 proxyRoutes.use(validateProxyHeaders);
 // 단일 엔드포인트 5xx retry 설정
 const SINGLE_ENDPOINT_MAX_RETRIES = 3;
@@ -62,7 +257,7 @@ async function getModelEndpoints(modelId, parentEndpoint) {
     const subModels = await prisma.subModel.findMany({
         where: { parentId: modelId, enabled: true },
         orderBy: { sortOrder: 'asc' },
-        select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true, weight: true },
+        select: { endpointUrl: true, apiKey: true, modelName: true, extraHeaders: true, extraBody: true, weight: true },
     });
     if (subModels.length === 0)
         return [parentEndpoint];
@@ -76,6 +271,7 @@ async function getModelEndpoints(modelId, parentEndpoint) {
             apiKey: s.apiKey,
             modelName: s.modelName || parentEndpoint.modelName,
             extraHeaders: s.extraHeaders,
+            extraBody: s.extraBody,
         };
         const weight = Math.max(1, Math.min(s.weight, 10)); // clamp 1~10
         for (let w = 0; w < weight; w++) {
@@ -103,43 +299,33 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 /**
- * Service-level round-robin: 동일 서비스에 같은 모델 이름으로 여러 Model이
- * ServiceModel로 등록되어 있으면, weight 기반 라운드로빈으로 하나를 선택한다.
- * 선택된 Model은 이후 SubModel 라운드로빈 (기존 로직)을 그대로 탄다.
+ * Service-level round-robin: aliasName 기반 모델 해석
+ * 서비스에 등록된 ServiceModel 중 aliasName이 일치하는 모델들을
+ * weight 기반 라운드로빈으로 선택한다.
  *
- * fallback: ServiceModel이 없으면 기존처럼 전역 Model 조회.
+ * 서비스에 등록된 alias 이름으로만 호출 가능. 전역 fallback 없음.
  */
 async function resolveModelWithServiceRR(serviceId, modelName) {
-    // 1) 해당 서비스에 등록된 ServiceModel 중, 요청 모델 이름과 일치하는 것 모두 조회
+    // aliasName으로 매칭하는 ServiceModel 조회 (유일한 경로)
     const serviceModels = await prisma.serviceModel.findMany({
         where: {
             serviceId,
+            aliasName: modelName,
             enabled: true,
-            model: {
-                OR: [{ name: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
+            model: { enabled: true },
         },
         include: { model: true },
         orderBy: { sortOrder: 'asc' },
     });
-    // 2) ServiceModel이 없으면 기존 전역 조회로 fallback
+    // alias 매칭 없음 → 모델 없음 (전역 fallback 없음)
     if (serviceModels.length === 0) {
-        const model = await prisma.model.findFirst({
-            where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
-                enabled: true,
-            },
-        });
-        if (!model)
-            return { found: false, model: null };
-        return { found: true, model };
+        return { found: false, model: null };
     }
-    // 3) 하나만 매칭 → 그대로 사용
+    // 하나만 매칭 → 그대로 사용
     if (serviceModels.length === 1) {
         return { found: true, model: serviceModels[0].model };
     }
-    // 4) 여러 개 매칭 → weight 기반 라운드로빈
+    // 여러 개 매칭 → weight 기반 라운드로빈
     const weightedModels = [];
     for (const sm of serviceModels) {
         const w = Math.max(1, Math.min(sm.weight, 10));
@@ -152,7 +338,7 @@ async function resolveModelWithServiceRR(serviceId, modelName) {
         if (idx === 1)
             await redis.expire(rrKey, 3600);
         const selected = weightedModels[(idx - 1) % weightedModels.length];
-        console.log(`[ServiceRR] service=${serviceId} model="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
+        console.log(`[ServiceRR] service=${serviceId} alias="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
         return { found: true, model: selected };
     }
     catch (error) {
@@ -176,30 +362,66 @@ function safeDecodeURIComponent(text) {
     }
 }
 /**
- * 사용자 조회 또는 생성 (background가 아닌 경우만)
+ * 사용자 조회 또는 생성 + Knox 임직원 인증
+ *
+ * BACKGROUND 서비스: 인증 스킵
+ * STANDARD 서비스:
+ *   - DB에 있고 knoxVerified=true → DB deptname vs x-dept-name 비교 → 불일치 시 reject
+ *   - DB에 있고 knoxVerified=false → Knox API 호출 → 인증+부서검증 → 마킹
+ *   - DB에 없음 (최초) → Knox API 호출 → 인증+부서검증 → 생성+마킹
  */
-async function getOrCreateUser(proxyReq) {
+async function getOrCreateUser(proxyReq, endpoint) {
     if (proxyReq.isBackground || !proxyReq.userLoginId)
-        return null;
+        return { user: null };
     const loginid = proxyReq.userLoginId;
     const deptname = proxyReq.deptName;
-    const businessUnit = proxyReq.businessUnit;
-    const username = safeDecodeURIComponent(proxyReq.headers['x-user-name'] || loginid);
-    const user = await prisma.user.upsert({
-        where: { loginid },
-        update: {
-            lastActive: new Date(),
-            deptname,
-            businessUnit,
-        },
-        create: {
-            loginid,
-            username,
-            deptname,
-            businessUnit,
-        },
-    });
-    return user;
+    const ipAddress = proxyReq.ip || proxyReq.headers['x-forwarded-for'] || undefined;
+    // 1. DB에서 사용자 조회
+    const existingUser = await prisma.user.findUnique({ where: { loginid } });
+    if (existingUser && existingUser.knoxVerified) {
+        // ✅ 이미 Knox 인증 완료 → DB deptname vs 헤더 x-dept-name 비교
+        if (deptname && existingUser.deptname && deptname !== existingUser.deptname) {
+            // 팀명 fallback: "팀명(사업부)" 형식에서 팀명만 추출하여 비교
+            const extractTeamName = (d) => d.replace(/\(.*\)$/, '').trim();
+            const claimedTeam = extractTeamName(deptname);
+            const dbTeam = extractTeamName(existingUser.deptname);
+            if (claimedTeam !== dbTeam) {
+                return {
+                    user: null,
+                    error: {
+                        status: 403,
+                        body: {
+                            error: 'Department mismatch',
+                            message: `부서 정보가 등록된 정보와 다릅니다. 등록: "${existingUser.deptname}", 요청: "${deptname}". 부서 변경이 있었다면 관리자에게 재인증을 요청하세요.`,
+                        },
+                    },
+                };
+            }
+        }
+        // lastActive 업데이트
+        const user = await prisma.user.update({
+            where: { id: existingUser.id },
+            data: { lastActive: new Date() },
+        });
+        return { user };
+    }
+    // 2. 미인증 (knoxVerified=false) 또는 최초 사용자 → Knox API 인증
+    const result = await verifyAndRegisterUser(loginid, deptname, 'PROXY', endpoint, ipAddress);
+    if (!result.success) {
+        return {
+            user: null,
+            error: {
+                status: 403,
+                body: {
+                    error: 'Knox verification failed',
+                    message: result.error || '임직원 인증에 실패했습니다.',
+                },
+            },
+        };
+    }
+    // Knox 인증 성공 → user 리턴
+    const user = result.user ? await prisma.user.findUnique({ where: { id: result.user.id } }) : null;
+    return { user };
 }
 /**
  * Rate limit 체크 (user가 있는 경우만)
@@ -306,6 +528,64 @@ async function recordUsage(userId, loginid, modelId, inputTokens, outputTokens, 
     }
     console.log(`[Usage] user=${loginid || 'background'}, model=${modelId}, service=${serviceId}, tokens=${totalTokens}, latency=${latencyMs || 'N/A'}ms`);
 }
+/**
+ * RequestLog 저장 (요청 로그)
+ */
+// 서비스별 콘텐츠 로깅 상태 캐시 (30초 TTL — 토글 반영 지연 최소화)
+const contentLoggingCache = new Map();
+const CONTENT_LOGGING_CACHE_TTL = 30 * 1000;
+async function isContentLoggingEnabled(serviceId) {
+    const cached = contentLoggingCache.get(serviceId);
+    if (cached && Date.now() - cached.ts < CONTENT_LOGGING_CACHE_TTL)
+        return cached.enabled;
+    try {
+        const svc = await prisma.service.findUnique({ where: { id: serviceId }, select: { contentLoggingEnabled: true } });
+        const enabled = svc?.contentLoggingEnabled ?? false;
+        contentLoggingCache.set(serviceId, { enabled, ts: Date.now() });
+        return enabled;
+    }
+    catch {
+        return false;
+    }
+}
+async function recordRequestLog(params) {
+    try {
+        // 콘텐츠 로깅이 활성화된 경우에만 requestBody/responseBody 저장
+        let saveRequestBody = params.requestBody || null;
+        let saveResponseBody = params.responseBody || null;
+        if (saveRequestBody || saveResponseBody) {
+            const loggingEnabled = await isContentLoggingEnabled(params.serviceId);
+            if (!loggingEnabled) {
+                saveRequestBody = null;
+                saveResponseBody = null;
+            }
+        }
+        await prisma.requestLog.create({
+            data: {
+                serviceId: params.serviceId,
+                userId: params.userId || null,
+                deptname: params.deptname || null,
+                modelName: params.modelName,
+                resolvedModel: params.resolvedModel || null,
+                method: params.method,
+                path: params.path,
+                statusCode: params.statusCode,
+                requestBody: saveRequestBody,
+                responseBody: saveResponseBody,
+                inputTokens: params.inputTokens || null,
+                outputTokens: params.outputTokens || null,
+                latencyMs: params.latencyMs || null,
+                errorMessage: params.errorMessage ? params.errorMessage.substring(0, 2000) : null,
+                userAgent: params.userAgent || null,
+                ipAddress: params.ipAddress || null,
+                stream: params.stream || false,
+            },
+        });
+    }
+    catch (err) {
+        console.error('[RequestLog] Failed to record:', err);
+    }
+}
 function buildChatCompletionsUrl(endpointUrl) {
     let url = endpointUrl.trim();
     if (url.endsWith('/chat/completions'))
@@ -317,37 +597,49 @@ function buildChatCompletionsUrl(endpointUrl) {
     return `${url}/chat/completions`;
 }
 // ============================================
-// GET /v1/models
+// GET /v1/models (서비스별 alias 기반)
 // ============================================
 proxyRoutes.get('/models', async (req, res) => {
     const proxyReq = req;
     try {
-        const models = await prisma.model.findMany({
-            where: { enabled: true },
-            select: {
-                id: true,
-                name: true,
-                displayName: true,
-                maxTokens: true,
-                sortOrder: true,
-                supportsVision: true,
-                visibility: true,
-                visibilityScope: true,
-                adminVisible: true,
+        // 1) 서비스에 등록된 ServiceModel 조회 (aliasName 기반)
+        const serviceModels = await prisma.serviceModel.findMany({
+            where: {
+                serviceId: proxyReq.serviceId,
+                enabled: true,
+                model: { enabled: true },
             },
-            orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+            include: {
+                model: {
+                    select: {
+                        id: true,
+                        name: true,
+                        displayName: true,
+                        maxTokens: true,
+                        supportsVision: true,
+                        visibility: true,
+                        visibilityScope: true,
+                        adminVisible: true,
+                    },
+                },
+            },
+            orderBy: [{ sortOrder: 'asc' }],
         });
-        // 서비스 등록 admin 권한에 따라 필터링
-        const filtered = models.filter(model => canServiceAccessModel(proxyReq, model));
-        res.json({
-            object: 'list',
-            data: filtered.map(model => ({
-                id: model.displayName || model.name,
+        // 2) 서비스에 등록된 alias만 반환 (전역 fallback 없음)
+        const aliasSet = new Set();
+        const result = [];
+        for (const sm of serviceModels) {
+            if (aliasSet.has(sm.aliasName))
+                continue;
+            aliasSet.add(sm.aliasName);
+            result.push({
+                id: sm.aliasName,
                 object: 'model',
                 created: Date.now(),
-                owned_by: 'agent-dashboard',
-            })),
-        });
+                owned_by: 'agent-registry',
+            });
+        }
+        res.json({ object: 'list', data: result });
     }
     catch (error) {
         console.error('Get models error:', error);
@@ -362,36 +654,40 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
     const proxyReq = req;
     try {
         const { modelName } = req.params;
-        const model = await prisma.model.findFirst({
+        // 서비스에 등록된 alias 이름으로만 조회
+        const serviceModel = await prisma.serviceModel.findFirst({
             where: {
-                OR: [{ name: modelName }, { id: modelName }, { displayName: modelName }],
+                serviceId: proxyReq.serviceId,
+                aliasName: modelName,
                 enabled: true,
+                model: { enabled: true },
             },
-            select: {
-                id: true,
-                name: true,
-                displayName: true,
-                maxTokens: true,
-                supportsVision: true,
-                visibility: true,
-                visibilityScope: true,
-                adminVisible: true,
+            include: {
+                model: {
+                    select: {
+                        id: true,
+                        name: true,
+                        displayName: true,
+                        maxTokens: true,
+                        supportsVision: true,
+                        visibility: true,
+                        visibilityScope: true,
+                        adminVisible: true,
+                    },
+                },
             },
         });
-        if (!model) {
-            res.status(404).json({ error: 'Model not found' });
-            return;
-        }
-        // 서비스 접근 권한 확인
-        if (!canServiceAccessModel(proxyReq, model)) {
-            res.status(403).json({ error: `Model '${modelName}' is not accessible by this service` });
+        if (!serviceModel) {
+            res.status(404).json({
+                error: `Model '${modelName}' not found. Use GET /v1/models to see available models for this service.`,
+            });
             return;
         }
         res.json({
-            id: model.displayName || model.name,
+            id: serviceModel.aliasName,
             object: 'model',
             created: Date.now(),
-            owned_by: 'agent-dashboard',
+            owned_by: 'agent-registry',
         });
     }
     catch (error) {
@@ -405,32 +701,36 @@ proxyRoutes.get('/models/:modelName', async (req, res) => {
 // ============================================
 proxyRoutes.post('/chat/completions', async (req, res) => {
     const proxyReq = req;
+    const reqStartTime = Date.now();
+    const userAgent = req.headers['user-agent'] || null;
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || null;
     try {
         const { model: modelName, messages, stream, ...otherParams } = req.body;
         if (!modelName || !messages) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: modelName || 'unknown', method: 'POST', path: '/v1/chat/completions', statusCode: 400, latencyMs: Date.now() - reqStartTime, errorMessage: 'model and messages are required', userAgent, ipAddress }).catch(() => { });
             res.status(400).json({ error: 'model and messages are required' });
             return;
         }
-        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
-            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, method: 'POST', path: '/v1/chat/completions', statusCode: 404, latencyMs: Date.now() - reqStartTime, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, userAgent, ipAddress }).catch(() => { });
+            res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
-        // 서비스 접근 권한 확인
-        if (!canServiceAccessModel(proxyReq, model)) {
-            res.status(403).json({
-                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-                message: 'This model is not available for your service. Check the LLM visibility settings.',
-            });
+        // ServiceModel 관계가 있으면 접근 허용 (visibility는 모델 할당 시 검증)
+        // 사용자 upsert + Knox 인증 (background가 아닌 경우)
+        const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/chat/completions');
+        if (knoxError) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: knoxError.status, latencyMs: Date.now() - reqStartTime, errorMessage: knoxError.body.message, userAgent, ipAddress, stream: stream || false }).catch(() => { });
+            res.status(knoxError.status).json(knoxError.body);
             return;
         }
-        // 사용자 upsert (background가 아닌 경우)
-        const user = await getOrCreateUser(proxyReq);
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: rateLimitResult.status, latencyMs: Date.now() - reqStartTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: stream || false }).catch(() => { });
             res.status(rateLimitResult.status).json(rateLimitResult.body);
             return;
         }
@@ -440,6 +740,7 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
             apiKey: model.apiKey,
             modelName: model.name,
             extraHeaders: model.extraHeaders,
+            extraBody: model.extraBody,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         if (endpoints.length > 1) {
@@ -461,6 +762,7 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
                 }
             }
             const llmRequestBody = {
+                ...(endpoint.extraBody || {}),
                 model: endpoint.modelName,
                 messages,
                 stream: stream || false,
@@ -491,6 +793,7 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
         }
         const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
         console.error(`[Failover] ${label} failed for model "${model.name}"`);
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
             message: `Failed ${label}. Please try again later.`,
@@ -499,6 +802,7 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
     }
     catch (error) {
         console.error('Chat completion proxy error:', error);
+        recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: req.body?.model || 'unknown', method: 'POST', path: '/v1/chat/completions', statusCode: 500, latencyMs: Date.now() - reqStartTime, errorMessage: error instanceof Error ? error.message : 'Unknown error', userAgent, ipAddress, stream: req.body?.stream || false }).catch(() => { });
         if (!res.headersSent)
             res.status(500).json({ error: 'Failed to process chat completion' });
     }
@@ -597,6 +901,14 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
             const data = await response.json();
             if (data.usage) {
                 recordUsage(user?.id || null, user?.loginid || null, model.id, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                recordRequestLog({
+                    serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+                    modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
+                    statusCode: 200, inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens,
+                    latencyMs, userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    requestBody: JSON.stringify(requestBody).substring(0, 50000),
+                    responseBody: JSON.stringify(data).substring(0, 50000),
+                }).catch(() => { });
             }
             res.json(data);
             return true;
@@ -757,6 +1069,13 @@ async function handleStreamingRequest(res, model, requestBody, headers, user, pr
         if (usageData) {
             recordUsage(user?.id || null, user?.loginid || null, model.id, usageData.prompt_tokens || 0, usageData.completion_tokens || 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
         }
+        recordRequestLog({
+            serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+            modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
+            statusCode: 200, inputTokens: usageData?.prompt_tokens, outputTokens: usageData?.completion_tokens,
+            latencyMs, userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: true,
+            requestBody: JSON.stringify(requestBody).substring(0, 50000),
+        }).catch(() => { });
         res.end();
         return true;
     }
@@ -799,22 +1118,19 @@ proxyRoutes.post('/embeddings', async (req, res) => {
             res.status(400).json({ error: 'model and input are required' });
             return;
         }
-        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
-            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
-        // 서비스 접근 권한 확인
-        if (!canServiceAccessModel(proxyReq, model)) {
-            res.status(403).json({
-                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-            });
+        // 사용자 upsert + Knox 인증
+        const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/embeddings');
+        if (knoxError) {
+            res.status(knoxError.status).json(knoxError.body);
             return;
         }
-        // 사용자 upsert
-        const user = await getOrCreateUser(proxyReq);
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
@@ -827,6 +1143,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
             apiKey: model.apiKey,
             modelName: model.name,
             extraHeaders: model.extraHeaders,
+            extraBody: model.extraBody,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
@@ -848,6 +1165,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
             const loginid = user?.loginid || proxyReq.serviceName;
             console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (embeddings)`);
             const embeddingsBody = {
+                ...(endpoint.extraBody || {}),
                 model: endpoint.modelName,
                 input,
                 ...otherParams,
@@ -907,6 +1225,14 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                 if (inputTokens > 0) {
                     recordUsage(user?.id || null, user?.loginid || null, model.id, inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
                 }
+                recordRequestLog({
+                    serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+                    modelName: embeddingsBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings',
+                    statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
+                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    requestBody: JSON.stringify(embeddingsBody).substring(0, 50000),
+                    responseBody: responseText.substring(0, 50000),
+                }).catch(() => { });
                 res.setHeader('Content-Type', 'application/json');
                 res.status(200).send(responseText);
                 return;
@@ -968,22 +1294,19 @@ proxyRoutes.post('/rerank', async (req, res) => {
             res.status(400).json({ error: 'documents is required and must be a non-empty array' });
             return;
         }
-        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
-            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
-        // 서비스 접근 권한 확인
-        if (!canServiceAccessModel(proxyReq, model)) {
-            res.status(403).json({
-                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-            });
+        // 사용자 upsert + Knox 인증
+        const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/rerank');
+        if (knoxError) {
+            res.status(knoxError.status).json(knoxError.body);
             return;
         }
-        // 사용자 upsert
-        const user = await getOrCreateUser(proxyReq);
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
@@ -996,6 +1319,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
             apiKey: model.apiKey,
             modelName: model.name,
             extraHeaders: model.extraHeaders,
+            extraBody: model.extraBody,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
@@ -1017,6 +1341,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
             const loginid = user?.loginid || proxyReq.serviceName;
             console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (rerank)`);
             const rerankBody = {
+                ...(endpoint.extraBody || {}),
                 model: endpoint.modelName,
                 query,
                 documents,
@@ -1084,6 +1409,14 @@ proxyRoutes.post('/rerank', async (req, res) => {
                 if (inputTokens > 0) {
                     recordUsage(user?.id || null, user?.loginid || null, model.id, inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
                 }
+                recordRequestLog({
+                    serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+                    modelName: rerankBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/rerank',
+                    statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
+                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    requestBody: JSON.stringify(rerankBody).substring(0, 50000),
+                    responseBody: responseText.substring(0, 50000),
+                }).catch(() => { });
                 res.setHeader('Content-Type', 'application/json');
                 res.status(200).send(responseText);
                 return;
@@ -1121,10 +1454,10 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             res.status(400).json({ error: 'model and prompt are required' });
             return;
         }
-        // 모델 조회: Service-level round-robin 우선, fallback으로 전역 조회
+        // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
-            res.status(404).json({ error: `Model '${modelName}' not found or disabled` });
+            res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
@@ -1132,15 +1465,12 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
             return;
         }
-        // 서비스 접근 권한 확인
-        if (!canServiceAccessModel(proxyReq, model)) {
-            res.status(403).json({
-                error: `Model '${modelName}' is not accessible by service '${proxyReq.serviceName}'`,
-            });
+        // 사용자 upsert + Knox 인증
+        const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/images/generations');
+        if (knoxError) {
+            res.status(knoxError.status).json(knoxError.body);
             return;
         }
-        // 사용자 upsert
-        const user = await getOrCreateUser(proxyReq);
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
@@ -1155,6 +1485,7 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             apiKey: model.apiKey,
             modelName: model.name,
             extraHeaders: model.extraHeaders,
+            extraBody: model.extraBody,
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
@@ -1181,7 +1512,7 @@ proxyRoutes.post('/images/generations', async (req, res) => {
                     apiKey: endpoint.apiKey,
                     modelName: endpoint.modelName,
                     extraHeaders: endpoint.extraHeaders,
-                    extraBody: model.extraBody,
+                    extraBody: endpoint.extraBody,
                 }, {
                     prompt,
                     n: n || undefined,
@@ -1214,6 +1545,14 @@ proxyRoutes.post('/images/generations', async (req, res) => {
                 });
                 // Usage 기록 (이미지는 토큰 0, 요청 횟수만 트래킹)
                 recordUsage(user?.id || null, user?.loginid || null, model.id, 0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+                recordRequestLog({
+                    serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+                    modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations',
+                    statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
+                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    requestBody: JSON.stringify({ model: modelName, prompt, n, size, quality, style }).substring(0, 50000),
+                    responseBody: JSON.stringify({ data: rewrittenData }).substring(0, 50000),
+                }).catch(() => { });
                 return;
             }
             catch (fetchError) {

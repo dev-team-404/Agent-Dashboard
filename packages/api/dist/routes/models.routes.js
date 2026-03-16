@@ -12,6 +12,62 @@ import { Router } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 export const modelsRoutes = Router();
+async function recordAudit(req, action, target, targetType, details) {
+    try {
+        await prisma.auditLog.create({
+            data: {
+                adminId: req.adminId || undefined,
+                loginid: req.user?.loginid || 'unknown',
+                action, target, targetType,
+                details: details ? JSON.parse(JSON.stringify(details)) : undefined,
+                ipAddress: req.ip || req.headers['x-forwarded-for'] || undefined,
+            },
+        });
+    }
+    catch (err) {
+        console.error('[AuditLog] Failed to record:', err);
+    }
+}
+/**
+ * GET /models/browse
+ * 모델 공개 목록 (모든 인증 사용자 접근 가능)
+ * - ADMIN_ONLY, SUPER_ADMIN_ONLY 제외
+ * - 민감 정보 마스킹 (apiKey, endpointUrl)
+ * - 팀/사업부 태그 포함
+ */
+modelsRoutes.get('/browse', authenticateToken, async (req, res) => {
+    try {
+        const models = await prisma.model.findMany({
+            where: {
+                enabled: true,
+                visibility: { notIn: ['ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+        });
+        // Mask sensitive fields for public viewing
+        const publicModels = models.map(m => ({
+            id: m.id,
+            name: m.name,
+            displayName: m.displayName,
+            type: m.type,
+            supportsVision: m.supportsVision,
+            visibility: m.visibility,
+            visibilityScope: m.visibilityScope,
+            maxTokens: m.maxTokens,
+            enabled: m.enabled,
+            sortOrder: m.sortOrder,
+            createdByDept: m.createdByDept,
+            createdByBusinessUnit: m.createdByBusinessUnit,
+            createdBySuperAdmin: m.createdBySuperAdmin,
+            createdAt: m.createdAt,
+        }));
+        res.json({ models: publicModels });
+    }
+    catch (error) {
+        console.error('Browse models error:', error);
+        res.status(500).json({ error: 'Failed to browse models' });
+    }
+});
 /**
  * GET /models
  * 모델 목록 (권한에 따라 필터링)
@@ -86,6 +142,17 @@ modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
         }
         const deptname = req.adminDept || req.user?.deptname || '';
         const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
+        // visibilityScope가 비어있으면 creator의 dept/BU 기준으로 자동 채움
+        const effectiveVisibility = visibility || 'PUBLIC';
+        let effectiveScope = visibilityScope || [];
+        if (effectiveScope.length === 0) {
+            if (effectiveVisibility === 'TEAM' && deptname) {
+                effectiveScope = [deptname];
+            }
+            else if (effectiveVisibility === 'BUSINESS_UNIT' && businessUnit) {
+                effectiveScope = [businessUnit];
+            }
+        }
         const model = await prisma.model.create({
             data: {
                 name,
@@ -97,8 +164,8 @@ modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
                 extraHeaders: extraHeaders || null,
                 extraBody: extraBody || null,
                 supportsVision: supportsVision || false,
-                visibility: visibility || 'PUBLIC',
-                visibilityScope: visibilityScope || [],
+                visibility: effectiveVisibility,
+                visibilityScope: effectiveScope,
                 adminVisible: adminVisible || false,
                 sortOrder: sortOrder || 0,
                 type: type || 'CHAT',
@@ -109,6 +176,7 @@ modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
                 createdBySuperAdmin: req.adminRole === 'SUPER_ADMIN',
             },
         });
+        recordAudit(req, 'CREATE_MODEL', model.id, 'Model', { name: model.name, displayName: model.displayName, visibility: model.visibility }).catch(() => { });
         res.status(201).json({ model });
     }
     catch (error) {
@@ -142,6 +210,18 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
             }
         }
         const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider, adminVisible } = req.body;
+        // visibility 변경 시 scope가 비어있으면 creator 기준으로 자동 채움
+        let effectiveScope = visibilityScope;
+        if (visibility !== undefined && (visibilityScope === undefined || (Array.isArray(visibilityScope) && visibilityScope.length === 0))) {
+            const ownerDept = model.createdByDept || req.adminDept || req.user?.deptname || '';
+            const ownerBU = model.createdByBusinessUnit || req.adminBusinessUnit || extractBusinessUnit(ownerDept);
+            if (visibility === 'TEAM' && ownerDept) {
+                effectiveScope = [ownerDept];
+            }
+            else if (visibility === 'BUSINESS_UNIT' && ownerBU) {
+                effectiveScope = [ownerBU];
+            }
+        }
         const updated = await prisma.model.update({
             where: { id },
             data: {
@@ -155,13 +235,14 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
                 ...(extraBody !== undefined && { extraBody }),
                 ...(supportsVision !== undefined && { supportsVision }),
                 ...(visibility !== undefined && { visibility }),
-                ...(visibilityScope !== undefined && { visibilityScope }),
+                ...(effectiveScope !== undefined && { visibilityScope: effectiveScope }),
                 ...(sortOrder !== undefined && { sortOrder }),
                 ...(type !== undefined && { type }),
                 ...(imageProvider !== undefined && { imageProvider }),
                 ...(adminVisible !== undefined && { adminVisible }),
             },
         });
+        recordAudit(req, 'UPDATE_MODEL', updated.id, 'Model', { name: updated.name, changes: Object.keys(req.body) }).catch(() => { });
         res.json({ model: updated });
     }
     catch (error) {
@@ -201,6 +282,7 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin, async (req, res) =>
             });
             return;
         }
+        const modelName = model.name;
         // SubModel, UsageLog 등 cascade 처리
         await prisma.$transaction([
             prisma.subModel.deleteMany({ where: { parentId: id } }),
@@ -208,6 +290,7 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin, async (req, res) =>
             prisma.dailyUsageStat.deleteMany({ where: { modelId: id } }),
             prisma.model.delete({ where: { id } }),
         ]);
+        recordAudit(req, 'DELETE_MODEL', id, 'Model', { name: modelName }).catch(() => { });
         res.json({ success: true });
     }
     catch (error) {

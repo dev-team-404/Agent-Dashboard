@@ -34,6 +34,7 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
+import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
 
 import 'dotenv/config';
 
@@ -177,6 +178,107 @@ async function backfillEmptyVisibilityScope() {
   }
 }
 
+/**
+ * 기존 사용자 Knox 인증 일괄 리셋
+ * → 다음 API 호출 시 Knox 재인증 + 영문 부서명/부서코드/계층 정보 수집
+ */
+async function resetKnoxVerifications() {
+  try {
+    const result = await prisma.user.updateMany({
+      where: { knoxVerified: true },
+      data: { knoxVerified: false },
+    });
+    if (result.count > 0) {
+      console.log(`[Backfill] Reset Knox verification for ${result.count} user(s) — will re-verify on next request`);
+    }
+  } catch (error) {
+    console.error('[Backfill] Failed to reset Knox verifications:', error);
+  }
+}
+
+/**
+ * 기존 서비스의 영문 조직 계층 정보 자동 채움
+ * registeredBy 사용자의 부서코드로 Knox Organization API 호출
+ */
+async function backfillServiceHierarchy() {
+  try {
+    // team이 비어있는 서비스 목록
+    const services = await prisma.service.findMany({
+      where: {
+        team: null,
+        registeredBy: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+        registeredBy: true,
+        registeredByDept: true,
+      },
+    });
+
+    if (services.length === 0) return;
+    console.log(`[Backfill] Found ${services.length} service(s) without team hierarchy — backfilling...`);
+
+    for (const svc of services) {
+      try {
+        if (!svc.registeredBy) continue;
+
+        // 1. 사용자 DB에서 departmentCode 조회
+        const user = await prisma.user.findUnique({ where: { loginid: svc.registeredBy } });
+
+        let departmentCode = user?.departmentCode || '';
+        let enDeptName = user?.enDeptName || '';
+        let deptName = svc.registeredByDept || '';
+
+        // 2. departmentCode가 없으면 Knox Employee API로 조회
+        if (!departmentCode) {
+          const employee = await lookupEmployee(svc.registeredBy);
+          if (employee) {
+            departmentCode = employee.departmentCode;
+            enDeptName = employee.enDepartmentName;
+            deptName = employee.departmentName || deptName;
+
+            // 사용자 DB 업데이트
+            if (user) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                  departmentCode: employee.departmentCode,
+                  enDeptName: employee.enDepartmentName,
+                },
+              });
+            }
+          }
+        }
+
+        if (!departmentCode) {
+          console.log(`[Backfill] Skipping service "${svc.name}" — no departmentCode for ${svc.registeredBy}`);
+          continue;
+        }
+
+        // 3. 조직 계층 조회 (캐시 또는 API)
+        const hierarchy = await getDepartmentHierarchy(departmentCode, deptName, enDeptName);
+
+        if (hierarchy) {
+          await prisma.service.update({
+            where: { id: svc.id },
+            data: {
+              team: hierarchy.team || null,
+              center2Name: hierarchy.center2Name || null,
+              center1Name: hierarchy.center1Name || null,
+            },
+          });
+          console.log(`[Backfill] Updated service "${svc.name}": team="${hierarchy.team}", center2="${hierarchy.center2Name}", center1="${hierarchy.center1Name}"`);
+        }
+      } catch (err) {
+        console.error(`[Backfill] Failed to backfill service "${svc.name}":`, err);
+      }
+    }
+  } catch (error) {
+    console.error('[Backfill] Failed to backfill service hierarchy:', error);
+  }
+}
+
 // Start server
 async function main() {
   try {
@@ -188,6 +290,10 @@ async function main() {
 
     // 빈 visibilityScope 자동 보정 (기존 모델 대상)
     await backfillEmptyVisibilityScope();
+
+    // Knox 인증 리셋 + 서비스 조직 계층 backfill
+    await resetKnoxVerifications();
+    await backfillServiceHierarchy();
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();

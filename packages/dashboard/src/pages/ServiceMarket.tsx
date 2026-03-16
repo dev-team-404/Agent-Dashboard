@@ -14,6 +14,9 @@ interface MarketService {
   registeredBy?: string;
   registeredByDept?: string;
   registeredByBusinessUnit?: string;
+  team?: string;           // 영문 팀이름
+  center2Name?: string;    // 1차 상위부서 영문
+  center1Name?: string;    // 2차 상위부서 영문
   deployScope?: 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
   deployScopeValue?: string[];
   serviceCategory?: string[];
@@ -265,7 +268,6 @@ export default function ServiceMarket() {
                     <Building2 className="w-3 h-3 flex-shrink-0" />
                     <span className="truncate max-w-[120px]">
                       {service.registeredByDept || '-'}
-                      {service.registeredByBusinessUnit && ` / ${service.registeredByBusinessUnit}`}
                     </span>
                     {service.createdAt && (
                       <>
@@ -275,6 +277,26 @@ export default function ServiceMarket() {
                       </>
                     )}
                   </div>
+                  {/* Organization hierarchy (English) */}
+                  {(service.team || service.center2Name || service.center1Name) && (
+                    <div className="flex items-center gap-1 mt-1 text-[11px] text-gray-400">
+                      {service.center1Name && (
+                        <span className="text-gray-400">{service.center1Name}</span>
+                      )}
+                      {service.center1Name && service.center2Name && (
+                        <span className="text-gray-300">&rsaquo;</span>
+                      )}
+                      {service.center2Name && (
+                        <span className="text-gray-400">{service.center2Name}</span>
+                      )}
+                      {service.center2Name && service.team && (
+                        <span className="text-gray-300">&rsaquo;</span>
+                      )}
+                      {service.team && (
+                        <span className="text-gray-500 font-medium">{service.team}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Shortcut buttons */}

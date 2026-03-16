@@ -56,8 +56,13 @@ model Service {
 
   // 등록한 사용자 정보 (누구나 서비스 생성 가능)
   registeredBy             String?  @map("registered_by")              // loginid
-  registeredByDept         String?  @map("registered_by_dept")         // deptname
+  registeredByDept         String?  @map("registered_by_dept")         // deptname (한글)
   registeredByBusinessUnit String?  @map("registered_by_business_unit") // BU
+
+  // 등록자 조직 계층 (영문)
+  team        String?  @map("team")          // 영문 팀 이름 (enDepartmentName)
+  center2Name String?  @map("center_2_name") // 1차 상위부서 영문 (immediate parent)
+  center1Name String?  @map("center_1_name") // 2차 상위부서 영문 (grandparent)
 
   // Relations
   usageLogs        UsageLog[]
@@ -77,11 +82,13 @@ model Service {
 // ============================================
 model User {
   id            String   @id @default(uuid())
-  loginid       String   @unique
-  username      String
-  deptname      String   @default("")
-  businessUnit  String?  @map("business_unit")
-  knoxVerified  Boolean  @default(false) @map("knox_verified")
+  loginid        String   @unique
+  username       String
+  deptname       String   @default("")
+  businessUnit   String?  @map("business_unit")
+  enDeptName     String?  @map("en_dept_name")       // 영문 부서명 (Knox enDepartmentName)
+  departmentCode String?  @map("department_code")    // Knox 부서코드
+  knoxVerified   Boolean  @default(false) @map("knox_verified")
   firstSeen     DateTime @default(now())
   lastActive    DateTime @default(now())
   isActive      Boolean  @default(true)
@@ -490,6 +497,22 @@ model AuditLog {
   @@index([timestamp])
   @@index([targetType])
   @@map("audit_logs")
+}
+
+// ============================================
+// 부서 계층 캐시 (Knox Organization API 결과)
+// ============================================
+model DepartmentHierarchy {
+  id              String   @id @default(uuid())
+  departmentCode  String   @unique @map("department_code")   // Knox 부서코드 (캐시 키)
+  departmentName  String   @map("department_name")            // 한글 부서명
+  team            String                                      // 영문 팀이름 (enDepartmentName)
+  center2Name     String   @map("center_2_name")              // 1차 상위부서 영문
+  center1Name     String   @map("center_1_name")              // 2차 상위부서 영문
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("department_hierarchies")
 }
 
 // ============================================

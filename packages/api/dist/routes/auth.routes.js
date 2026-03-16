@@ -3,12 +3,14 @@
  *
  * SSO 기반 인증 (Dashboard용)
  * 3단계 권한: SUPER_ADMIN / ADMIN / USER
+ * Knox 임직원 인증 연동 (최초 1회)
  */
 import { Router } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, signToken, isSuperAdminByEnv, extractBusinessUnit } from '../middleware/auth.js';
 import { trackActiveUser } from '../services/redis.service.js';
 import { redis } from '../index.js';
+import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
 export const authRoutes = Router();
 function safeDecodeURIComponent(text) {
     if (!text)
@@ -107,7 +109,7 @@ authRoutes.post('/refresh', authenticateToken, async (req, res) => {
 });
 /**
  * POST /auth/login
- * Dashboard SSO 로그인
+ * Dashboard SSO 로그인 + Knox 인증 (미인증 사용자만)
  */
 authRoutes.post('/login', authenticateToken, async (req, res) => {
     try {
@@ -119,11 +121,46 @@ authRoutes.post('/login', authenticateToken, async (req, res) => {
         const deptname = safeDecodeURIComponent(req.user.deptname || '');
         const username = safeDecodeURIComponent(req.user.username || '');
         const businessUnit = extractBusinessUnit(deptname);
-        const user = await prisma.user.upsert({
-            where: { loginid },
-            update: { deptname, username, businessUnit, lastActive: new Date() },
-            create: { loginid, deptname, username, businessUnit },
-        });
+        const ipAddress = req.ip || req.headers['x-forwarded-for'] || undefined;
+        // Knox 인증 체크: 미인증 사용자만 Knox API 호출
+        const existingUser = await prisma.user.findUnique({ where: { loginid } });
+        let user;
+        if (!existingUser || !existingUser.knoxVerified) {
+            // Knox API로 인증 (대시보드 로그인 시에는 부서 검증 없이 인증만)
+            const knoxResult = await verifyAndRegisterUser(loginid, deptname, 'DASHBOARD', '/dashboard/login', ipAddress);
+            if (knoxResult.success && knoxResult.user) {
+                user = await prisma.user.findUnique({ where: { id: knoxResult.user.id } });
+            }
+            else {
+                // Knox 인증 실패해도 대시보드 로그인은 허용 (SSO 인증은 이미 통과)
+                // 기존 사용자가 이미 Knox 인증된 경우 deptname 덮어쓰기 방지
+                if (existingUser && existingUser.knoxVerified) {
+                    user = await prisma.user.update({
+                        where: { loginid },
+                        data: { lastActive: new Date() },
+                    });
+                }
+                else {
+                    user = await prisma.user.upsert({
+                        where: { loginid },
+                        update: { deptname, username, businessUnit, lastActive: new Date() },
+                        create: { loginid, deptname, username, businessUnit },
+                    });
+                }
+                console.warn(`[Knox] Dashboard login: Knox verification failed for ${loginid}, using SSO info`);
+            }
+        }
+        else {
+            // 이미 Knox 인증 완료 → lastActive만 업데이트
+            user = await prisma.user.update({
+                where: { loginid },
+                data: { lastActive: new Date() },
+            });
+        }
+        if (!user) {
+            res.status(500).json({ error: 'Failed to create user' });
+            return;
+        }
         await trackActiveUser(redis, loginid);
         let isAdmin = false;
         let adminRole = null;
@@ -139,7 +176,7 @@ authRoutes.post('/login', authenticateToken, async (req, res) => {
                 adminRole = admin.role;
             }
         }
-        const sessionToken = signToken({ loginid, deptname, username });
+        const sessionToken = signToken({ loginid, deptname: user.deptname, username: user.username });
         res.json({
             success: true,
             user: { id: user.id, loginid: user.loginid, deptname: user.deptname, username: user.username },

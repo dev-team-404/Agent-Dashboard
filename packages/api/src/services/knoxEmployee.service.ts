@@ -5,6 +5,7 @@
  * - 임직원 정보 조회 (userId 기반)
  * - 부서 정보 검증
  * - 한글 이름 자동 세팅
+ * - 조직도 API 연동 (부서 계층 조회 + DB 캐싱)
  */
 
 import { prisma } from '../index.js';
@@ -41,6 +42,35 @@ interface KnoxApiResponse {
   totalPage?: number;
   totalCount?: number;
   employees?: KnoxEmployee[];
+}
+
+interface KnoxOrgResponse {
+  result: 'success' | 'fail';
+  currentPage?: number;
+  totalPage?: number;
+  totalCount?: number;
+  organizations?: KnoxOrganization[];
+}
+
+interface KnoxOrganization {
+  companyCode: string;
+  companyName: string;
+  departmentCode: string;
+  departmentName: string;
+  enDepartmentName: string;
+  departmentLevel?: string;
+  uprDepartmentCode?: string;
+  uprDepartmentName?: string;
+  enUprDepartmentName?: string;
+  lowDepartmentYn?: string;
+  managerId?: string;
+  managerName?: string;
+}
+
+export interface DeptHierarchy {
+  team: string;           // 영문 팀 이름
+  center2Name: string;    // 1차 상위부서 영문 (immediate parent)
+  center1Name: string;    // 2차 상위부서 영문 (grandparent)
 }
 
 /**
@@ -93,8 +123,130 @@ export async function lookupEmployee(loginid: string): Promise<KnoxEmployee | nu
 }
 
 /**
- * Knox 인증 + 부서 검증
- * @returns 인증 결과 (성공 시 employee 정보, 실패 시 error)
+ * Knox 조직도 API로 부서 정보 조회
+ */
+export async function lookupOrganization(departmentCode: string): Promise<KnoxOrganization | null> {
+  if (!KNOX_SYSTEM_ID || !KNOX_AUTH_TOKEN) {
+    console.warn('[Knox] API credentials not configured');
+    return null;
+  }
+
+  try {
+    const url = `${KNOX_API_URL}/organizations?companyCode=${KNOX_COMPANY_CODE}&departmentCode=${encodeURIComponent(departmentCode)}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'System-ID': KNOX_SYSTEM_ID,
+        'Authorization': `Bearer ${KNOX_AUTH_TOKEN}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`[Knox Org] API returned ${response.status}: ${response.statusText}`);
+      return null;
+    }
+
+    const data = await response.json() as KnoxOrgResponse;
+
+    if (data.result !== 'success' || !data.organizations || data.organizations.length === 0) {
+      console.log(`[Knox Org] Department not found: ${departmentCode}`);
+      return null;
+    }
+
+    return data.organizations[0];
+  } catch (error) {
+    console.error('[Knox Org] API call failed:', error);
+    return null;
+  }
+}
+
+/**
+ * 부서 계층 조회 (DB 캐시 우선, 미스 시 Knox Organization API 호출)
+ *
+ * 흐름:
+ * 1. DB department_hierarchies 테이블에서 departmentCode로 조회
+ * 2. 캐시 미스 → Knox Organization API 호출:
+ *    a. departmentCode → enDepartmentName (team), uprDepartmentCode (parent)
+ *    b. uprDepartmentCode → enUprDepartmentName (center_1_name = grandparent)
+ * 3. 결과를 DB에 캐싱
+ */
+export async function getDepartmentHierarchy(
+  departmentCode: string,
+  departmentName: string,
+  enDepartmentName: string,
+): Promise<DeptHierarchy | null> {
+  if (!departmentCode) return null;
+
+  // 1. DB 캐시 조회
+  try {
+    const cached = await prisma.departmentHierarchy.findUnique({
+      where: { departmentCode },
+    });
+
+    if (cached) {
+      return {
+        team: cached.team,
+        center2Name: cached.center2Name,
+        center1Name: cached.center1Name,
+      };
+    }
+  } catch (err) {
+    console.error('[DeptHierarchy] Cache lookup failed:', err);
+  }
+
+  // 2. 캐시 미스 → Knox Organization API 호출
+  const team = enDepartmentName || '';
+
+  // 2a. 현재 부서 조회 → 상위부서 코드/영문명 (center_2_name)
+  const org = await lookupOrganization(departmentCode);
+  if (!org) {
+    console.log(`[DeptHierarchy] Could not lookup org for ${departmentCode}`);
+    return null;
+  }
+
+  const center2Name = org.enUprDepartmentName || '';
+  let center1Name = '';
+
+  // 2b. 상위부서 조회 → 그 상위부서의 영문명 (center_1_name)
+  if (org.uprDepartmentCode) {
+    const parentOrg = await lookupOrganization(org.uprDepartmentCode);
+    if (parentOrg) {
+      center1Name = parentOrg.enUprDepartmentName || '';
+    }
+  }
+
+  const hierarchy: DeptHierarchy = { team, center2Name, center1Name };
+
+  // 3. DB에 캐싱
+  try {
+    await prisma.departmentHierarchy.upsert({
+      where: { departmentCode },
+      update: {
+        departmentName: departmentName || org.departmentName || '',
+        team,
+        center2Name,
+        center1Name,
+      },
+      create: {
+        departmentCode,
+        departmentName: departmentName || org.departmentName || '',
+        team,
+        center2Name,
+        center1Name,
+      },
+    });
+    console.log(`[DeptHierarchy] Cached: ${departmentCode} → team="${team}", center2="${center2Name}", center1="${center1Name}"`);
+  } catch (err) {
+    console.error('[DeptHierarchy] Failed to cache hierarchy:', err);
+  }
+
+  return hierarchy;
+}
+
+/**
+ * Knox 인증 + 부서 검증 + 조직 계층 캐싱
+ * @returns 인증 결과 (성공 시 employee 정보 + 조직 계층, 실패 시 error)
  */
 export async function verifyAndRegisterUser(
   loginid: string,
@@ -106,6 +258,7 @@ export async function verifyAndRegisterUser(
   success: boolean;
   employee?: KnoxEmployee;
   user?: { id: string; loginid: string; username: string; deptname: string };
+  hierarchy?: DeptHierarchy | null;
   error?: string;
 }> {
   const employee = await lookupEmployee(loginid);
@@ -139,13 +292,27 @@ export async function verifyAndRegisterUser(
   const deptname = employee.departmentName || claimedDeptName;
   const businessUnit = extractBU(deptname);
 
-  // User upsert (Knox 정보로 한글이름 업데이트 + knoxVerified=true)
+  // 부서 계층 조회 (비동기, 실패해도 인증은 통과)
+  let hierarchy: DeptHierarchy | null = null;
+  try {
+    hierarchy = await getDepartmentHierarchy(
+      employee.departmentCode,
+      employee.departmentName,
+      employee.enDepartmentName,
+    );
+  } catch (err) {
+    console.error('[Knox] getDepartmentHierarchy failed (non-blocking):', err);
+  }
+
+  // User upsert (Knox 정보로 한글이름 + 영문부서 + 부서코드 업데이트 + knoxVerified=true)
   const user = await prisma.user.upsert({
     where: { loginid },
     update: {
       username: employee.fullName,
       deptname,
       businessUnit,
+      enDeptName: employee.enDepartmentName || null,
+      departmentCode: employee.departmentCode || null,
       knoxVerified: true,
       lastActive: new Date(),
     },
@@ -154,6 +321,8 @@ export async function verifyAndRegisterUser(
       username: employee.fullName,
       deptname,
       businessUnit,
+      enDeptName: employee.enDepartmentName || null,
+      departmentCode: employee.departmentCode || null,
       knoxVerified: true,
     },
   });
@@ -161,7 +330,7 @@ export async function verifyAndRegisterUser(
   // 인증 성공 로그
   await recordVerification({ loginid, username: employee.fullName, knoxDeptName: employee.departmentName, claimedDeptName, method, endpoint, success: true, errorMessage: null, ipAddress });
 
-  return { success: true, employee, user };
+  return { success: true, employee, user, hierarchy };
 }
 
 /**
