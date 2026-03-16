@@ -73,6 +73,7 @@ model Service {
   serviceRateLimit ServiceRateLimit?
   serviceModels    ServiceModel[]
   requestLogs      RequestLog[]
+  aiEstimations    AiEstimation[]
 
   @@map("services")
 }
@@ -535,4 +536,40 @@ model HealthCheckLog {
   @@index([checkedAt])
   @@index([modelId, checkedAt])
   @@map("health_check_logs")
+}
+
+// ============================================
+// 시스템 설정 (Key-Value)
+// ============================================
+model SystemSetting {
+  key       String   @id                     // e.g. "SYSTEM_LLM_MODEL_ID"
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")      // loginid
+
+  @@map("system_settings")
+}
+
+// ============================================
+// AI 추정 (서비스별 일일 M/M 추정)
+// ============================================
+model AiEstimation {
+  id             String   @id @default(uuid())
+  serviceId      String   @map("service_id")
+  date           DateTime @db.Date                   // 추정 대상 날짜
+  estimatedMM    Float    @map("estimated_mm")       // AI 추정 M/M
+  confidence     String   @default("MEDIUM")         // HIGH / MEDIUM / LOW
+  reasoning      String   @db.Text                   // AI 근거 (한국어)
+  dauUsed        Float    @map("dau_used")           // 입력한 DAU
+  isEstimatedDau Boolean  @default(false) @map("is_estimated_dau")
+  totalCalls     Int      @default(0) @map("total_calls")
+  modelId        String   @map("model_id")           // 사용한 시스템 LLM ID
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, date])
+  @@index([serviceId])
+  @@index([date])
+  @@map("ai_estimations")
 }

@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -94,6 +94,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/my-usage') return '내 사용량';
     if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
     if (location.pathname === '/services') return '나에게 공개된 서비스';
+    if (location.pathname === '/system-llm') return '레지스트리 LLM 관리';
     if (location.pathname === '/request-logs') return '요청 로그';
     if (location.pathname === '/audit-logs') return '감사 로그';
     if (location.pathname === '/knox-verifications') return '인증 기록';
@@ -193,6 +194,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">슈퍼 관리자</p>
               )}
               <div className="space-y-0.5">
+                <NavLink path="/system-llm" label="레지스트리 LLM 관리" icon={Sparkles} />
                 <NavLink path="/request-logs" label="요청 로그" icon={FileText} />
                 <NavLink path="/audit-logs" label="감사 로그" icon={ClipboardList} />
                 <NavLink path="/knox-verifications" label="인증 기록" icon={ShieldCheck} />

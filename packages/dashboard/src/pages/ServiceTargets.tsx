@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Search, Save, Loader2, AlertCircle, Check } from 'lucide-react';
+import { Target, Search, Save, Loader2, AlertCircle, Check, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 
 interface ServiceTarget {
@@ -19,6 +19,18 @@ interface ServiceTarget {
   createdAt: string;
 }
 
+interface AiEstimation {
+  serviceId: string;
+  date: string;
+  estimatedMM: number;
+  confidence: string;
+  reasoning: string;
+  dauUsed: number;
+  isEstimatedDau: boolean;
+  totalCalls: number;
+  createdAt: string;
+}
+
 interface EditState {
   targetMM: string;
   savedMM: string;
@@ -26,6 +38,7 @@ interface EditState {
 
 export default function ServiceTargets() {
   const [services, setServices] = useState<ServiceTarget[]>([]);
+  const [aiMap, setAiMap] = useState<Map<string, AiEstimation>>(new Map());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -33,12 +46,21 @@ export default function ServiceTargets() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expandedAi, setExpandedAi] = useState<string | null>(null);
 
   const loadServices = useCallback(async (showSpinner = true) => {
     try {
       if (showSpinner) setLoading(true);
-      const res = await api.get('/admin/service-targets');
-      setServices(res.data.services || []);
+      const [svcRes, aiRes] = await Promise.all([
+        api.get('/admin/service-targets'),
+        api.get('/admin/ai-estimations').catch(() => ({ data: { estimations: [] } })),
+      ]);
+      setServices(svcRes.data.services || []);
+      const map = new Map<string, AiEstimation>();
+      for (const e of (aiRes.data.estimations || []) as AiEstimation[]) {
+        map.set(e.serviceId, e);
+      }
+      setAiMap(map);
     } catch (err) {
       console.error('Failed to load service targets:', err);
     } finally {
@@ -55,6 +77,17 @@ export default function ServiceTargets() {
       return () => clearTimeout(t);
     }
   }, [saveSuccess]);
+
+  // AI 팝오버 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!expandedAi) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-ai-popover]')) setExpandedAi(null);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [expandedAi]);
 
   const filtered = services.filter(s => {
     if (!search) return true;
@@ -204,7 +237,7 @@ export default function ServiceTargets() {
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ minWidth: '980px' }}>
+          <table className="w-full" style={{ minWidth: '1100px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">서비스</th>
@@ -214,13 +247,14 @@ export default function ServiceTargets() {
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">목표 M/M</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">Saved M/M</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">달성률</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[140px]" title="전일 DAU 기준, 매일 자정(KST) 갱신">AI 추정</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">작업</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-20 text-center">
+                  <td colSpan={9} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="relative">
                         <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200"></div>
@@ -232,7 +266,7 @@ export default function ServiceTargets() {
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-20 text-center">
+                  <td colSpan={9} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="p-4 rounded-lg bg-pastel-50">
                         <Search className="w-8 h-8 text-pastel-300" />
@@ -333,6 +367,44 @@ export default function ServiceTargets() {
                         ) : (
                           <span className="text-xs text-pastel-300 text-center block">-</span>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const ai = aiMap.get(s.id);
+                          if (!ai) return <span className="text-xs text-pastel-300">-</span>;
+                          const isExpanded = expandedAi === s.id;
+                          const confColor = ai.confidence === 'HIGH' ? 'text-emerald-600' : ai.confidence === 'MEDIUM' ? 'text-blue-600' : 'text-amber-600';
+                          return (
+                            <div className="relative" data-ai-popover>
+                              <button
+                                onClick={() => setExpandedAi(isExpanded ? null : s.id)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-violet-50 transition-colors group"
+                                title={ai.reasoning}
+                              >
+                                <Sparkles className="w-3 h-3 text-violet-500" />
+                                <span className="text-sm font-bold text-violet-700 tabular-nums">{ai.estimatedMM.toFixed(1)}</span>
+                                <span className={`text-[10px] font-medium ${confColor}`}>{ai.confidence[0]}</span>
+                              </button>
+                              {isExpanded && (
+                                <div className="absolute z-20 right-0 top-full mt-1 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 text-left animate-fade-in">
+                                  <div className="flex items-center gap-1.5 mb-2">
+                                    <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                                    <span className="text-xs font-semibold text-violet-700">AI 추정 {ai.estimatedMM.toFixed(1)} M/M</span>
+                                    <span className={`text-[10px] font-bold ml-auto ${confColor}`}>{ai.confidence}</span>
+                                  </div>
+                                  <p className="text-xs text-pastel-600 leading-relaxed">{ai.reasoning}</p>
+                                  <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-pastel-400 space-y-0.5">
+                                    <div className="flex items-center gap-3">
+                                      <span>전일 DAU {ai.dauUsed}{ai.isEstimatedDau ? ' (추정)' : ''}</span>
+                                      <span>호출 {ai.totalCalls.toLocaleString()}</span>
+                                    </div>
+                                    <div>매일 자정(KST) 갱신 | {new Date(ai.createdAt).toLocaleDateString('ko-KR')}</div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isEditing ? (

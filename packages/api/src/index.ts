@@ -29,10 +29,12 @@ import { holidaysRoutes } from './routes/holidays.routes.js';
 import { publicStatsRoutes } from './routes/public-stats.routes.js';
 import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { serviceTargetsRoutes } from './routes/service-targets.routes.js';
+import { systemSettingsRoutes } from './routes/system-settings.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
+import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
 
@@ -90,6 +92,7 @@ app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 app.use('/admin', adminLogsRoutes);
 app.use('/admin', serviceTargetsRoutes);
+app.use('/admin', systemSettingsRoutes);
 
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
@@ -303,6 +306,7 @@ async function main() {
 
     // LLM 헬스체크 (10분마다)
     startHealthCheckCron();
+    startAiEstimationCron();
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Registry API server running on port ${PORT}`);
