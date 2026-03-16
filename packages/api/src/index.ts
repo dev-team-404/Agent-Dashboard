@@ -295,9 +295,8 @@ async function main() {
     // 빈 visibilityScope 자동 보정 (기존 모델 대상)
     await backfillEmptyVisibilityScope();
 
-    // departmentCode 미수집 사용자 Knox 인증 리셋 + 서비스 조직 계층 backfill
+    // departmentCode 미수집 사용자 Knox 인증 리셋 (DB 쿼리만, 빠름)
     await resetKnoxForMissingDeptCode();
-    await backfillServiceHierarchy();
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();
@@ -307,6 +306,12 @@ async function main() {
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Registry API server running on port ${PORT}`);
+
+      // 서비스 조직 계층 backfill — 서버 시작 후 비동기 실행
+      // (Knox API 호출이 느릴 수 있으므로 헬스체크 타임아웃 방지)
+      backfillServiceHierarchy().catch(err =>
+        console.error('[Backfill] Service hierarchy backfill failed:', err)
+      );
     });
     server.keepAliveTimeout = 65000;
     server.headersTimeout = 66000;
