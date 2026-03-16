@@ -240,14 +240,14 @@ export default function ServiceTargets() {
           <table className="w-full" style={{ minWidth: '1100px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">서비스</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">서비스</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">타입</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">상태</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">등록 부서</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">목표 M/M</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">Saved M/M</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">달성률</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[140px]" title="전일 DAU 기준, 매일 자정(KST) 갱신">AI 추정</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]" title="전일 DAU 기준, 매일 자정(KST) 갱신">AI 추정</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">작업</th>
               </tr>
             </thead>
@@ -284,9 +284,9 @@ export default function ServiceTargets() {
                   return (
                     <tr key={s.id} className={`group transition-colors ${isEditing ? 'bg-indigo-50/30' : 'hover:bg-gray-50/50'}`}>
                       <td className="px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium text-pastel-800">{s.displayName}</p>
-                          <p className="text-xs text-pastel-400 font-mono">{s.name}</p>
+                        <div className="max-w-[180px]">
+                          <p className="text-sm font-medium text-pastel-800 truncate" title={s.displayName}>{s.displayName}</p>
+                          <p className="text-xs text-pastel-400 font-mono truncate">{s.name}</p>
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -376,17 +376,18 @@ export default function ServiceTargets() {
                           const ai = aiMap.get(s.id);
                           if (!ai) return <span className="text-xs text-pastel-300">-</span>;
                           const isExpanded = expandedAi === s.id;
+                          const confDot = ai.confidence === 'HIGH' ? 'bg-emerald-500' : ai.confidence === 'MEDIUM' ? 'bg-blue-500' : 'bg-amber-500';
                           const confColor = ai.confidence === 'HIGH' ? 'text-emerald-600' : ai.confidence === 'MEDIUM' ? 'text-blue-600' : 'text-amber-600';
                           return (
                             <div className="relative" data-ai-popover>
                               <button
                                 onClick={() => setExpandedAi(isExpanded ? null : s.id)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-violet-50 transition-colors group"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-violet-50 transition-colors"
                                 title={ai.reasoning}
                               >
-                                <Sparkles className="w-3 h-3 text-violet-500" />
-                                <span className="text-sm font-bold text-violet-700 tabular-nums">{ai.estimatedMM.toFixed(1)}</span>
-                                <span className={`text-[10px] font-medium ${confColor}`}>{ai.confidence[0]}</span>
+                                <Sparkles className="w-3 h-3 text-violet-500 flex-shrink-0" />
+                                <span className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{ai.estimatedMM.toFixed(1)}</span>
+                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${confDot}`} title={ai.confidence} />
                               </button>
                               {isExpanded && (
                                 <div className="absolute z-20 right-0 top-full mt-1 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 text-left animate-fade-in">
