@@ -391,10 +391,17 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
               {modelChartData.length === 0 ? (
                 <div className="h-64 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={modelChartData}>
+                <ResponsiveContainer width="100%" height={280 + (modelChartData.length > 5 ? 40 : 0)}>
+                  <BarChart data={modelChartData} margin={{ bottom: modelChartData.length > 5 ? 60 : 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="modelName" tick={{ fontSize: 10 }} />
+                    <XAxis
+                      dataKey="modelName"
+                      tick={{ fontSize: 10 }}
+                      interval={0}
+                      angle={modelChartData.length > 5 ? -35 : 0}
+                      textAnchor={modelChartData.length > 5 ? 'end' : 'middle'}
+                      height={modelChartData.length > 5 ? 80 : 30}
+                    />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
                     <Tooltip formatter={(value: number) => formatNumber(value)} />
                     <Legend />
@@ -475,10 +482,17 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
             {modelChartData.length === 0 ? (
               <div className="h-72 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={modelChartData}>
+              <ResponsiveContainer width="100%" height={300 + (modelChartData.length > 5 ? 40 : 0)}>
+                <BarChart data={modelChartData} margin={{ bottom: modelChartData.length > 5 ? 60 : 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="modelName" tick={{ fontSize: 10 }} />
+                  <XAxis
+                    dataKey="modelName"
+                    tick={{ fontSize: 10 }}
+                    interval={0}
+                    angle={modelChartData.length > 5 ? -35 : 0}
+                    textAnchor={modelChartData.length > 5 ? 'end' : 'middle'}
+                    height={modelChartData.length > 5 ? 80 : 30}
+                  />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
