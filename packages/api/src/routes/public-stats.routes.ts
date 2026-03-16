@@ -619,6 +619,44 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       GROUP BY service_id
     `;
 
+    // 일별 DAU (서비스별 + 전체 중복제거) — 라인 차트용
+    const dailyDauRows = await prisma.$queryRaw<
+      Array<{ service_id: string; d: Date | string; dau: bigint }>
+    >`
+      SELECT ul.service_id::text as service_id, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+        AND u.loginid != 'anonymous'
+        AND ul.service_id IS NOT NULL
+      GROUP BY ul.service_id, DATE(ul.timestamp)
+      ORDER BY d ASC
+    `;
+    const dailyOverallRows = await prisma.$queryRaw<
+      Array<{ d: Date | string; dau: bigint }>
+    >`
+      SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+        AND u.loginid != 'anonymous'
+        AND ul.service_id IS NOT NULL
+      GROUP BY DATE(ul.timestamp)
+      ORDER BY d ASC
+    `;
+
+    // BACKGROUND 일별 호출 수 (추정 DAU 계산용)
+    const bgDailyCallRows = await prisma.$queryRaw<
+      Array<{ service_id: string; d: Date | string; cnt: bigint }>
+    >`
+      SELECT service_id::text as service_id, DATE(timestamp) as d, COUNT(*) as cnt
+      FROM usage_logs
+      WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+        AND service_id::text = ANY(${backgroundServiceIds})
+      GROUP BY service_id, DATE(timestamp)
+      ORDER BY d ASC
+    `;
+
     // Per-service total call count and total tokens in the requested month
     const allServiceIds = services.map(s => s.id);
     const serviceUsageResult = await prisma.$queryRaw<
@@ -716,12 +754,49 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       }
     });
 
+    // 일별 DAU 차트 데이터 구축
+    const serviceDisplayMap = new Map(services.map(s => [s.id, s.displayName]));
+    const serviceTypeMapLocal = new Map(services.map(s => [s.id, s.type]));
+    const dailyDauMap = new Map<string, Record<string, number>>();
+
+    // 전체 중복제거 DAU
+    for (const row of dailyOverallRows) {
+      const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+      if (!dailyDauMap.has(dateStr)) dailyDauMap.set(dateStr, {});
+      dailyDauMap.get(dateStr)!['전체 (중복제거)'] = Number(row.dau);
+    }
+
+    // STANDARD 서비스별 DAU
+    for (const row of dailyDauRows) {
+      const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+      if (!dailyDauMap.has(dateStr)) dailyDauMap.set(dateStr, {});
+      const displayName = serviceDisplayMap.get(row.service_id) || row.service_id;
+      if (serviceTypeMapLocal.get(row.service_id) === 'STANDARD') {
+        dailyDauMap.get(dateStr)![displayName] = Number(row.dau);
+      }
+    }
+
+    // BACKGROUND 서비스별 추정 DAU
+    if (callsPerPersonPerDay > 0) {
+      for (const row of bgDailyCallRows) {
+        const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+        if (!dailyDauMap.has(dateStr)) dailyDauMap.set(dateStr, {});
+        const displayName = serviceDisplayMap.get(row.service_id) || row.service_id;
+        dailyDauMap.get(dateStr)![displayName] = Math.round(Number(row.cnt) / callsPerPersonPerDay);
+      }
+    }
+
+    const dailyDauChart = Array.from(dailyDauMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, values]) => ({ date, ...values }));
+
     res.json({
       year,
       month,
       isCurrentMonth,
       overallAvgDailyDAU,
       overallMAU,
+      dailyDauChart,
       estimationBaseline: {
         callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
         callsPerPersonPerMonth: Math.round(callsPerPersonPerMonth * 10) / 10,

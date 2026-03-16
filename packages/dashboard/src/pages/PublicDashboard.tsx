@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { publicStatsApi } from '../services/api';
 
 // ── Types ──
@@ -326,6 +326,97 @@ function MetricChart({ services, metric, rank }: {
   );
 }
 
+// ── Daily DAU Line Chart ──
+
+const LINE_COLORS = [
+  '#EF4444', // 전체 (중복제거) — red
+  '#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899',
+  '#06B6D4', '#EA580C', '#6366F1', '#22C55E', '#0EA5E9',
+  '#A855F7', '#F97316', '#84CC16', '#F43F5E', '#14B8A6',
+];
+
+function DailyDauLineChart({ data }: { data: Record<string, unknown>[] }) {
+  if (data.length === 0) return null;
+
+  // 키 추출: "전체 (중복제거)"를 첫 번째로, 나머지는 합계 기준 정렬
+  const allKeys = new Set<string>();
+  data.forEach(row => Object.keys(row).forEach(k => { if (k !== 'date') allKeys.add(k); }));
+
+  const overallKey = '전체 (중복제거)';
+  const serviceKeys = Array.from(allKeys)
+    .filter(k => k !== overallKey)
+    .sort((a, b) => {
+      const sumA = data.reduce((s, r) => s + ((r[a] as number) || 0), 0);
+      const sumB = data.reduce((s, r) => s + ((r[b] as number) || 0), 0);
+      return sumB - sumA;
+    });
+
+  const topKeys = serviceKeys.slice(0, 10);
+  const chartKeys = allKeys.has(overallKey) ? [overallKey, ...topKeys] : topKeys;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden animate-slide-up">
+      <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-blue-50">
+            <TrendingUp className="w-4 h-4 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-pastel-800">일별 DAU 추이</h3>
+            <p className="text-[11px] text-pastel-400">서비스별 일일 활성 사용자 수 (전체는 교차 서비스 중복제거)</p>
+          </div>
+        </div>
+      </div>
+      <div className="px-4 py-4" style={{ height: 360 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+            <XAxis
+              dataKey="date"
+              tickFormatter={(d: string) => d.slice(5)}
+              tick={{ fontSize: 11, fill: '#9CA3AF' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fontSize: 11, fill: '#9CA3AF' }}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+              labelFormatter={(l: string) => l}
+              formatter={(value: number, name: string) => [
+                `${value}명`,
+                name,
+              ]}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {chartKeys.map((key, i) => (
+              <Line
+                key={key}
+                type="monotone"
+                dataKey={key}
+                stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                strokeWidth={key === overallKey ? 3 : 1.5}
+                strokeDasharray={key === overallKey ? undefined : undefined}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      {serviceKeys.length > 10 && (
+        <div className="px-6 pb-3 text-[10px] text-pastel-400">
+          * 상위 10개 서비스만 차트에 표시됩니다 (총 {serviceKeys.length}개)
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ──
 
 export default function PublicDashboard() {
@@ -334,25 +425,31 @@ export default function PublicDashboard() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [services, setServices] = useState<ServiceData[]>([]);
   const [overallDAU, setOverallDAU] = useState(0);
+  const [dailyDauChart, setDailyDauChart] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 5 * 60 * 1000); // 5분마다 자동 갱신
+    return () => clearInterval(interval);
   }, [year, month]);
 
-  const loadData = async () => {
+  const loadData = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const res = await publicStatsApi.dauMau(year, month);
       setServices(res.data.data || []);
       setOverallDAU(res.data.overallAvgDailyDAU || 0);
+      setDailyDauChart(res.data.dailyDauChart || []);
     } catch (err) {
       console.error('Failed to load public dashboard:', err);
-      setError('데이터를 불러올 수 없습니다.');
+      if (!silent) setError('데이터를 불러올 수 없습니다.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -444,6 +541,11 @@ export default function PublicDashboard() {
           delay={120}
         />
       </div>
+
+      {/* Daily DAU Line Chart */}
+      {!error && dailyDauChart.length > 0 && (
+        <DailyDauLineChart data={dailyDauChart} />
+      )}
 
       {/* Bar Charts */}
       {!error && enabledServices.length > 0 && (
