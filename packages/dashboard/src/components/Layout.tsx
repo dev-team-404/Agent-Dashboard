@@ -158,7 +158,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
         {/* Logo */}
         <div className={`flex items-center justify-between h-14 shrink-0 border-b border-white/[0.06] ${sidebarCollapsed ? 'px-4' : 'px-5'}`}>
           <Link to={isAdmin ? '/' : '/public-dashboard'} className="flex items-center gap-2.5" onClick={() => setSidebarOpen(false)}>
-            <img src="/logo.png?v=2" alt="Agent Registry" className="w-7 h-7 rounded-md flex-shrink-0 bg-white" />
+            <img src="/logo.png?v=20260316" alt="Agent Registry" className="w-7 h-7 rounded-md flex-shrink-0 bg-white" />
             {!sidebarCollapsed && (
               <span className="font-semibold text-[13px] text-white tracking-tight">Agent Registry</span>
             )}

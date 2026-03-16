@@ -15,7 +15,7 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-white/5">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-3 group" onClick={() => setOpen(false)}>
-          <img src="/docs/images/logo.png?v=2" alt="Dashboard" className="w-9 h-9 rounded-xl shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow" />
+          <img src="/docs/images/logo.png?v=20260316" alt="Dashboard" className="w-9 h-9 rounded-xl shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 transition-shadow" />
           <div>
             <span className="text-white font-bold text-lg tracking-tight">Agent Registry</span>
             <span className="text-brand-400 font-bold text-lg tracking-tight ml-1">Guide</span>

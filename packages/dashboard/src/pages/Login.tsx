@@ -89,7 +89,7 @@ export default function Login({ onLogin }: LoginProps) {
           {/* Logo Section */}
           <div className="text-center mb-10 animate-fade-in">
             <div className="inline-flex items-center justify-center w-[88px] h-[88px] bg-white rounded-xl mb-6 shadow-sm overflow-hidden ring-1 ring-black/[0.03]">
-              <img src="/logo.png?v=2" alt="Agent Registry" className="w-16 h-16 object-contain" />
+              <img src="/logo.png?v=20260316" alt="Agent Registry" className="w-16 h-16 object-contain" />
             </div>
             <h1 className="text-[32px] font-extrabold text-pastel-800 tracking-tight leading-none">
               <span className="text-samsung-blue">Agent</span> Registry
