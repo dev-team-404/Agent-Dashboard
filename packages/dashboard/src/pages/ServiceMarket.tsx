@@ -114,7 +114,7 @@ export default function ServiceMarket() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">AI 서비스 마켓</h1>
+        <h1 className="text-xl font-semibold text-gray-900">나에게 공개된 서비스</h1>
         <p className="text-sm text-gray-500 mt-1">
           배포된 {services.length}개 서비스를 탐색하고, API 연동 가이드를 확인하세요.
         </p>
@@ -123,7 +123,7 @@ export default function ServiceMarket() {
       {/* Help banner */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
         <p className="text-xs text-gray-400 leading-relaxed">
-          서비스 마켓에서 배포된 서비스를 확인하고 모델을 사용할 수 있습니다. 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-dept-name</code> 헤더를 포함하세요. 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
+          공개된 서비스를 확인하고 모델을 사용할 수 있습니다. 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-dept-name</code> 헤더를 포함하세요. 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
         </p>
       </div>
 

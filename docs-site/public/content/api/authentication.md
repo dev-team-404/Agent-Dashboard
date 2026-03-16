@@ -1,10 +1,10 @@
 # API 인증 가이드
 
-Agent Dashboard API의 인증 방식을 안내합니다.
+Agent Registry API의 인증 방식을 안내합니다.
 
 ## 인증 방식 개요
 
-Agent Dashboard API는 **헤더 기반 인증**을 사용합니다. Bearer 토큰이 아닌 커스텀 HTTP 헤더로 서비스와 사용자를 식별합니다.
+Agent Registry API는 **헤더 기반 인증**을 사용합니다. Bearer 토큰이 아닌 커스텀 HTTP 헤더로 서비스와 사용자를 식별합니다.
 
 ## 일반 서비스 인증
 

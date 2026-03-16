@@ -33,13 +33,13 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
       "id": "gpt-4o",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "agent-dashboard"
+      "owned_by": "agent-registry"
     },
     {
       "id": "claude",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "agent-dashboard"
+      "owned_by": "agent-registry"
     }
   ]
 }
@@ -59,13 +59,13 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
       "id": "GPT-4o",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "agent-dashboard"
+      "owned_by": "agent-registry"
     },
     {
       "id": "Claude Sonnet 4.6",
       "object": "model",
       "created": 1709827200,
-      "owned_by": "agent-dashboard"
+      "owned_by": "agent-registry"
     }
   ]
 }
@@ -80,7 +80,7 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models \
 | `data[].id` | string | 모델 ID (API 호출 시 `model` 파라미터에 사용). 서비스 모델 설정이 있으면 표시 모델명(alias), 없으면 실제 모델 displayName |
 | `data[].object` | string | 항상 `"model"` |
 | `data[].created` | number | 타임스탬프 |
-| `data[].owned_by` | string | `"agent-dashboard"` |
+| `data[].owned_by` | string | `"agent-registry"` |
 
 ## 특정 모델 정보 조회
 
@@ -106,7 +106,7 @@ curl -X GET http://a2g.samsungds.net:8090/v1/models/gpt-4o \
   "id": "gpt-4o",
   "object": "model",
   "created": 1709827200,
-  "owned_by": "agent-dashboard"
+  "owned_by": "agent-registry"
 }
 ```
 

@@ -89,12 +89,12 @@ export default function Login({ onLogin }: LoginProps) {
           {/* Logo Section */}
           <div className="text-center mb-10 animate-fade-in">
             <div className="inline-flex items-center justify-center w-[88px] h-[88px] bg-white rounded-xl mb-6 shadow-sm overflow-hidden ring-1 ring-black/[0.03]">
-              <img src="/logo.png" alt="Agent Stats" className="w-16 h-16 object-contain" />
+              <img src="/logo.png?v=2" alt="Agent Registry" className="w-16 h-16 object-contain" />
             </div>
             <h1 className="text-[32px] font-extrabold text-pastel-800 tracking-tight leading-none">
-              <span className="text-samsung-blue">Agent</span> Stats
+              <span className="text-samsung-blue">Agent</span> Registry
             </h1>
-            <p className="text-pastel-400 text-sm mt-1">사용량 집계 시스템</p>
+            <p className="text-pastel-400 text-sm mt-1">AI-Powered LLM Gateway & Analytics</p>
             <p className="text-pastel-500 mt-2 text-[15px] font-medium">
               AI-Powered LLM Gateway & Analytics
             </p>
@@ -163,7 +163,7 @@ export default function Login({ onLogin }: LoginProps) {
           {/* Footer */}
           <div className="text-center mt-8 space-y-1.5 animate-fade-in" style={{ animationDelay: '0.3s' }}>
             <p className="text-[12px] text-pastel-400 font-medium">Samsung DS 계정으로 로그인됩니다</p>
-            <p className="text-[11px] text-pastel-300">&copy; 2026 Agent Stats &middot; All rights reserved</p>
+            <p className="text-[11px] text-pastel-300">&copy; 2026 Agent Registry &middot; All rights reserved</p>
           </div>
         </div>
       </div>

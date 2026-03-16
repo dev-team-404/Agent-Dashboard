@@ -744,7 +744,7 @@ proxyRoutes.get('/models', async (req: Request, res: Response) => {
         id: sm.aliasName,
         object: 'model',
         created: Date.now(),
-        owned_by: 'agent-dashboard',
+        owned_by: 'agent-registry',
       });
     }
 
@@ -799,7 +799,7 @@ proxyRoutes.get('/models/:modelName', async (req: Request, res: Response) => {
       id: serviceModel.aliasName,
       object: 'model',
       created: Date.now(),
-      owned_by: 'agent-dashboard',
+      owned_by: 'agent-registry',
     });
   } catch (error) {
     console.error('Get model error:', error);

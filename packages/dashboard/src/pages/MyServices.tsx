@@ -425,7 +425,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       {!isSystemAdmin && (
         <p className="text-xs text-gray-400 leading-relaxed -mt-3">
           나의 서비스를 생성하고 관리합니다. 서비스 ID는 영문 소문자와 하이픈만 사용 가능하며, 생성 후 변경할 수 없습니다.
-          배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 마켓에 공개됩니다.
+          배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 목록에 공개됩니다.
         </p>
       )}
 
@@ -759,7 +759,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 <h3 className="text-sm font-semibold text-gray-900">서비스 배포</h3>
                 <p className="text-sm text-gray-500 mt-1 leading-relaxed">
                   <strong className="text-gray-700">{deployTarget.displayName}</strong> 서비스를 배포하시겠습니까?
-                  배포하면 서비스 마켓에 공개됩니다.
+                  배포하면 서비스 목록에 공개됩니다.
                 </p>
               </div>
             </div>
@@ -951,7 +951,7 @@ function ServiceCreationWizard({
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">표시 이름 <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
                   placeholder="내 AI 서비스" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">대시보드와 서비스 마켓에 표시되는 이름입니다. 한글/영문 자유롭게 입력하세요.</p>
+                <p className="mt-1.5 text-xs text-gray-400">대시보드와 서비스 목록에 표시되는 이름입니다. 한글/영문 자유롭게 입력하세요.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">설명 <span className="text-red-500">*</span></label>
@@ -1050,7 +1050,7 @@ function ServiceCreationWizard({
                 <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> 서비스 URL</span></label>
                 <input type="url" value={formData.serviceUrl} onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })}
                   placeholder="https://my-service.example.com" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">서비스 마켓과 카드에 바로가기 버튼으로 연결됩니다</p>
+                <p className="mt-1.5 text-xs text-gray-400">서비스 목록과 카드에 바로가기 버튼으로 연결됩니다</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> API 문서 URL</span></label>

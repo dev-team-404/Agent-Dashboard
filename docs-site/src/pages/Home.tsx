@@ -24,7 +24,7 @@ function HeroSection() {
 
         {/* Hero heading */}
         <h1 className="text-5xl sm:text-7xl lg:text-8xl font-extrabold tracking-tight leading-[0.9] mb-8 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-          <span className="text-white">Agent Dashboard</span>
+          <span className="text-white">Agent Registry</span>
           <br />
           <span className="text-gradient">사용 가이드</span>
         </h1>
@@ -133,7 +133,7 @@ function QuickStartSection() {
     {
       number: '01',
       title: 'Dashboard 접속',
-      description: '브라우저에서 Agent Dashboard에 접속하여 SSO 로그인합니다.',
+      description: '브라우저에서 Agent Registry에 접속하여 SSO 로그인합니다.',
       color: 'from-blue-500 to-cyan-400',
     },
     {
@@ -164,7 +164,7 @@ function QuickStartSection() {
             빠른 시작 가이드
           </h2>
           <p className="max-w-2xl mx-auto mt-4 text-gray-400">
-            3단계로 Agent Dashboard를 시작할 수 있습니다.
+            3단계로 Agent Registry를 시작할 수 있습니다.
           </p>
         </div>
 

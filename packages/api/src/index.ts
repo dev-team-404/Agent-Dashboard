@@ -1,5 +1,5 @@
 /**
- * Agent Dashboard API Server (v2)
+ * Agent Registry API Server (v2)
  *
  * 3단계 권한 체계 + 헤더 기반 프록시 인증
  */
@@ -194,7 +194,7 @@ async function main() {
     startHealthCheckCron();
 
     const server = app.listen(PORT, () => {
-      console.log(`Agent Dashboard API server running on port ${PORT}`);
+      console.log(`Agent Registry API server running on port ${PORT}`);
     });
     server.keepAliveTimeout = 65000;
     server.headersTimeout = 66000;

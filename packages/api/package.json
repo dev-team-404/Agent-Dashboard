@@ -1,5 +1,5 @@
 {
-  "name": "agent-stats-api",
+  "name": "agent-registry-api",
   "version": "1.0.0",
   "type": "module",
   "scripts": {

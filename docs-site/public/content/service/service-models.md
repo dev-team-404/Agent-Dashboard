@@ -132,8 +132,8 @@ curl http://a2g.samsungds.net:8090/v1/models \
 {
   "object": "list",
   "data": [
-    { "id": "gpt-4o", "object": "model", "created": 1709827200, "owned_by": "agent-dashboard" },
-    { "id": "claude", "object": "model", "created": 1709827200, "owned_by": "agent-dashboard" }
+    { "id": "gpt-4o", "object": "model", "created": 1709827200, "owned_by": "agent-registry" },
+    { "id": "claude", "object": "model", "created": 1709827200, "owned_by": "agent-registry" }
   ]
 }
 ```

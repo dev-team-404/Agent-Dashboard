@@ -43,7 +43,7 @@ interface LayoutProps {
 
 const getUserNavItems = (adminRole: AdminRole) => [
   { path: '/public-dashboard', label: '공개 대시보드', icon: BarChart3 },
-  { path: '/services', label: '서비스 마켓', icon: Store },
+  { path: '/services', label: '나에게 공개된 서비스', icon: Store },
   { path: '/my-services', label: adminRole ? '서비스 관리' : '내 서비스', icon: Wrench },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
 ];
@@ -92,7 +92,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/holidays') return '휴일 관리';
     if (location.pathname === '/my-usage') return '내 사용량';
     if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
-    if (location.pathname === '/services') return '서비스 마켓';
+    if (location.pathname === '/services') return '나에게 공개된 서비스';
     if (location.pathname === '/request-logs') return '요청 로그';
     if (location.pathname === '/audit-logs') return '감사 로그';
     if (location.pathname === '/knox-verifications') return '인증 기록';
@@ -101,7 +101,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
       return `${service?.displayName || ''} 대시보드`;
     }
-    return 'Agent Stats';
+    return 'Agent Registry';
   };
 
   const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
@@ -158,9 +158,9 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
         {/* Logo */}
         <div className={`flex items-center justify-between h-14 shrink-0 border-b border-white/[0.06] ${sidebarCollapsed ? 'px-4' : 'px-5'}`}>
           <Link to={isAdmin ? '/' : '/public-dashboard'} className="flex items-center gap-2.5" onClick={() => setSidebarOpen(false)}>
-            <img src="/logo.png" alt="Agent Stats" className="w-7 h-7 rounded-md flex-shrink-0 bg-white" />
+            <img src="/logo.png?v=2" alt="Agent Registry" className="w-7 h-7 rounded-md flex-shrink-0 bg-white" />
             {!sidebarCollapsed && (
-              <span className="font-semibold text-[13px] text-white tracking-tight">Agent Stats</span>
+              <span className="font-semibold text-[13px] text-white tracking-tight">Agent Registry</span>
             )}
           </Link>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1 text-gray-500 hover:text-white">

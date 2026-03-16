@@ -44,7 +44,7 @@ const errorResponse = (desc: string, example?: string) => ({
 export const swaggerSpec = {
   openapi: '3.0.0',
   info: {
-    title: 'Agent Stats - Public API',
+    title: 'Agent Registry - Public API',
     version: '2.1.0',
     description:
       'Public API for querying AI Agent usage data. **No authentication required.**\n' +
@@ -579,7 +579,7 @@ export function getSwaggerUiHtml(): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Agent Stats - API Documentation</title>
+  <title>Agent Registry - API Documentation</title>
   <link rel="icon" type="image/png" href="/logo.png" />
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
   <style>

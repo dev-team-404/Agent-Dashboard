@@ -7,11 +7,11 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
-              <img src="/docs/images/logo.png" alt="Dashboard" className="w-8 h-8 rounded-lg" />
-              <span className="text-white font-bold">Agent Dashboard</span>
+              <img src="/docs/images/logo.png?v=2" alt="Dashboard" className="w-8 h-8 rounded-lg" />
+              <span className="text-white font-bold">Agent Registry</span>
             </div>
             <p className="text-sm text-gray-500 leading-relaxed">
-              Agent Dashboard<br />사용 가이드
+              Agent Registry<br />사용 가이드
             </p>
           </div>
 

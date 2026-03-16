@@ -1,12 +1,12 @@
 # 시스템 관리자 시작하기
 
-Agent Dashboard에서 시스템 관리자(System Admin) 역할로 LLM과 사용자를 관리하는 방법을 안내합니다.
+Agent Registry에서 시스템 관리자(System Admin) 역할로 LLM과 사용자를 관리하는 방법을 안내합니다.
 
 > **용어 안내**: "시스템 관리자"는 부서 단위의 전체 관리 권한(LLM 등록, 통계 등)을 가진 역할입니다. 서비스 내에서 모델/멤버를 관리하는 "서비스 관리자"와 구분됩니다. 시스템 관리자는 슈퍼관리자(Super Admin)가 지정합니다.
 
 ## Dashboard 접속
 
-브라우저에서 Agent Dashboard URL에 접속합니다. SSO 인증을 통해 자동으로 로그인됩니다.
+브라우저에서 Agent Registry URL에 접속합니다. SSO 인증을 통해 자동으로 로그인됩니다.
 
 ```
 http://a2g.samsungds.net:8090
