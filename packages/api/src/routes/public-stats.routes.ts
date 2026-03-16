@@ -8,6 +8,15 @@
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../index.js';
+import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
+
+function filterHierarchy<T extends { center2Name?: string | null; center1Name?: string | null }>(s: T): T {
+  let c2 = s.center2Name ?? null;
+  let c1 = s.center1Name ?? null;
+  if (c2 && isTopLevelDivision(c2)) { c2 = 'none'; c1 = 'none'; }
+  else if (c1 && isTopLevelDivision(c1)) { c1 = 'none'; }
+  return { ...s, center2Name: c2, center1Name: c1 };
+}
 
 export const publicStatsRoutes = Router();
 
@@ -138,9 +147,7 @@ publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
         docsUrl: s.docsUrl,
         registeredBy: s.registeredBy,
         registeredByDept: s.registeredByDept,
-        team: s.team,
-        center2Name: s.center2Name,
-        center1Name: s.center1Name,
+        ...filterHierarchy({ team: s.team, center2Name: s.center2Name, center1Name: s.center1Name }),
         createdAt: s.createdAt,
       })),
     });
@@ -733,9 +740,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         docsUrl: s.docsUrl,
         registeredBy: s.registeredBy,
         registeredByDept: s.registeredByDept,
-        team: s.team,
-        center2Name: s.center2Name,
-        center1Name: s.center1Name,
+        ...filterHierarchy({ team: s.team, center2Name: s.center2Name, center1Name: s.center1Name }),
         createdAt: s.createdAt,
         totalCallCount: usage.totalCallCount,
         totalInputTokens: usage.totalInputTokens,

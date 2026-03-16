@@ -10,6 +10,7 @@ import { Router, RequestHandler } from 'express';
 import { z } from 'zod';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
+import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
 
 export const serviceTargetsRoutes = Router();
 
@@ -77,7 +78,15 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
       orderBy: [{ registeredByDept: 'asc' }, { displayName: 'asc' }],
     });
 
-    res.json({ services });
+    res.json({
+      services: services.map(s => {
+        let c2 = s.center2Name ?? null;
+        let c1 = s.center1Name ?? null;
+        if (c2 && isTopLevelDivision(c2)) { c2 = 'none'; c1 = 'none'; }
+        else if (c1 && isTopLevelDivision(c1)) { c1 = 'none'; }
+        return { ...s, center2Name: c2, center1Name: c1 };
+      }),
+    });
   } catch (error) {
     console.error('Get service targets error:', error);
     res.status(500).json({ error: 'Failed to get service targets' });

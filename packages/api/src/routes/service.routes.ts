@@ -15,7 +15,22 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
-import { getDepartmentHierarchy, lookupEmployee } from '../services/knoxEmployee.service.js';
+import { getDepartmentHierarchy, lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
+
+/**
+ * API 응답 시 최상위 사업부를 "none"으로 변환
+ * DB에는 원본 저장, API에서만 필터
+ */
+function filterServiceHierarchy<T extends Record<string, unknown>>(service: T): T {
+  const c2 = (service as any).center2Name as string | null | undefined;
+  const c1 = (service as any).center1Name as string | null | undefined;
+  if (c2 == null && c1 == null) return service;
+  let nc2 = c2 ?? null;
+  let nc1 = c1 ?? null;
+  if (nc2 && isTopLevelDivision(nc2)) { nc2 = 'none'; nc1 = 'none'; }
+  else if (nc1 && isTopLevelDivision(nc1)) { nc1 = 'none'; }
+  return { ...service, center2Name: nc2, center1Name: nc1 };
+}
 import { z } from 'zod';
 
 export const serviceRoutes = Router();
@@ -243,7 +258,7 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
           return isServiceVisibleByScope(s, loginid, userDept, userBU);
         });
 
-    res.json({ services: filtered });
+    res.json({ services: filtered.map(filterServiceHierarchy) });
   } catch (error) {
     console.error('Get services error:', error);
     res.status(500).json({ error: 'Failed to get services' });
@@ -292,7 +307,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
       },
     });
 
-    res.json({ services });
+    res.json({ services: services.map(filterServiceHierarchy) });
   } catch (error) {
     console.error('Get all services error:', error);
     res.status(500).json({ error: 'Failed to get services' });
@@ -364,7 +379,7 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
       recentRequests: reqCountMap.get(s.id) || 0,
     }));
 
-    res.json({ services: result });
+    res.json({ services: result.map(filterServiceHierarchy) });
   } catch (error) {
     console.error('Get service names error:', error);
     res.status(500).json({ error: 'Failed to get service names' });
@@ -464,7 +479,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
       _isCreator: s.registeredBy === loginid,
     }));
 
-    res.json({ services: enriched });
+    res.json({ services: enriched.map(filterServiceHierarchy) });
   } catch (error) {
     console.error('Get my services error:', error);
     res.status(500).json({ error: 'Failed to get my services' });
@@ -559,7 +574,7 @@ serviceRoutes.get('/:id', authenticateToken, async (req: AuthenticatedRequest, r
     if (req.adminRole === 'ADMIN' && service.registeredByDept !== (req.adminDept || req.user?.deptname)) {
       // Admin이지만 다른 dept → 소유자/멤버/DEPLOYED 체크로 fallthrough
     } else if (isAdmin || isOwner || isDeployed) {
-      res.json({ service });
+      res.json({ service: filterServiceHierarchy(service) });
       return;
     }
 
@@ -569,13 +584,13 @@ serviceRoutes.get('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       where: { serviceId: id, userId: currentUserId },
     }) : null;
     if (membership) {
-      res.json({ service });
+      res.json({ service: filterServiceHierarchy(service) });
       return;
     }
 
     // DEPLOYED는 이미 위에서 처리됨
     if (isDeployed) {
-      res.json({ service });
+      res.json({ service: filterServiceHierarchy(service) });
       return;
     }
 
@@ -671,7 +686,7 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
     });
 
     recordAudit(req, 'CREATE_SERVICE', service.id, 'Service', { name: service.name, displayName: service.displayName }).catch(() => {});
-    res.status(201).json({ service });
+    res.status(201).json({ service: filterServiceHierarchy(service) });
   } catch (error) {
     console.error('Create service error:', error);
     res.status(500).json({ error: 'Failed to create service' });
@@ -715,7 +730,7 @@ serviceRoutes.post('/:id/deploy', authenticateToken, async (req: AuthenticatedRe
     });
 
     recordAudit(req, 'DEPLOY_SERVICE', id, 'Service', { deployScope, deployScopeValue }).catch(() => {});
-    res.json({ service: updated, message: 'Service deployed successfully' });
+    res.json({ service: filterServiceHierarchy(updated), message: 'Service deployed successfully' });
   } catch (error) {
     console.error('Deploy service error:', error);
     res.status(500).json({ error: 'Failed to deploy service' });
@@ -751,7 +766,7 @@ serviceRoutes.post('/:id/undeploy', authenticateToken, async (req: Authenticated
     });
 
     recordAudit(req, 'UNDEPLOY_SERVICE', id, 'Service', {}).catch(() => {});
-    res.json({ service: updated, message: 'Service reverted to development' });
+    res.json({ service: filterServiceHierarchy(updated), message: 'Service reverted to development' });
   } catch (error) {
     console.error('Undeploy service error:', error);
     res.status(500).json({ error: 'Failed to undeploy service' });
@@ -787,7 +802,7 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       data: validation.data,
     });
 
-    res.json({ service });
+    res.json({ service: filterServiceHierarchy(service) });
   } catch (error) {
     console.error('Update service error:', error);
     res.status(500).json({ error: 'Failed to update service' });
@@ -1977,7 +1992,7 @@ serviceRoutes.put('/:id/content-logging', authenticateToken, async (req: Authent
 
     await recordAudit(req, enabled ? 'ENABLE_CONTENT_LOGGING' : 'DISABLE_CONTENT_LOGGING', serviceId, 'SERVICE', { enabled });
 
-    res.json({ service, message: enabled ? 'Content logging enabled' : 'Content logging disabled' });
+    res.json({ service: filterServiceHierarchy(service), message: enabled ? 'Content logging enabled' : 'Content logging disabled' });
   } catch (error) {
     console.error('Toggle content logging error:', error);
     res.status(500).json({ error: 'Failed to toggle content logging' });

@@ -185,12 +185,11 @@ export async function getDepartmentHierarchy(
     });
 
     if (cached) {
-      // 캐시된 값에도 최상위 사업부 필터 적용 (기존 캐시 호환)
-      let c2 = cached.center2Name;
-      let c1 = cached.center1Name;
-      if (isTopLevelDivision(c2)) { c2 = 'none'; c1 = 'none'; }
-      else if (isTopLevelDivision(c1)) { c1 = 'none'; }
-      return { team: cached.team, center2Name: c2, center1Name: c1 };
+      return {
+        team: cached.team,
+        center2Name: cached.center2Name,
+        center1Name: cached.center1Name,
+      };
     }
   } catch (err) {
     console.error('[DeptHierarchy] Cache lookup failed:', err);
@@ -206,7 +205,7 @@ export async function getDepartmentHierarchy(
     return null;
   }
 
-  let center2Name = org.enUprDepartmentName || '';
+  const center2Name = org.enUprDepartmentName || '';
   let center1Name = '';
 
   // 2b. 상위부서 조회 → 그 상위부서의 영문명 (center_1_name)
@@ -215,15 +214,6 @@ export async function getDepartmentHierarchy(
     if (parentOrg) {
       center1Name = parentOrg.enUprDepartmentName || '';
     }
-  }
-
-  // 최상위 사업부는 의미 없으므로 "none" 처리
-  // center_2가 최상위면 center_1도 그 위이므로 둘 다 "none"
-  if (isTopLevelDivision(center2Name)) {
-    center2Name = 'none';
-    center1Name = 'none';
-  } else if (isTopLevelDivision(center1Name)) {
-    center1Name = 'none';
   }
 
   const hierarchy: DeptHierarchy = { team, center2Name, center1Name };
@@ -407,7 +397,7 @@ const TOP_LEVEL_DIVISIONS = [
   'Samsung Electronics',
 ];
 
-function isTopLevelDivision(name: string): boolean {
+export function isTopLevelDivision(name: string): boolean {
   if (!name) return false;
   const lower = name.toLowerCase();
   return TOP_LEVEL_DIVISIONS.some(d => lower === d.toLowerCase());
