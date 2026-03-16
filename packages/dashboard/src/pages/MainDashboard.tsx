@@ -8,10 +8,12 @@ import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart'
 import UsageAnalytics from '../components/Charts/UsageAnalytics';
 import EnhancedServiceCharts from '../components/Charts/EnhancedServiceCharts';
 import {
-  AreaChart, Area, LineChart, Line as RechartsLine, Bar,
+  AreaChart, Area, LineChart, Line as RechartsLine, Bar, BarChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  ComposedChart,
+  ComposedChart, PieChart, Pie, Cell,
 } from 'recharts';
+import { api } from '../services/api';
+import { Sparkles, Target } from 'lucide-react';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -220,6 +222,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
 
+  // M/M 목표 관리 데이터
+  const [mmTargetData, setMmTargetData] = useState<{
+    byDept: Array<{ dept: string; savedMM: number }>;
+    totalTargetMM: number;
+    totalSavedMM: number;
+    totalAiEstimatedMM: number;
+  }>({ byDept: [], totalTargetMM: 0, totalSavedMM: 0, totalAiEstimatedMM: 0 });
+
   useEffect(() => {
     loadData();
   }, []);
@@ -271,6 +281,39 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setLatencyStats(latencyRes.data.stats || []);
       setLatencyHistory(latencyHistoryRes.data.history || {});
       setHealthCheckHistory(healthcheckRes.data.history || {});
+
+      // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
+      try {
+        const [targetsRes, aiRes] = await Promise.all([
+          api.get('/admin/service-targets'),
+          api.get('/admin/ai-estimations').catch(() => ({ data: { estimations: [] } })),
+        ]);
+        const services = targetsRes.data.services || [];
+        const aiMap = new Map<string, number>();
+        for (const e of (aiRes.data.estimations || [])) {
+          aiMap.set(e.serviceId, e.estimatedMM);
+        }
+        // 부서별 savedMM 합산
+        const deptMap = new Map<string, number>();
+        let totalTarget = 0;
+        let totalSaved = 0;
+        let totalAi = 0;
+        for (const s of services) {
+          const dept = s.registeredByDept || '미지정';
+          if (s.savedMM != null) {
+            deptMap.set(dept, (deptMap.get(dept) || 0) + s.savedMM);
+          }
+          totalTarget += s.targetMM || 0;
+          totalSaved += s.savedMM || 0;
+          totalAi += aiMap.get(s.id) || 0;
+        }
+        const byDept = [...deptMap.entries()]
+          .map(([dept, savedMM]) => ({ dept, savedMM: Math.round(savedMM * 10) / 10 }))
+          .sort((a, b) => b.savedMM - a.savedMM);
+        setMmTargetData({ byDept, totalTargetMM: totalTarget, totalSavedMM: totalSaved, totalAiEstimatedMM: Math.round(totalAi * 10) / 10 });
+      } catch (err) {
+        console.error('Failed to load M/M target data:', err);
+      }
     } catch (error) {
       console.error('Failed to load main dashboard data:', error);
     } finally {
@@ -997,6 +1040,143 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* M/M 목표 달성 현황 */}
+      {(mmTargetData.totalTargetMM > 0 || mmTargetData.byDept.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* 1. 부서별 Saved M/M 분포 원 그래프 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">
+              <div className="p-2 rounded-lg bg-emerald-50">
+                <Target className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-pastel-800">부서별 Saved M/M 분포</h2>
+                <p className="text-xs text-pastel-500">부서별 절감 실적 비중</p>
+              </div>
+            </div>
+            <div className="p-6">
+              {mmTargetData.byDept.length > 0 ? (
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={mmTargetData.byDept}
+                        dataKey="savedMM"
+                        nameKey="dept"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        innerRadius={50}
+                        paddingAngle={2}
+                        label={({ dept, savedMM, percent }) =>
+                          `${(dept as string).length > 10 ? (dept as string).slice(0, 10) + '…' : dept} ${savedMM} (${(percent * 100).toFixed(0)}%)`
+                        }
+                        labelLine={{ strokeWidth: 1 }}
+                      >
+                        {mmTargetData.byDept.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.[0]) return null;
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                              <p className="font-semibold text-gray-800">{d.dept}</p>
+                              <p className="text-emerald-600 font-bold">{d.savedMM} M/M</p>
+                            </div>
+                          );
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-72 flex items-center justify-center text-pastel-400 text-sm">
+                  Saved M/M 데이터가 없습니다
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 2. 올해 목표 7000 M/M 대비 달성 비교 바 차트 */}
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+            <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">
+              <div className="p-2 rounded-lg bg-violet-50">
+                <Sparkles className="w-4 h-4 text-violet-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-pastel-800">연간 M/M 목표 달성 현황</h2>
+                <p className="text-xs text-pastel-500">올해 목표 7,000 M/M 대비</p>
+              </div>
+            </div>
+            <div className="p-6">
+              {(() => {
+                const ANNUAL_TARGET = 7000;
+                const chartData = [
+                  { name: '연간 목표', value: ANNUAL_TARGET, fill: '#e5e7eb' },
+                  { name: '서비스별 목표 합산', value: Math.round(mmTargetData.totalTargetMM * 10) / 10, fill: '#3b82f6' },
+                  { name: '실제 Saved M/M', value: Math.round(mmTargetData.totalSavedMM * 10) / 10, fill: '#10b981' },
+                  { name: 'AI 추정 합산', value: mmTargetData.totalAiEstimatedMM, fill: '#8b5cf6' },
+                ];
+                const maxVal = Math.max(ANNUAL_TARGET, mmTargetData.totalTargetMM, mmTargetData.totalSavedMM, mmTargetData.totalAiEstimatedMM);
+                return (
+                  <div className="space-y-5">
+                    {/* 비교 바 */}
+                    <div className="h-56">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                          <XAxis type="number" domain={[0, Math.ceil(maxVal * 1.1)]} tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+                          <YAxis type="category" dataKey="name" width={120} tick={{ fill: '#374151', fontSize: 12 }} tickLine={false} axisLine={false} />
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.[0]) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                                  <p className="font-semibold text-gray-800">{d.name}</p>
+                                  <p className="font-bold" style={{ color: d.fill }}>{d.value.toLocaleString()} M/M</p>
+                                  <p className="text-xs text-gray-400">{ANNUAL_TARGET > 0 ? ((d.value / ANNUAL_TARGET) * 100).toFixed(1) : 0}% of 7,000</p>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={28}>
+                            {chartData.map((entry, i) => (
+                              <Cell key={i} fill={entry.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    {/* 요약 카드 */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="p-3 bg-blue-50 rounded-lg text-center">
+                        <p className="text-[10px] text-blue-500 font-medium uppercase">목표 합산</p>
+                        <p className="text-lg font-bold text-blue-700">{mmTargetData.totalTargetMM.toFixed(1)}</p>
+                        <p className="text-[10px] text-blue-400">{((mmTargetData.totalTargetMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="p-3 bg-emerald-50 rounded-lg text-center">
+                        <p className="text-[10px] text-emerald-500 font-medium uppercase">실제 Saved</p>
+                        <p className="text-lg font-bold text-emerald-700">{mmTargetData.totalSavedMM.toFixed(1)}</p>
+                        <p className="text-[10px] text-emerald-400">{((mmTargetData.totalSavedMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
+                      </div>
+                      <div className="p-3 bg-violet-50 rounded-lg text-center">
+                        <p className="text-[10px] text-violet-500 font-medium uppercase">AI 추정</p>
+                        <p className="text-lg font-bold text-violet-700">{mmTargetData.totalAiEstimatedMM.toFixed(1)}</p>
+                        <p className="text-[10px] text-violet-400">{((mmTargetData.totalAiEstimatedMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
         </div>
       )}
 
