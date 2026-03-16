@@ -307,11 +307,14 @@ export default function ServiceTargets() {
                         <span className="text-xs text-pastel-600 truncate block max-w-[120px]" title={s.registeredByDept || '-'}>
                           {s.registeredByDept || '-'}
                         </span>
-                        {s.team && (
-                          <span className="text-[10px] text-gray-400 truncate block max-w-[160px]" title={[s.center1Name, s.center2Name, s.team].filter(Boolean).join(' > ')}>
-                            {[s.center1Name, s.center2Name, s.team].filter(Boolean).join(' > ')}
-                          </span>
-                        )}
+                        {(() => {
+                          const parts = [s.center1Name, s.center2Name, s.team].filter(v => v && v !== 'none');
+                          return parts.length > 0 ? (
+                            <span className="text-[10px] text-gray-400 truncate block max-w-[160px]" title={parts.join(' > ')}>
+                              {parts.join(' > ')}
+                            </span>
+                          ) : null;
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {isEditing ? (

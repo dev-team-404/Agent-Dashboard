@@ -359,15 +359,24 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
                   </span>
                 )}
               </div>
-              {(service.team || service.center2Name || service.center1Name) && (
-                <div className="flex items-center gap-1.5 mt-2 text-xs text-white/30">
-                  {service.center1Name && <span>{service.center1Name}</span>}
-                  {service.center1Name && service.center2Name && <span className="text-white/20">&rsaquo;</span>}
-                  {service.center2Name && <span>{service.center2Name}</span>}
-                  {service.center2Name && service.team && <span className="text-white/20">&rsaquo;</span>}
-                  {service.team && <span className="text-white/50 font-medium">{service.team}</span>}
-                </div>
-              )}
+              {(() => {
+                const parts = [
+                  service.center1Name && service.center1Name !== 'none' ? service.center1Name : '',
+                  service.center2Name && service.center2Name !== 'none' ? service.center2Name : '',
+                  service.team || '',
+                ].filter(Boolean);
+                if (parts.length === 0) return null;
+                return (
+                  <div className="flex items-center gap-1.5 mt-2 text-xs text-white/30">
+                    {parts.map((p, i) => (
+                      <span key={i} className="flex items-center gap-1.5">
+                        {i > 0 && <span className="text-white/20">&rsaquo;</span>}
+                        <span className={i === parts.length - 1 ? 'text-white/50 font-medium' : ''}>{p}</span>
+                      </span>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

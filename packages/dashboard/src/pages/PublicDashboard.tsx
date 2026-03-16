@@ -169,9 +169,12 @@ function ChartTooltip({ active, payload, metric }: {
       {data.registeredByDept && (
         <p className="text-[11px] text-pastel-400 mb-0.5">{data.registeredByDept}</p>
       )}
-      {(data.team || data.center2Name) && (
-        <p className="text-[10px] text-pastel-300 mb-1.5">{[data.center1Name, data.center2Name, data.team].filter(Boolean).join(' > ')}</p>
-      )}
+      {(() => {
+        const parts = [data.center1Name, data.center2Name, data.team].filter((v: string) => v && v !== 'none');
+        return parts.length > 0 ? (
+          <p className="text-[10px] text-pastel-300 mb-1.5">{parts.join(' > ')}</p>
+        ) : null;
+      })()}
       <div className="flex items-center gap-2 text-pastel-600">
         <span className="font-mono font-bold" style={{ color: metric.color }}>
           {metric.format(data[metric.key])}

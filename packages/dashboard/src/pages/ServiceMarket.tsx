@@ -277,26 +277,24 @@ export default function ServiceMarket() {
                       </>
                     )}
                   </div>
-                  {/* Organization hierarchy (English) */}
-                  {(service.team || service.center2Name || service.center1Name) && (
-                    <div className="flex items-center gap-1 mt-1 text-[11px] text-gray-400">
-                      {service.center1Name && (
-                        <span className="text-gray-400">{service.center1Name}</span>
-                      )}
-                      {service.center1Name && service.center2Name && (
-                        <span className="text-gray-300">&rsaquo;</span>
-                      )}
-                      {service.center2Name && (
-                        <span className="text-gray-400">{service.center2Name}</span>
-                      )}
-                      {service.center2Name && service.team && (
-                        <span className="text-gray-300">&rsaquo;</span>
-                      )}
-                      {service.team && (
-                        <span className="text-gray-500 font-medium">{service.team}</span>
-                      )}
-                    </div>
-                  )}
+                  {/* Organization hierarchy (English) — "none" 제외 */}
+                  {(() => {
+                    const c1 = service.center1Name && service.center1Name !== 'none' ? service.center1Name : '';
+                    const c2 = service.center2Name && service.center2Name !== 'none' ? service.center2Name : '';
+                    const t = service.team || '';
+                    const parts = [c1, c2, t].filter(Boolean);
+                    if (parts.length === 0) return null;
+                    return (
+                      <div className="flex items-center gap-1 mt-1 text-[11px] text-gray-400">
+                        {parts.map((p, i) => (
+                          <span key={i} className="flex items-center gap-1">
+                            {i > 0 && <span className="text-gray-300">&rsaquo;</span>}
+                            <span className={i === parts.length - 1 ? 'text-gray-500 font-medium' : 'text-gray-400'}>{p}</span>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Shortcut buttons */}

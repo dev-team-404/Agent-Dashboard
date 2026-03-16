@@ -516,11 +516,15 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                               등록자: {service.registeredBy} ({service.registeredByDept})
                             </span>
                           )}
-                          {(service.team || service.center2Name) && (
-                            <span className="text-[10px] text-gray-400">
-                              {[service.center1Name, service.center2Name, service.team].filter(Boolean).join(' > ')}
-                            </span>
-                          )}
+                          {(() => {
+                            const parts = [service.center1Name, service.center2Name, service.team]
+                              .filter(v => v && v !== 'none');
+                            return parts.length > 0 ? (
+                              <span className="text-[10px] text-gray-400">
+                                {parts.join(' > ')}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                       )}
                     </div>
