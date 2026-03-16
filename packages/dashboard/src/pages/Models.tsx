@@ -315,7 +315,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
       supportsVision: model.supportsVision,
       type: model.type || 'CHAT',
       imageProvider: model.imageProvider || '',
-      asrMethod: (model as any).asrMethod || '',
+      asrMethod: model.asrMethod || '',
       visibility: model.visibility,
       visibilityScope: model.visibilityScope || [],
       adminVisible: model.adminVisible ?? false,
@@ -866,8 +866,8 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                         {model.imageProvider && (
                           <span className="px-1.5 py-0.5 bg-pink-50 text-pink-600 rounded text-[11px] font-mono">{model.imageProvider}</span>
                         )}
-                        {(model as any).asrMethod && (
-                          <span className="px-1.5 py-0.5 bg-sky-50 text-sky-600 rounded text-[11px] font-mono">{(model as any).asrMethod}</span>
+                        {model.asrMethod && (
+                          <span className="px-1.5 py-0.5 bg-sky-50 text-sky-600 rounded text-[11px] font-mono">{model.asrMethod}</span>
                         )}
                         {model.createdByDept && (
                           <span className="hidden sm:inline">{model.createdByDept}</span>

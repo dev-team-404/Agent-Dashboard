@@ -159,7 +159,7 @@ export default function ServiceModelConfig() {
     );
     const filtered = availableModels.filter(m => m.enabled && !assignedIds.has(m.id));
     const groups: { type: string; label: string; models: AvailableModel[] }[] = [];
-    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING'];
+    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR'];
     for (const t of typeOrder) {
       const models = filtered.filter(m => m.type === t);
       if (models.length > 0) groups.push({ type: t, label: MODEL_TYPE_LABELS[t] || t, models });

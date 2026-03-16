@@ -432,7 +432,7 @@ const modelSchema = z.object({
   visibilityScope: z.array(z.string()).default([]),
   type: z.enum(['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR']).optional(),
   imageProvider: z.string().optional(),
-  asrMethod: z.string().optional(),
+  asrMethod: z.enum(['AUDIO_URL', 'OPENAI_TRANSCRIBE']).optional(),
 });
 
 /**
@@ -503,8 +503,8 @@ adminRoutes.post('/models', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    // Health check: 엔드포인트 연결 확인
-    const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+    // Health check: 엔드포인트 연결 확인 (ASR/IMAGE는 별도 테스트 필요 → 스킵)
+    const skipHealthCheck = req.query['skipHealthCheck'] === 'true' || validation.data.type === 'ASR' || validation.data.type === 'IMAGE';
     if (!skipHealthCheck) {
       const healthResult = await checkModelEndpointHealth(validation.data.endpointUrl, validation.data.name, validation.data.apiKey, validation.data.extraHeaders);
       console.log(`[HealthCheck] Model "${validation.data.name}" -> ${healthResult.healthy ? 'OK' : 'FAIL'} (${healthResult.totalLatencyMs}ms) ${healthResult.message}`);
@@ -617,10 +617,12 @@ adminRoutes.put('/models/:id', async (req: AuthenticatedRequest, res) => {
     }
 
     // Health check: endpointUrl, apiKey, name, extraHeaders 중 실제로 변경된 경우만 연결 확인
-    const skipHealthCheck = req.query['skipHealthCheck'] === 'true';
+    // ASR/IMAGE 타입은 별도 테스트 엔드포인트 사용 → chat/completions 기반 헬스체크 스킵
+    const skipHealthCheck = req.query['skipHealthCheck'] === 'true' || validation.data.type === 'ASR' || validation.data.type === 'IMAGE';
     if (!skipHealthCheck) {
-      const existing = await prisma.model.findUnique({ where: { id }, select: { endpointUrl: true, apiKey: true, name: true, extraHeaders: true } });
-      if (existing) {
+      const existing = await prisma.model.findUnique({ where: { id }, select: { endpointUrl: true, apiKey: true, name: true, extraHeaders: true, type: true } });
+      // 기존 모델이 ASR/IMAGE인 경우에도 스킵
+      if (existing && existing.type !== 'ASR' && existing.type !== 'IMAGE') {
         const endpointChanged = validation.data.endpointUrl !== undefined && validation.data.endpointUrl !== existing.endpointUrl;
         const apiKeyChanged = validation.data.apiKey !== undefined && validation.data.apiKey !== (existing.apiKey || undefined);
         const nameChanged = validation.data.name !== undefined && validation.data.name !== existing.name;

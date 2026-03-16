@@ -107,12 +107,6 @@ proxyRoutes.post(
         return;
       }
 
-      // 파일 크기 검증 (500MB)
-      if (req.file.size > 500 * 1024 * 1024) {
-        res.status(413).json({ error: 'Audio file too large. Maximum size is 500MB.' });
-        return;
-      }
-
       // 모델 조회: 서비스 alias 기반
       const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
       if (!resolved.found || !resolved.model) {
@@ -176,7 +170,14 @@ proxyRoutes.post(
         if (req.body.prompt) formData.append('prompt', req.body.prompt);
         if (req.body.response_format) formData.append('response_format', req.body.response_format);
         if (req.body.temperature) formData.append('temperature', String(req.body.temperature));
-        if (req.body.timestamp_granularities) formData.append('timestamp_granularities', String(req.body.timestamp_granularities));
+        if (req.body.timestamp_granularities) {
+          const granularities = Array.isArray(req.body.timestamp_granularities)
+            ? req.body.timestamp_granularities
+            : [req.body.timestamp_granularities];
+          for (const g of granularities) {
+            formData.append('timestamp_granularities[]', String(g));
+          }
+        }
 
         const headers: Record<string, string> = {};
         if (endpoint.apiKey) headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
@@ -189,10 +190,10 @@ proxyRoutes.post(
           }
         }
 
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), ASR_TIMEOUT_MS);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), ASR_TIMEOUT_MS);
 
+        try {
           const response = await fetch(url, {
             method: 'POST',
             headers,
@@ -242,6 +243,7 @@ proxyRoutes.post(
           return;
 
         } catch (error) {
+          clearTimeout(timeoutId);
           console.error(`[Failover] ASR endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
           lastError = error instanceof Error ? error.message : 'Connection failed';
           continue;
@@ -265,6 +267,19 @@ proxyRoutes.post(
     }
   },
 );
+
+// Multer 에러 핸들러 (파일 크기 초과 등)
+proxyRoutes.use('/audio/transcriptions', ((err: any, _req: Request, res: Response, next: Function) => {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    res.status(413).json({ error: 'Audio file too large. Maximum size is 500MB.' });
+    return;
+  }
+  if (err && err.name === 'MulterError') {
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  next(err);
+}) as any);
 
 // 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙, 오디오 전사 제외)
 proxyRoutes.use(validateProxyHeaders as any);

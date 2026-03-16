@@ -59,7 +59,6 @@ app.use(cors({
 }));
 // ASR audio_url 방식: base64 오디오가 JSON body에 포함 (최대 500MB)
 app.use('/v1/chat/completions', express.json({ limit: '500mb' }));
-app.use('/v1/audio', express.json({ limit: '500mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
 app.use(morgan('combined'));

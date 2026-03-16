@@ -1096,7 +1096,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
     const used = new Set(serviceModels.filter(sm => sm.aliasName === alias).map(sm => sm.modelId));
     const filtered = availableModels.filter(m => m.enabled && !used.has(m.id));
     const groups: { type: string; label: string; models: AvailableModel[] }[] = [];
-    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING'];
+    const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR'];
     for (const t of typeOrder) {
       const models = filtered.filter(m => m.type === t);
       if (models.length > 0) groups.push({ type: t, label: MODEL_TYPE_LABELS[t] || t, models });
