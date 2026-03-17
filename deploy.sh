@@ -4,14 +4,16 @@
 # ============================================
 #
 # 사용법:
-#   ./deploy.sh          # Blue-Green 배포 (다운타임 0)
-#   ./deploy.sh status   # 현재 활성 슬롯 확인
-#   ./deploy.sh init     # 최초 설치 (전체 빌드 + 시작)
+#   ./deploy.sh              # Blue-Green 배포 (다운타임 0)
+#   ./deploy.sh --with-docs  # docs-site 포함 배포 (nginx 재시작, 짧은 끊김)
+#   ./deploy.sh status       # 현재 활성 슬롯 확인
+#   ./deploy.sh init         # 최초 설치 (전체 빌드 + 시작)
 #
 # 원리:
 #   항상 Blue/Green 2세트 운영.
 #   비활성 쪽 업데이트 → nginx reload로 트래픽 전환 → 구 활성 쪽 업데이트
 #   → 양쪽 모두 최신, 다운타임 0
+#   nginx 컨테이너는 트래픽 진입점이므로 기본 배포 시 건드리지 않음 (reload만)
 #
 
 set -euo pipefail
@@ -32,6 +34,7 @@ cd "$(dirname "$0")"
 
 STATE_FILE=".deploy-state"
 BACKUP_UPSTREAM=""
+WITH_DOCS=false
 
 # ─── 상태 관리 ───
 get_active() {
@@ -197,6 +200,9 @@ cmd_deploy() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e "  현재 활성: ${GREEN}${ACTIVE}${NC}"
   echo -e "  배포 대상: ${CYAN}${INACTIVE}${NC} (먼저 업데이트)"
+  if [ "$WITH_DOCS" = true ]; then
+    echo -e "  docs-site: ${YELLOW}포함${NC} (nginx 컨테이너 교체됨)"
+  fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
 
@@ -206,14 +212,19 @@ cmd_deploy() {
   # ──────────────────────────────────────────
   # Step 1: 비활성 슬롯 빌드 (기존 서비스 계속 운영)
   # ──────────────────────────────────────────
-  log "Step 1/6: 이미지 빌드 (서비스 중단 없음)"
-  docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}" nginx
+  if [ "$WITH_DOCS" = true ]; then
+    log "Step 1/5: 이미지 빌드 — API + Dashboard + Nginx(docs) (서비스 중단 없음)"
+    docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}" nginx
+  else
+    log "Step 1/5: 이미지 빌드 — API + Dashboard (서비스 중단 없음)"
+    docker compose build --no-cache "api-${INACTIVE}" "dashboard-${INACTIVE}"
+  fi
   echo ""
 
   # ──────────────────────────────────────────
   # Step 2: 비활성 슬롯 컨테이너 재시작 + 헬스체크
   # ──────────────────────────────────────────
-  log "Step 2/6: ${INACTIVE} 슬롯 컨테이너 재시작"
+  log "Step 2/5: ${INACTIVE} 슬롯 컨테이너 재시작"
   docker compose up -d "api-${INACTIVE}" "dashboard-${INACTIVE}"
 
   if ! wait_healthy "api-${INACTIVE}" 90; then
@@ -229,7 +240,7 @@ cmd_deploy() {
   # ──────────────────────────────────────────
   # Step 3: 트래픽 전환 (nginx reload, 다운타임 0)
   # ──────────────────────────────────────────
-  log "Step 3/6: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
+  log "Step 3/5: 트래픽 전환 ${ACTIVE} → ${INACTIVE}"
 
   if ! switch_upstream "$INACTIVE"; then
     err "nginx reload 실패"
@@ -241,7 +252,7 @@ cmd_deploy() {
   # ──────────────────────────────────────────
   # Step 4: 구 활성 슬롯(이제 비활성) 업데이트
   # ──────────────────────────────────────────
-  log "Step 4/6: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
+  log "Step 4/5: ${ACTIVE} 슬롯 업데이트 (트래픽은 이미 ${INACTIVE}에서 처리 중)"
   docker compose build --no-cache "api-${ACTIVE}" "dashboard-${ACTIVE}"
   docker compose up -d "api-${ACTIVE}" "dashboard-${ACTIVE}"
 
@@ -252,14 +263,19 @@ cmd_deploy() {
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 5: Nginx(docs 포함) 컨테이너 교체
+  # Step 5: (docs 배포 시만) Nginx 컨테이너 교체
   # ──────────────────────────────────────────
-  log "Step 5/6: Nginx 컨테이너 교체 (이미지는 Step 1에서 빌드 완료)"
-  docker compose up -d nginx
+  if [ "$WITH_DOCS" = true ]; then
+    log "Step 5/5: Nginx 컨테이너 교체 (docs-site 업데이트 포함)"
+    warn "⚠ nginx 컨테이너 교체로 1~2초 연결 끊김 발생"
+    docker compose up -d nginx
+  else
+    log "Step 5/5: Nginx 컨테이너 유지 (upstream 전환은 Step 3에서 완료)"
+  fi
   echo ""
 
   # ──────────────────────────────────────────
-  # Step 6: 상태 저장 + 결과
+  # 상태 저장 + 결과
   # ──────────────────────────────────────────
   echo "$INACTIVE" > "$STATE_FILE"
 
@@ -271,14 +287,36 @@ cmd_deploy() {
   log "배포 완료!"
   info "활성 슬롯: ${INACTIVE}"
   info "총 소요: ${ELAPSED}초"
-  info "서비스 중단: 0초"
+  if [ "$WITH_DOCS" = true ]; then
+    warn "nginx 컨테이너 교체로 짧은 끊김 발생 (1~2초)"
+  else
+    info "서비스 중단: 0초"
+  fi
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   docker compose ps
 }
 
+# ─── 옵션 파싱 ───
+COMMAND=""
+for arg in "$@"; do
+  case "$arg" in
+    --with-docs) WITH_DOCS=true ;;
+    status|init|deploy) COMMAND="$arg" ;;
+    *)
+      echo "사용법: $0 [deploy|status|init] [--with-docs]"
+      echo ""
+      echo "  deploy              Blue-Green 무중단 배포 (기본값)"
+      echo "  deploy --with-docs  docs-site 포함 배포 (nginx 재시작, 짧은 끊김)"
+      echo "  status              현재 활성 슬롯 확인"
+      echo "  init                최초 설치 (전체 빌드 + 순차 시작)"
+      exit 1
+      ;;
+  esac
+done
+
 # ─── 메인 ───
-case "${1:-deploy}" in
+case "${COMMAND:-deploy}" in
   status)
     cmd_status
     ;;
@@ -287,13 +325,5 @@ case "${1:-deploy}" in
     ;;
   deploy|"")
     cmd_deploy
-    ;;
-  *)
-    echo "사용법: $0 [deploy|status|init]"
-    echo ""
-    echo "  deploy   Blue-Green 무중단 배포 (기본값)"
-    echo "  status   현재 활성 슬롯 확인"
-    echo "  init     최초 설치 (전체 빌드 + 순차 시작)"
-    exit 1
     ;;
 esac
