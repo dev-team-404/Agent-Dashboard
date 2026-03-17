@@ -19,6 +19,9 @@ function guideContentPath(path: string): string {
     '/admin/service-management': 'admin/service-management.md',
     '/admin/llm-management': 'admin/llm-management.md',
     '/admin/user-management': 'admin/user-management.md',
+    '/admin/service-targets': 'admin/service-targets.md',
+    '/admin/system-llm': 'admin/system-llm.md',
+    '/admin/admin-requests': 'admin/admin-requests.md',
     '/admin/stats': 'admin/stats.md',
     '/service/service-registration': 'service/service-registration.md',
     '/service/service-models': 'service/service-models.md',
@@ -65,6 +68,9 @@ export default function App() {
         <Route path="/admin/service-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/service-management" />} />
         <Route path="/admin/llm-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/llm-management" />} />
         <Route path="/admin/user-management" element={<DocRoute sectionTitle="Admin Guide" path="/admin/user-management" />} />
+        <Route path="/admin/service-targets" element={<DocRoute sectionTitle="Admin Guide" path="/admin/service-targets" />} />
+        <Route path="/admin/system-llm" element={<DocRoute sectionTitle="Admin Guide" path="/admin/system-llm" />} />
+        <Route path="/admin/admin-requests" element={<DocRoute sectionTitle="Admin Guide" path="/admin/admin-requests" />} />
         <Route path="/admin/stats" element={<DocRoute sectionTitle="Admin Guide" path="/admin/stats" />} />
 
         {/* Service Guide */}
