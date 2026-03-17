@@ -178,6 +178,12 @@ externalUsageRoutes.get('/daily', async (req: Request, res: Response) => {
       return;
     }
 
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(startStr) || !dateRegex.test(endStr)) {
+      res.status(400).json({ error: 'startDate and endDate must be in YYYY-MM-DD format' });
+      return;
+    }
+
     const service = await prisma.service.findUnique({
       where: { name: serviceName },
       select: { id: true, name: true, type: true, apiOnly: true },

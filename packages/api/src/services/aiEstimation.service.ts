@@ -373,21 +373,34 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
         avgCalls = stats?.calls || 0;
         isEstimatedDau = false;
 
-        // API Only STANDARD: ExternalDailyUsage에서 데이터 보충 (최근 31일 범위)
+        // API Only STANDARD: ExternalDailyUsage에서 영업일 기준 데이터 보충
         if (svc.apiOnly) {
           const extRangeEnd = new Date(todayKST);
           extRangeEnd.setDate(extRangeEnd.getDate() - 1);
           const extRangeStart = new Date(todayKST);
           extRangeStart.setDate(extRangeStart.getDate() - 31);
-          const extStats = await prisma.externalDailyUsage.aggregate({
-            where: {
-              serviceId: svc.id,
-              date: { gte: extRangeStart, lte: extRangeEnd },
-            },
-            _avg: { dailyActiveUsers: true, llmRequestCount: true },
-          });
-          avgDau += Math.round(extStats._avg.dailyActiveUsers || 0);
-          avgCalls += Math.round(extStats._avg.llmRequestCount || 0);
+          const extStats = await prisma.$queryRaw<
+            Array<{ avg_dau: number; avg_calls: number }>
+          >`
+            WITH daily AS (
+              SELECT date as d,
+                     COALESCE(SUM(daily_active_users), 0) as dau,
+                     COALESCE(SUM(llm_request_count), 0) as calls
+              FROM external_daily_usage
+              WHERE service_id = ${svc.id}::uuid
+                AND date >= ${extRangeStart} AND date <= ${extRangeEnd}
+                AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+              GROUP BY date
+              ORDER BY date DESC
+              LIMIT 5
+            )
+            SELECT COALESCE(AVG(dau), 0)::float as avg_dau,
+                   COALESCE(AVG(calls), 0)::float as avg_calls
+            FROM daily
+          `;
+          avgDau += Math.round(extStats[0]?.avg_dau || 0);
+          avgCalls += Math.round(extStats[0]?.avg_calls || 0);
         }
       } else {
         avgCalls = bgMap.get(svc.id) || 0;
