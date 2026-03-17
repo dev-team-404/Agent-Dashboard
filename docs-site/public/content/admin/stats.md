@@ -271,8 +271,7 @@ GET /api/public/stats/dau-mau?year=2026&month=3
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| serviceId | string | 서비스 UUID |
-| name | string | 서비스 시스템명 |
+| name | string | 서비스 코드 (시스템명) |
 | displayName | string | 서비스 표시명 |
 | type | string | `STANDARD` 또는 `BACKGROUND` |
 | enabled | boolean | 활성 상태 |
@@ -293,7 +292,6 @@ GET /api/public/stats/dau-mau?year=2026&month=3
   "month": 3,
   "data": [
     {
-      "serviceId": "uuid-1",
       "name": "nexus-coder",
       "displayName": "Nexus Coder",
       "type": "STANDARD",
@@ -307,7 +305,6 @@ GET /api/public/stats/dau-mau?year=2026&month=3
       "isEstimated": false
     },
     {
-      "serviceId": "uuid-2",
       "name": "auto-review",
       "displayName": "Auto Review Bot",
       "type": "BACKGROUND",

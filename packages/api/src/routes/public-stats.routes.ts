@@ -164,11 +164,19 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
       return;
     }
 
-    const serviceId = req.query['serviceId'] as string | undefined;
-    if (!serviceId) {
-      res.status(400).json({ error: 'serviceId는 필수 파라미터입니다.' });
+    const serviceName = req.query['serviceName'] as string | undefined;
+    if (!serviceName) {
+      res.status(400).json({ error: 'serviceName은 필수 파라미터입니다. (서비스 코드, 예: nexus-coder)' });
       return;
     }
+
+    // name → UUID 조회
+    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    if (!service) {
+      res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
+      return;
+    }
+    const serviceId = service.id;
 
     const stats = await prisma.dailyUsageStat.groupBy({
       by: ['deptname'],
@@ -377,7 +385,6 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
       return {
         deptname: v.deptname,
         businessUnit: extractBusinessUnit(v.deptname),
-        serviceId: v.serviceId || null,
         serviceName: svc?.name || 'unknown',
         serviceDisplayName: svc?.displayName || 'Unknown',
         totalInputTokens: v.inputTokens,
@@ -409,11 +416,18 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
       return;
     }
 
-    const serviceId = req.query['serviceId'] as string | undefined;
-    if (!serviceId) {
-      res.status(400).json({ error: 'serviceId는 필수 파라미터입니다.' });
+    const serviceName = req.query['serviceName'] as string | undefined;
+    if (!serviceName) {
+      res.status(400).json({ error: 'serviceName은 필수 파라미터입니다. (서비스 코드, 예: nexus-coder)' });
       return;
     }
+
+    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    if (!service) {
+      res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
+      return;
+    }
+    const serviceId = service.id;
 
     const topK = Math.min(Math.max(parseInt(req.query['topK'] as string) || 10, 1), 100);
 
@@ -456,7 +470,6 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
       const user = userMap.get(s.userId);
       return {
         rank: i + 1,
-        userId: s.userId,
         loginId: user?.loginid || 'unknown',
         username: user?.username || 'Unknown',
         deptname: user?.deptname || '',
@@ -495,11 +508,18 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
       return;
     }
 
-    const serviceId = req.query['serviceId'] as string | undefined;
-    if (!serviceId) {
-      res.status(400).json({ error: 'serviceId는 필수 파라미터입니다.' });
+    const serviceName = req.query['serviceName'] as string | undefined;
+    if (!serviceName) {
+      res.status(400).json({ error: 'serviceName은 필수 파라미터입니다. (서비스 코드, 예: nexus-coder)' });
       return;
     }
+
+    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    if (!service) {
+      res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
+      return;
+    }
+    const serviceId = service.id;
 
     const deptname = req.query['deptname'] as string | undefined;
     if (!deptname) {
@@ -549,7 +569,6 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
       const user = userMap.get(s.userId);
       return {
         rank: i + 1,
-        userId: s.userId,
         loginId: user?.loginid || 'unknown',
         username: user?.username || 'Unknown',
         deptname: user?.deptname || '',
@@ -958,7 +977,6 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const data = services.map(s => {
       const usage = usageMap.get(s.id) || { totalCallCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0 };
       const base = {
-        serviceId: s.id,
         name: s.name,
         displayName: s.displayName,
         description: s.description,

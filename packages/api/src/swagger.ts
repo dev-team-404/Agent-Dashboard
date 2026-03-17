@@ -18,12 +18,12 @@ const dateParam = (name: string, descEn: string, descKr: string, example: string
   schema: { type: 'string' as const, format: 'date' as const, example },
 });
 
-const serviceIdParam = (required: boolean) => ({
-  name: 'serviceId',
+const serviceNameParam = (required: boolean) => ({
+  name: 'serviceName',
   in: 'query' as const,
   required,
-  description: 'Service UUID. Retrieve from /stats/services (서비스 UUID. /stats/services 에서 조회 가능)',
-  schema: { type: 'string' as const, format: 'uuid' as const, example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' },
+  description: 'Service name (code). Retrieve from /stats/services (서비스 코드. /stats/services 의 name 필드 사용)',
+  schema: { type: 'string' as const, example: 'nexus-coder' },
 });
 
 const errorResponse = (desc: string, example?: string) => ({
@@ -57,7 +57,7 @@ export const swaggerSpec = {
       '- API call count = requestCount / API 호출 수 = requestCount\n\n' +
       '## Usage Flow (사용 흐름)\n' +
       '1. Query service ID list via `/stats/services` / `/stats/services` 로 서비스 ID 목록 조회\n' +
-      '2. Use the desired `serviceId` to query team/user usage / 원하는 `serviceId`를 이용하여 팀별/사용자별 사용량 조회\n',
+      '2. Use the desired `serviceName` to query team/user usage / 원하는 `serviceName`(서비스 코드)를 이용하여 팀별/사용자별 사용량 조회\n',
   },
   servers: [
     { url: '/api/public', description: 'Public Stats API (/api/public/stats/...)' },
@@ -71,12 +71,12 @@ export const swaggerSpec = {
       get: {
         summary: 'Deployed Service List (배포된 서비스 목록)',
         description:
-          'Returns ID, name, display name, type, status, and metadata of **deployed** services only (status=DEPLOYED).\n' +
-          '**배포 완료(status=DEPLOYED)** 상태인 서비스의 ID, 이름, 표시명, 타입, 메타데이터를 반환합니다.\n' +
+          'Returns name, display name, type, status, and metadata of **deployed** services only (status=DEPLOYED).\n' +
+          '**배포 완료(status=DEPLOYED)** 상태인 서비스의 이름, 표시명, 타입, 메타데이터를 반환합니다.\n' +
           'Services in DEVELOPMENT status are excluded.\n' +
           '개발 중(DEVELOPMENT) 상태의 서비스는 제외됩니다.\n\n' +
-          'Use this endpoint to retrieve the UUID needed for the `serviceId` parameter of other APIs.\n' +
-          '다른 API의 `serviceId` 파라미터에 사용할 UUID를 여기서 조회하세요.',
+          'Use the `name` field as the `serviceName` parameter for other APIs.\n' +
+          '다른 API의 `serviceName` 파라미터에 사용할 서비스 코드(`name`)를 여기서 조회하세요.',
         tags: ['Services (서비스)'],
         responses: {
           '200': {
@@ -146,7 +146,7 @@ export const swaggerSpec = {
         parameters: [
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
-          serviceIdParam(true),
+          serviceNameParam(true),
         ],
         responses: {
           '200': {
@@ -182,7 +182,7 @@ export const swaggerSpec = {
               },
             },
           },
-          '400': errorResponse('Invalid request (잘못된 요청)', 'serviceId is required. serviceId는 필수 파라미터입니다.'),
+          '400': errorResponse('Invalid request (잘못된 요청)', 'serviceName is required (e.g., nexus-coder). serviceName은 필수 파라미터입니다.'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
@@ -197,8 +197,8 @@ export const swaggerSpec = {
         description:
           'Returns token usage and API call count per team × service combination for **all services**.\n' +
           '**모든 서비스**에 대해 팀(부서) × 서비스 별 토큰 사용량과 API 호출 수를 반환합니다.\n\n' +
-          'Results are sorted by `deptname` in ascending order. Each row represents one `deptname + serviceId` combination.\n' +
-          '결과는 `deptname` 기준 오름차순 정렬되며, 각 행은 하나의 `deptname + serviceId` 조합입니다.\n\n' +
+          'Results are sorted by `deptname` in ascending order. Each row represents one `deptname + serviceName` combination.\n' +
+          '결과는 `deptname` 기준 오름차순 정렬되며, 각 행은 하나의 `deptname + serviceName` 조합입니다.\n\n' +
           'To view a specific service only, use `/stats/team-usage`.\n' +
           '특정 서비스만 보려면 `/stats/team-usage`를 사용하세요.',
         tags: ['Team Usage (팀별 사용량)'],
@@ -273,7 +273,7 @@ export const swaggerSpec = {
         parameters: [
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
-          serviceIdParam(true),
+          serviceNameParam(true),
           {
             name: 'topK',
             in: 'query',
@@ -299,7 +299,7 @@ export const swaggerSpec = {
                         type: 'object',
                         properties: {
                           rank: { type: 'integer', description: 'Rank, starting from 1 (순위, 1부터 시작)', example: 1 },
-                          userId: { type: 'string', format: 'uuid', description: 'User UUID (사용자 UUID)' },
+
                           loginId: { type: 'string', description: 'User login ID (employee number) (사용자 로그인 ID, 사번)', example: 'syngha.han' },
                           username: { type: 'string', description: 'User display name (사용자 이름)', example: '한승하' },
                           deptname: { type: 'string', description: 'Department name (부서명)', example: 'S/W혁신팀(S.LSI)' },
@@ -318,15 +318,15 @@ export const swaggerSpec = {
                   totalUsers: 42,
                   returnedCount: 5,
                   data: [
-                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
-                    { rank: 2, userId: 'uuid-2', loginId: 'young87.kim', username: '김영수', deptname: 'AI플랫폼팀(DS)', businessUnit: 'DS', totalInputTokens: 720000, totalOutputTokens: 350000, totalTokens: 1070000, requestCount: 1320 },
-                    { rank: 3, userId: 'uuid-3', loginId: 'jieun.park', username: '박지은', deptname: 'DevOps팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 600000, totalOutputTokens: 280000, totalTokens: 880000, requestCount: 950 },
+                    { rank: 1, loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
+                    { rank: 2, loginId: 'young87.kim', username: '김영수', deptname: 'AI플랫폼팀(DS)', businessUnit: 'DS', totalInputTokens: 720000, totalOutputTokens: 350000, totalTokens: 1070000, requestCount: 1320 },
+                    { rank: 3, loginId: 'jieun.park', username: '박지은', deptname: 'DevOps팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 600000, totalOutputTokens: 280000, totalTokens: 880000, requestCount: 950 },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid request (잘못된 요청)', 'serviceId is required. serviceId는 필수 파라미터입니다.'),
+          '400': errorResponse('Invalid request (잘못된 요청)', 'serviceName is required (e.g., nexus-coder). serviceName은 필수 파라미터입니다.'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
@@ -342,7 +342,7 @@ export const swaggerSpec = {
           'Returns the **top K users by token usage** for the specified service + department combination.\n' +
           '지정된 서비스 + 부서에서 **토큰 사용량 기준 상위 K명**의 사용자 정보와 사용량을 반환합니다.\n\n' +
           '## Parameters (파라미터 설명)\n' +
-          '- `serviceId`: Service UUID (required) / 서비스 UUID (필수)\n' +
+          '- `serviceName`: Service name/code (required) / 서비스 코드 (필수)\n' +
           '- `deptname`: Department name in **TeamName(BusinessUnit)** format (required). Example: `S/W혁신팀(S.LSI)`\n' +
           '  부서명, **팀명(사업부)** 형식 (필수). 예: `S/W혁신팀(S.LSI)`\n' +
           '- `topK`: Maximum number of users to return (default: 10, min: 1, max: 100)\n' +
@@ -363,7 +363,7 @@ export const swaggerSpec = {
         parameters: [
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
-          serviceIdParam(true),
+          serviceNameParam(true),
           {
             name: 'deptname',
             in: 'query',
@@ -397,7 +397,7 @@ export const swaggerSpec = {
                         type: 'object',
                         properties: {
                           rank: { type: 'integer', description: 'Rank, starting from 1 (순위, 1부터 시작)', example: 1 },
-                          userId: { type: 'string', format: 'uuid', description: 'User UUID (사용자 UUID)' },
+
                           loginId: { type: 'string', description: 'User login ID (employee number) (사용자 로그인 ID, 사번)', example: 'syngha.han' },
                           username: { type: 'string', description: 'User display name (사용자 이름)', example: '한승하' },
                           deptname: { type: 'string', description: 'Department name (부서명)', example: 'S/W혁신팀(S.LSI)' },
@@ -417,9 +417,9 @@ export const swaggerSpec = {
                   totalUsersInDept: 12,
                   returnedCount: 3,
                   data: [
-                    { rank: 1, userId: 'uuid-1', loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
-                    { rank: 2, userId: 'uuid-2', loginId: 'minjae.lee', username: '이민재', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 620000, totalOutputTokens: 310000, totalTokens: 930000, requestCount: 1120 },
-                    { rank: 3, userId: 'uuid-3', loginId: 'suji.choi', username: '최수지', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 480000, totalOutputTokens: 220000, totalTokens: 700000, requestCount: 890 },
+                    { rank: 1, loginId: 'syngha.han', username: '한승하', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 850000, totalOutputTokens: 420000, totalTokens: 1270000, requestCount: 1580 },
+                    { rank: 2, loginId: 'minjae.lee', username: '이민재', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 620000, totalOutputTokens: 310000, totalTokens: 930000, requestCount: 1120 },
+                    { rank: 3, loginId: 'suji.choi', username: '최수지', deptname: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', totalInputTokens: 480000, totalOutputTokens: 220000, totalTokens: 700000, requestCount: 890 },
                   ],
                 },
               },
