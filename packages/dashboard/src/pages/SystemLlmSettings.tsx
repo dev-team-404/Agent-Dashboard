@@ -274,6 +274,33 @@ export default function SystemLlmSettings() {
             <Check className="w-4 h-4" /> M/M 추적 LLM이 변경되었습니다.
           </div>
         )}
+
+        {/* AI 추정 수동 실행 — M/M 추적 카드 안 */}
+        {current.modelId && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-pastel-600">AI 추정 수동 실행</p>
+                <p className="text-xs text-pastel-400 mt-0.5">
+                  매일 자정(KST) 자동 실행. 전일 사용량 기반 서비스별 M/M 추정
+                </p>
+              </div>
+              <button
+                onClick={handleRun}
+                disabled={running}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                {running ? '실행 중...' : '지금 실행'}
+              </button>
+            </div>
+            {runResult && (
+              <div className="mt-3 p-2.5 bg-blue-50 rounded-lg border border-blue-100 text-xs text-blue-700">
+                처리: {runResult.processed}건 | 오류: {runResult.errors}건
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 에러 초도분석 LLM */}
@@ -440,39 +467,6 @@ export default function SystemLlmSettings() {
           <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-100 flex items-center gap-2 text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {logoError}
-          </div>
-        )}
-      </div>
-
-      {/* AI Estimation Manual Run */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
-        <h2 className="text-sm font-semibold text-pastel-700 mb-2">AI 추정 수동 실행</h2>
-        <p className="text-xs text-pastel-400 mb-4">
-          매일 자정(KST)에 자동 실행되지만, 즉시 실행할 수도 있습니다.
-          전일 사용량 데이터를 기반으로 서비스별 M/M 절감 효과를 추정합니다.
-        </p>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRun}
-            disabled={running || !current.modelId}
-            className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {running ? '추정 실행 중...' : '지금 실행'}
-          </button>
-
-          {!current.modelId && (
-            <span className="text-xs text-amber-600">시스템 LLM을 먼저 설정해주세요</span>
-          )}
-        </div>
-
-        {runResult && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <p className="text-sm text-blue-800 font-medium">실행 완료</p>
-            <p className="text-xs text-blue-600 mt-1">
-              처리: {runResult.processed}건 | 오류: {runResult.errors}건
-            </p>
           </div>
         )}
       </div>
