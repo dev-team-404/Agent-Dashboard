@@ -803,10 +803,31 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       return;
     }
 
+    // apiOnly 전환은 DEVELOPMENT 상태에서만 가능
+    if (validation.data.apiOnly !== undefined && validation.data.apiOnly !== existing.apiOnly) {
+      if (existing.status !== 'DEVELOPMENT') {
+        res.status(400).json({
+          error: 'API Only 전환은 개발중(DEVELOPMENT) 상태에서만 가능합니다. 먼저 배포 취소 후 변경하세요.',
+        });
+        return;
+      }
+    }
+
     const service = await prisma.service.update({
       where: { id },
       data: validation.data,
     });
+
+    // 변경 내역 감사 로그
+    const changedFields: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(validation.data)) {
+      if ((existing as Record<string, unknown>)[key] !== val) {
+        changedFields[key] = { from: (existing as Record<string, unknown>)[key], to: val };
+      }
+    }
+    if (Object.keys(changedFields).length > 0) {
+      recordAudit(req, 'UPDATE_SERVICE', id, 'Service', { name: service.name, changes: changedFields }).catch(() => {});
+    }
 
     res.json({ service: filterServiceHierarchy(service) });
   } catch (error) {

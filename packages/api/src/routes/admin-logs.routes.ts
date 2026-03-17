@@ -232,7 +232,8 @@ adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
       where.loginid = { contains: loginid as string, mode: 'insensitive' };
     }
     if (action) {
-      where.action = action as string;
+      const actions = (action as string).split(',').map(a => a.trim()).filter(Boolean);
+      where.action = actions.length === 1 ? actions[0] : { in: actions };
     }
     if (targetType) {
       where.targetType = targetType as string;

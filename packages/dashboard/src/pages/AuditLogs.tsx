@@ -36,30 +36,34 @@ function formatKST(dateStr: string): string {
 }
 
 const ACTION_OPTIONS = [
-  'CREATE_SERVICE',
-  'UPDATE_SERVICE',
-  'DELETE_SERVICE',
-  'DEPLOY_SERVICE',
-  'UPDATE_SERVICE_TARGET',
-  'ADD_MODEL',
-  'UPDATE_MODEL',
-  'REMOVE_MODEL',
-  'TOGGLE_MODEL',
-  'REORDER_MODELS',
-  'ADD_SUB_MODEL',
-  'UPDATE_SUB_MODEL',
-  'REMOVE_SUB_MODEL',
-  'PROMOTE_USER',
-  'DEMOTE_USER',
-  'DELETE_USER',
-  'SET_RATE_LIMIT',
-  'DELETE_RATE_LIMIT',
-  'SET_SERVICE_RATE_LIMIT',
-  'DELETE_SERVICE_RATE_LIMIT',
-  'CLEANUP_REQUEST_LOGS',
+  'CREATE_SERVICE', 'UPDATE_SERVICE', 'DELETE_SERVICE', 'DEPLOY_SERVICE', 'UNDEPLOY_SERVICE', 'COPY_SERVICE_MODELS',
+  'UPDATE_SERVICE_TARGET', 'RUN_AI_ESTIMATION',
+  'ADD_MODEL', 'UPDATE_MODEL', 'REMOVE_MODEL', 'TOGGLE_MODEL', 'REORDER_MODELS',
+  'ADD_SUB_MODEL', 'UPDATE_SUB_MODEL', 'REMOVE_SUB_MODEL',
+  'PROMOTE_USER', 'DEMOTE_USER', 'DEMOTE_TO_USER', 'DELETE_USER',
+  'KNOX_REGISTER_ADMIN', 'RESET_KNOX_VERIFICATION', 'APPROVE_ADMIN_REQUEST', 'REJECT_ADMIN_REQUEST',
+  'SET_RATE_LIMIT', 'DELETE_RATE_LIMIT', 'SET_SERVICE_RATE_LIMIT', 'DELETE_SERVICE_RATE_LIMIT',
+  'SUBMIT_EXTERNAL_USAGE',
+  'ENABLE_CONTENT_LOGGING', 'DISABLE_CONTENT_LOGGING', 'DELETE_LLM_LOG_CONTENT',
+  'CLEANUP_REQUEST_LOGS', 'UPDATE_SYSTEM_SETTING',
 ];
 
-const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog'];
+const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage'];
+
+// 활동 카테고리별 탭 정의
+const CATEGORY_TABS = [
+  { key: 'all', label: '전체', actions: '' },
+  { key: 'service', label: '서비스 관리', actions: 'CREATE_SERVICE,UPDATE_SERVICE,DELETE_SERVICE,DEPLOY_SERVICE,UNDEPLOY_SERVICE,COPY_SERVICE_MODELS' },
+  { key: 'targets', label: '서비스 목표', actions: 'UPDATE_SERVICE_TARGET,RUN_AI_ESTIMATION' },
+  { key: 'model', label: '모델 관리', actions: 'ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
+  { key: 'user', label: '사용자/권한', actions: 'PROMOTE_USER,DEMOTE_USER,DEMOTE_TO_USER,DELETE_USER,KNOX_REGISTER_ADMIN,RESET_KNOX_VERIFICATION,APPROVE_ADMIN_REQUEST,REJECT_ADMIN_REQUEST' },
+  { key: 'ratelimit', label: 'Rate Limit', actions: 'SET_RATE_LIMIT,DELETE_RATE_LIMIT,SET_SERVICE_RATE_LIMIT,DELETE_SERVICE_RATE_LIMIT' },
+  { key: 'external', label: '외부 사용 기록', actions: 'SUBMIT_EXTERNAL_USAGE' },
+  { key: 'content', label: '콘텐츠 로깅', actions: 'ENABLE_CONTENT_LOGGING,DISABLE_CONTENT_LOGGING,DELETE_LLM_LOG_CONTENT' },
+  { key: 'system', label: '시스템', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING' },
+] as const;
+
+type CategoryTab = typeof CATEGORY_TABS[number]['key'];
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
@@ -74,6 +78,16 @@ const ACTION_COLORS: Record<string, string> = {
   PROMOTE: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
   DEMOTE: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
   SET: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+  SUBMIT: 'bg-teal-50 text-teal-700 ring-1 ring-teal-200/80',
+  ENABLE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
+  DISABLE: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
+  COPY: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80',
+  RUN: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80',
+  APPROVE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
+  REJECT: 'bg-red-50 text-red-700 ring-1 ring-red-200/80',
+  RESET: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
+  KNOX: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80',
+  UNDEPLOY: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
 };
 
 function getActionColor(action: string): string {
@@ -86,9 +100,8 @@ export default function AuditLogs() {
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
 
-  // Quick filter tab
-  type QuickTab = 'all' | 'service-targets';
-  const [quickTab, setQuickTab] = useState<QuickTab>('all');
+  // Category tab
+  const [categoryTab, setCategoryTab] = useState<CategoryTab>('all');
 
   // Filters
   const [loginid, setLoginid] = useState('');
@@ -103,7 +116,7 @@ export default function AuditLogs() {
 
   useEffect(() => {
     loadLogs();
-  }, [pagination.page, action, targetType, startDate, endDate, quickTab]);
+  }, [pagination.page, action, targetType, startDate, endDate, categoryTab]);
 
   // Debounced loginid search
   useEffect(() => {
@@ -126,14 +139,14 @@ export default function AuditLogs() {
       };
       if (loginid) params.loginid = loginid;
 
-      // quickTab overrides action/targetType filters
-      if (quickTab === 'service-targets') {
-        params.action = 'UPDATE_SERVICE_TARGET';
-        params.targetType = 'ServiceTarget';
+      // categoryTab에 해당하는 action 필터 적용
+      const tabDef = CATEGORY_TABS.find(t => t.key === categoryTab);
+      if (tabDef && tabDef.actions) {
+        params.action = tabDef.actions;
       } else {
         if (action) params.action = action;
-        if (targetType) params.targetType = targetType;
       }
+      if (targetType) params.targetType = targetType;
 
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
@@ -146,7 +159,7 @@ export default function AuditLogs() {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, loginid, action, targetType, startDate, endDate, quickTab]);
+  }, [pagination.page, pagination.limit, loginid, action, targetType, startDate, endDate, categoryTab]);
 
   const toggleExpanded = (id: string) => {
     setExpandedRows(prev => {
@@ -161,7 +174,7 @@ export default function AuditLogs() {
   };
 
   const clearFilters = () => {
-    setQuickTab('all');
+    setCategoryTab('all');
     setLoginid('');
     setAction('');
     setTargetType('');
@@ -234,24 +247,21 @@ export default function AuditLogs() {
         </div>
       </div>
 
-      {/* Quick Filter Tabs */}
-      <div className="flex items-center gap-1 bg-white rounded-lg shadow-sm border border-gray-100/80 p-1">
-        {([
-          ['all', '전체 로그'],
-          ['service-targets', '서비스 목표 변경'],
-        ] as [QuickTab, string][]).map(([tab, label]) => (
+      {/* Category Tabs */}
+      <div className="flex items-center gap-1 bg-white rounded-lg shadow-sm border border-gray-100/80 p-1 overflow-x-auto">
+        {CATEGORY_TABS.map(({ key, label }) => (
           <button
-            key={tab}
+            key={key}
             onClick={() => {
-              setQuickTab(tab);
-              if (tab === 'service-targets') {
+              setCategoryTab(key);
+              if (key !== 'all') {
                 setAction('');
                 setTargetType('');
               }
               setPagination(prev => ({ ...prev, page: 1 }));
             }}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 ${
-              quickTab === tab
+            className={`px-3 py-2 text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap ${
+              categoryTab === key
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-800'
             }`}
@@ -302,10 +312,10 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">작업</label>
               <select
-                value={quickTab === 'service-targets' ? 'UPDATE_SERVICE_TARGET' : action}
+                value={categoryTab !== 'all' ? 'UPDATE_SERVICE_TARGET' : action}
                 onChange={e => { setAction(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
-                disabled={quickTab === 'service-targets'}
-                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${quickTab === 'service-targets' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                disabled={categoryTab !== 'all'}
+                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <option value="">전체</option>
                 {ACTION_OPTIONS.map(a => (
@@ -317,10 +327,10 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">대상 유형</label>
               <select
-                value={quickTab === 'service-targets' ? 'ServiceTarget' : targetType}
+                value={categoryTab !== 'all' ? 'ServiceTarget' : targetType}
                 onChange={e => { setTargetType(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
-                disabled={quickTab === 'service-targets'}
-                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${quickTab === 'service-targets' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                disabled={categoryTab !== 'all'}
+                className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <option value="">전체</option>
                 {TARGET_TYPE_OPTIONS.map(t => (

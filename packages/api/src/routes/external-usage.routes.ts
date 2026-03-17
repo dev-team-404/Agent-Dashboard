@@ -182,6 +182,32 @@ externalUsageRoutes.post('/daily', async (req: Request, res: Response) => {
       }
     }
 
+    // 5. 감사 로그 기록
+    const dates = data.map(d => d.date).sort();
+    const depts = [...new Set(data.map(d => d.deptName))];
+    try {
+      await prisma.auditLog.create({
+        data: {
+          loginid: `external:${service.name}`,
+          action: 'SUBMIT_EXTERNAL_USAGE',
+          target: service.id,
+          targetType: 'ExternalUsage',
+          details: JSON.parse(JSON.stringify({
+            serviceName: service.name,
+            serviceType: service.type,
+            recordCount: data.length,
+            upserted,
+            errors: errors.length,
+            dateRange: dates.length > 0 ? `${dates[0]} ~ ${dates[dates.length - 1]}` : '',
+            departments: depts,
+          })),
+          ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || null,
+        },
+      });
+    } catch (logErr) {
+      console.error('[AuditLog] Failed to record external usage:', logErr);
+    }
+
     res.json({
       success: true,
       service: { name: service.name, type: service.type, apiOnly: true },
