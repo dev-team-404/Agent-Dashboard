@@ -19,6 +19,8 @@ const AuditLogs = lazy(() => import('./pages/AuditLogs'));
 const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
 const ServiceTargets = lazy(() => import('./pages/ServiceTargets'));
 const SystemLlmSettings = lazy(() => import('./pages/SystemLlmSettings'));
+const AdminRequestPage = lazy(() => import('./pages/AdminRequestPage'));
+const AdminRequestsManage = lazy(() => import('./pages/AdminRequestsManage'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
@@ -122,6 +124,7 @@ function App() {
           <Route path="/my-services/:serviceId" element={<ServiceDetail user={user} adminRole={adminRole} />} />
           <Route path="/my-services/:serviceId/models" element={<ServiceModelConfig />} />
           <Route path="/my-usage" element={<MyUsage />} />
+          <Route path="/admin-request" element={<AdminRequestPage isAdmin={isAdmin} />} />
 
           {/* System Admin (ADMIN + SUPER_ADMIN) */}
           {isAdmin && (
@@ -130,6 +133,7 @@ function App() {
               <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} />} />
               <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service-targets" element={<ServiceTargets />} />
+              <Route path="/admin-requests-manage" element={<AdminRequestsManage />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
             </>

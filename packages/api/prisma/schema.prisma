@@ -280,6 +280,29 @@ model Admin {
 }
 
 // ============================================
+// 관리자 권한 신청
+// ============================================
+model AdminRequest {
+  id           String   @id @default(uuid())
+  loginid      String                                // 신청자
+  username     String   @default("")                  // 신청자 이름 (한글)
+  deptname     String   @default("")                  // 부서명
+  businessUnit String?  @map("business_unit")         // 사업부
+  titleName    String?  @map("title_name")            // 직급
+  reason       String   @db.Text                      // 신청 사유
+  status       String   @default("PENDING")           // PENDING / APPROVED / REJECTED
+  reviewedBy   String?  @map("reviewed_by")           // 처리한 관리자 loginid
+  reviewedAt   DateTime? @map("reviewed_at")          // 처리 일시
+  reviewNote   String?  @map("review_note") @db.Text  // 거부 사유 등
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([loginid])
+  @@index([status])
+  @@index([createdAt])
+  @@map("admin_requests")
+}
+
+// ============================================
 // 사용 로그 (개별 요청)
 // ============================================
 model UsageLog {

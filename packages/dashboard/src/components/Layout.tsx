@@ -46,6 +46,7 @@ const getUserNavItems = (adminRole: AdminRole) => [
   { path: '/services', label: '나에게 공개된 서비스', icon: Store },
   { path: '/my-services', label: adminRole ? '서비스 관리' : '내 서비스', icon: Wrench },
   { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
+  ...(!adminRole ? [{ path: '/admin-request', label: '관리자 권한 신청', icon: ShieldCheck }] : []),
 ];
 
 export default function Layout({ children, user, isAdmin, adminRole, onLogout }: LayoutProps) {
@@ -94,6 +95,8 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/my-usage') return '내 사용량';
     if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
     if (location.pathname === '/services') return '나에게 공개된 서비스';
+    if (location.pathname === '/admin-request') return '관리자 권한 신청';
+    if (location.pathname === '/admin-requests-manage') return '권한 신청 관리';
     if (location.pathname === '/system-llm') return '레지스트리 LLM 관리';
     if (location.pathname === '/request-logs') return '요청 로그';
     if (location.pathname === '/audit-logs') return '감사 로그';
@@ -183,6 +186,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
                 <NavLink path="/users" label="사용자 관리" icon={Users} />
                 <NavLink path="/service-targets" label="서비스 목표 관리" icon={Target} />
+                <NavLink path="/admin-requests-manage" label="권한 신청 관리" icon={ShieldCheck} />
               </div>
             </div>
           )}
