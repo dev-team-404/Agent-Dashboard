@@ -131,7 +131,6 @@ publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
 
     res.json({
       data: services.map((s) => ({
-        serviceId: s.id,
         name: s.name,
         displayName: s.displayName,
         description: s.description,
@@ -293,7 +292,6 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
       return {
         deptname: s.deptname,
         businessUnit: extractBusinessUnit(s.deptname),
-        serviceId: s.serviceId || null,
         serviceName: svc?.name || 'unknown',
         serviceDisplayName: svc?.displayName || 'Unknown',
         totalInputTokens: inputTokens,
@@ -723,7 +721,6 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const data = services.map(s => {
       const usage = usageMap.get(s.id) || { totalCallCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0 };
       const base = {
-        serviceId: s.id,
         name: s.name,
         displayName: s.displayName,
         description: s.description,

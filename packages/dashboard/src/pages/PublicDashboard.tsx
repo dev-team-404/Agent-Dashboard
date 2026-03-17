@@ -6,7 +6,6 @@ import { publicStatsApi } from '../services/api';
 // ── Types ──
 
 interface ServiceData {
-  serviceId: string;
   name: string;
   displayName: string;
   type: 'STANDARD' | 'BACKGROUND';
@@ -312,7 +311,7 @@ function MetricChart({ services, metric, rank }: {
             >
               {chartData.map((entry, i) => (
                 <Cell
-                  key={entry.serviceId}
+                  key={entry.name}
                   fill={entry.isEstimated ? `${BAR_COLORS[i % BAR_COLORS.length]}88` : BAR_COLORS[i % BAR_COLORS.length]}
                   stroke={entry.isEstimated ? BAR_COLORS[i % BAR_COLORS.length] : 'none'}
                   strokeWidth={entry.isEstimated ? 1.5 : 0}
