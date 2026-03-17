@@ -229,7 +229,7 @@ proxyRoutes.post(
 
           // Usage: Whisper 호환 API는 토큰 미반환 → 요청 건수 + latency로 추적
           recordUsage(user?.id || null, user?.loginid || null, model.id,
-            0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+            0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
 
           recordRequestLog({
             serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
@@ -573,7 +573,9 @@ async function recordUsage(
   outputTokens: number,
   serviceId: string,
   deptname: string | null,
-  latencyMs?: number
+  latencyMs?: number,
+  modelName?: string,
+  serviceName?: string
 ) {
   const totalTokens = inputTokens + outputTokens;
 
@@ -614,7 +616,7 @@ async function recordUsage(
     await trackActiveUser(redis, loginid);
   }
 
-  console.log(`[Usage] user=${loginid || 'background'}, model=${modelId}, service=${serviceId}, tokens=${totalTokens}, latency=${latencyMs || 'N/A'}ms`);
+  console.log(`[Usage] user=${loginid || 'background'}, model=${modelName || modelId}, service=${serviceName || serviceId}, tokens=${totalTokens}, latency=${latencyMs || 'N/A'}ms`);
 }
 
 /**
@@ -950,6 +952,24 @@ function isContextWindowExceededError(errorText: string): boolean {
   );
 }
 
+/**
+ * Context window 에러에서 input_tokens, context_length를 파싱하여 적정 max_tokens 계산
+ * 파싱 실패 시 null 반환 → max_tokens 제거 후 재시도 fallback
+ */
+function calcFittingMaxTokens(errorText: string): number | null {
+  // "You passed 47176 input tokens and requested 110073 output tokens.
+  //  However, the model's context length is only 157248 tokens"
+  const inputMatch = errorText.match(/passed\s+(\d+)\s+input.?tokens/i);
+  const contextMatch = errorText.match(/context.?length.+?(\d+)\s+tokens/i);
+  if (inputMatch && contextMatch) {
+    const inputTokens = parseInt(inputMatch[1]!, 10);
+    const contextLength = parseInt(contextMatch[1]!, 10);
+    const fitted = contextLength - inputTokens - 1; // 1토큰 여유
+    return fitted > 0 ? fitted : null;
+  }
+  return null;
+}
+
 function logLLMError(
   context: string, url: string, status: number, errorBody: string,
   requestBody: any, loginid: string, model: { name: string }, serviceId: string
@@ -1005,15 +1025,22 @@ async function handleNonStreamingRequest(
         const errorText = await response.text();
         logLLMError('Non-Streaming', url, response.status, errorText, requestBody, loginid, model, proxyReq.serviceId);
 
-        // Context window 초과 재시도
+        // Context window 초과 재시도: 에러에서 적정 max_tokens 계산 후 재시도
         if (response.status === 400 && isContextWindowExceededError(errorText) && (requestBody.max_tokens || requestBody.max_completion_tokens)) {
           const { max_tokens: _mt, max_completion_tokens: _mct, ...bodyWithoutMaxTokens } = requestBody;
+          const fittedMaxTokens = calcFittingMaxTokens(errorText);
+          const retryBody = fittedMaxTokens
+            ? { ...bodyWithoutMaxTokens, max_tokens: fittedMaxTokens }
+            : bodyWithoutMaxTokens;
+          if (fittedMaxTokens) {
+            console.log(`[Proxy] Context window exceeded → retrying with max_tokens=${fittedMaxTokens} (was ${requestBody.max_tokens || requestBody.max_completion_tokens})`);
+          }
           try {
             const retryController = new AbortController();
             const retryTimeoutId = setTimeout(() => retryController.abort(), REQUEST_TIMEOUT_MS);
             const retryResponse = await fetch(url, {
               method: 'POST', headers,
-              body: JSON.stringify(bodyWithoutMaxTokens),
+              body: JSON.stringify(retryBody),
               signal: retryController.signal,
             });
             clearTimeout(retryTimeoutId);
@@ -1024,7 +1051,7 @@ async function handleNonStreamingRequest(
               if (data.usage) {
                 recordUsage(user?.id || null, user?.loginid || null, model.id,
                   data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0,
-                  proxyReq.serviceId, proxyReq.deptName, retryLatencyMs).catch(console.error);
+                  proxyReq.serviceId, proxyReq.deptName, retryLatencyMs, model.name, proxyReq.serviceName).catch(console.error);
               }
               res.json(data);
               return true;
@@ -1054,7 +1081,7 @@ async function handleNonStreamingRequest(
       if (data.usage) {
         recordUsage(user?.id || null, user?.loginid || null, model.id,
           data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0,
-          proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+          proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
         recordRequestLog({
           serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
           modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
@@ -1120,9 +1147,16 @@ async function handleStreamingRequest(
         if (isContextWindowExceededError(errorText) && (requestBody.max_tokens || requestBody.max_completion_tokens)) {
           contextWindowRetried = true;
           const { max_tokens: _mt, max_completion_tokens: _mct, stream_options: _so, ...bodyWithoutMaxTokens } = requestBody;
+          const fittedMaxTokens = calcFittingMaxTokens(errorText);
+          const retryBody = fittedMaxTokens
+            ? { ...bodyWithoutMaxTokens, max_tokens: fittedMaxTokens, stream: true }
+            : { ...bodyWithoutMaxTokens, stream: true };
+          if (fittedMaxTokens) {
+            console.log(`[Proxy] Context window exceeded → retrying stream with max_tokens=${fittedMaxTokens} (was ${requestBody.max_tokens || requestBody.max_completion_tokens})`);
+          }
           response = await fetch(url, {
             method: 'POST', headers,
-            body: JSON.stringify({ ...bodyWithoutMaxTokens, stream: true }),
+            body: JSON.stringify(retryBody),
             signal: controller.signal,
           });
         } else {
@@ -1145,12 +1179,19 @@ async function handleStreamingRequest(
 
       if (!contextWindowRetried && response.status === 400 && isContextWindowExceededError(errorText) && (requestBody.max_tokens || requestBody.max_completion_tokens)) {
         const { max_tokens: _mt, max_completion_tokens: _mct, ...bodyWithoutMaxTokens } = requestBody;
+        const fittedMaxTokens = calcFittingMaxTokens(errorText);
+        const retryBody = fittedMaxTokens
+          ? { ...bodyWithoutMaxTokens, max_tokens: fittedMaxTokens, stream: true }
+          : { ...bodyWithoutMaxTokens, stream: true };
+        if (fittedMaxTokens) {
+          console.log(`[Proxy] Context window exceeded → retrying stream with max_tokens=${fittedMaxTokens} (was ${requestBody.max_tokens || requestBody.max_completion_tokens})`);
+        }
         try {
           const retryController = new AbortController();
           const retryTimeoutId = setTimeout(() => retryController.abort(), REQUEST_TIMEOUT_MS);
           const retryResponse = await fetch(url, {
             method: 'POST', headers,
-            body: JSON.stringify({ ...bodyWithoutMaxTokens, stream: true }),
+            body: JSON.stringify(retryBody),
             signal: retryController.signal,
           });
           clearTimeout(retryTimeoutId);
@@ -1230,7 +1271,7 @@ async function handleStreamingRequest(
     if (usageData) {
       recordUsage(user?.id || null, user?.loginid || null, model.id,
         usageData.prompt_tokens || 0, usageData.completion_tokens || 0,
-        proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+        proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
     }
     recordRequestLog({
       serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
@@ -1401,7 +1442,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
 
         if (inputTokens > 0) {
           recordUsage(user?.id || null, user?.loginid || null, model.id,
-            inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+            inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
         }
 
         recordRequestLog({
@@ -1601,7 +1642,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
 
         if (inputTokens > 0) {
           recordUsage(user?.id || null, user?.loginid || null, model.id,
-            inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+            inputTokens, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
         }
 
         recordRequestLog({
@@ -1762,7 +1803,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
 
         // Usage 기록 (이미지는 토큰 0, 요청 횟수만 트래킹)
         recordUsage(user?.id || null, user?.loginid || null, model.id,
-          0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs).catch(console.error);
+          0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
 
         recordRequestLog({
           serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
