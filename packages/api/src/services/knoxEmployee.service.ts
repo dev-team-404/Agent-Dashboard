@@ -123,6 +123,62 @@ export async function lookupEmployee(loginid: string): Promise<KnoxEmployee | nu
 }
 
 /**
+ * Knox API로 임직원 일괄 조회 (최대 100명)
+ * userIds를 콤마로 구분하여 한 번의 API 호출로 여러 명 조회
+ * @returns Map<loginid, KnoxEmployee> (재직/휴직 상태인 직원만)
+ */
+export async function lookupEmployeesBatch(loginids: string[]): Promise<Map<string, KnoxEmployee>> {
+  const result = new Map<string, KnoxEmployee>();
+
+  if (!KNOX_SYSTEM_ID || !KNOX_AUTH_TOKEN) {
+    console.warn('[Knox] API credentials not configured (KNOX_SYSTEM_ID / KNOX_AUTH_TOKEN)');
+    return result;
+  }
+
+  if (loginids.length === 0) return result;
+
+  // Knox API 한 번에 최대 100명
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < loginids.length; i += BATCH_SIZE) {
+    const batch = loginids.slice(i, i + BATCH_SIZE);
+    try {
+      const userIdsParam = batch.map(id => encodeURIComponent(id)).join(',');
+      const url = `${KNOX_API_URL}/employees?companyCode=${KNOX_COMPANY_CODE}&userIds=${userIdsParam}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'System-ID': KNOX_SYSTEM_ID,
+          'Authorization': `Bearer ${KNOX_AUTH_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resultType: 'basic' }),
+      });
+
+      if (!response.ok) {
+        console.error(`[Knox Batch] API returned ${response.status}: ${response.statusText}`);
+        continue;
+      }
+
+      const data = await response.json() as KnoxApiResponse;
+
+      if (data.result !== 'success' || !data.employees) continue;
+
+      for (const emp of data.employees) {
+        // 재직(B) 또는 휴직(V) 상태만 허용
+        if (emp.employeeStatus === 'B' || emp.employeeStatus === 'V') {
+          result.set(emp.userId, emp);
+        }
+      }
+    } catch (error) {
+      console.error(`[Knox Batch] API call failed for batch starting at index ${i}:`, error);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Knox 조직도 API로 부서 정보 조회
  */
 export async function lookupOrganization(departmentCode: string): Promise<KnoxOrganization | null> {

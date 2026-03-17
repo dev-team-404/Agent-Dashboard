@@ -656,6 +656,87 @@ export const swaggerSpec = {
       },
       // GET 제거: API Only 데이터는 기존 /stats/dau-mau, /stats/team-usage 등에 자동 합산
     },
+    '/external-usage/by-user': {
+      post: {
+        summary: 'Submit Usage by User (사용자별 사용 기록 전송) — 권장',
+        description:
+          '**Knox ID(사번 아이디) 기반** 사용자별 사용 기록을 전송합니다.\n\n' +
+          '프록시 서비스와 **동일한 테이블(DailyUsageStat)** 에 기록되어 ' +
+          '통합 대시보드 사용자 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.\n\n' +
+          '## 기존 /daily 대비 장점\n' +
+          '| | `/daily` (레거시) | `/by-user` (권장) |\n' +
+          '|---|---|---|\n' +
+          '| 단위 | 팀(부서) | 사용자(Knox ID) |\n' +
+          '| 중복제거 | 불가 | 가능 |\n' +
+          '| Top K Users | 미반영 | 반영 |\n' +
+          '| 부서 정보 | 외부 서비스가 직접 전달 | Knox API에서 자동 조회 |\n\n' +
+          '## 흐름\n' +
+          '1. `userId`(Knox ID) → DB User 조회\n' +
+          '2. 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +
+          '3. `modelName` → ServiceModel alias 매칭 → Model.name fallback\n' +
+          '4. DailyUsageStat upsert (date, userId, modelId, serviceId)\n' +
+          '5. UserService upsert (user-service 관계 추적)\n',
+        tags: ['External Usage (API Only 사용 기록)'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['serviceId', 'data'],
+                properties: {
+                  serviceId: { type: 'string', description: 'Service name (서비스 이름)', example: 'my-api-service' },
+                  data: {
+                    type: 'array',
+                    description: 'Array of per-user daily usage records (사용자별 일별 사용 기록 배열, 최대 5000건)',
+                    items: {
+                      type: 'object',
+                      required: ['date', 'userId', 'modelName', 'requestCount', 'totalInputTokens', 'totalOutputTokens'],
+                      properties: {
+                        date: { type: 'string', format: 'date', description: 'Usage date (YYYY-MM-DD)', example: '2026-03-15' },
+                        userId: { type: 'string', description: 'Knox login ID (사번 아이디)', example: 'hong.gildong' },
+                        modelName: { type: 'string', description: 'Model alias or name (모델 alias 또는 이름)', example: 'gpt-4o' },
+                        requestCount: { type: 'integer', description: 'Total request count for this user/model/date', example: 50 },
+                        totalInputTokens: { type: 'integer', description: 'Total input tokens', example: 100000 },
+                        totalOutputTokens: { type: 'integer', description: 'Total output tokens', example: 50000 },
+                      },
+                    },
+                  },
+                },
+              },
+              example: {
+                serviceId: 'my-api-service',
+                data: [
+                  { date: '2026-03-15', userId: 'hong.gildong', modelName: 'gpt-4o', requestCount: 50, totalInputTokens: 100000, totalOutputTokens: 50000 },
+                  { date: '2026-03-15', userId: 'kim.chulsu', modelName: 'gpt-4o', requestCount: 30, totalInputTokens: 60000, totalOutputTokens: 30000 },
+                  { date: '2026-03-16', userId: 'hong.gildong', modelName: 'claude-sonnet', requestCount: 20, totalInputTokens: 40000, totalOutputTokens: 20000 },
+                ],
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Usage records saved (사용 기록 저장 완료)',
+            content: {
+              'application/json': {
+                example: {
+                  success: true,
+                  service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
+                  result: { total: 3, upserted: 3, skipped: 0, errors: 0 },
+                  users: { total: 2, resolved: 2, failed: 0 },
+                  models: { total: 2, resolved: 2, failed: 0 },
+                },
+              },
+            },
+          },
+          '400': errorResponse('Invalid request body (잘못된 요청 본문)'),
+          '403': errorResponse('Service is not API Only', 'Service "my-service" is not an API Only service.'),
+          '404': errorResponse('Service not found', 'Service "my-service" not found.'),
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
   },
 };
 
