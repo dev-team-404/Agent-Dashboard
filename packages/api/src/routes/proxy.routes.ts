@@ -885,13 +885,22 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
         }
       }
 
-      const llmRequestBody = {
+      const llmRequestBody: Record<string, unknown> = {
         ...(endpoint.extraBody || {}),
         model: endpoint.modelName,
         messages,
         stream: stream || false,
         ...otherParams,
       };
+
+      // 클라이언트가 max_tokens를 보내지 않으면 기본값 주입
+      // (일부 LLM 백엔드가 미지정 시 전체 context window를 output에 할당하여 400 발생 방지)
+      // 상한 32768: 에이전트 응답은 대부분 수천 토큰이므로 충분하며, 나머지를 입력 공간으로 확보
+      if (!llmRequestBody.max_tokens && !llmRequestBody.max_completion_tokens && model.maxTokens) {
+        const defaultMaxTokens = Math.min(Math.floor(model.maxTokens * 0.7), 32768);
+        llmRequestBody.max_tokens = defaultMaxTokens;
+        console.log(`[Proxy] Injected max_tokens=${defaultMaxTokens} (model context=${model.maxTokens})`);
+      }
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (endpoint.apiKey) headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
