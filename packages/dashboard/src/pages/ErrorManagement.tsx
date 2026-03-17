@@ -131,10 +131,19 @@ export default function ErrorManagement() {
 
   const loadModels = async () => {
     try {
-      const res = await api.get('/admin/models');
-      const chatModels = (res.data.models || []).filter((m: LlmModel) => m.type === 'CHAT');
+      const [modelsRes, settingRes] = await Promise.all([
+        api.get('/admin/models'),
+        api.get('/admin/system-settings/system-llm'),
+      ]);
+      const chatModels = (modelsRes.data.models || []).filter((m: LlmModel) => m.type === 'CHAT');
       setModels(chatModels);
-      if (chatModels.length > 0 && !selectedModel) setSelectedModel(chatModels[0].id);
+      // 시스템 설정된 에러 분석 LLM을 기본값으로
+      const errSetting = (settingRes.data.settings || []).find((s: { key: string }) => s.key === 'ERROR_ANALYSIS_LLM_MODEL_ID');
+      if (errSetting?.modelId) {
+        setSelectedModel(errSetting.modelId);
+      } else if (chatModels.length > 0 && !selectedModel) {
+        setSelectedModel(chatModels[0].id);
+      }
     } catch { /* ignore */ }
   };
 
