@@ -110,6 +110,7 @@ publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
         displayName: true,
         description: true,
         type: true,
+        apiOnly: true,
         status: true,
         enabled: true,
         targetMM: true,
@@ -135,6 +136,7 @@ publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
         displayName: s.displayName,
         description: s.description,
         type: s.type,
+        apiOnly: s.apiOnly,
         status: s.status,
         enabled: s.enabled,
         targetMM: s.targetMM,
@@ -208,19 +210,57 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
       }
     }
 
-    const data = stats.map((s) => {
-      const inputTokens = s._sum.totalInputTokens ?? 0;
-      const outputTokens = s._sum.totalOutputTokens ?? 0;
-      return {
-        deptname: s.deptname,
-        businessUnit: extractBusinessUnit(s.deptname),
-        totalInputTokens: inputTokens,
-        totalOutputTokens: outputTokens,
-        totalTokens: inputTokens + outputTokens,
+    // 외부 사용 데이터 (API Only 서비스)도 팀별로 합산
+    const extStats = await prisma.externalDailyUsage.groupBy({
+      by: ['deptName'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+        serviceId,
+      },
+      _sum: {
+        totalInputTokens: true,
+        totalOutputTokens: true,
+        llmRequestCount: true,
+        dailyActiveUsers: true,
+      },
+    });
+
+    // 프록시 + 외부 데이터 합산
+    const mergedMap = new Map<string, { inputTokens: number; outputTokens: number; requestCount: number; uniqueUsers: number }>();
+    for (const s of stats) {
+      mergedMap.set(s.deptname, {
+        inputTokens: s._sum.totalInputTokens ?? 0,
+        outputTokens: s._sum.totalOutputTokens ?? 0,
         requestCount: s._sum.requestCount ?? 0,
         uniqueUsers: deptUserMap.get(s.deptname)?.size ?? 0,
-      };
-    });
+      });
+    }
+    for (const e of extStats) {
+      const existing = mergedMap.get(e.deptName);
+      if (existing) {
+        existing.inputTokens += e._sum.totalInputTokens ?? 0;
+        existing.outputTokens += e._sum.totalOutputTokens ?? 0;
+        existing.requestCount += e._sum.llmRequestCount ?? 0;
+        existing.uniqueUsers += e._sum.dailyActiveUsers ?? 0;
+      } else {
+        mergedMap.set(e.deptName, {
+          inputTokens: e._sum.totalInputTokens ?? 0,
+          outputTokens: e._sum.totalOutputTokens ?? 0,
+          requestCount: e._sum.llmRequestCount ?? 0,
+          uniqueUsers: e._sum.dailyActiveUsers ?? 0,
+        });
+      }
+    }
+
+    const data = Array.from(mergedMap.entries()).map(([dept, v]) => ({
+      deptname: dept,
+      businessUnit: extractBusinessUnit(dept),
+      totalInputTokens: v.inputTokens,
+      totalOutputTokens: v.outputTokens,
+      totalTokens: v.inputTokens + v.outputTokens,
+      requestCount: v.requestCount,
+      uniqueUsers: v.uniqueUsers,
+    })).sort((a, b) => a.deptname.localeCompare(b.deptname));
 
     res.json({ data });
   } catch (err) {
@@ -514,7 +554,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       where: { status: 'DEPLOYED' },
       select: {
         id: true, name: true, displayName: true, description: true,
-        type: true, status: true, enabled: true, iconUrl: true,
+        type: true, apiOnly: true, status: true, enabled: true, iconUrl: true,
         targetMM: true, savedMM: true, serviceCategory: true, standardMD: true,
         jiraTicket: true, serviceUrl: true, docsUrl: true,
         registeredBy: true, registeredByDept: true,
@@ -524,6 +564,11 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       orderBy: { name: 'asc' },
     });
 
+    // 프록시 기반 서비스 (apiOnly=false)와 API Only 서비스 분리
+    const proxyStandardIds = services.filter(s => s.type === 'STANDARD' && !s.apiOnly).map(s => s.id);
+    const proxyBackgroundIds = services.filter(s => s.type === 'BACKGROUND' && !s.apiOnly).map(s => s.id);
+    const apiOnlyStdIds = services.filter(s => s.type === 'STANDARD' && s.apiOnly).map(s => s.id);
+    const apiOnlyBgIds = services.filter(s => s.type === 'BACKGROUND' && s.apiOnly).map(s => s.id);
     const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
     const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
 
@@ -601,11 +646,49 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       `,
     ]);
 
-    const avgCallsPerDay = baselineDailyCalls[0]?.avg_daily_calls || 0;
-    const avgDau = baselineDailyDau[0]?.avg_daily_dau || 0;
+    // API Only STANDARD 외부 데이터를 baseline에 포함
+    let extStdAvgDau = 0;
+    let extStdAvgCalls = 0;
+    let extStdTotalCalls = 0;
+    let extStdMau = 0;
+    if (apiOnlyStdIds.length > 0) {
+      const [extDailyStats, extMonthlyStats] = await Promise.all([
+        prisma.$queryRaw<Array<{ avg_daily_dau: number; avg_daily_calls: number }>>`
+          WITH daily AS (
+            SELECT date as d,
+                   COALESCE(SUM(daily_active_users), 0) as dau,
+                   COALESCE(SUM(llm_request_count), 0) as calls
+            FROM external_daily_usage
+            WHERE date >= ${baselineStart} AND date <= ${baselineEnd}
+              AND service_id::text = ANY(${apiOnlyStdIds})
+              AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+            GROUP BY date
+          )
+          SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau,
+                 COALESCE(AVG(calls), 0)::float as avg_daily_calls
+          FROM daily
+        `,
+        prisma.$queryRaw<Array<{ total_calls: bigint; total_dau: bigint }>>`
+          SELECT COALESCE(SUM(llm_request_count), 0) as total_calls,
+                 COALESCE(SUM(daily_active_users), 0) as total_dau
+          FROM external_daily_usage
+          WHERE date >= ${baselineStart} AND date <= ${baselineEnd}
+            AND service_id::text = ANY(${apiOnlyStdIds})
+        `,
+      ]);
+      extStdAvgDau = extDailyStats[0]?.avg_daily_dau || 0;
+      extStdAvgCalls = extDailyStats[0]?.avg_daily_calls || 0;
+      extStdTotalCalls = Number(extMonthlyStats[0]?.total_calls || 0);
+      // API Only는 개별 사용자 추적 불가하므로 DAU 합계를 MAU 근사치로 사용
+      extStdMau = Number(extMonthlyStats[0]?.total_dau || 0);
+    }
+
+    const avgCallsPerDay = (baselineDailyCalls[0]?.avg_daily_calls || 0) + extStdAvgCalls;
+    const avgDau = (baselineDailyDau[0]?.avg_daily_dau || 0) + extStdAvgDau;
     const callsPerPersonPerDay = avgDau > 0 ? avgCallsPerDay / avgDau : 0;
-    const totalCalls = Number(baselineMonthly[0]?.total_calls || 0);
-    const baseMau = Number(baselineMonthly[0]?.mau || 0);
+    const totalCalls = Number(baselineMonthly[0]?.total_calls || 0) + extStdTotalCalls;
+    const baseMau = Number(baselineMonthly[0]?.mau || 0) + extStdMau;
     const callsPerPersonPerMonth = baseMau > 0 ? totalCalls / baseMau : 0;
 
     // BACKGROUND services: get calls in the requested month
@@ -694,6 +777,103 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       totalTokens: Number(r.total_input_tokens) + Number(r.total_output_tokens),
     }]));
 
+    // API Only 서비스의 외부 사용 데이터 (서비스별 집계)
+    const apiOnlyAllIds = [...apiOnlyStdIds, ...apiOnlyBgIds];
+    if (apiOnlyAllIds.length > 0) {
+      const extUsageResult = await prisma.$queryRaw<
+        Array<{ service_id: string; total_calls: bigint; total_input: bigint; total_output: bigint }>
+      >`
+        SELECT service_id::text as service_id,
+               COALESCE(SUM(llm_request_count), 0) as total_calls,
+               COALESCE(SUM(total_input_tokens), 0) as total_input,
+               COALESCE(SUM(total_output_tokens), 0) as total_output
+        FROM external_daily_usage
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id::text = ANY(${apiOnlyAllIds})
+        GROUP BY service_id
+      `;
+      for (const r of extUsageResult) {
+        const existing = usageMap.get(r.service_id);
+        const tc = Number(r.total_calls);
+        const ti = Number(r.total_input);
+        const to2 = Number(r.total_output);
+        if (existing) {
+          existing.totalCallCount += tc;
+          existing.totalInputTokens += ti;
+          existing.totalOutputTokens += to2;
+          existing.totalTokens += ti + to2;
+        } else {
+          usageMap.set(r.service_id, { totalCallCount: tc, totalInputTokens: ti, totalOutputTokens: to2, totalTokens: ti + to2 });
+        }
+      }
+    }
+
+    // API Only STANDARD 서비스의 DAU/MAU
+    const extStdDauMap = new Map<string, number>();
+    const extStdMauMap = new Map<string, number>();
+    if (apiOnlyStdIds.length > 0) {
+      const extDauResult = await prisma.$queryRaw<
+        Array<{ service_id: string; avg_dau: number }>
+      >`
+        WITH daily AS (
+          SELECT service_id::text as service_id, date as d,
+                 COALESCE(SUM(daily_active_users), 0) as dau
+          FROM external_daily_usage
+          WHERE date >= ${startDate} AND date <= ${endDate}
+            AND service_id::text = ANY(${apiOnlyStdIds})
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+          GROUP BY service_id, date
+        )
+        SELECT service_id, COALESCE(AVG(dau), 0)::float as avg_dau FROM daily GROUP BY service_id
+      `;
+      for (const r of extDauResult) extStdDauMap.set(r.service_id, Math.round(r.avg_dau));
+
+      // MAU 근사: 월간 평균 DAU (개별 사용자 추적 불가)
+      const extMauResult = await prisma.$queryRaw<
+        Array<{ service_id: string; max_dau: bigint }>
+      >`
+        SELECT service_id::text as service_id,
+               COALESCE(MAX(daily_active_users), 0) as max_dau
+        FROM external_daily_usage
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id::text = ANY(${apiOnlyStdIds})
+        GROUP BY service_id
+      `;
+      for (const r of extMauResult) extStdMauMap.set(r.service_id, Number(r.max_dau));
+    }
+
+    // API Only BACKGROUND 서비스의 일별/월별 호출 수 (역산용)
+    const extBgDailyMap = new Map<string, number>();
+    const extBgMonthlyMap = new Map<string, number>();
+    if (apiOnlyBgIds.length > 0) {
+      const [extBgDaily, extBgMonthly] = await Promise.all([
+        prisma.$queryRaw<Array<{ service_id: string; avg_daily_calls: number }>>`
+          WITH daily AS (
+            SELECT service_id::text as service_id, date as d,
+                   COALESCE(SUM(llm_request_count), 0) as cnt
+            FROM external_daily_usage
+            WHERE date >= ${startDate} AND date <= ${endDate}
+              AND service_id::text = ANY(${apiOnlyBgIds})
+              AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+            GROUP BY service_id, date
+          )
+          SELECT service_id, COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily GROUP BY service_id
+        `,
+        prisma.$queryRaw<Array<{ service_id: string; total_calls: bigint }>>`
+          SELECT service_id::text as service_id,
+                 COALESCE(SUM(llm_request_count), 0) as total_calls
+          FROM external_daily_usage
+          WHERE date >= ${startDate} AND date <= ${endDate}
+            AND service_id::text = ANY(${apiOnlyBgIds})
+          GROUP BY service_id
+        `,
+      ]);
+      for (const r of extBgDaily) extBgDailyMap.set(r.service_id, r.avg_daily_calls);
+      for (const r of extBgMonthly) extBgMonthlyMap.set(r.service_id, Number(r.total_calls));
+    }
+
     // Build lookup maps
     const stdDauMap = new Map(standardDauResult.map(r => [r.service_id, Math.round(r.avg_dau)]));
     const stdMauMap = new Map(standardMauResult.map(r => [r.service_id, Number(r.mau)]));
@@ -709,14 +889,26 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       for (const dailyCalls of bgDailyMap.values()) {
         totalBgEstimatedDau += Math.round(dailyCalls / callsPerPersonPerDay);
       }
+      // API Only BACKGROUND도 포함
+      for (const dailyCalls of extBgDailyMap.values()) {
+        totalBgEstimatedDau += Math.round(dailyCalls / callsPerPersonPerDay);
+      }
     }
     if (callsPerPersonPerMonth > 0) {
       for (const monthlyCalls of bgMonthlyMap.values()) {
         totalBgEstimatedMau += Math.round(monthlyCalls / callsPerPersonPerMonth);
       }
+      for (const monthlyCalls of extBgMonthlyMap.values()) {
+        totalBgEstimatedMau += Math.round(monthlyCalls / callsPerPersonPerMonth);
+      }
     }
-    const overallAvgDailyDAU = Math.round(avgDau) + totalBgEstimatedDau;
-    const overallMAU = baseMau + totalBgEstimatedMau;
+    // API Only STANDARD의 DAU/MAU도 overall에 합산
+    let totalExtStdDau = 0;
+    let totalExtStdMau = 0;
+    for (const dau of extStdDauMap.values()) totalExtStdDau += dau;
+    for (const mau of extStdMauMap.values()) totalExtStdMau += mau;
+    const overallAvgDailyDAU = Math.round(avgDau) + totalBgEstimatedDau + totalExtStdDau;
+    const overallMAU = baseMau + totalBgEstimatedMau + totalExtStdMau;
 
     const data = services.map(s => {
       const usage = usageMap.get(s.id) || { totalCallCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0 };
@@ -725,6 +917,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         displayName: s.displayName,
         description: s.description,
         type: s.type,
+        apiOnly: s.apiOnly,
         status: s.status,
         enabled: s.enabled,
         iconUrl: s.iconUrl,
@@ -746,15 +939,23 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       };
 
       if (s.type === 'STANDARD') {
+        // API Only STANDARD: ExternalDailyUsage에서 DAU 가져옴
+        const dau = s.apiOnly
+          ? (extStdDauMap.get(s.id) || 0)
+          : (stdDauMap.get(s.id) || 0);
+        const mau = s.apiOnly
+          ? (extStdMauMap.get(s.id) || 0)
+          : (stdMauMap.get(s.id) || 0);
         return {
           ...base,
-          dau: stdDauMap.get(s.id) || 0,
-          mau: stdMauMap.get(s.id) || 0,
+          dau,
+          mau,
           isEstimated: false,
         };
       } else {
-        const dailyCalls = bgDailyMap.get(s.id) || 0;
-        const monthlyCalls = bgMonthlyMap.get(s.id) || 0;
+        // BACKGROUND: 프록시 + 외부 데이터 합산 후 역산
+        const dailyCalls = (bgDailyMap.get(s.id) || 0) + (extBgDailyMap.get(s.id) || 0);
+        const monthlyCalls = (bgMonthlyMap.get(s.id) || 0) + (extBgMonthlyMap.get(s.id) || 0);
         return {
           ...base,
           dau: callsPerPersonPerDay > 0 ? Math.round(dailyCalls / callsPerPersonPerDay) : 0,
@@ -792,13 +993,41 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       }
     }
 
-    // BACKGROUND 서비스별 추정 DAU
+    // BACKGROUND 서비스별 추정 DAU (프록시)
     if (callsPerPersonPerDay > 0) {
       for (const row of bgDailyCallRows) {
         const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
         if (!dailyDauMap.has(dateStr)) dailyDauMap.set(dateStr, {});
         const displayName = serviceDisplayMap.get(row.service_id) || row.service_id;
         dailyDauMap.get(dateStr)![displayName] = Math.round(Number(row.cnt) / callsPerPersonPerDay);
+      }
+    }
+
+    // API Only 서비스별 일별 DAU 차트 데이터
+    if (apiOnlyAllIds.length > 0) {
+      const extDailyDauRows = await prisma.$queryRaw<
+        Array<{ service_id: string; d: Date | string; dau: bigint; calls: bigint }>
+      >`
+        SELECT service_id::text as service_id, date as d,
+               COALESCE(SUM(daily_active_users), 0) as dau,
+               COALESCE(SUM(llm_request_count), 0) as calls
+        FROM external_daily_usage
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id::text = ANY(${apiOnlyAllIds})
+        GROUP BY service_id, date
+        ORDER BY date ASC
+      `;
+      const serviceApiOnlyMap = new Map(services.filter(s => s.apiOnly).map(s => [s.id, s]));
+      for (const row of extDailyDauRows) {
+        const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+        if (!dailyDauMap.has(dateStr)) dailyDauMap.set(dateStr, {});
+        const svc = serviceApiOnlyMap.get(row.service_id);
+        const displayName = svc?.displayName || row.service_id;
+        if (svc?.type === 'STANDARD') {
+          dailyDauMap.get(dateStr)![displayName] = Number(row.dau);
+        } else if (callsPerPersonPerDay > 0) {
+          dailyDauMap.get(dateStr)![displayName] = Math.round(Number(row.calls) / callsPerPersonPerDay);
+        }
       }
     }
 
