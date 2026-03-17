@@ -39,6 +39,7 @@ x-api-common: &api-common
     PORT: ${API_PORT:-3000}
   volumes:
     - ./cert:/app/cert:ro
+    - generated_images:/app/generated-images
   expose:
     - "3000"
   extra_hosts:
@@ -154,3 +155,4 @@ services:
 volumes:
   agent_stats_postgres_data:
   agent_stats_redis_data:
+  generated_images:

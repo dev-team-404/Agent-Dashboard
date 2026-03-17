@@ -235,15 +235,12 @@ systemSettingsRoutes.put('/system-settings/logo-model', requireSuperAdmin as Req
 // ============================================
 systemSettingsRoutes.post('/system-settings/generate-missing-logos', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
-    const host = req.headers.host || req.hostname;
-    const protocol = req.protocol || 'http';
-
     // 비동기 실행 — 즉시 응답 후 백그라운드에서 처리
     res.json({ message: '로고 일괄 생성이 시작되었습니다. 완료까지 시간이 걸릴 수 있습니다.' });
 
     recordAudit(req, 'GENERATE_MISSING_LOGOS', null, 'SystemSetting', {}).catch(() => {});
 
-    generateMissingLogos(host, protocol).then(result => {
+    generateMissingLogos().then(result => {
       console.log(`[LogoGen] Batch result: ${result.success}/${result.total} success, ${result.errors} errors`);
     }).catch(err => {
       console.error('[LogoGen] Batch generation failed:', err);

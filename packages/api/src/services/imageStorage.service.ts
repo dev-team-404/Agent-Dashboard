@@ -49,6 +49,7 @@ interface SaveImageOptions {
   userId?: string;
   serviceId?: string;
   prompt?: string;
+  permanent?: boolean; // true: 만료 없음 (로고 등 영구 보관)
 }
 
 interface SaveImageResult {
@@ -68,7 +69,10 @@ export async function saveImage(
   fs.writeFileSync(filePath, buffer);
 
   const sizeBytes = buffer.length;
-  const expiresAt = new Date(Date.now() + IMAGE_EXPIRY_HOURS * 60 * 60 * 1000);
+  // permanent=true → 100년 후 만료 (사실상 영구)
+  const expiresAt = options.permanent
+    ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + IMAGE_EXPIRY_HOURS * 60 * 60 * 1000);
 
   try {
     await prisma.generatedImage.create({

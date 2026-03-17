@@ -7,7 +7,7 @@
 
 import { prisma } from '../index.js';
 import { generateImages, ImageEndpointInfo } from './imageProviders.service.js';
-import { saveImage, buildImageUrl, ensureStorageDir } from './imageStorage.service.js';
+import { saveImage, ensureStorageDir } from './imageStorage.service.js';
 
 const LOGO_MODEL_KEY = 'LOGO_GENERATION_MODEL_ID';
 
@@ -37,8 +37,6 @@ function buildLogoPrompt(service: { name: string; displayName: string; descripti
  */
 export async function generateLogoForService(
   serviceId: string,
-  reqHost?: string,
-  reqProtocol?: string,
 ): Promise<{ success: boolean; iconUrl?: string; error?: string }> {
   try {
     // 1. 로고 생성 모델 설정 확인
@@ -83,17 +81,18 @@ export async function generateLogoForService(
       return { success: false, error: 'Image generation returned no results' };
     }
 
-    // 5. 이미지 저장 (디렉토리 보장)
+    // 5. 이미지 저장 (디렉토리 보장, 로고는 영구 보관)
     ensureStorageDir();
     const saved = await saveImage(results[0]!.imageBuffer, {
       mimeType: results[0]!.mimeType,
       modelId: model.id,
       serviceId: service.id,
       prompt,
+      permanent: true,
     });
 
-    // 6. iconUrl 업데이트
-    const iconUrl = buildImageUrl(saved.fileName, reqHost, reqProtocol);
+    // 6. iconUrl 업데이트 — 상대 경로 사용 (nginx 프록시 환경에서 호스트 무관하게 동작)
+    const iconUrl = `/api/v1/images/files/${saved.fileName}`;
 
     await prisma.service.update({
       where: { id: serviceId },
@@ -111,10 +110,7 @@ export async function generateLogoForService(
 /**
  * iconUrl이 없는 모든 서비스에 대해 로고 일괄 생성
  */
-export async function generateMissingLogos(
-  reqHost?: string,
-  reqProtocol?: string,
-): Promise<{ total: number; success: number; errors: number; details: Array<{ serviceId: string; name: string; result: string }> }> {
+export async function generateMissingLogos(): Promise<{ total: number; success: number; errors: number; details: Array<{ serviceId: string; name: string; result: string }> }> {
   // 로고 모델 설정 확인
   const setting = await prisma.systemSetting.findUnique({ where: { key: LOGO_MODEL_KEY } });
   if (!setting?.value) {
@@ -144,7 +140,7 @@ export async function generateMissingLogos(
   const details: Array<{ serviceId: string; name: string; result: string }> = [];
 
   for (const svc of services) {
-    const result = await generateLogoForService(svc.id, reqHost, reqProtocol);
+    const result = await generateLogoForService(svc.id);
     if (result.success) {
       successCount++;
       details.push({ serviceId: svc.id, name: svc.name, result: 'OK' });

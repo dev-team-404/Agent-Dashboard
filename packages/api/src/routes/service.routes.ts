@@ -696,9 +696,7 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
 
     // 로고 URL이 없으면 async로 자동 생성 (fire-and-forget)
     if (!service.iconUrl) {
-      const host = req.headers.host || req.hostname;
-      const protocol = req.protocol || 'http';
-      generateLogoForService(service.id, host, protocol).catch(err =>
+      generateLogoForService(service.id).catch(err =>
         console.error(`[LogoGen] Async logo generation failed for ${service.name}:`, err)
       );
     }
