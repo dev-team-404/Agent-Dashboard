@@ -22,15 +22,14 @@ function buildLogoPrompt(service: { name: string; displayName: string; descripti
     : `Service name: "${service.displayName}"`;
 
   return [
-    `Design a simple, clean, minimal 2D logo icon for a software service.`,
-    `The logo must have a pure white (#FFFFFF) background.`,
-    `The logo should be a flat design icon — no gradients, no shadows, no 3D effects.`,
-    `Use bold, simple geometric shapes and clean lines.`,
-    `The icon should visually represent the service's purpose.`,
+    `Generate a single square 512x512 pixel logo icon.`,
+    `The icon MUST fill the entire 512x512 canvas edge-to-edge with NO padding, NO margin, NO border, and NO empty space around it.`,
+    `Background: solid pure white (#FFFFFF).`,
+    `Style: flat 2D, minimal, no gradients, no shadows, no 3D effects, no text, no letters.`,
+    `Use bold, simple geometric shapes with clean lines that span the full width and height of the canvas.`,
+    `The icon should visually represent this service's purpose:`,
     desc,
-    `Do NOT include any text or letters in the logo.`,
-    `The design should look professional, modern, and suitable for use as a small app icon or favicon.`,
-    `Output a single square icon image.`,
+    `CRITICAL: The design must touch all four edges of the image. Do not leave any blank margins.`,
   ].join('\n');
 }
 
