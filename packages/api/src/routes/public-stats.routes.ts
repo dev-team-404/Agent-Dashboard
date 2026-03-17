@@ -8,6 +8,7 @@
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../index.js';
+import { extractBusinessUnit } from '../middleware/auth.js';
 import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
 
 function filterHierarchy<T extends { center2Name?: string | null; center1Name?: string | null }>(s: T): T {
@@ -85,14 +86,6 @@ function parseDateRange(query: Request['query']): {
   }
 
   return { startDate, endDate };
-}
-
-function extractBusinessUnit(deptname: string): string {
-  if (!deptname) return '';
-  const match = deptname.match(/\(([^)]+)\)/);
-  if (match) return match[1]!;
-  const parts = deptname.split('/');
-  return parts[0]?.trim() || '';
 }
 
 // ─── 1. GET /services ───────────────────────────────────────
@@ -622,38 +615,36 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const proxyBackgroundIds = services.filter(s => s.type === 'BACKGROUND' && !s.apiOnly).map(s => s.id);
     const apiOnlyStdIds = services.filter(s => s.type === 'STANDARD' && s.apiOnly).map(s => s.id);
     const apiOnlyBgIds = services.filter(s => s.type === 'BACKGROUND' && s.apiOnly).map(s => s.id);
-    const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
-    const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
 
-    // STANDARD services: real DAU (avg business day) and MAU
-    const standardDauResult = await prisma.$queryRaw<
-      Array<{ service_id: string; avg_dau: number }>
-    >`
-      WITH daily_dau AS (
-        SELECT ul.service_id::text as service_id, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id IS NOT NULL
-          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-        GROUP BY ul.service_id, DATE(ul.timestamp)
-      )
-      SELECT service_id, COALESCE(AVG(dau), 0)::float as avg_dau FROM daily_dau GROUP BY service_id
-    `;
+    // STANDARD 프록시 서비스: 실측 DAU (영업일 평균) 및 MAU
+    const standardDauResult = proxyStandardIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; avg_dau: number }>>`
+          WITH daily_dau AS (
+            SELECT ul.service_id::text as service_id, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+              AND u.loginid != 'anonymous'
+              AND ul.service_id::text = ANY(${proxyStandardIds})
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY ul.service_id, DATE(ul.timestamp)
+          )
+          SELECT service_id, COALESCE(AVG(dau), 0)::float as avg_dau FROM daily_dau GROUP BY service_id
+        `
+      : [];
 
-    const standardMauResult = await prisma.$queryRaw<
-      Array<{ service_id: string; mau: bigint }>
-    >`
-      SELECT ul.service_id::text as service_id, COUNT(DISTINCT ul.user_id) as mau
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-        AND u.loginid != 'anonymous'
-        AND ul.service_id IS NOT NULL
-      GROUP BY ul.service_id
-    `;
+    const standardMauResult = proxyStandardIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; mau: bigint }>>`
+          SELECT ul.service_id::text as service_id, COUNT(DISTINCT ul.user_id) as mau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+            AND u.loginid != 'anonymous'
+            AND ul.service_id::text = ANY(${proxyStandardIds})
+          GROUP BY ul.service_id
+        `
+      : [];
 
     // Estimation baseline: 해당 월의 STANDARD 데이터 사용
     // 과거 월 → 고정값 (해당 월 전체), 이번 달 → 실시간 (누적 데이터)
@@ -662,42 +653,44 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const baselineStart = startDate;
     const baselineEnd = isCurrentMonth ? now : endDate;
 
-    const [baselineDailyCalls, baselineDailyDau, baselineMonthly] = await Promise.all([
-      prisma.$queryRaw<Array<{ avg_daily_calls: number }>>`
-        WITH daily AS (
-          SELECT DATE(timestamp) as d, COUNT(*) as cnt
-          FROM usage_logs
-          WHERE timestamp >= ${baselineStart} AND timestamp <= ${baselineEnd}
-            AND service_id::text = ANY(${standardServiceIds})
-            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-          GROUP BY DATE(timestamp)
-        )
-        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily
-      `,
-      prisma.$queryRaw<Array<{ avg_daily_dau: number }>>`
-        WITH daily AS (
-          SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
-          FROM usage_logs ul
-          INNER JOIN users u ON ul.user_id = u.id
-          WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
-            AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
-            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-          GROUP BY DATE(ul.timestamp)
-        )
-        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily
-      `,
-      prisma.$queryRaw<Array<{ total_calls: bigint; mau: bigint }>>`
-        SELECT COUNT(*) as total_calls, COUNT(DISTINCT ul.user_id) as mau
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
-          AND ul.service_id::text = ANY(${standardServiceIds})
-          AND u.loginid != 'anonymous'
-      `,
-    ]);
+    const [baselineDailyCalls, baselineDailyDau, baselineMonthly] = proxyStandardIds.length > 0
+      ? await Promise.all([
+          prisma.$queryRaw<Array<{ avg_daily_calls: number }>>`
+            WITH daily AS (
+              SELECT DATE(timestamp) as d, COUNT(*) as cnt
+              FROM usage_logs
+              WHERE timestamp >= ${baselineStart} AND timestamp <= ${baselineEnd}
+                AND service_id::text = ANY(${proxyStandardIds})
+                AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+              GROUP BY DATE(timestamp)
+            )
+            SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily
+          `,
+          prisma.$queryRaw<Array<{ avg_daily_dau: number }>>`
+            WITH daily AS (
+              SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+              FROM usage_logs ul
+              INNER JOIN users u ON ul.user_id = u.id
+              WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
+                AND ul.service_id::text = ANY(${proxyStandardIds})
+                AND u.loginid != 'anonymous'
+                AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+              GROUP BY DATE(ul.timestamp)
+            )
+            SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily
+          `,
+          prisma.$queryRaw<Array<{ total_calls: bigint; mau: bigint }>>`
+            SELECT COUNT(*) as total_calls, COUNT(DISTINCT ul.user_id) as mau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
+              AND ul.service_id::text = ANY(${proxyStandardIds})
+              AND u.loginid != 'anonymous'
+          `,
+        ])
+      : [[{ avg_daily_calls: 0 }], [{ avg_daily_dau: 0 }], [{ total_calls: BigInt(0), mau: BigInt(0) }]];
 
     // API Only STANDARD 외부 데이터를 baseline에 포함
     let extStdAvgDau = 0;
@@ -743,31 +736,31 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const baseMau = Number(baselineMonthly[0]?.mau || 0) + extStdMau;
     const callsPerPersonPerMonth = baseMau > 0 ? totalCalls / baseMau : 0;
 
-    // BACKGROUND services: get calls in the requested month
-    const bgDailyResult = await prisma.$queryRaw<
-      Array<{ service_id: string; avg_daily_calls: number }>
-    >`
-      WITH daily AS (
-        SELECT service_id::text as service_id, DATE(timestamp) as d, COUNT(*) as cnt
-        FROM usage_logs
-        WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-          AND service_id::text = ANY(${backgroundServiceIds})
-          AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-        GROUP BY service_id, DATE(timestamp)
-      )
-      SELECT service_id, COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily GROUP BY service_id
-    `;
+    // BACKGROUND 프록시 서비스: 해당 월 호출 수
+    const bgDailyResult = proxyBackgroundIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; avg_daily_calls: number }>>`
+          WITH daily AS (
+            SELECT service_id::text as service_id, DATE(timestamp) as d, COUNT(*) as cnt
+            FROM usage_logs
+            WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+              AND service_id::text = ANY(${proxyBackgroundIds})
+              AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+            GROUP BY service_id, DATE(timestamp)
+          )
+          SELECT service_id, COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily GROUP BY service_id
+        `
+      : [];
 
-    const bgMonthlyResult = await prisma.$queryRaw<
-      Array<{ service_id: string; total_calls: bigint }>
-    >`
-      SELECT service_id::text as service_id, COUNT(*) as total_calls
-      FROM usage_logs
-      WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-        AND service_id::text = ANY(${backgroundServiceIds})
-      GROUP BY service_id
-    `;
+    const bgMonthlyResult = proxyBackgroundIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; total_calls: bigint }>>`
+          SELECT service_id::text as service_id, COUNT(*) as total_calls
+          FROM usage_logs
+          WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+            AND service_id::text = ANY(${proxyBackgroundIds})
+          GROUP BY service_id
+        `
+      : [];
 
     // 일별 DAU (서비스별 + 전체 중복제거) — 라인 차트용
     const dailyDauRows = await prisma.$queryRaw<
@@ -795,21 +788,21 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       ORDER BY d ASC
     `;
 
-    // BACKGROUND 일별 호출 수 (추정 DAU 계산용)
-    const bgDailyCallRows = await prisma.$queryRaw<
-      Array<{ service_id: string; d: Date | string; cnt: bigint }>
-    >`
-      SELECT service_id::text as service_id, DATE(timestamp) as d, COUNT(*) as cnt
-      FROM usage_logs
-      WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-        AND service_id::text = ANY(${backgroundServiceIds})
-      GROUP BY service_id, DATE(timestamp)
-      ORDER BY d ASC
-    `;
+    // BACKGROUND 프록시 서비스 일별 호출 수 (추정 DAU 계산용)
+    const bgDailyCallRows = proxyBackgroundIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; d: Date | string; cnt: bigint }>>`
+          SELECT service_id::text as service_id, DATE(timestamp) as d, COUNT(*) as cnt
+          FROM usage_logs
+          WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+            AND service_id::text = ANY(${proxyBackgroundIds})
+          GROUP BY service_id, DATE(timestamp)
+          ORDER BY d ASC
+        `
+      : [];
 
-    // Per-service total call count and total tokens in the requested month
-    const allServiceIds = services.map(s => s.id);
-    const serviceUsageResult = await prisma.$queryRaw<
+    // Per-service total call count and total tokens in the requested month (프록시 서비스만)
+    const proxyServiceIds = services.filter(s => !s.apiOnly).map(s => s.id);
+    const serviceUsageResult = proxyServiceIds.length > 0 ? await prisma.$queryRaw<
       Array<{ service_id: string; total_calls: bigint; total_input_tokens: bigint; total_output_tokens: bigint }>
     >`
       SELECT
@@ -819,9 +812,9 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         COALESCE(SUM("outputTokens"), 0) as total_output_tokens
       FROM usage_logs
       WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-        AND service_id::text = ANY(${allServiceIds})
+        AND service_id::text = ANY(${proxyServiceIds})
       GROUP BY service_id
-    `;
+    ` : [];
     const usageMap = new Map(serviceUsageResult.map(r => [r.service_id, {
       totalCallCount: Number(r.total_calls),
       totalInputTokens: Number(r.total_input_tokens),

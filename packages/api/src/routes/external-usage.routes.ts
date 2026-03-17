@@ -10,17 +10,10 @@
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '../index.js';
+import { extractBusinessUnit } from '../middleware/auth.js';
 import { z } from 'zod';
 
 export const externalUsageRoutes = Router();
-
-function extractBusinessUnit(deptname: string): string {
-  if (!deptname) return '';
-  const match = deptname.match(/\(([^)]+)\)/);
-  if (match) return match[1]!;
-  const parts = deptname.split('/');
-  return parts[0]?.trim() || '';
-}
 
 // ─── Validation Schema ───────────────────────────────────────
 
@@ -100,48 +93,92 @@ externalUsageRoutes.post('/daily', async (req: Request, res: Response) => {
       }
     }
 
-    // 4. Upsert each record
+    // 4. Upsert each record (트랜잭션으로 일괄 처리)
     let upserted = 0;
     const errors: Array<{ index: number; error: string }> = [];
 
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i]!;
-      try {
-        const dateObj = new Date(item.date + 'T00:00:00.000Z');
-        const businessUnit = extractBusinessUnit(item.deptName);
+    const upsertOps = data.map((item, i) => {
+      const dateObj = new Date(item.date + 'T00:00:00.000Z');
+      const businessUnit = extractBusinessUnit(item.deptName);
+      return { i, item, dateObj, businessUnit };
+    });
 
-        await prisma.externalDailyUsage.upsert({
-          where: {
-            date_serviceId_deptName_modelName: {
-              date: dateObj,
-              serviceId: service.id,
-              deptName: item.deptName,
-              modelName: item.modelName,
-            },
-          },
-          update: {
-            dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
-            llmRequestCount: item.llmRequestCount,
-            totalInputTokens: item.totalInputTokens,
-            totalOutputTokens: item.totalOutputTokens,
-            businessUnit,
-          },
-          create: {
-            date: dateObj,
-            serviceId: service.id,
-            deptName: item.deptName,
-            businessUnit,
-            modelName: item.modelName,
-            dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
-            llmRequestCount: item.llmRequestCount,
-            totalInputTokens: item.totalInputTokens,
-            totalOutputTokens: item.totalOutputTokens,
-          },
-        });
-        upserted++;
+    // 100건 단위로 트랜잭션 분할
+    const BATCH_SIZE = 100;
+    for (let batch = 0; batch < upsertOps.length; batch += BATCH_SIZE) {
+      const chunk = upsertOps.slice(batch, batch + BATCH_SIZE);
+      try {
+        await prisma.$transaction(
+          chunk.map(({ item, dateObj, businessUnit }) =>
+            prisma.externalDailyUsage.upsert({
+              where: {
+                date_serviceId_deptName_modelName: {
+                  date: dateObj,
+                  serviceId: service.id,
+                  deptName: item.deptName,
+                  modelName: item.modelName,
+                },
+              },
+              update: {
+                dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
+                llmRequestCount: item.llmRequestCount,
+                totalInputTokens: item.totalInputTokens,
+                totalOutputTokens: item.totalOutputTokens,
+                businessUnit,
+              },
+              create: {
+                date: dateObj,
+                serviceId: service.id,
+                deptName: item.deptName,
+                businessUnit,
+                modelName: item.modelName,
+                dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
+                llmRequestCount: item.llmRequestCount,
+                totalInputTokens: item.totalInputTokens,
+                totalOutputTokens: item.totalOutputTokens,
+              },
+            })
+          )
+        );
+        upserted += chunk.length;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push({ index: i, error: msg.substring(0, 200) });
+        // 배치 실패 시 개별 재시도
+        for (const { i, item, dateObj, businessUnit } of chunk) {
+          try {
+            await prisma.externalDailyUsage.upsert({
+              where: {
+                date_serviceId_deptName_modelName: {
+                  date: dateObj,
+                  serviceId: service.id,
+                  deptName: item.deptName,
+                  modelName: item.modelName,
+                },
+              },
+              update: {
+                dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
+                llmRequestCount: item.llmRequestCount,
+                totalInputTokens: item.totalInputTokens,
+                totalOutputTokens: item.totalOutputTokens,
+                businessUnit,
+              },
+              create: {
+                date: dateObj,
+                serviceId: service.id,
+                deptName: item.deptName,
+                businessUnit,
+                modelName: item.modelName,
+                dailyActiveUsers: isStandard ? (item.dailyActiveUsers ?? null) : null,
+                llmRequestCount: item.llmRequestCount,
+                totalInputTokens: item.totalInputTokens,
+                totalOutputTokens: item.totalOutputTokens,
+              },
+            });
+            upserted++;
+          } catch (retryErr) {
+            const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            errors.push({ index: i, error: msg.substring(0, 200) });
+          }
+        }
       }
     }
 
