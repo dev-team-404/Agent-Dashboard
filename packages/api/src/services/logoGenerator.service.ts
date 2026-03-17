@@ -5,9 +5,11 @@
  * 간단한 2D 화이트 배경 로고를 자동 생성하여 적용.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { prisma } from '../index.js';
 import { generateImages, ImageEndpointInfo } from './imageProviders.service.js';
-import { saveImage, ensureStorageDir } from './imageStorage.service.js';
+import { saveImage, ensureStorageDir, IMAGE_STORAGE_PATH } from './imageStorage.service.js';
 
 const LOGO_MODEL_KEY = 'LOGO_GENERATION_MODEL_ID';
 
@@ -108,7 +110,23 @@ export async function generateLogoForService(
 }
 
 /**
- * iconUrl이 없는 모든 서비스에 대해 로고 일괄 생성
+ * iconUrl이 깨진 서비스인지 확인
+ * - /api/v1/images/files/ 경로인데 실제 파일이 없는 경우
+ */
+function isBrokenIconUrl(iconUrl: string | null | undefined): boolean {
+  if (!iconUrl) return true;
+  const match = iconUrl.match(/\/v1\/images\/files\/(.+)$/);
+  if (!match) return false; // 외부 URL이면 건드리지 않음
+  const fileName = match[1]!;
+  const filePath = path.join(IMAGE_STORAGE_PATH, fileName);
+  return !fs.existsSync(filePath);
+}
+
+/**
+ * 로고 없거나 깨진 서비스 일괄 재생성
+ * - iconUrl이 null/빈 값 → 생성
+ * - iconUrl이 내부 경로인데 파일 없음 → 재생성
+ * - iconUrl이 외부 URL → 스킵
  */
 export async function generateMissingLogos(): Promise<{ total: number; success: number; errors: number; details: Array<{ serviceId: string; name: string; result: string }> }> {
   // 로고 모델 설정 확인
@@ -117,29 +135,43 @@ export async function generateMissingLogos(): Promise<{ total: number; success: 
     return { total: 0, success: 0, errors: 0, details: [{ serviceId: '', name: '', result: 'Logo generation model not configured' }] };
   }
 
-  // iconUrl이 비어있는 서비스 조회
-  const services = await prisma.service.findMany({
-    where: {
-      OR: [
-        { iconUrl: null },
-        { iconUrl: '' },
-      ],
-    },
-    select: { id: true, name: true, displayName: true },
+  // 모든 서비스 조회
+  const allServices = await prisma.service.findMany({
+    select: { id: true, name: true, displayName: true, iconUrl: true },
     orderBy: { createdAt: 'desc' },
   });
 
-  if (services.length === 0) {
+  // 로고가 없거나 깨진 서비스 필터
+  const targets = allServices.filter(svc => isBrokenIconUrl(svc.iconUrl));
+
+  if (targets.length === 0) {
     return { total: 0, success: 0, errors: 0, details: [] };
   }
 
-  console.log(`[LogoGen] Starting batch logo generation for ${services.length} service(s)...`);
+  console.log(`[LogoGen] Starting batch logo generation for ${targets.length} service(s) (${allServices.length - targets.length} skipped — valid icons)...`);
+
+  // 깨진 iconUrl 가진 서비스는 먼저 null로 리셋 (재생성 대상 명확화)
+  const brokenIds = targets.filter(s => s.iconUrl).map(s => s.id);
+  if (brokenIds.length > 0) {
+    await prisma.service.updateMany({
+      where: { id: { in: brokenIds } },
+      data: { iconUrl: null },
+    });
+    // 고아 GeneratedImage 레코드도 정리
+    await prisma.generatedImage.deleteMany({
+      where: {
+        serviceId: { in: brokenIds },
+        fileName: { notIn: await getExistingFileNames() },
+      },
+    });
+    console.log(`[LogoGen] Reset ${brokenIds.length} broken iconUrls`);
+  }
 
   let successCount = 0;
   let errorCount = 0;
   const details: Array<{ serviceId: string; name: string; result: string }> = [];
 
-  for (const svc of services) {
+  for (const svc of targets) {
     const result = await generateLogoForService(svc.id);
     if (result.success) {
       successCount++;
@@ -152,6 +184,16 @@ export async function generateMissingLogos(): Promise<{ total: number; success: 
     await new Promise(r => setTimeout(r, 1000));
   }
 
-  console.log(`[LogoGen] Batch complete: ${successCount} success, ${errorCount} errors out of ${services.length}`);
-  return { total: services.length, success: successCount, errors: errorCount, details };
+  console.log(`[LogoGen] Batch complete: ${successCount} success, ${errorCount} errors out of ${targets.length}`);
+  return { total: targets.length, success: successCount, errors: errorCount, details };
+}
+
+/** 실제 디스크에 존재하는 파일명 목록 */
+async function getExistingFileNames(): Promise<string[]> {
+  try {
+    ensureStorageDir();
+    return fs.readdirSync(IMAGE_STORAGE_PATH);
+  } catch {
+    return [];
+  }
 }
