@@ -199,64 +199,7 @@ externalUsageRoutes.post('/daily', async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /external-usage/daily ───────────────────────────────
-
-/**
- * API Only 서비스의 외부 사용 기록 조회
- */
-externalUsageRoutes.get('/daily', async (req: Request, res: Response) => {
-  try {
-    const serviceName = req.query['serviceId'] as string | undefined;
-    const startStr = req.query['startDate'] as string | undefined;
-    const endStr = req.query['endDate'] as string | undefined;
-
-    if (!serviceName || !startStr || !endStr) {
-      res.status(400).json({ error: 'serviceId, startDate, endDate are required (format: YYYY-MM-DD)' });
-      return;
-    }
-
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(startStr) || !dateRegex.test(endStr)) {
-      res.status(400).json({ error: 'startDate and endDate must be in YYYY-MM-DD format' });
-      return;
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { name: serviceName },
-      select: { id: true, name: true, type: true, apiOnly: true },
-    });
-
-    if (!service || !service.apiOnly) {
-      res.status(404).json({ error: `API Only service "${serviceName}" not found.` });
-      return;
-    }
-
-    const startDate = new Date(startStr + 'T00:00:00.000Z');
-    const endDate = new Date(endStr + 'T00:00:00.000Z');
-
-    const records = await prisma.externalDailyUsage.findMany({
-      where: {
-        serviceId: service.id,
-        date: { gte: startDate, lte: endDate },
-      },
-      orderBy: [{ date: 'asc' }, { deptName: 'asc' }, { modelName: 'asc' }],
-    });
-
-    res.json({
-      service: { name: service.name, type: service.type, apiOnly: true },
-      data: records.map(r => ({
-        date: r.date.toISOString().split('T')[0],
-        deptName: r.deptName,
-        businessUnit: r.businessUnit,
-        modelName: r.modelName,
-        dailyActiveUsers: r.dailyActiveUsers,
-        llmRequestCount: r.llmRequestCount,
-        totalInputTokens: r.totalInputTokens,
-        totalOutputTokens: r.totalOutputTokens,
-      })),
-    });
-  } catch (err) {
-    console.error('External usage GET error:', err);
-    res.status(500).json({ error: '사용 기록 조회에 실패했습니다.' });
-  }
-});
+// GET endpoint 제거: API Only 데이터는 기존 public stats API에 자동 합산
+// - /public/stats/dau-mau: DAU/MAU에 포함
+// - /public/stats/team-usage: 팀별 사용량에 포함
+// - /public/stats/team-usage-all: 전체 팀별 사용량에 포함

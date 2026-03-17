@@ -654,35 +654,7 @@ export const swaggerSpec = {
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
-      get: {
-        summary: 'Query Daily Usage (API Only 서비스 사용 기록 조회)',
-        description:
-          'Query stored daily usage records for an API Only service.\n' +
-          'API Only 서비스의 저장된 일별 사용 기록을 조회합니다.',
-        tags: ['External Usage (API Only 사용 기록)'],
-        parameters: [
-          { name: 'serviceId', in: 'query', required: true, description: 'Service name (서비스 이름)', schema: { type: 'string', example: 'my-api-service' } },
-          dateParam('startDate', 'Start date', '조회 시작일', '2026-03-01'),
-          dateParam('endDate', 'End date', '조회 종료일', '2026-03-31'),
-        ],
-        responses: {
-          '200': {
-            description: 'Usage records (사용 기록)',
-            content: {
-              'application/json': {
-                example: {
-                  service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
-                  data: [
-                    { date: '2026-03-15', deptName: 'S/W혁신팀(S.LSI)', businessUnit: 'S.LSI', modelName: 'gpt-4o', dailyActiveUsers: 15, llmRequestCount: 230, totalInputTokens: 50000, totalOutputTokens: 30000 },
-                  ],
-                },
-              },
-            },
-          },
-          '404': errorResponse('Service not found (서비스를 찾을 수 없음)'),
-          '500': errorResponse('Internal server error (서버 내부 오류)'),
-        },
-      },
+      // GET 제거: API Only 데이터는 기존 /stats/dau-mau, /stats/team-usage 등에 자동 합산
     },
   },
 };
