@@ -148,6 +148,9 @@ export default function AdminRequestPage({ isAdmin }: Props) {
                   rows={3}
                   className="w-full px-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-blue-500/15 focus:border-blue-500/30 resize-none"
                 />
+                {reason.trim().length > 0 && reason.trim().length < 5 && (
+                  <p className="mt-1 text-xs text-amber-600">5자 이상 입력해주세요 ({reason.trim().length}/5)</p>
+                )}
               </div>
               <button
                 onClick={handleSubmit}
