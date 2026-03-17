@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { AlertTriangle, Filter, ChevronDown, ChevronRight, X, Clock, Sparkles, Loader2, Tag, User } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -295,180 +295,146 @@ export default function ErrorManagement() {
               ) : logs.map(log => {
                 const isExpanded = expandedId === log.id;
                 const analysis = analyses.get(log.id);
+                const errMsg = analyzeErrors.get(log.id);
                 const isAnalyzing = analyzingId === log.id;
                 const statusColor = STATUS_COLORS[log.statusCode] || 'bg-gray-50 text-gray-600 ring-1 ring-gray-200';
 
-                return (
-                  <tr key={log.id} className={`group ${isExpanded ? 'bg-gray-50/50' : 'hover:bg-gray-50/30'}`}>
-                    <td className="px-3 py-2.5">
-                      <button onClick={() => setExpandedId(isExpanded ? null : log.id)}
-                        className="p-1 hover:bg-pastel-100 rounded transition-colors">
-                        <ChevronRight className={`w-3.5 h-3.5 text-pastel-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                      </button>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3 h-3 text-pastel-400 flex-shrink-0" />
-                        <span className="text-[11px] text-pastel-600 font-mono tabular-nums">{formatKST(log.timestamp)}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-bold rounded-full ${statusColor}`}>
-                        {log.statusCode}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="text-xs text-pastel-700 font-medium truncate max-w-[110px]" title={log.userId || '-'}>
-                        {log.userId || '-'}
-                      </div>
-                      <div className="text-[10px] text-pastel-400 truncate max-w-[110px]" title={log.deptname || ''}>
-                        {log.deptname || ''}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="text-xs text-pastel-700 truncate max-w-[120px]" title={log.service?.displayName || '-'}>
-                        {log.service?.displayName || '-'}
-                      </div>
-                      <code className="text-[10px] text-pastel-400 font-mono">{log.method} {log.path.split('?')[0]}</code>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <div className="text-xs text-pastel-600 truncate max-w-[110px]" title={log.modelName}>
-                        {log.modelName || '-'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {log.ruleCause ? (
-                        <div className="flex items-start gap-1.5">
-                          <Tag className="w-3 h-3 text-blue-500 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <span className="text-xs text-pastel-700">{log.ruleCause}</span>
-                            {log.ruleCategory && (
-                              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{log.ruleCategory}</span>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-pastel-400 italic">
-                          {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : '원인 미상'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {analysis ? (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || 'bg-gray-100 text-gray-600'}`}>
-                          {analysis.severity}
-                        </span>
-                      ) : log.isAnalyzable ? (
-                        <button
-                          onClick={() => { setExpandedId(log.id); analyzeError(log.id); }}
-                          disabled={isAnalyzing || !selectedModel}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-violet-600 bg-violet-50 rounded hover:bg-violet-100 disabled:opacity-50 transition-colors"
-                        >
-                          {isAnalyzing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                          AI
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-pastel-300">-</span>
-                      )}
-                    </td>
-                  </tr>
-                );
+                const handleExpand = () => {
+                  if (isExpanded) { setExpandedId(null); return; }
+                  setExpandedId(log.id);
+                  // 미분류 에러 + 분석 미완료 → 자동 AI 분석 시작
+                  if (log.isAnalyzable && !analysis && !isAnalyzing && selectedModel) {
+                    analyzeError(log.id);
+                  }
+                };
 
+                return (
+                  <Fragment key={log.id}>
+                    <tr className={`group cursor-pointer ${isExpanded ? 'bg-gray-50/50' : 'hover:bg-gray-50/30'}`} onClick={handleExpand}>
+                      <td className="px-3 py-2.5">
+                        <div className="p-1">
+                          <ChevronRight className={`w-3.5 h-3.5 text-pastel-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-pastel-400 flex-shrink-0" />
+                          <span className="text-[11px] text-pastel-600 font-mono tabular-nums">{formatKST(log.timestamp)}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-bold rounded-full ${statusColor}`}>
+                          {log.statusCode}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="text-xs text-pastel-700 font-medium truncate max-w-[110px]" title={log.userId || '-'}>
+                          {log.userId || '-'}
+                        </div>
+                        <div className="text-[10px] text-pastel-400 truncate max-w-[110px]" title={log.deptname || ''}>
+                          {log.deptname || ''}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="text-xs text-pastel-700 truncate max-w-[120px]" title={log.service?.displayName || '-'}>
+                          {log.service?.displayName || '-'}
+                        </div>
+                        <code className="text-[10px] text-pastel-400 font-mono">{log.method} {log.path.split('?')[0]}</code>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="text-xs text-pastel-600 truncate max-w-[110px]" title={log.modelName}>
+                          {log.modelName || '-'}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {log.ruleCause ? (
+                          <div className="flex items-start gap-1.5">
+                            <Tag className="w-3 h-3 text-blue-500 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <span className="text-xs text-pastel-700">{log.ruleCause}</span>
+                              {log.ruleCategory && (
+                                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{log.ruleCategory}</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-pastel-400 italic">
+                            {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : '원인 미상'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {analysis ? (
+                          <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || 'bg-gray-100 text-gray-600'}`}>
+                            {analysis.severity}
+                          </span>
+                        ) : isAnalyzing ? (
+                          <Loader2 className="w-3.5 h-3.5 text-violet-500 animate-spin mx-auto" />
+                        ) : log.isAnalyzable ? (
+                          <Sparkles className="w-3.5 h-3.5 text-violet-400 mx-auto" />
+                        ) : (
+                          <span className="text-[10px] text-pastel-300">-</span>
+                        )}
+                      </td>
+                    </tr>
+                    {/* 인라인 상세 — 해당 행 바로 아래 */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={8} className="p-0">
+                          <div className="px-5 py-4 bg-gray-50/80 border-b border-gray-200 animate-slide-down">
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3 text-xs">
+                              <div><span className="text-pastel-400 block">사용자</span><span className="text-pastel-700 font-medium">{log.userId || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">부서</span><span className="text-pastel-700">{log.deptname || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">IP</span><span className="text-pastel-700 font-mono">{log.ipAddress || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">Latency</span><span className="text-pastel-700">{log.latencyMs != null ? `${log.latencyMs}ms` : '-'}</span></div>
+                              <div><span className="text-pastel-400 block">서비스</span><span className="text-pastel-700">{log.service?.displayName || '-'} ({log.service?.name || '-'})</span></div>
+                              <div><span className="text-pastel-400 block">모델</span><span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span></div>
+                              <div><span className="text-pastel-400 block">요청</span><span className="text-pastel-700 font-mono">{log.method} {log.path}</span></div>
+                              <div><span className="text-pastel-400 block">User-Agent</span><span className="text-pastel-700 truncate block max-w-[200px]" title={log.userAgent || ''}>{log.userAgent || '-'}</span></div>
+                            </div>
+                            {log.errorMessage && (
+                              <div className="mb-3">
+                                <pre className="p-2.5 bg-gray-900 text-gray-200 rounded-lg text-xs font-mono overflow-auto max-h-[80px] leading-relaxed">{log.errorMessage}</pre>
+                              </div>
+                            )}
+                            {/* AI 분석 결과 (인라인) */}
+                            {analysis ? (
+                              <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                                  <span className="text-xs font-semibold text-violet-800">AI 원인 분석</span>
+                                  <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || ''}`}>{analysis.severity}</span>
+                                  <span className="text-[10px] text-violet-500 ml-auto">{analysis.category}</span>
+                                </div>
+                                <div className="space-y-1.5 text-xs text-pastel-700">
+                                  <div><span className="font-semibold text-violet-700">원인:</span> {analysis.cause}</div>
+                                  <div><span className="font-semibold text-violet-700">상세:</span> {analysis.detail}</div>
+                                  <div><span className="font-semibold text-violet-700">해결:</span> {analysis.suggestion}</div>
+                                </div>
+                              </div>
+                            ) : isAnalyzing ? (
+                              <div className="flex items-center gap-2 p-3 bg-violet-50 border border-violet-100 rounded-lg">
+                                <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />
+                                <span className="text-xs text-violet-600">AI 원인 분석 중...</span>
+                              </div>
+                            ) : errMsg ? (
+                              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+                                <span className="text-xs text-red-600">{errMsg}</span>
+                                <button onClick={(e) => { e.stopPropagation(); analyzeError(log.id); }}
+                                  className="ml-auto text-xs text-violet-600 hover:underline">재시도</button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
               })}
             </tbody>
           </table>
         </div>
-
-        {/* Expanded Detail */}
-        {expandedId && (() => {
-          const log = logs.find(l => l.id === expandedId);
-          if (!log) return null;
-          const analysis = analyses.get(log.id);
-          const errMsg = analyzeErrors.get(log.id);
-          const isAnalyzing = analyzingId === log.id;
-
-          return (
-            <div className="border-t border-gray-200 px-6 py-5 bg-gray-50/80 animate-slide-down">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-pastel-800">에러 상세</h3>
-                <button onClick={() => setExpandedId(null)} className="p-1 hover:bg-pastel-100 rounded">
-                  <X className="w-4 h-4 text-pastel-400" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4 text-xs">
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">사용자</span>
-                  <span className="text-pastel-700 font-medium">{log.userId || '-'}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">부서</span>
-                  <span className="text-pastel-700">{log.deptname || '-'}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">IP</span>
-                  <span className="text-pastel-700 font-mono">{log.ipAddress || '-'}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">Latency</span>
-                  <span className="text-pastel-700">{log.latencyMs != null ? `${log.latencyMs}ms` : '-'}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">서비스</span>
-                  <span className="text-pastel-700">{log.service?.displayName || '-'} ({log.service?.name || '-'})</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">모델</span>
-                  <span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">요청</span>
-                  <span className="text-pastel-700 font-mono">{log.method} {log.path}</span>
-                </div>
-                <div>
-                  <span className="text-pastel-400 block mb-0.5">User-Agent</span>
-                  <span className="text-pastel-700 truncate block max-w-[200px]" title={log.userAgent || ''}>{log.userAgent || '-'}</span>
-                </div>
-              </div>
-
-              {log.errorMessage && (
-                <div className="mb-4">
-                  <span className="text-xs text-pastel-400 block mb-1">에러 메시지</span>
-                  <pre className="p-3 bg-gray-900 text-gray-200 rounded-lg text-xs font-mono overflow-auto max-h-[120px] leading-relaxed">{log.errorMessage}</pre>
-                </div>
-              )}
-
-              {/* AI Analysis */}
-              {analysis ? (
-                <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-4 h-4 text-violet-600" />
-                    <span className="text-sm font-semibold text-violet-800">AI 원인 분석</span>
-                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || ''}`}>{analysis.severity}</span>
-                    <span className="text-[10px] text-violet-500 ml-auto">{analysis.category}</span>
-                  </div>
-                  <div className="space-y-2 text-xs text-pastel-700">
-                    <div><span className="font-semibold text-violet-700">원인:</span> {analysis.cause}</div>
-                    <div><span className="font-semibold text-violet-700">상세:</span> {analysis.detail}</div>
-                    <div><span className="font-semibold text-violet-700">해결:</span> {analysis.suggestion}</div>
-                  </div>
-                </div>
-              ) : log.isAnalyzable && (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => analyzeError(log.id)}
-                    disabled={isAnalyzing || !selectedModel}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
-                  >
-                    {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    AI 원인 분석
-                  </button>
-                  {errMsg && <span className="text-xs text-red-500">{errMsg}</span>}
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Pagination */}
         {pagination.totalPages > 1 && (
