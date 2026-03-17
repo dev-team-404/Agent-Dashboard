@@ -16,6 +16,7 @@ import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { getDepartmentHierarchy, lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
+import { generateLogoForService } from '../services/logoGenerator.service.js';
 
 /**
  * API 응답 시 최상위 사업부를 "none"으로 변환
@@ -692,6 +693,16 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
     });
 
     recordAudit(req, 'CREATE_SERVICE', service.id, 'Service', { name: service.name, displayName: service.displayName }).catch(() => {});
+
+    // 로고 URL이 없으면 async로 자동 생성 (fire-and-forget)
+    if (!service.iconUrl) {
+      const host = req.headers.host || req.hostname;
+      const protocol = req.protocol || 'http';
+      generateLogoForService(service.id, host, protocol).catch(err =>
+        console.error(`[LogoGen] Async logo generation failed for ${service.name}:`, err)
+      );
+    }
+
     res.status(201).json({ service: filterServiceHierarchy(service) });
   } catch (error) {
     console.error('Create service error:', error);
