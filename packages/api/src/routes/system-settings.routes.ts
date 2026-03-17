@@ -15,6 +15,7 @@ import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { runAiEstimations } from '../services/aiEstimation.service.js';
 import { generateMissingLogos } from '../services/logoGenerator.service.js';
+import { invalidateApiKeyCache } from './public-stats.routes.js';
 
 export const systemSettingsRoutes = Router();
 
@@ -316,5 +317,61 @@ systemSettingsRoutes.post('/ai-estimations/run', requireSuperAdmin as RequestHan
   } catch (error) {
     console.error('Run AI estimation error:', error);
     res.status(500).json({ error: 'Failed to run AI estimation' });
+  }
+}) as RequestHandler);
+
+// ============================================
+// GET /admin/system-settings/api-key
+// Public Stats API 비밀번호 조회
+// ============================================
+systemSettingsRoutes.get('/system-settings/api-key', (async (_req: AuthenticatedRequest, res) => {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'PUBLIC_STATS_API_KEY' },
+    });
+
+    res.json({
+      apiKey: setting?.value || null,
+      updatedAt: setting?.updatedAt || null,
+      updatedBy: setting?.updatedBy || null,
+    });
+  } catch (error) {
+    console.error('Get API key error:', error);
+    res.status(500).json({ error: 'Failed to get API key' });
+  }
+}) as RequestHandler);
+
+// ============================================
+// PUT /admin/system-settings/api-key
+// Public Stats API 비밀번호 변경 (SUPER_ADMIN)
+// ============================================
+systemSettingsRoutes.put('/system-settings/api-key', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const { apiKey } = req.body as { apiKey?: string };
+
+    if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 4) {
+      res.status(400).json({ error: 'API 비밀번호는 최소 4자 이상이어야 합니다.' });
+      return;
+    }
+
+    const trimmed = apiKey.trim();
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'PUBLIC_STATS_API_KEY' },
+      update: { value: trimmed, updatedBy: req.user?.loginid || null },
+      create: { key: 'PUBLIC_STATS_API_KEY', value: trimmed, updatedBy: req.user?.loginid || null },
+    });
+
+    // 캐시 무효화
+    invalidateApiKeyCache();
+
+    await recordAudit(req, 'UPDATE_API_KEY', 'PUBLIC_STATS_API_KEY', 'SystemSetting', {
+      keyLength: trimmed.length,
+    });
+
+    res.json({ success: true, apiKey: trimmed });
+  } catch (error) {
+    console.error('Update API key error:', error);
+    res.status(500).json({ error: 'Failed to update API key' });
   }
 }) as RequestHandler);

@@ -1,12 +1,14 @@
 /**
  * Public Stats Routes
  *
- * 인증 없이 접근 가능한 사용량 통계 공개 API
+ * 사용량 통계 공개 API
+ * - GET 요청: API Key 필수 (SystemSetting 'PUBLIC_STATS_API_KEY')
+ * - POST 요청 (external-usage): 인증 불필요
  * DailyUsageStat 집계 테이블을 사용하여 성능 최적화
  * 모든 날짜는 KST (Asia/Seoul) 기준
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../index.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
@@ -20,6 +22,67 @@ function filterHierarchy<T extends { center2Name?: string | null; center1Name?: 
 }
 
 export const publicStatsRoutes = Router();
+
+// ─── API Key 검증 미들웨어 (GET 요청만) ────────────────────
+// 캐시: 30초 TTL
+let cachedApiKey: { value: string | null; ts: number } = { value: null, ts: 0 };
+const API_KEY_CACHE_TTL = 30_000;
+
+async function getApiKey(): Promise<string | null> {
+  if (Date.now() - cachedApiKey.ts < API_KEY_CACHE_TTL) return cachedApiKey.value;
+  try {
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'PUBLIC_STATS_API_KEY' } });
+    cachedApiKey = { value: setting?.value || null, ts: Date.now() };
+    return cachedApiKey.value;
+  } catch {
+    return cachedApiKey.value;
+  }
+}
+
+/** 캐시 무효화 (설정 변경 시 호출) */
+export function invalidateApiKeyCache() {
+  cachedApiKey = { value: null, ts: 0 };
+}
+
+async function requireApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const storedKey = await getApiKey();
+
+  // 비밀번호가 설정되지 않은 경우 → 통과 (초기 상태)
+  if (!storedKey) {
+    next();
+    return;
+  }
+
+  // query param ?apiKey= 또는 header x-api-key
+  const provided = (req.query['apiKey'] as string) || (req.headers['x-api-key'] as string);
+
+  if (!provided) {
+    res.status(401).json({
+      error: 'API key required. Provide via ?apiKey= query parameter or x-api-key header.',
+      error_kr: 'API 비밀번호가 필요합니다. ?apiKey= 쿼리 파라미터 또는 x-api-key 헤더로 전달하세요.',
+    });
+    return;
+  }
+
+  if (provided !== storedKey) {
+    res.status(403).json({
+      error: 'Invalid API key.',
+      error_kr: 'API 비밀번호가 올바르지 않습니다.',
+    });
+    return;
+  }
+
+  next();
+}
+
+// GET 요청에만 API Key 검증 적용
+publicStatsRoutes.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET') {
+    requireApiKey(req, res, next);
+  } else {
+    next();
+  }
+});
 
 // ─── Helpers ────────────────────────────────────────────────
 

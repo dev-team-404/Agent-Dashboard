@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle } from 'lucide-react';
+import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle, Key, Copy, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 
 interface Model {
@@ -46,13 +46,23 @@ export default function SystemLlmSettings() {
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDone, setBatchDone] = useState(false);
 
+  // API Key states
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeyUpdatedBy, setApiKeyUpdatedBy] = useState<string | null>(null);
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [apiKeySuccess, setApiKeySuccess] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [settingRes, modelsRes, logoRes] = await Promise.all([
+      const [settingRes, modelsRes, logoRes, apiKeyRes] = await Promise.all([
         api.get('/admin/system-settings/system-llm'),
         api.get('/models'),
         api.get('/admin/system-settings/logo-model'),
+        api.get('/admin/system-settings/api-key'),
       ]);
       // 하위호환: modelId는 M/M 추적용
       setCurrent(settingRes.data);
@@ -80,6 +90,11 @@ export default function SystemLlmSettings() {
 
       setLogoModel(logoRes.data);
       setLogoSelectedId(logoRes.data.modelId || '');
+
+      // API Key
+      setApiKey(apiKeyRes.data.apiKey || null);
+      setApiKeyInput(apiKeyRes.data.apiKey || '');
+      setApiKeyUpdatedBy(apiKeyRes.data.updatedBy || null);
     } catch (err) {
       console.error('Failed to load:', err);
     } finally {
@@ -186,6 +201,39 @@ export default function SystemLlmSettings() {
     } finally {
       setBatchRunning(false);
     }
+  };
+
+  // API Key handlers
+  const handleApiKeySave = async () => {
+    setApiKeySaving(true);
+    setApiKeyError(null);
+    setApiKeySuccess(false);
+    try {
+      const res = await api.put('/admin/system-settings/api-key', { apiKey: apiKeyInput.trim() });
+      setApiKey(res.data.apiKey);
+      setApiKeySuccess(true);
+      setTimeout(() => setApiKeySuccess(false), 3000);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setApiKeyError(msg || 'API 비밀번호 저장에 실패했습니다.');
+    } finally {
+      setApiKeySaving(false);
+    }
+  };
+
+  const handleApiKeyCopy = () => {
+    if (apiKey) {
+      navigator.clipboard.writeText(apiKey);
+      setApiKeyCopied(true);
+      setTimeout(() => setApiKeyCopied(false), 2000);
+    }
+  };
+
+  const generateRandomKey = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let result = '';
+    for (let i = 0; i < 32; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+    setApiKeyInput(result);
   };
 
   if (loading) {
@@ -467,6 +515,76 @@ export default function SystemLlmSettings() {
           <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-100 flex items-center gap-2 text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             {logoError}
+          </div>
+        )}
+      </div>
+
+      {/* API 비밀번호 관리 */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Key className="w-4 h-4 text-amber-500" />
+          <h2 className="text-sm font-semibold text-pastel-700">통계 API 비밀번호</h2>
+        </div>
+
+        <p className="text-xs text-pastel-500 mb-4">
+          공개 통계 API (GET 요청)에 접근할 때 필요한 비밀번호입니다.
+          <code className="mx-1 px-1 py-0.5 bg-gray-100 rounded text-[11px]">?apiKey=비밀번호</code> 또는
+          <code className="mx-1 px-1 py-0.5 bg-gray-100 rounded text-[11px]">x-api-key</code> 헤더로 전달합니다.
+          {!apiKey && <span className="text-amber-600 font-medium ml-1">미설정 시 누구나 조회 가능합니다.</span>}
+        </p>
+
+        {/* 현재 비밀번호 표시 */}
+        {apiKey && (
+          <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+            <div className="flex items-center justify-between gap-3">
+              <code className="text-sm font-mono text-pastel-700 break-all select-all">{apiKey}</code>
+              <button
+                onClick={handleApiKeyCopy}
+                className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md bg-white border border-gray-200 text-pastel-600 hover:bg-gray-50 transition-colors"
+              >
+                {apiKeyCopied ? <><Check className="w-3.5 h-3.5 text-green-500" /> 복사됨</> : <><Copy className="w-3.5 h-3.5" /> 복사</>}
+              </button>
+            </div>
+            {apiKeyUpdatedBy && (
+              <p className="mt-2 text-[11px] text-pastel-400">설정자: {apiKeyUpdatedBy}</p>
+            )}
+          </div>
+        )}
+
+        {/* 비밀번호 입력 + 랜덤 생성 */}
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={apiKeyInput}
+            onChange={e => setApiKeyInput(e.target.value)}
+            placeholder="새 비밀번호 입력 (최소 4자)"
+            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-200 focus:border-amber-300 outline-none font-mono"
+          />
+          <button
+            onClick={generateRandomKey}
+            title="랜덤 비밀번호 생성"
+            className="flex-shrink-0 p-2 rounded-lg border border-gray-200 text-pastel-500 hover:bg-gray-50 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleApiKeySave}
+            disabled={apiKeySaving || !apiKeyInput.trim() || apiKeyInput.trim().length < 4}
+            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {apiKeySaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+            저장
+          </button>
+        </div>
+
+        {apiKeySuccess && (
+          <div className="mt-3 p-2.5 bg-green-50 rounded-lg border border-green-100 text-sm text-green-700 flex items-center gap-2">
+            <Check className="w-4 h-4" /> API 비밀번호가 변경되었습니다.
+          </div>
+        )}
+        {apiKeyError && (
+          <div className="mt-3 p-2.5 bg-red-50 rounded-lg border border-red-100 text-sm text-red-700 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {apiKeyError}
           </div>
         )}
       </div>
