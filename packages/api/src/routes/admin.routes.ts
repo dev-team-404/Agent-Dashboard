@@ -80,7 +80,8 @@ async function recordAudit(req: AuthenticatedRequest, action: string, target: st
  * 모델 엔드포인트 Health Check
  * 실제 chat completion 및 tool call 요청을 보내서 정상 동작 확인
  */
-const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초 (실제 LLM 응답 대기)
+const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초 (chat completion 테스트)
+const TOOL_CALL_TIMEOUT_MS = 600000; // 10분 (tool call 테스트 — 일부 모델 응답 느림)
 
 interface HealthCheckResult {
   healthy: boolean;
@@ -1064,7 +1065,7 @@ adminRoutes.post('/models/test', async (req: AuthenticatedRequest, res) => {
           method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
-        }, HEALTH_CHECK_TIMEOUT_MS);
+        }, TOOL_CALL_TIMEOUT_MS);
 
         const latencyMs = Date.now() - startTime;
         const responseText = await response.text();
@@ -1120,7 +1121,7 @@ adminRoutes.post('/models/test', async (req: AuthenticatedRequest, res) => {
       } catch (error) {
         const latencyMs = Date.now() - startTime;
         const errMsg = error instanceof Error
-          ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+          ? (error.name === 'AbortError' ? `Timed out after ${TOOL_CALL_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
           : 'Unknown error';
         const result = { passed: false, message: errMsg, latencyMs };
         logHealthCheckDetail(label, modelName, url, requestBody, result, errMsg);
