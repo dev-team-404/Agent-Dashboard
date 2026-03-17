@@ -118,10 +118,10 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 
 서비스 타입(STANDARD/BACKGROUND)과 별개로, **API Only** 토글을 활성화할 수 있습니다.
 
-API Only 서비스는 이 프록시를 통하지 않고, 자체 시스템에서 LLM을 직접 호출하며 일별 사용 기록을 `POST /api/external-usage/daily` API로 전송합니다.
+API Only 서비스는 이 프록시를 통하지 않고, 자체 시스템에서 LLM을 직접 호출하며 사용자별 사용 기록을 `POST /api/external-usage/by-user` API로 전송합니다.
 
-- STANDARD + API Only: `dailyActiveUsers`, `llmRequestCount`, 토큰 사용량을 날짜/팀/모델별로 전송
-- BACKGROUND + API Only: `llmRequestCount`, 토큰 사용량만 전송 (DAU는 시스템이 자동 역산)
+- Knox ID 기반 사용자 단위로 `requestCount`, `totalInputTokens`, `totalOutputTokens`를 날짜/사용자/모델별로 전송
+- 프록시 서비스와 동일한 테이블(DailyUsageStat)에 기록되어 통합 대시보드에 자연스럽게 반영
 
 > 자세한 연동 방법은 [API Only 서비스 가이드](/api/api-only-services)를 참고하세요.
 

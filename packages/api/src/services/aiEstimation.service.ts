@@ -235,7 +235,7 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     bgMap.set(id, Math.round(total / numDays));
   }
 
-  // API Only STANDARD 서비스의 외부 사용 데이터도 baseline에 포함
+  // API Only STANDARD 서비스의 daily_usage_stats 데이터도 baseline에 포함
   const apiOnlyStdServices = await prisma.service.findMany({
     where: { apiOnly: true, type: 'STANDARD', status: 'DEPLOYED' },
     select: { id: true },
@@ -249,17 +249,17 @@ async function getRecentBusinessDayStats(todayKST: Date) {
       Array<{ d: Date; total_dau: bigint; total_calls: bigint }>
     >`
       SELECT date as d,
-             COALESCE(SUM(daily_active_users), 0) as total_dau,
-             COALESCE(SUM(llm_request_count), 0) as total_calls
-      FROM external_daily_usage
+             COUNT(DISTINCT user_id) as total_dau,
+             COALESCE(SUM("requestCount"), 0) as total_calls
+      FROM daily_usage_stats
       WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
         AND service_id::text = ANY(${apiOnlyStdIds})
+        AND user_id IS NOT NULL
         AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
       GROUP BY date
       ORDER BY date DESC
     `;
-    // 같은 5영업일 윈도우에 맞춤
     for (const r of extDaily) {
       const day = new Date(r.d).toISOString().split('T')[0];
       if (!bizDaySet.has(day)) continue;
@@ -268,7 +268,7 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     }
   }
 
-  // API Only BACKGROUND 서비스의 외부 호출 데이터도 bgMap에 포함
+  // API Only BACKGROUND 서비스의 daily_usage_stats 호출 데이터도 bgMap에 포함
   const apiOnlyBgServices = await prisma.service.findMany({
     where: { apiOnly: true, type: 'BACKGROUND', status: 'DEPLOYED' },
     select: { id: true },
@@ -280,12 +280,12 @@ async function getRecentBusinessDayStats(todayKST: Date) {
       Array<{ service_id: string; total_calls: bigint }>
     >`
       SELECT service_id::text as service_id,
-             COALESCE(SUM(llm_request_count), 0) as total_calls
-      FROM external_daily_usage
+             COALESCE(SUM("requestCount"), 0) as total_calls
+      FROM daily_usage_stats
       WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
         AND service_id::text = ANY(${apiOnlyBgIds})
         AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
       GROUP BY service_id
     `;
     for (const r of extBgDaily) {
@@ -373,7 +373,7 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
         avgCalls = stats?.calls || 0;
         isEstimatedDau = false;
 
-        // API Only STANDARD: ExternalDailyUsage에서 영업일 기준 데이터 보충
+        // API Only STANDARD: DailyUsageStat에서 영업일 기준 데이터 보충
         if (svc.apiOnly) {
           const extRangeEnd = new Date(todayKST);
           extRangeEnd.setDate(extRangeEnd.getDate() - 1);
@@ -384,13 +384,14 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
           >`
             WITH daily AS (
               SELECT date as d,
-                     COALESCE(SUM(daily_active_users), 0) as dau,
-                     COALESCE(SUM(llm_request_count), 0) as calls
-              FROM external_daily_usage
+                     COUNT(DISTINCT user_id) as dau,
+                     COALESCE(SUM("requestCount"), 0) as calls
+              FROM daily_usage_stats
               WHERE service_id = ${svc.id}::uuid
                 AND date >= ${extRangeStart} AND date <= ${extRangeEnd}
+                AND user_id IS NOT NULL
                 AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
               GROUP BY date
               ORDER BY date DESC
               LIMIT 5

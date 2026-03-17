@@ -472,10 +472,10 @@ export const swaggerSpec = {
           '> Response includes `estimationBaseline` with the baseline values used for estimation.\n' +
           '> 응답에 추정에 사용된 기준값이 `estimationBaseline`으로 포함됩니다.\n\n' +
           '## API Only Services (API Only 서비스)\n\n' +
-          '| Endpoint | DAU/MAU 산출 방식 |\n' +
-          '|----------|------------------|\n' +
-          '| `POST /external-usage/daily` (레거시) | 서비스가 직접 전달한 `dailyActiveUsers` 숫자를 사용. 크로스 서비스 중복제거 **불가** |\n' +
-          '| `POST /external-usage/by-user` (권장) | DailyUsageStat에 userId별로 기록되므로 프록시 서비스와 **동일하게** 집계. 크로스 서비스 중복제거 **가능** |',
+          'API Only services use `POST /external-usage/by-user` to submit per-user usage data. ' +
+          'Records are stored in DailyUsageStat (same table as proxy services), so DAU/MAU is calculated identically to proxy services.\n' +
+          'API Only 서비스는 `POST /external-usage/by-user`를 통해 사용자별 사용 데이터를 전송합니다. ' +
+          'DailyUsageStat(프록시 서비스와 동일한 테이블)에 기록되므로 DAU/MAU가 프록시 서비스와 동일하게 산출됩니다.',
         tags: ['DAU / MAU'],
         parameters: [
           {
@@ -580,87 +580,8 @@ export const swaggerSpec = {
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 7. External Usage - POST Daily (API Only 서비스 사용 기록 전송)
+    // 7. External Usage - POST by-user (API Only 서비스 사용자별 사용 기록 전송)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    '/external-usage/daily': {
-      post: {
-        summary: 'Submit Daily Usage (API Only 서비스 일별 사용 기록 전송)',
-        description:
-          'Submit daily usage records for **API Only** services. API Only services send usage data directly via this endpoint instead of routing through the LLM proxy.\n' +
-          '**API Only** 서비스의 일별 사용 기록을 전송합니다. API Only 서비스는 LLM 프록시를 통하지 않고 이 엔드포인트를 통해 직접 사용 기록을 전송합니다.\n\n' +
-          '## Requirements (요구사항)\n' +
-          '- Service must be registered with `apiOnly: true` / 서비스가 `apiOnly: true`로 등록되어야 함\n' +
-          '- `serviceId` uses the service **name** (not UUID) / `serviceId`는 서비스 **이름** 사용 (UUID 아님)\n' +
-          '- Same `(date, serviceId, deptName, modelName)` combination will be **overwritten** (upsert) / 동일 조합은 **덮어쓰기**\n' +
-          '- `deptName` format: `TeamName(BusinessUnit)` e.g. `S/W혁신팀(S.LSI)` / `deptName` 형식: `팀명(사업부)`\n\n' +
-          '## STANDARD vs BACKGROUND\n' +
-          '| Field | STANDARD | BACKGROUND |\n' +
-          '|-------|----------|------------|\n' +
-          '| `dailyActiveUsers` | **Required** | Ignored (system estimates) |\n' +
-          '| `llmRequestCount` | Required | Required |\n' +
-          '| `totalInputTokens` | Required | Required |\n' +
-          '| `totalOutputTokens` | Required | Required |\n',
-        tags: ['External Usage (API Only 사용 기록)'],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['serviceId', 'data'],
-                properties: {
-                  serviceId: { type: 'string', description: 'Service name (not UUID) (서비스 이름, UUID 아님)', example: 'my-api-service' },
-                  data: {
-                    type: 'array',
-                    description: 'Array of daily usage records (일별 사용 기록 배열)',
-                    items: {
-                      type: 'object',
-                      required: ['date', 'deptName', 'modelName', 'llmRequestCount', 'totalInputTokens', 'totalOutputTokens'],
-                      properties: {
-                        date: { type: 'string', format: 'date', description: 'Usage date (YYYY-MM-DD) (사용 날짜)', example: '2026-03-15' },
-                        deptName: { type: 'string', description: 'Department in TeamName(BusinessUnit) format (부서, 팀명(사업부) 형식)', example: 'S/W혁신팀(S.LSI)' },
-                        modelName: { type: 'string', description: 'LLM model name (모델 이름)', example: 'gpt-4o' },
-                        dailyActiveUsers: { type: 'integer', nullable: true, description: 'DAU for STANDARD services (STANDARD 서비스 일별 사용자 수)', example: 15 },
-                        llmRequestCount: { type: 'integer', description: 'Total LLM API call count (LLM API 총 호출 수)', example: 230 },
-                        totalInputTokens: { type: 'integer', description: 'Total input tokens (총 입력 토큰)', example: 50000 },
-                        totalOutputTokens: { type: 'integer', description: 'Total output tokens (총 출력 토큰)', example: 30000 },
-                      },
-                    },
-                  },
-                },
-              },
-              example: {
-                serviceId: 'my-api-service',
-                data: [
-                  { date: '2026-03-15', deptName: 'S/W혁신팀(S.LSI)', modelName: 'gpt-4o', dailyActiveUsers: 15, llmRequestCount: 230, totalInputTokens: 50000, totalOutputTokens: 30000 },
-                  { date: '2026-03-16', deptName: 'S/W혁신팀(S.LSI)', modelName: 'gpt-4o', dailyActiveUsers: 12, llmRequestCount: 180, totalInputTokens: 40000, totalOutputTokens: 25000 },
-                  { date: '2026-03-16', deptName: 'AI플랫폼팀(DS)', modelName: 'claude-sonnet', llmRequestCount: 95, totalInputTokens: 20000, totalOutputTokens: 15000 },
-                ],
-              },
-            },
-          },
-        },
-        responses: {
-          '200': {
-            description: 'Usage records saved (사용 기록 저장 완료)',
-            content: {
-              'application/json': {
-                example: {
-                  success: true,
-                  service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
-                  result: { total: 3, upserted: 3, errors: 0 },
-                },
-              },
-            },
-          },
-          '400': errorResponse('Invalid request body (잘못된 요청 본문)'),
-          '403': errorResponse('Service is not API Only (API Only 서비스가 아님)', 'Service "my-service" is not an API Only service. apiOnly 서비스로 등록되어야 합니다.'),
-          '404': errorResponse('Service not found (서비스를 찾을 수 없음)', 'Service "my-service" not found. 등록되지 않은 서비스입니다.'),
-          '500': errorResponse('Internal server error (서버 내부 오류)'),
-        },
-      },
-      // GET 제거: API Only 데이터는 기존 /stats/dau-mau, /stats/team-usage 등에 자동 합산
-    },
     '/external-usage/by-user': {
       post: {
         summary: 'Submit Usage by User (사용자별 사용 기록 전송) — Recommended / 권장',
@@ -671,13 +592,11 @@ export const swaggerSpec = {
           'enabling cross-service unique user deduplication, Top K Users ranking, and all other dashboard statistics.\n' +
           '프록시 서비스와 **동일한 테이블(DailyUsageStat)** 에 기록되어 ' +
           '통합 대시보드 사용자 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.\n\n' +
-          '## Comparison with /daily (기존 /daily 대비 장점)\n' +
-          '| | `/daily` (Legacy / 레거시) | `/by-user` (Recommended / 권장) |\n' +
-          '|---|---|---|\n' +
-          '| Unit / 단위 | Department (팀/부서) | User (사용자, Knox ID) |\n' +
-          '| Cross-service dedup / 중복제거 | Impossible / 불가 | Possible / 가능 |\n' +
-          '| Top K Users | Not reflected / 미반영 | Reflected / 반영 |\n' +
-          '| Dept info / 부서 정보 | Manually provided / 외부 서비스가 직접 전달 | Auto-resolved from Knox / Knox API에서 자동 조회 |\n\n' +
+          '## Key Features (주요 특징)\n' +
+          '- **User-level granularity**: Per-user (Knox ID) tracking / 사용자(Knox ID) 단위 추적\n' +
+          '- **Cross-service dedup**: Unique user deduplication across services / 서비스 간 사용자 중복제거 가능\n' +
+          '- **Top K Users**: Reflected in user rankings / 사용자 순위에 반영\n' +
+          '- **Auto dept info**: Department info auto-resolved from Knox API / Knox API에서 부서 정보 자동 조회\n\n' +
           '## Processing Flow (처리 흐름)\n' +
           '1. `userId` (Knox ID) → Look up User in DB / DB User 조회\n' +
           '2. Unregistered/unverified → Batch Knox Employee API lookup → Auto-register User / 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +

@@ -77,7 +77,6 @@ model Service {
   serviceModels       ServiceModel[]
   requestLogs         RequestLog[]
   aiEstimations       AiEstimation[]
-  externalDailyUsage  ExternalDailyUsage[]
 
   @@map("services")
 }
@@ -601,29 +600,3 @@ model AiEstimation {
   @@map("ai_estimations")
 }
 
-// ============================================
-// 외부 일별 사용 통계 (API Only 서비스용)
-// 프록시를 통하지 않고 자체 API로 사용 기록을 전송하는 서비스의 일별 집계
-// ============================================
-model ExternalDailyUsage {
-  id                String   @id @default(uuid())
-  date              DateTime @db.Date
-  serviceId         String   @map("service_id")
-  deptName          String   @map("dept_name")          // "S/W혁신팀(S.LSI)"
-  businessUnit      String   @map("business_unit")      // "S.LSI" (auto-extracted)
-  modelName         String   @map("model_name")         // "gpt-4o"
-  dailyActiveUsers  Int?     @map("daily_active_users") // STANDARD만 (BACKGROUND는 역산)
-  llmRequestCount   Int      @default(0) @map("llm_request_count")
-  totalInputTokens  Int      @default(0) @map("total_input_tokens")
-  totalOutputTokens Int      @default(0) @map("total_output_tokens")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-
-  @@unique([date, serviceId, deptName, modelName])
-  @@index([date])
-  @@index([serviceId])
-  @@index([serviceId, date])
-  @@map("external_daily_usage")
-}
