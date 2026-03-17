@@ -709,6 +709,39 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
 });
 
 // ============================================
+// POST /services/:id/regenerate-logo
+// 서비스 로고 재생성 (서비스 관리 권한 보유자)
+// ============================================
+serviceRoutes.post('/:id/regenerate-logo', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const service = await prisma.service.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!service) {
+      res.status(404).json({ error: 'Service not found' });
+      return;
+    }
+
+    if (!(await canManageService(req, id))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    // iconUrl 초기화 후 재생성
+    await prisma.service.update({ where: { id }, data: { iconUrl: null } });
+
+    const result = await generateLogoForService(id);
+    if (result.success) {
+      res.json({ iconUrl: result.iconUrl });
+    } else {
+      res.status(500).json({ error: result.error || 'Logo generation failed' });
+    }
+  } catch (error) {
+    console.error('Regenerate logo error:', error);
+    res.status(500).json({ error: 'Failed to regenerate logo' });
+  }
+});
+
+// ============================================
 // POST /services/:id/deploy
 // 서비스 배포 (서비스 관리 권한 보유자)
 // ============================================

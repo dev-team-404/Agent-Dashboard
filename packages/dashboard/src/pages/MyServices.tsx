@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Trash2, ChevronDown,
-  Crown, Shield, Link, Image,
+  Crown, Shield, Link, Image, RefreshCw,
   ArrowLeft, ArrowRight, Check, ExternalLink, FileText, Ticket
 } from 'lucide-react';
-import { api } from '../services/api';
+import { api, serviceApi } from '../services/api';
 
 // ── Types ──
 
@@ -618,6 +618,29 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       배포 취소
                     </button>
                   )}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const btn = e.currentTarget;
+                      btn.disabled = true;
+                      btn.textContent = '생성중...';
+                      try {
+                        const res = await serviceApi.regenerateLogo(service.id);
+                        // 카드의 아이콘 즉시 반영
+                        service.iconUrl = res.data.iconUrl;
+                        loadServices();
+                      } catch (err) {
+                        console.error('Logo regen failed:', err);
+                      } finally {
+                        btn.disabled = false;
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-pink-600 bg-pink-50 rounded-md hover:bg-pink-100 transition-colors"
+                    title="로고 재생성"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    로고
+                  </button>
                   <button
                     onClick={() => openEditModal(service)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors ml-auto"

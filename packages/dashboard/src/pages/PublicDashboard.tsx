@@ -194,10 +194,13 @@ function BarLabelWithLogo({ x, y, width, height, value, chartData, metric }: any
   const entry = chartData?.find((d: { [key: string]: number }) => d[metric.key] === value);
   const iconUrl = entry?.iconUrl;
   const formatted = metric.format(value);
-  const logoSize = 14;
-  const gap = 4;
+  const logoSize = 16;
+  const gap = 5;
   const textX = (x || 0) + (width || 0) + 6;
   const centerY = (y || 0) + (height || 0) / 2;
+  const logoX = textX + formatted.length * 6 + gap;
+  const logoY = centerY - logoSize / 2;
+  const clipId = `logo-clip-${entry?.name || Math.random()}`;
 
   return (
     <g>
@@ -205,13 +208,23 @@ function BarLabelWithLogo({ x, y, width, height, value, chartData, metric }: any
         {formatted}
       </text>
       {iconUrl && (
-        <image
-          href={iconUrl}
-          x={textX + formatted.length * 6 + gap}
-          y={centerY - logoSize / 2}
-          width={logoSize}
-          height={logoSize}
-        />
+        <>
+          <defs>
+            <clipPath id={clipId}>
+              <circle cx={logoX + logoSize / 2} cy={logoY + logoSize / 2} r={logoSize / 2} />
+            </clipPath>
+          </defs>
+          <circle cx={logoX + logoSize / 2} cy={logoY + logoSize / 2} r={logoSize / 2} fill="#FFFFFF" stroke="#E5E7EB" strokeWidth={0.5} />
+          <image
+            href={iconUrl}
+            x={logoX}
+            y={logoY}
+            width={logoSize}
+            height={logoSize}
+            clipPath={`url(#${clipId})`}
+            preserveAspectRatio="xMidYMid slice"
+          />
+        </>
       )}
     </g>
   );

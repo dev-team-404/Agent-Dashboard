@@ -58,6 +58,7 @@ export const serviceApi = {
     api.post(`/services/${id}/deploy`, data),
   undeploy: (id: string) => api.post(`/services/${id}/undeploy`),
   resetData: (id: string) => api.post(`/services/${id}/reset-data`),
+  regenerateLogo: (id: string) => api.post(`/services/${id}/regenerate-logo`),
   stats: (id: string) => api.get(`/services/${id}/stats`),
   checkName: (name: string) => api.get(`/services/check-name/${name}`),
   // Service Models
