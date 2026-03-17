@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -98,6 +98,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/admin-request') return '관리자 권한 신청';
     if (location.pathname === '/admin-requests-manage') return '권한 신청 관리';
     if (location.pathname === '/system-llm') return '레지스트리 LLM 관리';
+    if (location.pathname === '/api-key') return 'API 비밀번호';
     if (location.pathname === '/request-logs') return '요청 로그';
     if (location.pathname === '/audit-logs') return '감사 로그';
     if (location.pathname === '/error-management') return '에러 관리';
@@ -200,6 +201,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               )}
               <div className="space-y-0.5">
                 <NavLink path="/system-llm" label="레지스트리 LLM 관리" icon={Sparkles} />
+                <NavLink path="/api-key" label="API 비밀번호" icon={Key} />
                 <NavLink path="/request-logs" label="요청 로그" icon={FileText} />
                 <NavLink path="/audit-logs" label="감사 로그" icon={ClipboardList} />
                 <NavLink path="/error-management" label="에러 관리" icon={AlertTriangle} />

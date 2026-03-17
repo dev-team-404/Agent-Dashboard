@@ -26,6 +26,14 @@ const serviceNameParam = (required: boolean) => ({
   schema: { type: 'string' as const, example: 'nexus-coder' },
 });
 
+const apiKeyParam = {
+  name: 'apiKey',
+  in: 'query' as const,
+  required: false,
+  description: 'API key for authentication. Set by Super Admin in dashboard. Not required if no key is configured. / 슈퍼관리자가 대시보드에서 설정한 API 비밀번호. 미설정 시 불필요.',
+  schema: { type: 'string' as const, example: 'your-api-key' },
+};
+
 const errorResponse = (desc: string, example?: string) => ({
   description: desc,
   content: {
@@ -47,8 +55,13 @@ export const swaggerSpec = {
     title: 'Agent Registry - Public API',
     version: '2.1.0',
     description:
-      'Public API for querying AI Agent usage data. **No authentication required.**\n' +
-      'AI Agent 사용량 데이터를 조회할 수 있는 공개 API입니다. **인증 없이** 사용 가능합니다.\n\n' +
+      'Public API for querying AI Agent usage data.\n' +
+      'AI Agent 사용량 데이터를 조회할 수 있는 공개 API입니다.\n\n' +
+      '## Authentication (인증)\n' +
+      '- **GET** requests require `?apiKey=` query parameter (if API key is configured by Super Admin)\n' +
+      '  GET 요청은 `?apiKey=` 쿼리 파라미터 필수 (슈퍼관리자가 비밀번호 설정 시)\n' +
+      '- **POST** requests (usage submission) do not require API key\n' +
+      '  POST 요청 (사용량 기록)은 비밀번호 불필요\n\n' +
       '## Common Notes (공통 사항)\n' +
       '- All date parameters use **KST (Asia/Seoul)** in `YYYY-MM-DD` format\n' +
       '  날짜 파라미터는 모두 **KST (Asia/Seoul)** 기준 `YYYY-MM-DD` 형식\n' +
@@ -78,6 +91,7 @@ export const swaggerSpec = {
           'Use the `name` field as the `serviceName` parameter for other APIs.\n' +
           '다른 API의 `serviceName` 파라미터에 사용할 서비스 코드(`name`)를 여기서 조회하세요.',
         tags: ['Services (서비스)'],
+        parameters: [apiKeyParam],
         responses: {
           '200': {
             description: 'Service list (서비스 목록)',
@@ -144,6 +158,7 @@ export const swaggerSpec = {
           '- `uniqueUsers`: Unique user count who used this service in the team / 해당 팀에서 해당 서비스를 사용한 고유 사용자 수',
         tags: ['Team Usage (팀별 사용량)'],
         parameters: [
+          apiKeyParam,
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
           serviceNameParam(true),

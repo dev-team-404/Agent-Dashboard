@@ -20,6 +20,7 @@ const ErrorManagement = lazy(() => import('./pages/ErrorManagement'));
 const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
 const ServiceTargets = lazy(() => import('./pages/ServiceTargets'));
 const SystemLlmSettings = lazy(() => import('./pages/SystemLlmSettings'));
+const ApiKeySettings = lazy(() => import('./pages/ApiKeySettings'));
 const AdminRequestPage = lazy(() => import('./pages/AdminRequestPage'));
 const AdminRequestsManage = lazy(() => import('./pages/AdminRequestsManage'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
@@ -144,6 +145,7 @@ function App() {
           {adminRole === 'SUPER_ADMIN' && (
             <>
               <Route path="/system-llm" element={<SystemLlmSettings />} />
+              <Route path="/api-key" element={<ApiKeySettings />} />
               <Route path="/holidays" element={<Holidays />} />
               <Route path="/request-logs" element={<RequestLogs />} />
               <Route path="/audit-logs" element={<AuditLogs />} />

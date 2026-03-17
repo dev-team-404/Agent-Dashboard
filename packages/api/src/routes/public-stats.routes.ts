@@ -53,13 +53,20 @@ async function requireApiKey(req: Request, res: Response, next: NextFunction): P
     return;
   }
 
-  // query param ?apiKey= 또는 header x-api-key
-  const provided = (req.query['apiKey'] as string) || (req.headers['x-api-key'] as string);
+  // 대시보드 인증 사용자(Bearer 토큰)는 API Key 없이 통과
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+
+  // query param ?apiKey=
+  const provided = req.query['apiKey'] as string;
 
   if (!provided) {
     res.status(401).json({
-      error: 'API key required. Provide via ?apiKey= query parameter or x-api-key header.',
-      error_kr: 'API 비밀번호가 필요합니다. ?apiKey= 쿼리 파라미터 또는 x-api-key 헤더로 전달하세요.',
+      error: 'API key required. Provide via ?apiKey= query parameter.',
+      error_kr: 'API 비밀번호가 필요합니다. ?apiKey= 쿼리 파라미터로 전달하세요.',
     });
     return;
   }
