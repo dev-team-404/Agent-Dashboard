@@ -7,7 +7,7 @@
 
 import { prisma } from '../index.js';
 import { generateImages, ImageEndpointInfo } from './imageProviders.service.js';
-import { saveImage, buildImageUrl } from './imageStorage.service.js';
+import { saveImage, buildImageUrl, ensureStorageDir } from './imageStorage.service.js';
 
 const LOGO_MODEL_KEY = 'LOGO_GENERATION_MODEL_ID';
 
@@ -83,7 +83,8 @@ export async function generateLogoForService(
       return { success: false, error: 'Image generation returned no results' };
     }
 
-    // 5. 이미지 저장
+    // 5. 이미지 저장 (디렉토리 보장)
+    ensureStorageDir();
     const saved = await saveImage(results[0]!.imageBuffer, {
       mimeType: results[0]!.mimeType,
       modelId: model.id,
