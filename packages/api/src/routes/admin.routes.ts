@@ -15,6 +15,7 @@ import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedReques
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { z } from 'zod';
 import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
+import { generateImages } from '../services/imageProviders.service.js';
 
 /**
  * Helper: PostgreSQL DATE() 결과를 YYYY-MM-DD 문자열로 변환
@@ -1381,74 +1382,110 @@ adminRoutes.post('/models/test-image', async (req: AuthenticatedRequest, res) =>
 
     const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, extraBody, imageProvider } = validation.data;
 
-    // Build URL - append /images/generations
-    const url = buildImagesGenerationsUrl(endpointUrl);
-
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-    if (extraHdrs) {
-      for (const [key, value] of Object.entries(extraHdrs)) {
-        const lowerKey = key.toLowerCase();
-        if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
-          headers[key] = value;
-        }
-      }
-    }
-
     let imageGen: { passed: boolean; status?: number; message: string; latencyMs: number };
     const startTime = Date.now();
+    const provider = (imageProvider || 'OPENAI').toUpperCase();
 
-    // OpenAI-style image generation request
-    const requestBody: Record<string, unknown> = {
-      model: modelName,
-      prompt: 'A simple red circle on white background',
-      n: 1,
-      size: '256x256',
-      ...(extraBody && typeof extraBody === 'object' ? extraBody : {}),
-    };
+    // provider별 분기: COMFYUI/GEMINI/PIXABAY/PEXELS는 generateImages() 어댑터 사용
+    const useAdapter = ['COMFYUI', 'GEMINI', 'PIXABAY', 'PEXELS'].includes(provider);
 
-    try {
-      const response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody),
-      }, HEALTH_CHECK_TIMEOUT_MS);
+    if (useAdapter) {
+      try {
+        const results = await generateImages(provider, {
+          endpointUrl,
+          apiKey: apiKey || null,
+          modelName,
+          extraHeaders: extraHdrs || null,
+          extraBody: extraBody || null,
+        }, {
+          prompt: 'A simple red circle on white background',
+          n: 1,
+          size: '256x256',
+        });
 
-      const latencyMs = Date.now() - startTime;
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        imageGen = { passed: false, status: response.status, message: `Image generation failed with status ${response.status}`, latencyMs };
-        logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
-      } else {
-        let data: any;
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          imageGen = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
-          logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+        const latencyMs = Date.now() - startTime;
+        if (results.length > 0 && results[0]!.imageBuffer.length > 0) {
+          imageGen = { passed: true, status: 200, message: `OK: image generated successfully (${results[0]!.mimeType}, ${results[0]!.imageBuffer.length} bytes)`, latencyMs };
+        } else {
+          imageGen = { passed: false, message: 'No image data returned', latencyMs };
         }
+        console.log(`[HealthCheck] Image Generation ${imageGen.passed ? 'OK' : 'FAIL'} (${latencyMs}ms)`);
+        console.log(`  Model: ${modelName}`);
+        console.log(`  Provider: ${provider}`);
+      } catch (error) {
+        const latencyMs = Date.now() - startTime;
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        imageGen = { passed: false, message: errMsg, latencyMs };
+        console.log(`[HealthCheck] Image Generation FAIL (${latencyMs}ms)`);
+        console.log(`  Model: ${modelName}`);
+        console.log(`  Provider: ${provider}`);
+        console.log(`  Error: ${errMsg}`);
+      }
+    } else {
+      // OpenAI-style image generation request
+      const url = buildImagesGenerationsUrl(endpointUrl);
 
-        if (!imageGen!) {
-          // Check for image data in response (OpenAI format: data[0].url or data[0].b64_json)
-          const imageData = data?.data?.[0];
-          if (imageData && (imageData.url || imageData.b64_json)) {
-            imageGen = { passed: true, status: response.status, message: `OK: image generated successfully`, latencyMs };
-          } else {
-            imageGen = { passed: false, status: response.status, message: 'No image data in response (expected data[0].url or data[0].b64_json)', latencyMs };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      if (extraHdrs) {
+        for (const [key, value] of Object.entries(extraHdrs)) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey !== 'content-type' && lowerKey !== 'authorization') {
+            headers[key] = value;
           }
-          logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen!, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
         }
       }
-    } catch (error) {
-      const latencyMs = Date.now() - startTime;
-      const errMsg = error instanceof Error
-        ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
-        : 'Unknown error';
-      imageGen = { passed: false, message: errMsg, latencyMs };
-      logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, errMsg);
+
+      const requestBody: Record<string, unknown> = {
+        model: modelName,
+        prompt: 'A simple red circle on white background',
+        n: 1,
+        size: '256x256',
+        ...(extraBody && typeof extraBody === 'object' ? extraBody : {}),
+      };
+
+      try {
+        const response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+
+        const latencyMs = Date.now() - startTime;
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          imageGen = { passed: false, status: response.status, message: `Image generation failed with status ${response.status}`, latencyMs };
+          logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+        } else {
+          let data: any;
+          try {
+            data = JSON.parse(responseText);
+          } catch {
+            imageGen = { passed: false, status: response.status, message: 'Response is not valid JSON', latencyMs };
+            logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, responseText);
+          }
+
+          if (!imageGen!) {
+            const imageData = data?.data?.[0];
+            if (imageData && (imageData.url || imageData.b64_json)) {
+              imageGen = { passed: true, status: response.status, message: `OK: image generated successfully`, latencyMs };
+            } else {
+              imageGen = { passed: false, status: response.status, message: 'No image data in response (expected data[0].url or data[0].b64_json)', latencyMs };
+            }
+            logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen!, responseText.length > 500 ? responseText.substring(0, 500) + '...' : responseText);
+          }
+        }
+      } catch (error) {
+        const latencyMs = Date.now() - startTime;
+        const errMsg = error instanceof Error
+          ? (error.name === 'AbortError' ? `Timed out after ${HEALTH_CHECK_TIMEOUT_MS / 1000}s` : `Connection failed: ${error.message}`)
+          : 'Unknown error';
+        imageGen = { passed: false, message: errMsg, latencyMs };
+        logHealthCheckDetail('Image Generation', modelName, url, requestBody, imageGen, errMsg);
+      }
     }
 
     console.log(`[Test-Image] Model "${modelName}" (provider: ${imageProvider || 'default'}) -> ${imageGen!.passed ? 'PASS' : 'FAIL'} (${imageGen!.latencyMs}ms)`);
