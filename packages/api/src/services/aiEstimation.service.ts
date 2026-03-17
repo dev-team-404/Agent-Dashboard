@@ -235,13 +235,75 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     bgMap.set(id, Math.round(total / numDays));
   }
 
+  // API Only STANDARD 서비스의 외부 사용 데이터도 baseline에 포함
+  const apiOnlyStdServices = await prisma.service.findMany({
+    where: { apiOnly: true, type: 'STANDARD', status: 'DEPLOYED' },
+    select: { id: true },
+  });
+  const apiOnlyStdIds = apiOnlyStdServices.map(s => s.id);
+
+  let extStdDau = 0;
+  let extStdCalls = 0;
+  if (apiOnlyStdIds.length > 0) {
+    const extDaily = await prisma.$queryRaw<
+      Array<{ d: Date; total_dau: bigint; total_calls: bigint }>
+    >`
+      SELECT date as d,
+             COALESCE(SUM(daily_active_users), 0) as total_dau,
+             COALESCE(SUM(llm_request_count), 0) as total_calls
+      FROM external_daily_usage
+      WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
+        AND service_id::text = ANY(${apiOnlyStdIds})
+        AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+      GROUP BY date
+      ORDER BY date DESC
+    `;
+    // 같은 5영업일 윈도우에 맞춤
+    for (const r of extDaily) {
+      const day = new Date(r.d).toISOString().split('T')[0];
+      if (!bizDaySet.has(day)) continue;
+      extStdDau += Number(r.total_dau);
+      extStdCalls += Number(r.total_calls);
+    }
+  }
+
+  // API Only BACKGROUND 서비스의 외부 호출 데이터도 bgMap에 포함
+  const apiOnlyBgServices = await prisma.service.findMany({
+    where: { apiOnly: true, type: 'BACKGROUND', status: 'DEPLOYED' },
+    select: { id: true },
+  });
+  const apiOnlyBgIds = apiOnlyBgServices.map(s => s.id);
+
+  if (apiOnlyBgIds.length > 0) {
+    const extBgDaily = await prisma.$queryRaw<
+      Array<{ service_id: string; total_calls: bigint }>
+    >`
+      SELECT service_id::text as service_id,
+             COALESCE(SUM(llm_request_count), 0) as total_calls
+      FROM external_daily_usage
+      WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
+        AND service_id::text = ANY(${apiOnlyBgIds})
+        AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = external_daily_usage.date)
+      GROUP BY service_id
+    `;
+    for (const r of extBgDaily) {
+      const existing = bgMap.get(r.service_id) || 0;
+      bgMap.set(r.service_id, existing + Math.round(Number(r.total_calls) / numDays));
+    }
+  }
+
   // STANDARD 기준 1인당 하루 평균 호출 수 (BACKGROUND DAU 추정 베이스라인)
+  // API Only STANDARD 데이터도 합산
   let totalStdCalls = 0;
   let totalStdDau = 0;
   for (const v of stdAgg.values()) {
     totalStdCalls += v.totalCalls;
     totalStdDau += v.totalDau;
   }
+  totalStdCalls += extStdCalls;
+  totalStdDau += extStdDau;
   const avgStdCalls = totalStdCalls / numDays;
   const avgStdDau = totalStdDau / numDays;
   const callsPerPersonPerDay = avgStdDau > 0 ? avgStdCalls / avgStdDau : 0;
@@ -277,7 +339,7 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
     where: { status: 'DEPLOYED' },
     select: {
       id: true, name: true, displayName: true, description: true,
-      type: true, standardMD: true, targetMM: true, savedMM: true, createdAt: true,
+      type: true, apiOnly: true, standardMD: true, targetMM: true, savedMM: true, createdAt: true,
     },
   });
 
@@ -310,6 +372,23 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
         avgDau = stats?.dau || 0;
         avgCalls = stats?.calls || 0;
         isEstimatedDau = false;
+
+        // API Only STANDARD: ExternalDailyUsage에서 데이터 보충 (최근 31일 범위)
+        if (svc.apiOnly) {
+          const extRangeEnd = new Date(todayKST);
+          extRangeEnd.setDate(extRangeEnd.getDate() - 1);
+          const extRangeStart = new Date(todayKST);
+          extRangeStart.setDate(extRangeStart.getDate() - 31);
+          const extStats = await prisma.externalDailyUsage.aggregate({
+            where: {
+              serviceId: svc.id,
+              date: { gte: extRangeStart, lte: extRangeEnd },
+            },
+            _avg: { dailyActiveUsers: true, llmRequestCount: true },
+          });
+          avgDau += Math.round(extStats._avg.dailyActiveUsers || 0);
+          avgCalls += Math.round(extStats._avg.llmRequestCount || 0);
+        }
       } else {
         avgCalls = bgMap.get(svc.id) || 0;
         avgDau = callsPerPersonPerDay > 0 ? Math.round(avgCalls / callsPerPersonPerDay) : 0;

@@ -49,6 +49,9 @@ model Service {
   standardMD    Float?    @map("standard_md")         // Background 서비스 표준 공수 (M/D)
   jiraTicket    String?   @map("jira_ticket")          // Jira 티켓 URL (optional)
 
+  // API Only: 프록시를 통하지 않고 자체 API로 사용 기록을 직접 전송하는 서비스
+  apiOnly     Boolean   @default(false) @map("api_only")
+
   // LLM 콘텐츠 로깅 (동의 기반)
   contentLoggingEnabled   Boolean   @default(false) @map("content_logging_enabled")
   contentLoggingConsentAt DateTime? @map("content_logging_consent_at")
@@ -65,15 +68,16 @@ model Service {
   center1Name String?  @map("center_1_name") // 2차 상위부서 영문 (grandparent)
 
   // Relations
-  usageLogs        UsageLog[]
-  dailyUsageStats  DailyUsageStat[]
-  ratingFeedbacks  RatingFeedback[]
-  userServices     UserService[]
-  rateLimits       UserRateLimit[]
-  serviceRateLimit ServiceRateLimit?
-  serviceModels    ServiceModel[]
-  requestLogs      RequestLog[]
-  aiEstimations    AiEstimation[]
+  usageLogs           UsageLog[]
+  dailyUsageStats     DailyUsageStat[]
+  ratingFeedbacks     RatingFeedback[]
+  userServices        UserService[]
+  rateLimits          UserRateLimit[]
+  serviceRateLimit    ServiceRateLimit?
+  serviceModels       ServiceModel[]
+  requestLogs         RequestLog[]
+  aiEstimations       AiEstimation[]
+  externalDailyUsage  ExternalDailyUsage[]
 
   @@map("services")
 }
@@ -595,4 +599,31 @@ model AiEstimation {
   @@index([serviceId])
   @@index([date])
   @@map("ai_estimations")
+}
+
+// ============================================
+// 외부 일별 사용 통계 (API Only 서비스용)
+// 프록시를 통하지 않고 자체 API로 사용 기록을 전송하는 서비스의 일별 집계
+// ============================================
+model ExternalDailyUsage {
+  id                String   @id @default(uuid())
+  date              DateTime @db.Date
+  serviceId         String   @map("service_id")
+  deptName          String   @map("dept_name")          // "S/W혁신팀(S.LSI)"
+  businessUnit      String   @map("business_unit")      // "S.LSI" (auto-extracted)
+  modelName         String   @map("model_name")         // "gpt-4o"
+  dailyActiveUsers  Int?     @map("daily_active_users") // STANDARD만 (BACKGROUND는 역산)
+  llmRequestCount   Int      @default(0) @map("llm_request_count")
+  totalInputTokens  Int      @default(0) @map("total_input_tokens")
+  totalOutputTokens Int      @default(0) @map("total_output_tokens")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([date, serviceId, deptName, modelName])
+  @@index([date])
+  @@index([serviceId])
+  @@index([serviceId, date])
+  @@map("external_daily_usage")
 }

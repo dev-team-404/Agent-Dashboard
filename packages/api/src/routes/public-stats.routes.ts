@@ -211,7 +211,7 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
     }
 
     // 외부 사용 데이터 (API Only 서비스)도 팀별로 합산
-    const extStats = await prisma.externalDailyUsage.groupBy({
+    const extStatsSum = await prisma.externalDailyUsage.groupBy({
       by: ['deptName'],
       where: {
         date: { gte: startDate, lte: endDate },
@@ -221,7 +221,9 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
         totalInputTokens: true,
         totalOutputTokens: true,
         llmRequestCount: true,
-        dailyActiveUsers: true,
+      },
+      _max: {
+        dailyActiveUsers: true,  // MAX(DAU)를 uniqueUsers 근사치로 사용
       },
     });
 
@@ -235,19 +237,19 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
         uniqueUsers: deptUserMap.get(s.deptname)?.size ?? 0,
       });
     }
-    for (const e of extStats) {
+    for (const e of extStatsSum) {
       const existing = mergedMap.get(e.deptName);
       if (existing) {
         existing.inputTokens += e._sum.totalInputTokens ?? 0;
         existing.outputTokens += e._sum.totalOutputTokens ?? 0;
         existing.requestCount += e._sum.llmRequestCount ?? 0;
-        existing.uniqueUsers += e._sum.dailyActiveUsers ?? 0;
+        existing.uniqueUsers += e._max.dailyActiveUsers ?? 0;
       } else {
         mergedMap.set(e.deptName, {
           inputTokens: e._sum.totalInputTokens ?? 0,
           outputTokens: e._sum.totalOutputTokens ?? 0,
           requestCount: e._sum.llmRequestCount ?? 0,
-          uniqueUsers: e._sum.dailyActiveUsers ?? 0,
+          uniqueUsers: e._max.dailyActiveUsers ?? 0,
         });
       }
     }
@@ -324,23 +326,74 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
       }
     }
 
-    const data = stats.map((s) => {
-      const svc = s.serviceId ? serviceMap.get(s.serviceId) : null;
-      const inputTokens = s._sum.totalInputTokens ?? 0;
-      const outputTokens = s._sum.totalOutputTokens ?? 0;
+    // API Only 서비스의 외부 데이터도 합산
+    const extAllStats = await prisma.externalDailyUsage.groupBy({
+      by: ['deptName', 'serviceId'],
+      where: { date: { gte: startDate, lte: endDate } },
+      _sum: { totalInputTokens: true, totalOutputTokens: true, llmRequestCount: true },
+      _max: { dailyActiveUsers: true },
+    });
+    // 외부 데이터의 서비스 정보 조회
+    const extServiceIds = [...new Set(extAllStats.map(e => e.serviceId))];
+    if (extServiceIds.length > 0) {
+      const extServices = await prisma.service.findMany({
+        where: { id: { in: extServiceIds } },
+        select: { id: true, name: true, displayName: true },
+      });
+      for (const s of extServices) {
+        if (!serviceMap.has(s.id)) serviceMap.set(s.id, s);
+      }
+    }
+
+    // 프록시 데이터 먼저 추가
+    const mergedAllMap = new Map<string, { deptname: string; serviceId: string; inputTokens: number; outputTokens: number; requestCount: number; uniqueUsers: number }>();
+    for (const s of stats) {
       const key = `${s.deptname}|${s.serviceId ?? ''}`;
-      return {
+      mergedAllMap.set(key, {
         deptname: s.deptname,
-        businessUnit: extractBusinessUnit(s.deptname),
-        serviceName: svc?.name || 'unknown',
-        serviceDisplayName: svc?.displayName || 'Unknown',
-        totalInputTokens: inputTokens,
-        totalOutputTokens: outputTokens,
-        totalTokens: inputTokens + outputTokens,
+        serviceId: s.serviceId ?? '',
+        inputTokens: s._sum.totalInputTokens ?? 0,
+        outputTokens: s._sum.totalOutputTokens ?? 0,
         requestCount: s._sum.requestCount ?? 0,
         uniqueUsers: deptSvcUserMap.get(key)?.size ?? 0,
+      });
+    }
+    // 외부 데이터 합산
+    for (const e of extAllStats) {
+      const key = `${e.deptName}|${e.serviceId}`;
+      const existing = mergedAllMap.get(key);
+      if (existing) {
+        existing.inputTokens += e._sum.totalInputTokens ?? 0;
+        existing.outputTokens += e._sum.totalOutputTokens ?? 0;
+        existing.requestCount += e._sum.llmRequestCount ?? 0;
+        existing.uniqueUsers += e._max.dailyActiveUsers ?? 0;
+      } else {
+        mergedAllMap.set(key, {
+          deptname: e.deptName,
+          serviceId: e.serviceId,
+          inputTokens: e._sum.totalInputTokens ?? 0,
+          outputTokens: e._sum.totalOutputTokens ?? 0,
+          requestCount: e._sum.llmRequestCount ?? 0,
+          uniqueUsers: e._max.dailyActiveUsers ?? 0,
+        });
+      }
+    }
+
+    const data = Array.from(mergedAllMap.values()).map(v => {
+      const svc = v.serviceId ? serviceMap.get(v.serviceId) : null;
+      return {
+        deptname: v.deptname,
+        businessUnit: extractBusinessUnit(v.deptname),
+        serviceId: v.serviceId || null,
+        serviceName: svc?.name || 'unknown',
+        serviceDisplayName: svc?.displayName || 'Unknown',
+        totalInputTokens: v.inputTokens,
+        totalOutputTokens: v.outputTokens,
+        totalTokens: v.inputTokens + v.outputTokens,
+        requestCount: v.requestCount,
+        uniqueUsers: v.uniqueUsers,
       };
-    });
+    }).sort((a, b) => a.deptname.localeCompare(b.deptname));
 
     res.json({ data });
   } catch (err) {
@@ -669,9 +722,9 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
                  COALESCE(AVG(calls), 0)::float as avg_daily_calls
           FROM daily
         `,
-        prisma.$queryRaw<Array<{ total_calls: bigint; total_dau: bigint }>>`
+        prisma.$queryRaw<Array<{ total_calls: bigint; max_dau: bigint }>>`
           SELECT COALESCE(SUM(llm_request_count), 0) as total_calls,
-                 COALESCE(SUM(daily_active_users), 0) as total_dau
+                 COALESCE(MAX(daily_active_users), 0) as max_dau
           FROM external_daily_usage
           WHERE date >= ${baselineStart} AND date <= ${baselineEnd}
             AND service_id::text = ANY(${apiOnlyStdIds})
@@ -680,8 +733,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       extStdAvgDau = extDailyStats[0]?.avg_daily_dau || 0;
       extStdAvgCalls = extDailyStats[0]?.avg_daily_calls || 0;
       extStdTotalCalls = Number(extMonthlyStats[0]?.total_calls || 0);
-      // API Only는 개별 사용자 추적 불가하므로 DAU 합계를 MAU 근사치로 사용
-      extStdMau = Number(extMonthlyStats[0]?.total_dau || 0);
+      extStdMau = Number(extMonthlyStats[0]?.max_dau || 0);
     }
 
     const avgCallsPerDay = (baselineDailyCalls[0]?.avg_daily_calls || 0) + extStdAvgCalls;
@@ -913,6 +965,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
     const data = services.map(s => {
       const usage = usageMap.get(s.id) || { totalCallCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalTokens: 0 };
       const base = {
+        serviceId: s.id,
         name: s.name,
         displayName: s.displayName,
         description: s.description,

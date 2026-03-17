@@ -68,6 +68,7 @@ export const guideSections: GuideSection[] = [
       { path: '/api/framework-integration', label: '프레임워크별 연동', description: 'Python/JS/Go + LangChain, ADK, Agno 등' },
       { path: '/api/chat-completions', label: 'Chat Completions API', description: 'POST /v1/chat/completions' },
       { path: '/api/models', label: 'Models API', description: 'GET /v1/models' },
+      { path: '/api/api-only-services', label: 'API Only 서비스', description: '프록시 미경유 서비스 연동 가이드' },
     ],
   },
 ];

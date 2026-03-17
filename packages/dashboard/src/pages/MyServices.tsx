@@ -26,6 +26,7 @@ interface Service {
   docsUrl?: string;
   serviceUrl?: string;
   type: 'STANDARD' | 'BACKGROUND';
+  apiOnly?: boolean;
   status: 'DEVELOPMENT' | 'DEPLOYED';
   enabled: boolean;
   registeredBy?: string;
@@ -62,6 +63,7 @@ interface ServiceFormData {
   displayName: string;
   description: string;
   type: 'STANDARD' | 'BACKGROUND';
+  apiOnly: boolean;
   iconUrl: string;
   docsUrl: string;
   serviceUrl: string;
@@ -75,6 +77,7 @@ const EMPTY_FORM: ServiceFormData = {
   displayName: '',
   description: '',
   type: 'STANDARD',
+  apiOnly: false,
   iconUrl: '',
   docsUrl: '',
   serviceUrl: '',
@@ -224,6 +227,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       displayName: service.displayName,
       description: service.description || '',
       type: service.type,
+      apiOnly: service.apiOnly || false,
       iconUrl: service.iconUrl || '',
       docsUrl: service.docsUrl || '',
       serviceUrl: service.serviceUrl || '',
@@ -246,6 +250,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     displayName: formData.displayName,
     description: formData.description || undefined,
     type: formData.type,
+    apiOnly: formData.apiOnly,
     iconUrl: formData.iconUrl.trim() || null,
     docsUrl: formData.docsUrl.trim() || null,
     serviceUrl: formData.serviceUrl.trim() || null,
@@ -472,6 +477,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                         }`}>
                           {isBG ? 'BG' : 'STD'}
                         </span>
+                        {/* API Only badge */}
+                        {service.apiOnly && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-600">
+                            API Only
+                          </span>
+                        )}
                         {/* Status badge */}
                         <span className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
                           isDev
@@ -696,6 +707,17 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     })}
                   </div>
                 </div>
+              </div>
+              {/* API Only 토글 */}
+              <div className="flex items-center justify-between p-3 bg-amber-50/60 border border-amber-200/80 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">API Only</p>
+                  <p className="text-xs text-gray-400 mt-0.5">프록시를 통하지 않고 자체 API로 사용 기록을 전송</p>
+                </div>
+                <button type="button" onClick={() => setFormData({ ...formData, apiOnly: !formData.apiOnly })}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${formData.apiOnly ? 'bg-amber-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.apiOnly ? 'translate-x-5' : ''}`} />
+                </button>
               </div>
               {formData.type === 'BACKGROUND' && (
                 <div>
@@ -979,6 +1001,17 @@ function ServiceCreationWizard({
                 </div>
               </div>
               <div>
+                {/* API Only 토글 */}
+                <div className="flex items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-lg">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700">API Only</p>
+                    <p className="text-xs text-gray-500 mt-0.5">프록시를 통하지 않고 자체 API로 사용 기록을 전송하는 서비스</p>
+                  </div>
+                  <button type="button" onClick={() => setFormData({ ...formData, apiOnly: !formData.apiOnly })}
+                    className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${formData.apiOnly ? 'bg-amber-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.apiOnly ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 카테고리 <span className="text-red-500">*</span> <span className="text-xs text-gray-400 font-normal">(복수 선택 가능)</span></label>
                 <p className="text-xs text-gray-400 mb-3">서비스의 주요 목적에 맞는 카테고리를 모두 선택해주세요.</p>
                 <div className="grid grid-cols-1 gap-2">
@@ -1041,7 +1074,7 @@ function ServiceCreationWizard({
                   ['서비스 코드', formData.name],
                   ['표시 이름', formData.displayName],
                   ['설명', formData.description || '-'],
-                  ['서비스 타입', formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'],
+                  ['서비스 타입', `${formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'}${formData.apiOnly ? ' — API Only' : ''}`],
                   ['카테고리', formData.serviceCategory.length > 0 ? formData.serviceCategory.join(', ') : '-'],
                   ['로고 URL', formData.iconUrl || '-'],
                   ['서비스 URL', formData.serviceUrl || '-'],

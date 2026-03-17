@@ -31,6 +31,7 @@ import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { serviceTargetsRoutes } from './routes/service-targets.routes.js';
 import { systemSettingsRoutes } from './routes/system-settings.routes.js';
 import { adminRequestRoutes } from './routes/admin-requests.routes.js';
+import { externalUsageRoutes } from './routes/external-usage.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
@@ -101,6 +102,10 @@ app.use('/v1', proxyRoutes);
 
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
+
+// External Usage API (API Only 서비스용, 인증 불필요)
+// nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
+app.use('/external-usage', externalUsageRoutes);
 
 // Swagger / OpenAPI documentation
 app.get('/api-docs', (_req, res) => {

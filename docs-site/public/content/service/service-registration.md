@@ -114,6 +114,17 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"데이터 요약해줘"}]}'
 ```
 
+### API Only 옵션
+
+서비스 타입(STANDARD/BACKGROUND)과 별개로, **API Only** 토글을 활성화할 수 있습니다.
+
+API Only 서비스는 이 프록시를 통하지 않고, 자체 시스템에서 LLM을 직접 호출하며 일별 사용 기록을 `POST /api/external-usage/daily` API로 전송합니다.
+
+- STANDARD + API Only: `dailyActiveUsers`, `llmRequestCount`, 토큰 사용량을 날짜/팀/모델별로 전송
+- BACKGROUND + API Only: `llmRequestCount`, 토큰 사용량만 전송 (DAU는 시스템이 자동 역산)
+
+> 자세한 연동 방법은 [API Only 서비스 가이드](/api/api-only-services)를 참고하세요.
+
 ### 타입 선택 가이드
 
 | 조건 | 추천 타입 |
@@ -124,6 +135,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 | 서버 간 통신, 배치 잡, 크론 잡 | BACKGROUND |
 | 자동화 파이프라인 (CI/CD, 데이터 처리) | BACKGROUND |
 | 사용자 구분 없이 서비스 전체로 관리하는 경우 | BACKGROUND |
+| 프록시를 사용하지 않는 외부 시스템 | STANDARD 또는 BACKGROUND + **API Only** |
 
 ## 서비스 라이프사이클
 
