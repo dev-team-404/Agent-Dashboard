@@ -52,11 +52,6 @@ model Service {
   // API Only: 프록시를 통하지 않고 자체 API로 사용 기록을 직접 전송하는 서비스
   apiOnly     Boolean   @default(false) @map("api_only")
 
-  // LLM 콘텐츠 로깅 (동의 기반)
-  contentLoggingEnabled   Boolean   @default(false) @map("content_logging_enabled")
-  contentLoggingConsentAt DateTime? @map("content_logging_consent_at")
-  contentLoggingConsentBy String?   @map("content_logging_consent_by")
-
   // 등록한 사용자 정보 (누구나 서비스 생성 가능)
   registeredBy             String?  @map("registered_by")              // loginid
   registeredByDept         String?  @map("registered_by_dept")         // deptname (한글)
@@ -481,8 +476,6 @@ model RequestLog {
   method        String
   path          String
   statusCode    Int      @map("status_code")
-  requestBody   String?  @map("request_body") @db.Text
-  responseBody  String?  @map("response_body") @db.Text
   inputTokens   Int?     @map("input_tokens")
   outputTokens  Int?     @map("output_tokens")
   latencyMs     Int?     @map("latency_ms")

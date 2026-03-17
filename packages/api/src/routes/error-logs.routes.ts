@@ -197,7 +197,7 @@ errorLogsRoutes.post('/error-logs/:id/analyze', (async (req: AuthenticatedReques
       select: {
         id: true, serviceId: true, userId: true, deptname: true,
         modelName: true, resolvedModel: true, method: true, path: true,
-        statusCode: true, errorMessage: true, requestBody: true, responseBody: true,
+        statusCode: true, errorMessage: true,
         latencyMs: true, userAgent: true, ipAddress: true, stream: true, timestamp: true,
         service: { select: { name: true, displayName: true, type: true } },
       },
@@ -241,8 +241,6 @@ errorLogsRoutes.post('/error-logs/:id/analyze', (async (req: AuthenticatedReques
       userAgent: errorLog.userAgent,
       latencyMs: errorLog.latencyMs,
       stream: errorLog.stream,
-      requestBody: truncate(errorLog.requestBody, 2000),
-      responseBody: truncate(errorLog.responseBody, 2000),
     };
 
     const systemPrompt = `You are an API error analysis assistant for an LLM proxy system (Agent Registry).

@@ -2,10 +2,9 @@
  * Admin Logs Routes
  *
  * Request Logs & Audit Logs 조회/관리 엔드포인트
- * - GET /admin/logs         — Request Logs 검색 (목록, body 제외)
- * - GET /admin/logs/:id     — Request Log 상세 (body 포함)
+ * - GET /admin/logs            — Request Logs 검색 (메타데이터만)
  * - DELETE /admin/logs/cleanup — 오래된 로그 삭제 (SUPER_ADMIN 전용)
- * - GET /admin/audit        — Audit Logs 검색
+ * - GET /admin/audit           — Audit Logs 검색
  */
 
 import { Router, RequestHandler } from 'express';
@@ -129,30 +128,6 @@ adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
   } catch (error) {
     console.error('Get request logs error:', error);
     res.status(500).json({ error: 'Failed to get request logs' });
-  }
-}) as RequestHandler);
-
-/**
- * GET /admin/logs/:id
- * Get single request log detail (includes requestBody & responseBody)
- */
-adminLogsRoutes.get('/logs/:id', (async (req: AuthenticatedRequest, res) => {
-  try {
-    const { id } = req.params;
-
-    const log = await prisma.requestLog.findUnique({
-      where: { id },
-    });
-
-    if (!log) {
-      res.status(404).json({ error: 'Log not found' });
-      return;
-    }
-
-    res.json({ log });
-  } catch (error) {
-    console.error('Get request log detail error:', error);
-    res.status(500).json({ error: 'Failed to get request log detail' });
   }
 }) as RequestHandler);
 

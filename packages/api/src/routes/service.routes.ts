@@ -226,9 +226,7 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
-        contentLoggingConsentAt: true,
-        contentLoggingConsentBy: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,
@@ -291,9 +289,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
-        contentLoggingConsentAt: true,
-        contentLoggingConsentBy: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,
@@ -340,9 +336,7 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
-        contentLoggingConsentAt: true,
-        contentLoggingConsentBy: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
         type: true,
         apiOnly: true,
         status: true,
@@ -449,9 +443,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
-        contentLoggingConsentAt: true,
-        contentLoggingConsentBy: true,
+        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,
@@ -2016,153 +2008,3 @@ serviceRoutes.delete('/:id/service-rate-limit', authenticateToken, async (req: A
   }
 });
 
-// ============================================
-// LLM 콘텐츠 로깅 (동의 기반)
-// ============================================
-
-/**
- * PUT /services/:id/content-logging
- * 콘텐츠 로깅 활성화/비활성화 (동의 포함)
- * Body: { enabled: boolean }
- */
-serviceRoutes.put('/:id/content-logging', authenticateToken, async (req: AuthenticatedRequest, res) => {
-  try {
-    const serviceId = req.params.id as string;
-    if (!(await canManageService(req, serviceId))) {
-      res.status(403).json({ error: 'Permission denied' });
-      return;
-    }
-
-    const { enabled } = req.body;
-    if (typeof enabled !== 'boolean') {
-      res.status(400).json({ error: 'enabled (boolean) is required' });
-      return;
-    }
-
-    const updateData: Record<string, unknown> = {
-      contentLoggingEnabled: enabled,
-    };
-
-    if (enabled) {
-      updateData.contentLoggingConsentAt = new Date();
-      updateData.contentLoggingConsentBy = req.user?.loginid || 'unknown';
-    }
-
-    const service = await prisma.service.update({
-      where: { id: serviceId },
-      data: updateData,
-      select: {
-        id: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true, contentLoggingEnabled: true,
-        contentLoggingConsentAt: true,
-        contentLoggingConsentBy: true,
-      },
-    });
-
-    await recordAudit(req, enabled ? 'ENABLE_CONTENT_LOGGING' : 'DISABLE_CONTENT_LOGGING', serviceId, 'SERVICE', { enabled });
-
-    res.json({ service: filterServiceHierarchy(service), message: enabled ? 'Content logging enabled' : 'Content logging disabled' });
-  } catch (error) {
-    console.error('Toggle content logging error:', error);
-    res.status(500).json({ error: 'Failed to toggle content logging' });
-  }
-});
-
-/**
- * GET /services/:id/llm-logs
- * LLM 요청/응답 콘텐츠 로그 조회
- * Query: page, limit, modelName, startDate, endDate
- */
-serviceRoutes.get('/:id/llm-logs', authenticateToken, async (req: AuthenticatedRequest, res) => {
-  try {
-    const serviceId = req.params.id as string;
-    if (!(await canManageService(req, serviceId))) {
-      res.status(403).json({ error: 'Permission denied' });
-      return;
-    }
-
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
-    const modelName = req.query.modelName as string | undefined;
-    const startDate = req.query.startDate as string | undefined;
-    const endDate = req.query.endDate as string | undefined;
-
-    const where: Record<string, unknown> = {
-      serviceId,
-      OR: [
-        { requestBody: { not: null } },
-        { responseBody: { not: null } },
-      ],
-    };
-
-    if (modelName) where.modelName = modelName;
-    if (startDate || endDate) {
-      const timestamp: Record<string, Date> = {};
-      if (startDate) timestamp.gte = new Date(startDate);
-      if (endDate) timestamp.lte = new Date(endDate);
-      where.timestamp = timestamp;
-    }
-
-    const [logs, total] = await Promise.all([
-      prisma.requestLog.findMany({
-        where: where as any,
-        orderBy: { timestamp: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true,
-          userId: true,
-          deptname: true,
-          modelName: true,
-          resolvedModel: true,
-          method: true,
-          path: true,
-          statusCode: true,
-          requestBody: true,
-          responseBody: true,
-          inputTokens: true,
-          outputTokens: true,
-          latencyMs: true,
-          stream: true,
-          timestamp: true,
-        },
-      }),
-      prisma.requestLog.count({ where: where as any }),
-    ]);
-
-    res.json({
-      logs,
-      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    });
-  } catch (error) {
-    console.error('Fetch LLM logs error:', error);
-    res.status(500).json({ error: 'Failed to fetch LLM logs' });
-  }
-});
-
-/**
- * DELETE /services/:id/llm-logs/content
- * 서비스의 모든 LLM 로그 콘텐츠(requestBody, responseBody) 삭제
- * 사용량 통계(tokens, latency 등)는 유지
- */
-serviceRoutes.delete('/:id/llm-logs/content', authenticateToken, async (req: AuthenticatedRequest, res) => {
-  try {
-    const serviceId = req.params.id as string;
-    if (!(await canManageService(req, serviceId))) {
-      res.status(403).json({ error: 'Permission denied' });
-      return;
-    }
-
-    const result = await prisma.requestLog.updateMany({
-      where: { serviceId },
-      data: { requestBody: null, responseBody: null },
-    });
-
-    await recordAudit(req, 'DELETE_LLM_LOG_CONTENT', serviceId, 'SERVICE', { clearedCount: result.count });
-
-    res.json({ success: true, clearedCount: result.count, message: 'All LLM log content cleared (usage stats preserved)' });
-  } catch (error) {
-    console.error('Delete LLM log content error:', error);
-    res.status(500).json({ error: 'Failed to delete LLM log content' });
-  }
-});

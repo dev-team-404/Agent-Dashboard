@@ -126,7 +126,7 @@ proxyRoutes.post(
       // Rate limit 체크
       const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
       if (rateLimitResult) {
-        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: false }).catch(() => {});
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: false }).catch(() => {});
         res.status(rateLimitResult.status).json(rateLimitResult.body);
         return;
       }
@@ -232,7 +232,7 @@ proxyRoutes.post(
             0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
 
           recordRequestLog({
-            serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+            serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
             modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions',
             statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
             userAgent, ipAddress, stream: false,
@@ -253,7 +253,7 @@ proxyRoutes.post(
       // 모든 시도 실패
       const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
       console.error(`[Failover] ${label} failed for ASR model "${model.name}"`);
-      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => {});
+      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => {});
       res.status(503).json({
         error: 'Service temporarily unavailable',
         message: `Failed ${label}. Please try again later.`,
@@ -620,25 +620,8 @@ async function recordUsage(
 }
 
 /**
- * RequestLog 저장 (요청 로그)
+ * RequestLog 저장 (요청 로그) — 메타데이터만 기록, 요청/응답 본문은 수집하지 않음
  */
-// 서비스별 콘텐츠 로깅 상태 캐시 (30초 TTL — 토글 반영 지연 최소화)
-const contentLoggingCache = new Map<string, { enabled: boolean; ts: number }>();
-const CONTENT_LOGGING_CACHE_TTL = 30 * 1000;
-
-async function isContentLoggingEnabled(serviceId: string): Promise<boolean> {
-  const cached = contentLoggingCache.get(serviceId);
-  if (cached && Date.now() - cached.ts < CONTENT_LOGGING_CACHE_TTL) return cached.enabled;
-  try {
-    const svc = await prisma.service.findUnique({ where: { id: serviceId }, select: { contentLoggingEnabled: true } });
-    const enabled = svc?.contentLoggingEnabled ?? false;
-    contentLoggingCache.set(serviceId, { enabled, ts: Date.now() });
-    return enabled;
-  } catch {
-    return false;
-  }
-}
-
 async function recordRequestLog(params: {
   serviceId: string;
   userId?: string | null;
@@ -655,21 +638,8 @@ async function recordRequestLog(params: {
   userAgent?: string | null;
   ipAddress?: string | null;
   stream?: boolean;
-  requestBody?: string | null;
-  responseBody?: string | null;
 }) {
   try {
-    // 콘텐츠 로깅이 활성화된 경우에만 requestBody/responseBody 저장
-    let saveRequestBody = params.requestBody || null;
-    let saveResponseBody = params.responseBody || null;
-    if (saveRequestBody || saveResponseBody) {
-      const loggingEnabled = await isContentLoggingEnabled(params.serviceId);
-      if (!loggingEnabled) {
-        saveRequestBody = null;
-        saveResponseBody = null;
-      }
-    }
-
     await prisma.requestLog.create({
       data: {
         serviceId: params.serviceId,
@@ -680,8 +650,6 @@ async function recordRequestLog(params: {
         method: params.method,
         path: params.path,
         statusCode: params.statusCode,
-        requestBody: saveRequestBody,
-        responseBody: saveResponseBody,
         inputTokens: params.inputTokens || null,
         outputTokens: params.outputTokens || null,
         latencyMs: params.latencyMs || null,
@@ -849,7 +817,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     // Rate limit 체크
     const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
     if (rateLimitResult) {
-      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: rateLimitResult.status, latencyMs: Date.now() - reqStartTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: stream || false }).catch(() => {});
+      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: rateLimitResult.status, latencyMs: Date.now() - reqStartTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: stream || false }).catch(() => {});
       res.status(rateLimitResult.status).json(rateLimitResult.body);
       return;
     }
@@ -928,7 +896,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
     const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for model "${model.name}"`);
-    recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => {});
+    recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => {});
     res.status(503).json({
       error: 'Service temporarily unavailable',
       message: `Failed ${label}. Please try again later.`,
@@ -1092,12 +1060,10 @@ async function handleNonStreamingRequest(
           data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0,
           proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
         recordRequestLog({
-          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
           modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
           statusCode: 200, inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens,
           latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
-          requestBody: JSON.stringify(requestBody).substring(0, 50000),
-          responseBody: JSON.stringify(data).substring(0, 50000),
         }).catch(() => {});
       }
       res.json(data);
@@ -1283,11 +1249,10 @@ async function handleStreamingRequest(
         proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
     }
     recordRequestLog({
-      serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+      serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
       modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions',
       statusCode: 200, inputTokens: usageData?.prompt_tokens, outputTokens: usageData?.completion_tokens,
       latencyMs, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: true,
-      requestBody: JSON.stringify(requestBody).substring(0, 50000),
     }).catch(() => {});
     res.end();
     return true;
@@ -1455,12 +1420,10 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
         }
 
         recordRequestLog({
-          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
           modelName: embeddingsBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings',
           statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
           userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
-          requestBody: JSON.stringify(embeddingsBody).substring(0, 50000),
-          responseBody: responseText.substring(0, 50000),
         }).catch(() => {});
 
         res.setHeader('Content-Type', 'application/json');
@@ -1655,12 +1618,10 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
         }
 
         recordRequestLog({
-          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
           modelName: rerankBody.model as string, resolvedModel: model.name, method: 'POST', path: '/v1/rerank',
           statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
           userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
-          requestBody: JSON.stringify(rerankBody).substring(0, 50000),
-          responseBody: responseText.substring(0, 50000),
         }).catch(() => {});
 
         res.setHeader('Content-Type', 'application/json');
@@ -1815,12 +1776,10 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
           0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
 
         recordRequestLog({
-          serviceId: proxyReq.serviceId, userId: user?.id, deptname: proxyReq.deptName,
+          serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
           modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations',
           statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
           userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false,
-          requestBody: JSON.stringify({ model: modelName, prompt, n, size, quality, style }).substring(0, 50000),
-          responseBody: JSON.stringify({ data: rewrittenData }).substring(0, 50000),
         }).catch(() => {});
 
         return;

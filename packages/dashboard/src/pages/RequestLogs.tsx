@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Filter, ChevronDown, X, FileText, Clock, Eye, Wifi, WifiOff } from 'lucide-react';
+import { Search, Filter, ChevronDown, X, FileText, Clock, Wifi, WifiOff } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
 
 interface RequestLog {
@@ -16,15 +16,8 @@ interface RequestLog {
   outputTokens: number | null;
   latencyMs: number | null;
   errorMessage: string | null;
-  userAgent: string | null;
-  ipAddress: string | null;
   stream: boolean;
   timestamp: string;
-}
-
-interface RequestLogDetail extends RequestLog {
-  requestBody: unknown;
-  responseBody: unknown;
 }
 
 interface ServiceName {
@@ -81,10 +74,6 @@ export default function RequestLogs() {
   const [streamFilter, setStreamFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  // Detail modal
-  const [detailLog, setDetailLog] = useState<RequestLogDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
   // Service name lookup
   const serviceMap = new Map(services.map(s => [s.id, s.displayName]));
 
@@ -140,22 +129,6 @@ export default function RequestLogs() {
       setLoading(false);
     }
   }, [pagination.page, pagination.limit, modelName, statusCode, serviceId, streamFilter, startDate, endDate]);
-
-  const openDetail = async (id: string) => {
-    try {
-      setDetailLoading(true);
-      const res = await api.get(`/admin/logs/${id}`);
-      setDetailLog(res.data.log);
-    } catch (error) {
-      console.error('Failed to load log detail:', error);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const closeDetail = () => {
-    setDetailLog(null);
-  };
 
   const clearFilters = () => {
     setModelName('');
@@ -330,25 +303,24 @@ export default function RequestLogs() {
       {/* Logs Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ minWidth: '1100px' }}>
+          <table className="w-full" style={{ minWidth: '1050px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">시각</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">서비스</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">사용자</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">사용자</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">상태</th>
                 <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">입력 토큰</th>
                 <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">출력 토큰</th>
                 <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">지연</th>
                 <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">스트림</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[50px]"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-20 text-center">
+                  <td colSpan={9} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="relative">
                         <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200"></div>
@@ -360,7 +332,7 @@ export default function RequestLogs() {
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-20 text-center">
+                  <td colSpan={9} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="p-4 rounded-lg bg-pastel-50">
                         <Search className="w-8 h-8 text-pastel-300" />
@@ -376,8 +348,7 @@ export default function RequestLogs() {
                 logs.map(log => (
                   <tr
                     key={log.id}
-                    onClick={() => openDetail(log.id)}
-                    className="hover:bg-pastel-50/30 transition-colors duration-150 cursor-pointer group"
+                    className="hover:bg-pastel-50/30 transition-colors duration-150"
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -391,9 +362,14 @@ export default function RequestLogs() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm text-pastel-700 truncate block max-w-[120px]" title={log.userId}>
-                        {log.userId}
+                      <span className="text-sm text-pastel-700 truncate block max-w-[130px]" title={log.userId}>
+                        {log.userId || '-'}
                       </span>
+                      {log.deptname && (
+                        <span className="text-xs text-pastel-400 truncate block max-w-[130px]" title={log.deptname}>
+                          {log.deptname}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-sm text-pastel-800 font-medium truncate block" title={log.modelName}>
@@ -433,9 +409,6 @@ export default function RequestLogs() {
                           일반
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Eye className="w-4 h-4 text-pastel-300 group-hover:text-samsung-blue transition-colors duration-200 mx-auto" />
                     </td>
                   </tr>
                 ))
@@ -490,172 +463,6 @@ export default function RequestLogs() {
           </div>
         )}
       </div>
-
-      {/* Detail Modal */}
-      {(detailLog || detailLoading) && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in"
-          onClick={closeDetail}
-        >
-          <div
-            className="bg-white rounded-xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-modal animate-scale-in"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="px-6 py-5 border-b border-gray-100/80 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-lg bg-blue-50">
-                  <Eye className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-pastel-800">요청 상세</h2>
-                  {detailLog && (
-                    <p className="text-xs text-pastel-400 mt-0.5 font-mono">{detailLog.id}</p>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={closeDetail}
-                className="p-2 text-pastel-400 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="overflow-y-auto flex-1 p-6">
-              {detailLoading && !detailLog ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-full border-[3px] border-pastel-200"></div>
-                    <div className="absolute inset-0 w-10 h-10 rounded-full border-[3px] border-samsung-blue border-t-transparent animate-spin"></div>
-                  </div>
-                </div>
-              ) : detailLog ? (
-                <div className="space-y-6">
-                  {/* Basic Info Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">시각</p>
-                      <p className="text-sm font-medium text-pastel-800 font-mono tabular-nums">{formatKST(detailLog.timestamp)}</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">서비스</p>
-                      <p className="text-sm font-medium text-pastel-800">{serviceMap.get(detailLog.serviceId) || detailLog.serviceId}</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">사용자</p>
-                      <p className="text-sm font-medium text-pastel-800">{detailLog.userId}</p>
-                      {detailLog.deptname && (
-                        <p className="text-xs text-pastel-400">{detailLog.deptname}</p>
-                      )}
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">모델</p>
-                      <p className="text-sm font-medium text-pastel-800">{detailLog.modelName}</p>
-                      {detailLog.resolvedModel && detailLog.resolvedModel !== detailLog.modelName && (
-                        <p className="text-xs text-pastel-400">&rarr; {detailLog.resolvedModel}</p>
-                      )}
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">상태</p>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-semibold rounded-full ${getStatusColor(detailLog.statusCode)}`}>
-                        {detailLog.statusCode}
-                      </span>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">메서드/경로</p>
-                      <p className="text-sm font-medium text-pastel-800 font-mono">{detailLog.method} {detailLog.path}</p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">토큰</p>
-                      <p className="text-sm text-pastel-800">
-                        <span className="font-medium">{formatNumber(detailLog.inputTokens)}</span>
-                        <span className="text-pastel-400 mx-1">/</span>
-                        <span className="font-medium">{formatNumber(detailLog.outputTokens)}</span>
-                      </p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">지연시간</p>
-                      <p className="text-sm font-medium text-pastel-800 tabular-nums">
-                        {detailLog.latencyMs != null ? `${detailLog.latencyMs.toLocaleString()}ms` : '-'}
-                      </p>
-                    </div>
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                      <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">스트림</p>
-                      {detailLog.stream ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-200/80">
-                          <Wifi className="w-3 h-3" /> SSE
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-100 text-gray-500 ring-1 ring-gray-200/80">
-                          <WifiOff className="w-3 h-3" /> 일반
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Error message */}
-                  {detailLog.errorMessage && (
-                    <div className="p-4 rounded-xl bg-red-50 border border-red-200/60">
-                      <p className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-1">에러 메시지</p>
-                      <p className="text-sm text-red-700 font-mono">{detailLog.errorMessage}</p>
-                    </div>
-                  )}
-
-                  {/* IP / User-Agent */}
-                  {(detailLog.ipAddress || detailLog.userAgent) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {detailLog.ipAddress && (
-                        <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                          <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">IP</p>
-                          <p className="text-sm text-pastel-700 font-mono">{detailLog.ipAddress}</p>
-                        </div>
-                      )}
-                      {detailLog.userAgent && (
-                        <div className="p-4 rounded-xl bg-gray-50 border border-gray-100/80">
-                          <p className="text-xs font-semibold text-pastel-400 uppercase tracking-wider mb-1">User-Agent</p>
-                          <p className="text-xs text-pastel-600 font-mono break-all leading-relaxed">{detailLog.userAgent}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Request Body */}
-                  <div>
-                    <p className="text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">Request Body</p>
-                    <pre className="p-4 bg-gray-900 text-gray-100 rounded-xl text-xs font-mono overflow-auto max-h-[300px] leading-relaxed">
-                      {detailLog.requestBody
-                        ? JSON.stringify(detailLog.requestBody, null, 2)
-                        : '(없음)'}
-                    </pre>
-                  </div>
-
-                  {/* Response Body */}
-                  <div>
-                    <p className="text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">Response Body</p>
-                    <pre className="p-4 bg-gray-900 text-gray-100 rounded-xl text-xs font-mono overflow-auto max-h-[300px] leading-relaxed">
-                      {detailLog.responseBody
-                        ? JSON.stringify(detailLog.responseBody, null, 2)
-                        : '(없음)'}
-                    </pre>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-100/80 flex justify-end flex-shrink-0">
-              <button
-                onClick={closeDetail}
-                className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
