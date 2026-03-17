@@ -107,7 +107,6 @@ adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
           ipAddress: true,
           stream: true,
           timestamp: true,
-          // requestBody, responseBody excluded
         },
         orderBy: { timestamp: 'desc' },
         skip,
@@ -116,8 +115,20 @@ adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
       prisma.requestLog.count({ where }),
     ]);
 
+    // loginid → 한글 이름 매핑
+    const loginIds = [...new Set(logs.map(l => l.userId).filter(Boolean))] as string[];
+    const userMap: Record<string, string> = {};
+    if (loginIds.length > 0) {
+      const users = await prisma.user.findMany({
+        where: { loginid: { in: loginIds } },
+        select: { loginid: true, username: true },
+      });
+      for (const u of users) userMap[u.loginid] = u.username;
+    }
+
     res.json({
       logs,
+      userMap,
       pagination: {
         page,
         limit,

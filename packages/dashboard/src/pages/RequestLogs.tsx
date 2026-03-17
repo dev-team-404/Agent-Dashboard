@@ -64,6 +64,7 @@ export default function RequestLogs() {
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
   const [services, setServices] = useState<ServiceName[]>([]);
+  const [userMap, setUserMap] = useState<Record<string, string>>({});
 
   // Filters
   const [modelName, setModelName] = useState('');
@@ -122,6 +123,7 @@ export default function RequestLogs() {
 
       const res = await api.get('/admin/logs', { params });
       setLogs(res.data.logs);
+      setUserMap(prev => ({ ...prev, ...res.data.userMap }));
       setPagination(prev => ({ ...prev, ...res.data.pagination }));
     } catch (error) {
       console.error('Failed to load request logs:', error);
@@ -362,9 +364,14 @@ export default function RequestLogs() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm text-pastel-700 truncate block max-w-[130px]" title={log.userId}>
-                        {log.userId || '-'}
+                      <span className="text-sm text-pastel-700 font-medium truncate block max-w-[130px]" title={log.userId}>
+                        {log.userId ? (userMap[log.userId] || log.userId) : '-'}
                       </span>
+                      {log.userId && userMap[log.userId] && (
+                        <span className="text-xs text-pastel-400 truncate block max-w-[130px]" title={log.userId}>
+                          {log.userId}
+                        </span>
+                      )}
                       {log.deptname && (
                         <span className="text-xs text-pastel-400 truncate block max-w-[130px]" title={log.deptname}>
                           {log.deptname}
