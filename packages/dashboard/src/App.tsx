@@ -16,6 +16,7 @@ const ServiceMarket = lazy(() => import('./pages/ServiceMarket'));
 const MyServices = lazy(() => import('./pages/MyServices'));
 const RequestLogs = lazy(() => import('./pages/RequestLogs'));
 const AuditLogs = lazy(() => import('./pages/AuditLogs'));
+const ErrorManagement = lazy(() => import('./pages/ErrorManagement'));
 const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
 const ServiceTargets = lazy(() => import('./pages/ServiceTargets'));
 const SystemLlmSettings = lazy(() => import('./pages/SystemLlmSettings'));
@@ -146,6 +147,7 @@ function App() {
               <Route path="/holidays" element={<Holidays />} />
               <Route path="/request-logs" element={<RequestLogs />} />
               <Route path="/audit-logs" element={<AuditLogs />} />
+              <Route path="/error-management" element={<ErrorManagement />} />
               <Route path="/knox-verifications" element={<KnoxVerifications />} />
             </>
           )}
