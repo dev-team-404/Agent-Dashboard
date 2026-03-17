@@ -190,8 +190,8 @@ function ChartTooltip({ active, payload, metric }: {
 // ── Custom Bar Label with Logo ──
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function BarLabelWithLogo({ x, y, width, height, value, chartData, metric }: any) {
-  const entry = chartData?.find((d: { [key: string]: number }) => d[metric.key] === value);
+function BarLabelWithLogo({ x, y, width, height, value, index, chartData, metric }: any) {
+  const entry = chartData?.[index];
   const iconUrl = entry?.iconUrl;
   const formatted = metric.format(value);
   const logoSize = 16;
