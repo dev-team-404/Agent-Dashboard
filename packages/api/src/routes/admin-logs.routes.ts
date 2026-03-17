@@ -251,8 +251,60 @@ adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
       prisma.auditLog.count({ where }),
     ]);
 
+    // loginid → { username, deptname } 매핑
+    const loginIds = [...new Set(logs.map(l => l.loginid).filter(Boolean))];
+    const userMap: Record<string, { username: string; deptname: string }> = {};
+    if (loginIds.length > 0) {
+      const users = await prisma.user.findMany({
+        where: { loginid: { in: loginIds } },
+        select: { loginid: true, username: true, deptname: true },
+      });
+      for (const u of users) userMap[u.loginid] = { username: u.username, deptname: u.deptname };
+    }
+
+    // target(UUID) → 사람이 읽을 수 있는 이름 매핑
+    const targetMap: Record<string, string> = {};
+    const targetIds = logs.map(l => l.target).filter(Boolean) as string[];
+    if (targetIds.length > 0) {
+      // targetType별로 분류
+      const serviceIds = new Set<string>();
+      const modelIds = new Set<string>();
+      const userTargetLoginIds = new Set<string>();
+      for (const log of logs) {
+        if (!log.target) continue;
+        const tt = log.targetType;
+        if (tt === 'Service' || tt === 'SERVICE' || tt === 'ServiceTarget') serviceIds.add(log.target);
+        else if (tt === 'Model' || tt === 'SubModel') modelIds.add(log.target);
+        else if (tt === 'User' || tt === 'RateLimit') userTargetLoginIds.add(log.target);
+      }
+
+      const [services, models, targetUsers] = await Promise.all([
+        serviceIds.size > 0
+          ? prisma.service.findMany({ where: { id: { in: [...serviceIds] } }, select: { id: true, displayName: true } })
+          : [],
+        modelIds.size > 0
+          ? prisma.model.findMany({ where: { id: { in: [...modelIds] } }, select: { id: true, displayName: true } })
+          : [],
+        userTargetLoginIds.size > 0
+          ? prisma.user.findMany({
+              where: { OR: [{ loginid: { in: [...userTargetLoginIds] } }, { id: { in: [...userTargetLoginIds] } }] },
+              select: { id: true, loginid: true, username: true },
+            })
+          : [],
+      ]);
+
+      for (const s of services) targetMap[s.id] = s.displayName;
+      for (const m of models) targetMap[m.id] = m.displayName;
+      for (const u of targetUsers) {
+        targetMap[u.id] = `${u.username} (${u.loginid})`;
+        targetMap[u.loginid] = `${u.username} (${u.loginid})`;
+      }
+    }
+
     res.json({
       logs,
+      userMap,
+      targetMap,
       pagination: {
         page,
         limit,

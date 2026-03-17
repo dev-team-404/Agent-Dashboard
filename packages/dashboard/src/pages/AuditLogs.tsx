@@ -35,32 +35,76 @@ function formatKST(dateStr: string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+// ── 작업 한글 라벨 ──
+const ACTION_LABELS: Record<string, string> = {
+  CREATE_SERVICE: '서비스 생성',
+  UPDATE_SERVICE: '서비스 수정',
+  DELETE_SERVICE: '서비스 삭제',
+  DEPLOY_SERVICE: '서비스 배포',
+  UNDEPLOY_SERVICE: '서비스 배포 해제',
+  COPY_SERVICE_MODELS: '모델 복사',
+  UPDATE_SERVICE_TARGET: '서비스 목표 수정',
+  RUN_AI_ESTIMATION: 'AI 추정 실행',
+  CREATE_MODEL: '모델 생성',
+  ADD_MODEL: '모델 추가',
+  UPDATE_MODEL: '모델 수정',
+  REMOVE_MODEL: '모델 제거',
+  DELETE_MODEL: '모델 삭제',
+  TOGGLE_MODEL: '모델 토글',
+  REORDER_MODELS: '모델 순서 변경',
+  ADD_SUB_MODEL: '서브 모델 추가',
+  UPDATE_SUB_MODEL: '서브 모델 수정',
+  REMOVE_SUB_MODEL: '서브 모델 제거',
+  PROMOTE_USER: '관리자 승급',
+  DEMOTE_USER: '관리자 강등',
+  DEMOTE_TO_USER: '일반 사용자로 강등',
+  DELETE_USER: '사용자 삭제',
+  KNOX_REGISTER_ADMIN: 'Knox 관리자 등록',
+  RESET_KNOX_VERIFICATION: 'Knox 인증 초기화',
+  APPROVE_ADMIN_REQUEST: '관리자 요청 승인',
+  REJECT_ADMIN_REQUEST: '관리자 요청 거절',
+  SET_RATE_LIMIT: 'Rate Limit 설정',
+  DELETE_RATE_LIMIT: 'Rate Limit 삭제',
+  SET_SERVICE_RATE_LIMIT: '서비스 Rate Limit 설정',
+  DELETE_SERVICE_RATE_LIMIT: '서비스 Rate Limit 삭제',
+  SUBMIT_EXTERNAL_USAGE: '외부 사용량 제출',
+  SUBMIT_EXTERNAL_USAGE_BY_USER: '사용자별 외부 사용량 제출',
+  CLEANUP_REQUEST_LOGS: '요청 로그 정리',
+  UPDATE_SYSTEM_SETTING: '시스템 설정 변경',
+  UPDATE_API_KEY: 'API 키 변경',
+  GENERATE_MISSING_LOGOS: '누락 로고 생성',
+  SET_ROLE_ADMIN: '관리자 역할 설정',
+  SET_ROLE_SUPER_ADMIN: '슈퍼관리자 역할 설정',
+};
+
+function getActionLabel(action: string): string {
+  return ACTION_LABELS[action] || action;
+}
+
 const ACTION_OPTIONS = [
   'CREATE_SERVICE', 'UPDATE_SERVICE', 'DELETE_SERVICE', 'DEPLOY_SERVICE', 'UNDEPLOY_SERVICE', 'COPY_SERVICE_MODELS',
   'UPDATE_SERVICE_TARGET', 'RUN_AI_ESTIMATION',
-  'ADD_MODEL', 'UPDATE_MODEL', 'REMOVE_MODEL', 'TOGGLE_MODEL', 'REORDER_MODELS',
+  'CREATE_MODEL', 'ADD_MODEL', 'UPDATE_MODEL', 'REMOVE_MODEL', 'DELETE_MODEL', 'TOGGLE_MODEL', 'REORDER_MODELS',
   'ADD_SUB_MODEL', 'UPDATE_SUB_MODEL', 'REMOVE_SUB_MODEL',
   'PROMOTE_USER', 'DEMOTE_USER', 'DEMOTE_TO_USER', 'DELETE_USER',
   'KNOX_REGISTER_ADMIN', 'RESET_KNOX_VERIFICATION', 'APPROVE_ADMIN_REQUEST', 'REJECT_ADMIN_REQUEST',
   'SET_RATE_LIMIT', 'DELETE_RATE_LIMIT', 'SET_SERVICE_RATE_LIMIT', 'DELETE_SERVICE_RATE_LIMIT',
   'SUBMIT_EXTERNAL_USAGE',
-  'ENABLE_CONTENT_LOGGING', 'DISABLE_CONTENT_LOGGING', 'DELETE_LLM_LOG_CONTENT',
   'CLEANUP_REQUEST_LOGS', 'UPDATE_SYSTEM_SETTING',
 ];
 
-const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage'];
+const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage', 'SystemSetting'];
 
 // 활동 카테고리별 탭 정의
 const CATEGORY_TABS = [
   { key: 'all', label: '전체', actions: '' },
   { key: 'service', label: '서비스 관리', actions: 'CREATE_SERVICE,UPDATE_SERVICE,DELETE_SERVICE,DEPLOY_SERVICE,UNDEPLOY_SERVICE,COPY_SERVICE_MODELS' },
   { key: 'targets', label: '서비스 목표', actions: 'UPDATE_SERVICE_TARGET,RUN_AI_ESTIMATION' },
-  { key: 'model', label: '모델 관리', actions: 'ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
+  { key: 'model', label: '모델 관리', actions: 'CREATE_MODEL,ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,DELETE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
   { key: 'user', label: '사용자/권한', actions: 'PROMOTE_USER,DEMOTE_USER,DEMOTE_TO_USER,DELETE_USER,KNOX_REGISTER_ADMIN,RESET_KNOX_VERIFICATION,APPROVE_ADMIN_REQUEST,REJECT_ADMIN_REQUEST' },
   { key: 'ratelimit', label: 'Rate Limit', actions: 'SET_RATE_LIMIT,DELETE_RATE_LIMIT,SET_SERVICE_RATE_LIMIT,DELETE_SERVICE_RATE_LIMIT' },
-  { key: 'external', label: '외부 사용 기록', actions: 'SUBMIT_EXTERNAL_USAGE' },
-  { key: 'content', label: '콘텐츠 로깅', actions: 'ENABLE_CONTENT_LOGGING,DISABLE_CONTENT_LOGGING,DELETE_LLM_LOG_CONTENT' },
-  { key: 'system', label: '시스템', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING' },
+  { key: 'external', label: '외부 사용 기록', actions: 'SUBMIT_EXTERNAL_USAGE,SUBMIT_EXTERNAL_USAGE_BY_USER' },
+  { key: 'system', label: '시스템', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING,UPDATE_API_KEY,GENERATE_MISSING_LOGOS' },
 ] as const;
 
 type CategoryTab = typeof CATEGORY_TABS[number]['key'];
@@ -83,6 +127,7 @@ const ACTION_COLORS: Record<string, string> = {
   DISABLE: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
   COPY: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80',
   RUN: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80',
+  GENERATE: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80',
   APPROVE: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80',
   REJECT: 'bg-red-50 text-red-700 ring-1 ring-red-200/80',
   RESET: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200/80',
@@ -99,6 +144,8 @@ export default function AuditLogs() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
+  const [userMap, setUserMap] = useState<Record<string, { username: string; deptname: string }>>({});
+  const [targetMap, setTargetMap] = useState<Record<string, string>>({});
 
   // Category tab
   const [categoryTab, setCategoryTab] = useState<CategoryTab>('all');
@@ -153,6 +200,8 @@ export default function AuditLogs() {
 
       const res = await api.get('/admin/audit', { params });
       setLogs(res.data.logs);
+      setUserMap(prev => ({ ...prev, ...res.data.userMap }));
+      setTargetMap(prev => ({ ...prev, ...res.data.targetMap }));
       setPagination(prev => ({ ...prev, ...res.data.pagination }));
     } catch (error) {
       console.error('Failed to load audit logs:', error);
@@ -312,14 +361,14 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">작업</label>
               <select
-                value={categoryTab !== 'all' ? 'UPDATE_SERVICE_TARGET' : action}
+                value={categoryTab !== 'all' ? '' : action}
                 onChange={e => { setAction(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 disabled={categoryTab !== 'all'}
                 className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <option value="">전체</option>
                 {ACTION_OPTIONS.map(a => (
-                  <option key={a} value={a}>{a}</option>
+                  <option key={a} value={a}>{getActionLabel(a)}</option>
                 ))}
               </select>
             </div>
@@ -327,7 +376,7 @@ export default function AuditLogs() {
             <div>
               <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">대상 유형</label>
               <select
-                value={categoryTab !== 'all' ? 'ServiceTarget' : targetType}
+                value={categoryTab !== 'all' ? '' : targetType}
                 onChange={e => { setTargetType(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 disabled={categoryTab !== 'all'}
                 className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -382,8 +431,8 @@ export default function AuditLogs() {
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[30px]"></th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">시각</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">관리자</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">작업</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">관리자</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">작업</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">대상</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">유형</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[200px]">상세</th>
@@ -421,6 +470,7 @@ export default function AuditLogs() {
                 logs.map(log => {
                   const isExpanded = expandedRows.has(log.id);
                   const hasDetails = log.details && (typeof log.details === 'object' ? Object.keys(log.details as object).length > 0 : true);
+                  const userInfo = userMap[log.loginid];
 
                   return (
                     <tr key={log.id} className="group">
@@ -448,22 +498,39 @@ export default function AuditLogs() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-pastel-100 to-pastel-200 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-bold text-pastel-600">{log.loginid.charAt(0).toUpperCase()}</span>
+                            <span className="text-xs font-bold text-pastel-600">
+                              {(userInfo?.username || log.loginid).charAt(0).toUpperCase()}
+                            </span>
                           </div>
-                          <span className="text-sm text-pastel-700 font-medium truncate" title={log.loginid}>
-                            {log.loginid}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="text-sm text-pastel-700 font-medium truncate block" title={log.loginid}>
+                              {userInfo?.username || log.loginid}
+                            </span>
+                            {userInfo && (
+                              <span className="text-xs text-pastel-400 truncate block" title={`${log.loginid} · ${userInfo.deptname}`}>
+                                {log.loginid}{userInfo.deptname ? ` · ${userInfo.deptname}` : ''}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ${getActionColor(log.action)}`}>
-                          {log.action}
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ${getActionColor(log.action)}`}
+                          title={log.action}
+                        >
+                          {getActionLabel(log.action)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="text-sm text-pastel-700 truncate block" title={log.target || '-'}>
-                          {log.target || '-'}
+                        <span className="text-sm text-pastel-700 font-medium truncate block" title={log.target || '-'}>
+                          {log.target ? (targetMap[log.target] || log.target) : '-'}
                         </span>
+                        {log.target && targetMap[log.target] && (
+                          <span className="text-xs text-pastel-400 truncate block font-mono" title={log.target}>
+                            {log.target.length > 20 ? log.target.slice(0, 8) + '...' : log.target}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {log.targetType ? (
@@ -505,7 +572,7 @@ export default function AuditLogs() {
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">상세 정보</span>
                   <span className="text-xs text-pastel-400">-</span>
-                  <span className="text-xs text-pastel-400 font-mono">{log.action} / {log.loginid}</span>
+                  <span className="text-xs text-pastel-400 font-mono">{getActionLabel(log.action)} / {userMap[log.loginid]?.username || log.loginid}</span>
                   <button
                     onClick={() => toggleExpanded(log.id)}
                     className="ml-auto p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
