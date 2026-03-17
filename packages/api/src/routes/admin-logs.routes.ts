@@ -115,15 +115,19 @@ adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
       prisma.requestLog.count({ where }),
     ]);
 
-    // loginid → 한글 이름 매핑
-    const loginIds = [...new Set(logs.map(l => l.userId).filter(Boolean))] as string[];
+    // userId(loginid 또는 레거시 UUID) → { loginid, username } 매핑
+    const userIds = [...new Set(logs.map(l => l.userId).filter(Boolean))] as string[];
     const userMap: Record<string, string> = {};
-    if (loginIds.length > 0) {
+    if (userIds.length > 0) {
+      // loginid로 먼저 매칭, 못 찾으면 id(UUID)로 매칭
       const users = await prisma.user.findMany({
-        where: { loginid: { in: loginIds } },
-        select: { loginid: true, username: true },
+        where: { OR: [{ loginid: { in: userIds } }, { id: { in: userIds } }] },
+        select: { id: true, loginid: true, username: true },
       });
-      for (const u of users) userMap[u.loginid] = u.username;
+      for (const u of users) {
+        userMap[u.loginid] = u.username;
+        userMap[u.id] = u.username;  // UUID로도 이름 조회 가능
+      }
     }
 
     res.json({
