@@ -48,7 +48,7 @@ const ERROR_RULES: Array<{ pattern: string; cause: string; category: string }> =
   { pattern: 'LLM request failed', cause: 'LLM 요청이 실패했습니다', category: 'LLM 장애' },
 ];
 
-function matchErrorCause(errorMessage: string | null, statusCode: number): { cause: string; category: string } | null {
+function matchErrorCause(errorMessage: string | null): { cause: string; category: string } | null {
   if (!errorMessage) return null;
   const lower = errorMessage.toLowerCase();
   for (const rule of ERROR_RULES) {
@@ -57,6 +57,25 @@ function matchErrorCause(errorMessage: string | null, statusCode: number): { cau
     }
   }
   return null;
+}
+
+/** 카테고리에 해당하는 에러 패턴들의 DB ILIKE 조건 생성 */
+function getCategoryDbFilter(cat: string): Record<string, unknown> | null {
+  if (cat === '미분류') {
+    // 모든 룰 패턴에 매칭되지 않는 것 = AND NOT (ILIKE pattern1 OR ILIKE pattern2 ...)
+    return {
+      AND: ERROR_RULES.map(r => ({
+        errorMessage: { not: { contains: r.pattern, mode: 'insensitive' as const } },
+      })),
+    };
+  }
+  const patterns = ERROR_RULES.filter(r => r.category === cat).map(r => r.pattern);
+  if (patterns.length === 0) return null;
+  return {
+    OR: patterns.map(p => ({
+      errorMessage: { contains: p, mode: 'insensitive' as const },
+    })),
+  };
 }
 
 // ============================================
@@ -97,6 +116,12 @@ errorLogsRoutes.get('/error-logs', (async (req: AuthenticatedRequest, res) => {
       where.timestamp = ts;
     }
 
+    // 카테고리 필터를 DB 레벨로 적용 (정확한 pagination)
+    if (category) {
+      const catFilter = getCategoryDbFilter(category);
+      if (catFilter) Object.assign(where, catFilter);
+    }
+
     const [logs, total] = await Promise.all([
       prisma.requestLog.findMany({
         where,
@@ -127,23 +152,19 @@ errorLogsRoutes.get('/error-logs', (async (req: AuthenticatedRequest, res) => {
       prisma.requestLog.count({ where }),
     ]);
 
-    // 룰 기반 원인 매핑 + 카테고리 필터
+    // 룰 기반 원인 매핑
     const enriched = logs.map(log => {
-      const matched = matchErrorCause(log.errorMessage, log.statusCode);
+      const matched = matchErrorCause(log.errorMessage);
       return {
         ...log,
         ruleCause: matched?.cause || null,
         ruleCategory: matched?.category || null,
-        isAnalyzable: !matched, // 룰로 특정 불가한 에러만 AI 분석 가능
+        isAnalyzable: !matched,
       };
     });
 
-    const filtered = category
-      ? enriched.filter(l => l.ruleCategory === category || (!l.ruleCategory && category === '미분류'))
-      : enriched;
-
     res.json({
-      logs: filtered,
+      logs: enriched,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       categories: [
         '헤더 누락', '서비스 오류', '인증 오류', '접근 제한',
@@ -240,9 +261,10 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
 
     // 4. LLM 호출
     let url = model.endpointUrl.trim().replace(/\/+$/, '');
-    if (!url.endsWith('/chat/completions')) {
-      url = url.endsWith('/v1') ? `${url}/chat/completions` : `${url}/chat/completions`;
-    }
+    if (url.endsWith('/chat/completions')) { /* already correct */ }
+    else if (url.endsWith('/completions')) { url = url.replace(/\/completions$/, '/chat/completions'); }
+    else if (url.endsWith('/v1')) { url = `${url}/chat/completions`; }
+    else { url = `${url}/chat/completions`; }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
