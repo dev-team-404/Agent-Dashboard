@@ -233,7 +233,9 @@ externalUsageRoutes.post('/daily', async (req: Request, res: Response) => {
 // ─── Validation Schema (by-user) ────────────────────────────
 
 const byUserItemSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD format'),
+  date: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD format')
+    .refine(s => !isNaN(new Date(s + 'T00:00:00.000Z').getTime()), 'date is not a valid calendar date'),
   userId: z.string().min(1, 'userId (Knox login ID) is required'),
   modelName: z.string().min(1, 'modelName is required'),
   requestCount: z.number().int().min(0),
@@ -393,6 +395,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     }
 
     // 4b. alias에서 못 찾은 모델 → Model.name으로 직접 조회
+    // Model.name은 중복 가능하므로 sortOrder ASC로 첫 번째 선택
     const unresolvedModels = uniqueModelNames.filter(n => !modelByName.has(n));
     if (unresolvedModels.length > 0) {
       const globalModels = await prisma.model.findMany({
@@ -401,8 +404,10 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
           enabled: true,
         },
         select: { id: true, name: true, displayName: true },
+        orderBy: { sortOrder: 'asc' },
       });
       for (const m of globalModels) {
+        // 중복 이름일 경우 sortOrder가 가장 낮은 (먼저 나온) 모델만 사용
         if (!modelByName.has(m.name)) {
           modelByName.set(m.name, m);
         }
@@ -544,36 +549,44 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     }
 
     // 6. UserService upsert (서비스별 사용자 추적)
-    // 유효한 사용자별로 최신 날짜, 총 requestCount 집계
-    const userServiceMap = new Map<string, { totalRequests: number; latestDate: Date }>();
-    for (const op of validOps) {
-      const existing = userServiceMap.get(op.userDbId);
-      if (!existing) {
-        userServiceMap.set(op.userDbId, { totalRequests: op.requestCount, latestDate: op.dateObj });
-      } else {
-        existing.totalRequests += op.requestCount;
-        if (op.dateObj > existing.latestDate) existing.latestDate = op.dateObj;
-      }
-    }
+    // DailyUsageStat에서 해당 사용자-서비스 조합의 실제 총 requestCount를 재집계
+    // → increment 대신 정확한 값을 세팅하여 재전송 시 이중 누적 방지
+    const affectedUserDbIds = [...new Set(validOps.map(op => op.userDbId))];
 
-    for (const [userDbId, stats] of userServiceMap) {
-      try {
-        await prisma.userService.upsert({
-          where: { userId_serviceId: { userId: userDbId, serviceId: service.id } },
-          update: {
-            lastActive: stats.latestDate,
-            requestCount: { increment: stats.totalRequests },
-          },
-          create: {
-            userId: userDbId,
-            serviceId: service.id,
-            firstSeen: stats.latestDate,
-            lastActive: stats.latestDate,
-            requestCount: stats.totalRequests,
-          },
-        });
-      } catch (err) {
-        console.error(`[ExternalUsage] UserService upsert failed for user ${userDbId}:`, err);
+    if (affectedUserDbIds.length > 0) {
+      const userServiceAgg = await prisma.dailyUsageStat.groupBy({
+        by: ['userId'],
+        where: {
+          serviceId: service.id,
+          userId: { in: affectedUserDbIds },
+        },
+        _sum: { requestCount: true },
+        _max: { date: true },
+      });
+
+      for (const agg of userServiceAgg) {
+        if (!agg.userId) continue;
+        const totalRequests = agg._sum.requestCount ?? 0;
+        const latestDate = agg._max.date ?? new Date();
+
+        try {
+          await prisma.userService.upsert({
+            where: { userId_serviceId: { userId: agg.userId, serviceId: service.id } },
+            update: {
+              lastActive: latestDate,
+              requestCount: totalRequests,
+            },
+            create: {
+              userId: agg.userId,
+              serviceId: service.id,
+              firstSeen: latestDate,
+              lastActive: latestDate,
+              requestCount: totalRequests,
+            },
+          });
+        } catch (err) {
+          console.error(`[ExternalUsage] UserService upsert failed for user ${agg.userId}:`, err);
+        }
       }
     }
 

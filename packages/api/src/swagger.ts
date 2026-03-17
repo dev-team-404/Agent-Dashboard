@@ -470,7 +470,12 @@ export const swaggerSpec = {
           '> BACKGROUND services include `isEstimated: true` and `estimationDetail` in the response.\n' +
           '> BACKGROUND 서비스의 응답에는 `isEstimated: true`와 `estimationDetail`이 포함됩니다.\n\n' +
           '> Response includes `estimationBaseline` with the baseline values used for estimation.\n' +
-          '> 응답에 추정에 사용된 기준값이 `estimationBaseline`으로 포함됩니다.',
+          '> 응답에 추정에 사용된 기준값이 `estimationBaseline`으로 포함됩니다.\n\n' +
+          '## API Only Services (API Only 서비스)\n\n' +
+          '| Endpoint | DAU/MAU 산출 방식 |\n' +
+          '|----------|------------------|\n' +
+          '| `POST /external-usage/daily` (레거시) | 서비스가 직접 전달한 `dailyActiveUsers` 숫자를 사용. 크로스 서비스 중복제거 **불가** |\n' +
+          '| `POST /external-usage/by-user` (권장) | DailyUsageStat에 userId별로 기록되므로 프록시 서비스와 **동일하게** 집계. 크로스 서비스 중복제거 **가능** |',
         tags: ['DAU / MAU'],
         parameters: [
           {
@@ -658,24 +663,37 @@ export const swaggerSpec = {
     },
     '/external-usage/by-user': {
       post: {
-        summary: 'Submit Usage by User (사용자별 사용 기록 전송) — 권장',
+        summary: 'Submit Usage by User (사용자별 사용 기록 전송) — Recommended / 권장',
         description:
+          'Submit per-user daily usage records using **Knox login ID**.\n' +
           '**Knox ID(사번 아이디) 기반** 사용자별 사용 기록을 전송합니다.\n\n' +
+          'Records are stored in the **same table (DailyUsageStat)** as proxy services, ' +
+          'enabling cross-service unique user deduplication, Top K Users ranking, and all other dashboard statistics.\n' +
           '프록시 서비스와 **동일한 테이블(DailyUsageStat)** 에 기록되어 ' +
           '통합 대시보드 사용자 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.\n\n' +
-          '## 기존 /daily 대비 장점\n' +
-          '| | `/daily` (레거시) | `/by-user` (권장) |\n' +
+          '## Comparison with /daily (기존 /daily 대비 장점)\n' +
+          '| | `/daily` (Legacy / 레거시) | `/by-user` (Recommended / 권장) |\n' +
           '|---|---|---|\n' +
-          '| 단위 | 팀(부서) | 사용자(Knox ID) |\n' +
-          '| 중복제거 | 불가 | 가능 |\n' +
-          '| Top K Users | 미반영 | 반영 |\n' +
-          '| 부서 정보 | 외부 서비스가 직접 전달 | Knox API에서 자동 조회 |\n\n' +
-          '## 흐름\n' +
-          '1. `userId`(Knox ID) → DB User 조회\n' +
-          '2. 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +
-          '3. `modelName` → ServiceModel alias 매칭 → Model.name fallback\n' +
-          '4. DailyUsageStat upsert (date, userId, modelId, serviceId)\n' +
-          '5. UserService upsert (user-service 관계 추적)\n',
+          '| Unit / 단위 | Department (팀/부서) | User (사용자, Knox ID) |\n' +
+          '| Cross-service dedup / 중복제거 | Impossible / 불가 | Possible / 가능 |\n' +
+          '| Top K Users | Not reflected / 미반영 | Reflected / 반영 |\n' +
+          '| Dept info / 부서 정보 | Manually provided / 외부 서비스가 직접 전달 | Auto-resolved from Knox / Knox API에서 자동 조회 |\n\n' +
+          '## Processing Flow (처리 흐름)\n' +
+          '1. `userId` (Knox ID) → Look up User in DB / DB User 조회\n' +
+          '2. Unregistered/unverified → Batch Knox Employee API lookup → Auto-register User / 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +
+          '3. `modelName` → Match via ServiceModel alias → Fallback to Model.name / ServiceModel alias 매칭 → Model.name fallback\n' +
+          '4. DailyUsageStat upsert `(date, userId, modelId, serviceId)` — same key = overwrite / 동일 키 = 덮어쓰기\n' +
+          '5. UserService upsert (user-service relationship tracking / user-service 관계 추적)\n\n' +
+          '## Partial Success (부분 성공)\n' +
+          'If some users fail Knox verification or some models are unregistered, ' +
+          'only those records are skipped — the rest are processed normally. ' +
+          'Check `warnings` in the response for details.\n' +
+          '일부 사용자의 Knox 인증 실패나 모델 미등록 시 해당 레코드만 스킵되고 나머지는 정상 처리됩니다. ' +
+          '응답의 `warnings`에서 상세 사유를 확인하세요.\n\n' +
+          '## Prerequisites (사전 조건)\n' +
+          '- Service must be registered with `apiOnly: true` and deployed / 서비스가 `apiOnly: true`로 등록 + 배포 상태\n' +
+          '- Models must be registered as **ServiceModel alias** for the service / 서비스에 **ServiceModel alias**로 모델 등록 필요\n' +
+          '- Users must be active Samsung employees (재직/휴직) / 사용자는 재직 또는 휴직 상태의 삼성 임직원',
         tags: ['External Usage (API Only 사용 기록)'],
         requestBody: {
           required: true,
@@ -685,55 +703,178 @@ export const swaggerSpec = {
                 type: 'object',
                 required: ['serviceId', 'data'],
                 properties: {
-                  serviceId: { type: 'string', description: 'Service name (서비스 이름)', example: 'my-api-service' },
+                  serviceId: {
+                    type: 'string',
+                    description: 'Service name (not UUID) / 서비스 이름 (UUID 아님)',
+                    example: 'my-api-service',
+                  },
                   data: {
                     type: 'array',
-                    description: 'Array of per-user daily usage records (사용자별 일별 사용 기록 배열, 최대 5000건)',
+                    description: 'Array of per-user daily usage records (max 5000) / 사용자별 일별 사용 기록 배열 (최대 5000건)',
                     items: {
                       type: 'object',
                       required: ['date', 'userId', 'modelName', 'requestCount', 'totalInputTokens', 'totalOutputTokens'],
                       properties: {
-                        date: { type: 'string', format: 'date', description: 'Usage date (YYYY-MM-DD)', example: '2026-03-15' },
-                        userId: { type: 'string', description: 'Knox login ID (사번 아이디)', example: 'hong.gildong' },
-                        modelName: { type: 'string', description: 'Model alias or name (모델 alias 또는 이름)', example: 'gpt-4o' },
-                        requestCount: { type: 'integer', description: 'Total request count for this user/model/date', example: 50 },
-                        totalInputTokens: { type: 'integer', description: 'Total input tokens', example: 100000 },
-                        totalOutputTokens: { type: 'integer', description: 'Total output tokens', example: 50000 },
+                        date: {
+                          type: 'string', format: 'date',
+                          description: 'Usage date (YYYY-MM-DD). Must be a valid calendar date. / 사용 날짜 (유효한 날짜여야 함)',
+                          example: '2026-03-15',
+                        },
+                        userId: {
+                          type: 'string',
+                          description: 'Knox login ID. Unregistered users are auto-registered via Knox Employee API. / Knox 로그인 ID (사번 아이디). 미등록 사용자는 Knox API로 자동 등록',
+                          example: 'hong.gildong',
+                        },
+                        modelName: {
+                          type: 'string',
+                          description: 'ServiceModel alias name (priority) or global Model.name (fallback) / ServiceModel alias (우선) 또는 전역 Model.name (fallback)',
+                          example: 'gpt-4o',
+                        },
+                        requestCount: {
+                          type: 'integer',
+                          description: 'Total LLM API request count for this user/model/date / 해당 날짜/사용자/모델의 총 LLM API 요청 수',
+                          example: 50,
+                        },
+                        totalInputTokens: {
+                          type: 'integer',
+                          description: 'Total input tokens consumed / 총 입력 토큰',
+                          example: 100000,
+                        },
+                        totalOutputTokens: {
+                          type: 'integer',
+                          description: 'Total output tokens consumed / 총 출력 토큰',
+                          example: 50000,
+                        },
                       },
                     },
                   },
                 },
               },
-              example: {
-                serviceId: 'my-api-service',
-                data: [
-                  { date: '2026-03-15', userId: 'hong.gildong', modelName: 'gpt-4o', requestCount: 50, totalInputTokens: 100000, totalOutputTokens: 50000 },
-                  { date: '2026-03-15', userId: 'kim.chulsu', modelName: 'gpt-4o', requestCount: 30, totalInputTokens: 60000, totalOutputTokens: 30000 },
-                  { date: '2026-03-16', userId: 'hong.gildong', modelName: 'claude-sonnet', requestCount: 20, totalInputTokens: 40000, totalOutputTokens: 20000 },
-                ],
+              examples: {
+                'multi-user': {
+                  summary: 'Multiple users, multiple dates (여러 사용자, 여러 날짜)',
+                  value: {
+                    serviceId: 'my-api-service',
+                    data: [
+                      { date: '2026-03-15', userId: 'hong.gildong', modelName: 'gpt-4o', requestCount: 50, totalInputTokens: 100000, totalOutputTokens: 50000 },
+                      { date: '2026-03-15', userId: 'kim.chulsu', modelName: 'gpt-4o', requestCount: 30, totalInputTokens: 60000, totalOutputTokens: 30000 },
+                      { date: '2026-03-16', userId: 'hong.gildong', modelName: 'claude-sonnet', requestCount: 20, totalInputTokens: 40000, totalOutputTokens: 20000 },
+                    ],
+                  },
+                },
+                'single-user': {
+                  summary: 'Single user correction / 단일 사용자 정정',
+                  value: {
+                    serviceId: 'my-api-service',
+                    data: [
+                      { date: '2026-03-15', userId: 'hong.gildong', modelName: 'gpt-4o', requestCount: 55, totalInputTokens: 110000, totalOutputTokens: 55000 },
+                    ],
+                  },
+                },
               },
             },
           },
         },
         responses: {
           '200': {
-            description: 'Usage records saved (사용 기록 저장 완료)',
+            description: 'Usage records saved. May include partial success with warnings. / 사용 기록 저장 완료. 부분 성공 시 warnings 포함 가능.',
             content: {
               'application/json': {
-                example: {
-                  success: true,
-                  service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
-                  result: { total: 3, upserted: 3, skipped: 0, errors: 0 },
-                  users: { total: 2, resolved: 2, failed: 0 },
-                  models: { total: 2, resolved: 2, failed: 0 },
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', description: 'Always true if request was processed / 요청이 처리되면 항상 true' },
+                    service: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string', description: 'Service name / 서비스 이름' },
+                        type: { type: 'string', enum: ['STANDARD', 'BACKGROUND'], description: 'Service type / 서비스 타입' },
+                        apiOnly: { type: 'boolean', description: 'Always true / 항상 true' },
+                      },
+                    },
+                    result: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer', description: 'Total records submitted / 제출된 총 레코드 수' },
+                        upserted: { type: 'integer', description: 'Records successfully saved / 저장 성공 수' },
+                        skipped: { type: 'integer', description: 'Records skipped (user or model resolution failed) / 스킵 수 (사용자 또는 모델 매칭 실패)' },
+                        errors: { type: 'integer', description: 'Records failed during DB write / DB 저장 실패 수' },
+                      },
+                    },
+                    users: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer', description: 'Unique user IDs submitted / 제출된 고유 사용자 수' },
+                        resolved: { type: 'integer', description: 'Users successfully resolved (DB or Knox) / 매칭 성공 사용자 수' },
+                        failed: { type: 'integer', description: 'Users not found in Knox / Knox에서 찾을 수 없는 사용자 수' },
+                      },
+                    },
+                    models: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer', description: 'Unique model names submitted / 제출된 고유 모델명 수' },
+                        resolved: { type: 'integer', description: 'Models matched (alias or name) / 매칭 성공 모델 수' },
+                        failed: { type: 'integer', description: 'Unregistered model names / 미등록 모델명 수' },
+                      },
+                    },
+                    warnings: {
+                      type: 'array', items: { type: 'string' },
+                      description: 'Failure details for skipped users/models / 스킵된 사용자/모델의 실패 사유',
+                    },
+                    errorDetails: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          index: { type: 'integer', description: 'Index in the data array / data 배열 내 인덱스' },
+                          error: { type: 'string', description: 'Error message / 에러 메시지' },
+                        },
+                      },
+                      description: 'DB write error details / DB 저장 에러 상세',
+                    },
+                  },
+                },
+                examples: {
+                  'full-success': {
+                    summary: 'All records saved / 전체 성공',
+                    value: {
+                      success: true,
+                      service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
+                      result: { total: 3, upserted: 3, skipped: 0, errors: 0 },
+                      users: { total: 2, resolved: 2, failed: 0 },
+                      models: { total: 2, resolved: 2, failed: 0 },
+                    },
+                  },
+                  'partial-success': {
+                    summary: 'Partial success with failed user / 부분 성공 (사용자 1명 실패)',
+                    value: {
+                      success: true,
+                      service: { name: 'my-api-service', type: 'STANDARD', apiOnly: true },
+                      result: { total: 5, upserted: 3, skipped: 2, errors: 0 },
+                      users: { total: 3, resolved: 2, failed: 1 },
+                      models: { total: 1, resolved: 1, failed: 0 },
+                      warnings: [
+                        'User "retired.user": Knox에서 임직원 정보를 확인할 수 없습니다 (재직/휴직 상태만 허용)',
+                      ],
+                    },
+                  },
                 },
               },
             },
           },
-          '400': errorResponse('Invalid request body (잘못된 요청 본문)'),
-          '403': errorResponse('Service is not API Only', 'Service "my-service" is not an API Only service.'),
-          '404': errorResponse('Service not found', 'Service "my-service" not found.'),
-          '500': errorResponse('Internal server error'),
+          '400': errorResponse(
+            'Invalid request body (잘못된 요청 본문)',
+            'Validation failed. Check details for field-level errors. / 유효성 검사 실패. details에서 필드별 에러를 확인하세요.',
+          ),
+          '403': errorResponse(
+            'Service is not API Only or disabled (API Only 서비스가 아니거나 비활성화)',
+            'Service "my-service" is not an API Only service. apiOnly 서비스로 등록되어야 합니다.',
+          ),
+          '404': errorResponse(
+            'Service not found (서비스를 찾을 수 없음)',
+            'Service "my-service" not found. 등록되지 않은 서비스입니다.',
+          ),
+          '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
     },

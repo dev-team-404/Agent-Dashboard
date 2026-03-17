@@ -35,6 +35,7 @@ function guideContentPath(path: string): string {
     '/api/framework-integration': 'api/framework-integration.md',
     '/api/chat-completions': 'api/chat-completions.md',
     '/api/models': 'api/models.md',
+    '/api/api-only-services': 'api/api-only-services.md',
   };
   return map[path] || '';
 }
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="/api/framework-integration" element={<DocRoute sectionTitle="API Guide" path="/api/framework-integration" />} />
         <Route path="/api/chat-completions" element={<DocRoute sectionTitle="API Guide" path="/api/chat-completions" />} />
         <Route path="/api/models" element={<DocRoute sectionTitle="API Guide" path="/api/models" />} />
+        <Route path="/api/api-only-services" element={<DocRoute sectionTitle="API Guide" path="/api/api-only-services" />} />
 
         {/* Fallback */}
         <Route path="*" element={

@@ -137,10 +137,15 @@ export async function lookupEmployeesBatch(loginids: string[]): Promise<Map<stri
 
   if (loginids.length === 0) return result;
 
-  // Knox API 한 번에 최대 100명
+  // Knox API 한 번에 최대 100명, 타임아웃 15초
   const BATCH_SIZE = 100;
+  const TIMEOUT_MS = 15_000;
+
   for (let i = 0; i < loginids.length; i += BATCH_SIZE) {
     const batch = loginids.slice(i, i + BATCH_SIZE);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     try {
       const userIdsParam = batch.map(id => encodeURIComponent(id)).join(',');
       const url = `${KNOX_API_URL}/employees?companyCode=${KNOX_COMPANY_CODE}&userIds=${userIdsParam}`;
@@ -153,7 +158,9 @@ export async function lookupEmployeesBatch(loginids: string[]): Promise<Map<stri
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ resultType: 'basic' }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         console.error(`[Knox Batch] API returned ${response.status}: ${response.statusText}`);
@@ -171,6 +178,7 @@ export async function lookupEmployeesBatch(loginids: string[]): Promise<Map<stri
         }
       }
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error(`[Knox Batch] API call failed for batch starting at index ${i}:`, error);
     }
   }

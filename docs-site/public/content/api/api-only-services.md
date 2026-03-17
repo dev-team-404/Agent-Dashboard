@@ -1,6 +1,6 @@
 # API Only 서비스 가이드
 
-이 프록시를 통하지 않고, 자체 시스템 API를 통해 사용 기록을 직접 전송하는 서비스를 위한 가이드입니다.
+프록시를 통하지 않고, 자체 시스템 API를 통해 사용 기록을 직접 전송하는 서비스를 위한 가이드입니다.
 
 ## API Only란?
 
@@ -11,10 +11,27 @@
 | 구분 | 일반 서비스 | API Only 서비스 |
 |------|-----------|----------------|
 | LLM 호출 | 프록시 경유 | 자체 시스템에서 직접 호출 |
-| 사용량 기록 | 프록시가 자동 기록 | `POST /api/external-usage/daily`로 전송 |
+| 사용량 기록 | 프록시가 자동 기록 | `/api/external-usage/by-user` 로 전송 |
 | 인증 헤더 | `x-service-id`, `x-user-id`, `x-dept-name` | 불필요 (공개 API) |
-| 기록 단위 | 개별 요청 (실시간) | 일별 집계 |
-| M/M 관리 | Dashboard에서 관리 | Dashboard에서 동일하게 관리 |
+| 기록 단위 | 개별 요청 (실시간) | 일별 사용자별 집계 |
+| 부서 정보 | 헤더로 직접 전달 | Knox ID 기반 자동 조회 |
+
+---
+
+## 전송 방식 선택
+
+두 가지 엔드포인트가 있습니다. **`/by-user`를 권장**합니다.
+
+| | `/daily` (레거시) | `/by-user` (권장) |
+|---|---|---|
+| 기록 단위 | 팀(부서) | **사용자(Knox ID)** |
+| 부서 정보 | 서비스가 직접 전달 | **Knox API에서 자동 조회** |
+| 저장 테이블 | ExternalDailyUsage (별도) | **DailyUsageStat (프록시와 동일)** |
+| 통합 사용자수 중복제거 | 불가 | **가능** |
+| Top K Users 랭킹 | 미반영 | **반영** |
+| DAU/MAU | 서비스가 전달한 숫자 의존 | **프록시와 동일하게 집계** |
+
+> `/daily` 엔드포인트는 하위 호환을 위해 유지되지만, 신규 연동은 반드시 `/by-user`를 사용하세요.
 
 ---
 
@@ -23,13 +40,13 @@
 ```
 1. Dashboard에서 서비스 생성 (API Only 토글 ON)
        ↓
-2. 서비스 배포
+2. 서비스에 사용할 모델(ServiceModel alias) 등록
        ↓
-3. 자체 시스템에서 POST /api/external-usage/daily 로 일별 사용 기록 전송
+3. 서비스 배포
        ↓
-4. GET /api/external-usage/daily 로 전송된 데이터 확인
+4. POST /api/external-usage/by-user 로 사용자별 사용 기록 전송
        ↓
-5. Dashboard에서 사용량 확인 (DAU/MAU, 팀별 사용량 등)
+5. Dashboard에서 사용량 확인 (DAU/MAU, 팀별, Top K Users 등)
 ```
 
 ---
@@ -44,7 +61,14 @@
 4. **API Only** 토글을 **ON** 으로 설정
 5. 카테고리, 링크 등 입력 후 생성
 
-> **API Only 토글**: 서비스 분류 단계(2단계)에서 서비스 타입 선택 아래에 위치합니다.
+### 모델 등록
+
+서비스에 사용하는 모델을 **ServiceModel alias**로 등록해야 합니다. 전송할 `modelName`과 alias를 일치시키세요.
+
+1. 서비스 상세 → **모델 관리** 탭
+2. 사용하는 모델 추가 (alias 이름 = 전송할 modelName)
+
+> 예: alias `gpt-4o` 등록 → 전송 시 `"modelName": "gpt-4o"` 사용
 
 ### 서비스 배포
 
@@ -52,87 +76,48 @@
 
 ---
 
-## 2단계: 사용 기록 전송
+## 2단계: 사용 기록 전송 (by-user)
 
-### POST /api/external-usage/daily
+### POST /api/external-usage/by-user
 
-일별 사용 기록을 전송합니다. 같은 `(date, serviceId, deptName, modelName)` 조합이 이미 존재하면 **덮어씁니다**.
+사용자(Knox ID) 단위로 일별 사용 기록을 전송합니다. 같은 `(date, userId, modelName, serviceId)` 조합은 **덮어씁니다**.
 
-### STANDARD 서비스 요청 예시
+시스템이 자동으로 처리하는 것:
+- **Knox ID → User 자동 등록**: 미등록 사용자는 Knox Employee API로 조회 후 자동 등록
+- **부서 정보 자동 설정**: Knox에서 조회된 부서명으로 자동 세팅 (직접 전달 불필요)
+- **UserService 관계 추적**: 사용자-서비스 관계 자동 업데이트
 
-STANDARD 서비스는 `dailyActiveUsers` (일별 사용자 수)를 **반드시 포함**해야 합니다.
+### 요청 예시
 
 ```bash
-curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
+curl -X POST http://a2g.samsungds.net:8090/api/external-usage/by-user \
   -H "Content-Type: application/json" \
   -d '{
     "serviceId": "my-chatbot",
     "data": [
       {
         "date": "2026-03-15",
-        "deptName": "S/W혁신팀(S.LSI)",
+        "userId": "hong.gildong",
         "modelName": "gpt-4o",
-        "dailyActiveUsers": 15,
-        "llmRequestCount": 230,
-        "totalInputTokens": 50000,
+        "requestCount": 50,
+        "totalInputTokens": 100000,
+        "totalOutputTokens": 50000
+      },
+      {
+        "date": "2026-03-15",
+        "userId": "kim.chulsu",
+        "modelName": "gpt-4o",
+        "requestCount": 30,
+        "totalInputTokens": 60000,
         "totalOutputTokens": 30000
       },
       {
-        "date": "2026-03-15",
-        "deptName": "AI플랫폼팀(DS)",
-        "modelName": "gpt-4o",
-        "dailyActiveUsers": 8,
-        "llmRequestCount": 120,
-        "totalInputTokens": 25000,
-        "totalOutputTokens": 15000
-      },
-      {
         "date": "2026-03-16",
-        "deptName": "S/W혁신팀(S.LSI)",
+        "userId": "hong.gildong",
         "modelName": "gpt-4o",
-        "dailyActiveUsers": 12,
-        "llmRequestCount": 180,
-        "totalInputTokens": 40000,
-        "totalOutputTokens": 25000
-      },
-      {
-        "date": "2026-03-16",
-        "deptName": "S/W혁신팀(S.LSI)",
-        "modelName": "claude-sonnet",
-        "dailyActiveUsers": 5,
-        "llmRequestCount": 50,
-        "totalInputTokens": 10000,
-        "totalOutputTokens": 8000
-      }
-    ]
-  }'
-```
-
-### BACKGROUND 서비스 요청 예시
-
-BACKGROUND 서비스는 `dailyActiveUsers`를 **보내지 않습니다**. DAU/MAU는 시스템이 자동으로 역산합니다.
-
-```bash
-curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
-  -H "Content-Type: application/json" \
-  -d '{
-    "serviceId": "batch-pipeline",
-    "data": [
-      {
-        "date": "2026-03-15",
-        "deptName": "S/W혁신팀(S.LSI)",
-        "modelName": "gpt-4o",
-        "llmRequestCount": 500,
-        "totalInputTokens": 100000,
-        "totalOutputTokens": 60000
-      },
-      {
-        "date": "2026-03-16",
-        "deptName": "S/W혁신팀(S.LSI)",
-        "modelName": "gpt-4o",
-        "llmRequestCount": 480,
-        "totalInputTokens": 95000,
-        "totalOutputTokens": 55000
+        "requestCount": 45,
+        "totalInputTokens": 90000,
+        "totalOutputTokens": 45000
       }
     ]
   }'
@@ -143,29 +128,15 @@ curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
 | `serviceId` | string | O | 서비스 코드 (name, UUID 아님) |
-| `data` | array | O | 일별 사용 기록 배열 (1~1000건) |
+| `data` | array | O | 사용자별 일별 기록 배열 (1~5000건) |
 | `data[].date` | string | O | 날짜 (`YYYY-MM-DD`) |
-| `data[].deptName` | string | O | 부서명 — `팀명(사업부)` 형식 |
-| `data[].modelName` | string | O | LLM 모델 이름 (예: `gpt-4o`) |
-| `data[].dailyActiveUsers` | integer | △ | 일별 사용자 수 (**STANDARD만 필수**) |
-| `data[].llmRequestCount` | integer | O | LLM API 총 호출 수 |
+| `data[].userId` | string | O | Knox 로그인 ID (사번 아이디) |
+| `data[].modelName` | string | O | 모델 alias 또는 모델명 |
+| `data[].requestCount` | integer | O | 해당 날짜/사용자/모델의 총 요청 수 |
 | `data[].totalInputTokens` | integer | O | 총 입력 토큰 |
 | `data[].totalOutputTokens` | integer | O | 총 출력 토큰 |
 
-> △: STANDARD 타입 서비스만 필수. BACKGROUND 타입은 전달해도 무시되며, 시스템이 자동 역산합니다.
-
-### `deptName` 형식
-
-프록시 헤더 `x-dept-name`과 동일한 `팀명(사업부)` 형식을 사용합니다. 시스템이 괄호 안의 사업부를 자동 추출합니다.
-
-```
-팀명(사업부)
-```
-
-예시:
-- `S/W혁신팀(S.LSI)` → businessUnit 자동 추출: `S.LSI`
-- `AI플랫폼팀(DS)` → businessUnit 자동 추출: `DS`
-- `DevOps팀(네트워크)` → businessUnit 자동 추출: `네트워크`
+> `deptName`이 없습니다. Knox ID로 자동 조회됩니다.
 
 ### 성공 응답 (200)
 
@@ -173,9 +144,17 @@ curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
 {
   "success": true,
   "service": { "name": "my-chatbot", "type": "STANDARD", "apiOnly": true },
-  "result": { "total": 4, "upserted": 4, "errors": 0 }
+  "result": { "total": 3, "upserted": 3, "skipped": 0, "errors": 0 },
+  "users": { "total": 2, "resolved": 2, "failed": 0 },
+  "models": { "total": 1, "resolved": 1, "failed": 0 }
 }
 ```
+
+**응답 필드:**
+- `result.skipped`: Knox 인증 실패 또는 모델 매칭 실패로 건너뛴 레코드 수
+- `users.failed`: Knox에서 찾을 수 없는 사용자 수
+- `models.failed`: 등록되지 않은 모델 수
+- `warnings`: 실패 상세 (어떤 사용자/모델이 실패했는지)
 
 ### 에러 응답
 
@@ -185,8 +164,7 @@ curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
 {
   "error": "Invalid request body",
   "details": [
-    { "path": "data.0.deptName", "message": "Required" },
-    { "path": "data.0.llmRequestCount", "message": "Required" }
+    { "path": "data.0.userId", "message": "userId (Knox login ID) is required" }
   ]
 }
 ```
@@ -207,58 +185,46 @@ curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
 }
 ```
 
+### 부분 성공 처리
+
+일부 사용자나 모델이 매칭되지 않아도 나머지는 정상 처리됩니다.
+
+```json
+{
+  "success": true,
+  "result": { "total": 5, "upserted": 3, "skipped": 2, "errors": 0 },
+  "users": { "total": 3, "resolved": 2, "failed": 1 },
+  "models": { "total": 1, "resolved": 1, "failed": 0 },
+  "warnings": [
+    "User \"retired.user\": Knox에서 임직원 정보를 확인할 수 없습니다 (재직/휴직 상태만 허용)"
+  ]
+}
+```
+
 ---
 
-## 3단계: 전송된 데이터 확인
+## 3단계: 데이터 확인
 
-API Only로 전송된 데이터는 **별도 조회 API 없이** 기존 공개 API에 자동으로 합산됩니다.
+`/by-user`로 전송된 데이터는 프록시 서비스와 **동일한 테이블**에 저장되므로, 모든 통계 API에 자연스럽게 합산됩니다.
 
-| 기존 API | 설명 | API Only 데이터 |
-|----------|------|----------------|
-| `GET /api/public/stats/dau-mau` | 서비스별 DAU/MAU | 포함 (STANDARD: 직접, BACKGROUND: 역산) |
-| `GET /api/public/stats/team-usage` | 특정 서비스 팀별 사용량 | 합산 |
-| `GET /api/public/stats/team-usage-all` | 전체 서비스 팀별 사용량 | 합산 |
-| `GET /api/public/stats/services` | 서비스 목록 | `apiOnly: true` 표시 |
+| 기존 API | API Only 데이터 반영 |
+|----------|---------------------|
+| `GET /api/public/stats/dau-mau` | DAU/MAU에 포함 (userId 기반 정확한 집계) |
+| `GET /api/public/stats/team-usage` | 팀별 사용량에 합산 |
+| `GET /api/public/stats/team-usage-all` | 전체 서비스 팀별 사용량에 합산 |
+| `GET /api/public/stats/top-users` | **Top K 사용자 랭킹에 반영** |
+| `GET /api/public/stats/top-users-by-dept` | **부서별 Top K에 반영** |
 
-> 자세한 API 사용법은 [Swagger UI](/api-docs/ui)를 참조하세요.
-
----
-
-## STANDARD vs BACKGROUND 비교
-
-| 항목 | STANDARD API Only | BACKGROUND API Only |
-|------|-------------------|---------------------|
-| `dailyActiveUsers` | **필수** — 일별 사용자 수 | 불필요 (전달해도 무시) |
-| DAU/MAU 산출 | 전송된 값을 직접 사용 | 시스템이 자동 역산 |
-| 역산 공식 | — | `추정 DAU = 서비스 일 평균 호출 수 ÷ STANDARD 1인당 일 평균 호출 수` |
-| 적합한 서비스 | 사용자 로그인이 있는 웹/앱 | 배치 잡, 자동화 파이프라인, 크론 잡 |
+> 자세한 통계 API 스펙과 DAU/MAU 산출 방식은 [Swagger UI](/api-docs/ui)를 참조하세요.
 
 ---
 
 ## 덮어쓰기 (Upsert)
 
-같은 `(date, serviceId, deptName, modelName)` 조합으로 다시 전송하면 기존 데이터를 **덮어씁니다**. 이를 활용해:
+같은 `(date, userId, modelName, serviceId)` 조합으로 다시 전송하면 기존 데이터를 **덮어씁니다**. 이를 활용해:
 
 - 잘못된 데이터를 수정할 수 있습니다
 - 정산 후 최종 값으로 업데이트할 수 있습니다
-
-```bash
-# 같은 조합으로 다시 전송 → 기존 값 덮어쓰기
-curl -X POST http://a2g.samsungds.net:8090/api/external-usage/daily \
-  -H "Content-Type: application/json" \
-  -d '{
-    "serviceId": "my-chatbot",
-    "data": [{
-      "date": "2026-03-15",
-      "deptName": "S/W혁신팀(S.LSI)",
-      "modelName": "gpt-4o",
-      "dailyActiveUsers": 18,
-      "llmRequestCount": 250,
-      "totalInputTokens": 55000,
-      "totalOutputTokens": 33000
-    }]
-  }'
-```
 
 ---
 
@@ -269,6 +235,7 @@ API Only 서비스의 데이터는 다른 서비스와 동일하게 대시보드
 - **통합 대시보드**: DAU/MAU 차트, M/M 목표 달성 차트에 포함
 - **서비스 마켓**: "API Only" 배지와 함께 표시
 - **팀별 사용량**: 팀(사업부)별 집계에 합산
+- **Top K Users**: 사용자별 랭킹에 반영
 - **서비스 목표 관리**: targetMM / savedMM 설정 가능
 
 ---
@@ -281,52 +248,39 @@ API Only 서비스의 데이터는 다른 서비스와 동일하게 대시보드
 import requests
 from datetime import date, timedelta
 
-BASE_URL = "http://a2g.samsungds.net:8090/api/external-usage/daily"
+URL = "http://a2g.samsungds.net:8090/api/external-usage/by-user"
 
-# ── 사용 기록 전송 ──
-response = requests.post(BASE_URL, json={
+response = requests.post(URL, json={
     "serviceId": "my-chatbot",
     "data": [
         {
             "date": str(date.today() - timedelta(days=1)),
-            "deptName": "S/W혁신팀(S.LSI)",
+            "userId": "hong.gildong",
             "modelName": "gpt-4o",
-            "dailyActiveUsers": 15,
-            "llmRequestCount": 230,
-            "totalInputTokens": 50000,
-            "totalOutputTokens": 30000,
+            "requestCount": 50,
+            "totalInputTokens": 100000,
+            "totalOutputTokens": 50000,
         },
         {
             "date": str(date.today() - timedelta(days=1)),
-            "deptName": "AI플랫폼팀(DS)",
+            "userId": "kim.chulsu",
             "modelName": "gpt-4o",
-            "dailyActiveUsers": 8,
-            "llmRequestCount": 120,
-            "totalInputTokens": 25000,
-            "totalOutputTokens": 15000,
+            "requestCount": 30,
+            "totalInputTokens": 60000,
+            "totalOutputTokens": 30000,
         },
     ],
 })
 result = response.json()
-print(f"전송 결과: {result['result']['upserted']}건 저장")
-
-# ── 전송된 데이터 확인 ──
-yesterday = str(date.today() - timedelta(days=1))
-check = requests.get(BASE_URL, params={
-    "serviceId": "my-chatbot",
-    "startDate": yesterday,
-    "endDate": yesterday,
-})
-print(f"저장된 레코드: {len(check.json()['data'])}건")
+print(f"전송: {result['result']['upserted']}건, 스킵: {result['result']['skipped']}건")
 ```
 
 ### JavaScript (Node.js)
 
 ```javascript
-const BASE_URL = "http://a2g.samsungds.net:8090/api/external-usage/daily";
+const URL = "http://a2g.samsungds.net:8090/api/external-usage/by-user";
 
-// 사용 기록 전송
-const response = await fetch(BASE_URL, {
+const response = await fetch(URL, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
@@ -334,18 +288,17 @@ const response = await fetch(BASE_URL, {
     data: [
       {
         date: "2026-03-15",
-        deptName: "S/W혁신팀(S.LSI)",
+        userId: "hong.gildong",
         modelName: "gpt-4o",
-        dailyActiveUsers: 15,
-        llmRequestCount: 230,
-        totalInputTokens: 50000,
-        totalOutputTokens: 30000,
+        requestCount: 50,
+        totalInputTokens: 100000,
+        totalOutputTokens: 50000,
       },
     ],
   }),
 });
 const result = await response.json();
-console.log(`전송 결과: ${result.result.upserted}건 저장`);
+console.log(`전송: ${result.result.upserted}건`);
 ```
 
 ---
@@ -354,15 +307,23 @@ console.log(`전송 결과: ${result.result.upserted}건 저장`);
 
 ### Q: 여러 날짜를 한 번에 보낼 수 있나요?
 
-네. `data` 배열에 여러 날짜의 레코드를 최대 1000건까지 포함할 수 있습니다. 날짜, 부서, 모델을 자유롭게 조합하세요.
+네. `data` 배열에 여러 날짜의 레코드를 최대 5000건까지 포함할 수 있습니다.
 
-### Q: 같은 날짜를 다시 보내면 어떻게 되나요?
+### Q: 같은 날짜/사용자/모델을 다시 보내면?
 
-같은 `(date, serviceId, deptName, modelName)` 조합은 **덮어씁니다**. 중복 전송 걱정 없이 보내면 됩니다.
+같은 `(date, userId, modelName, serviceId)` 조합은 **덮어씁니다**. 중복 전송 걱정 없이 보내면 됩니다.
 
-### Q: BACKGROUND 서비스인데 dailyActiveUsers를 보내면?
+### Q: Knox에서 못 찾는 사용자가 있으면?
 
-무시됩니다. 경고 메시지가 응답에 포함되지만 데이터는 정상 저장됩니다.
+해당 사용자의 레코드만 스킵되고, 나머지는 정상 저장됩니다. 응답의 `warnings`에 실패 사유가 표시됩니다.
+
+### Q: 모델이 등록되어 있지 않으면?
+
+해당 모델 관련 레코드가 스킵됩니다. 서비스에 **ServiceModel alias**를 먼저 등록하세요.
+
+### Q: 부서 정보를 직접 보내고 싶은데?
+
+`/by-user`에서는 Knox API에서 자동 조회합니다. 부서를 직접 전달하려면 레거시 `/daily` 엔드포인트를 사용하세요 (비권장).
 
 ### Q: 서비스를 API Only로 등록하지 않고 전송하면?
 
@@ -371,7 +332,3 @@ console.log(`전송 결과: ${result.result.upserted}건 저장`);
 ### Q: 배포하지 않은 서비스에 전송하면?
 
 403 에러가 발생합니다. 서비스를 먼저 배포해주세요.
-
-### Q: M/M 목표 관리는 어떻게 하나요?
-
-다른 서비스와 동일합니다. Dashboard의 **서비스 목표 관리** 페이지에서 targetMM / savedMM을 설정하세요.
