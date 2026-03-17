@@ -51,9 +51,11 @@ COPY --from=builder /app/dist ./dist
 # Copy package.json for reference
 COPY package*.json ./
 
-# Create non-root user
+# Create non-root user + image storage directory
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+    adduser -S nodejs -u 1001 && \
+    mkdir -p /app/generated-images && \
+    chown nodejs:nodejs /app/generated-images
 
 USER nodejs
 
