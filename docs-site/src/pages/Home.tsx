@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight, Settings } from 'lucide-react';
+import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight, Settings, Smartphone, Search, MessageCircle, Zap } from 'lucide-react';
 import { guideSections } from '../data/guides';
 
 function HeroSection() {
@@ -243,10 +243,131 @@ function CTASection() {
   );
 }
 
+function NewFeaturesSection() {
+  const features = [
+    {
+      icon: <Smartphone className="w-7 h-7" />,
+      badge: 'Coming Soon',
+      badgeColor: 'from-amber-500 to-orange-500',
+      gradient: 'from-amber-500/20 to-orange-500/20',
+      border: 'border-amber-500/30',
+      title: 'Knox Messenger 연동',
+      description: '모바일 Knox Messenger에서 Jarvis AI 비서에게 직접 업무를 지시하세요. PC를 켜지 않아도 코드 리뷰, 파일 수정, 업무 정리를 요청할 수 있습니다.',
+      details: [
+        '챗봇 계정으로 1:1 대화 — 텍스트로 지시, 텍스트로 결과',
+        'Jarvis가 자율적으로 Planner/Executor 파이프라인 실행',
+        '승인 요청도 Knox 메시지로 처리 (버튼 없이 "네/아니오")',
+      ],
+    },
+    {
+      icon: <Search className="w-7 h-7" />,
+      badge: 'v5.1.0',
+      badgeColor: 'from-blue-500 to-cyan-500',
+      gradient: 'from-blue-500/20 to-cyan-500/20',
+      border: 'border-blue-500/30',
+      title: 'Jira / Confluence 자동 연동',
+      description: 'Jarvis가 주기적으로 사내 Jira와 Confluence를 확인합니다. 나에게 할당된 이슈, 내가 언급된 페이지를 자동으로 알려줍니다.',
+      details: [
+        'Jira: 내게 할당된 이슈 자동 확인 + 긴급 마감 알림',
+        'Confluence: 나를 멘션한 페이지 감지 + 내용 요약',
+        'SSO 인증 기반 — 별도 API 키 설정 불필요',
+      ],
+    },
+    {
+      icon: <MessageCircle className="w-7 h-7" />,
+      badge: 'v5.1.0',
+      badgeColor: 'from-violet-500 to-purple-500',
+      gradient: 'from-violet-500/20 to-purple-500/20',
+      border: 'border-violet-500/30',
+      title: 'Jarvis 자율 비서 모드',
+      description: '24시간 깨어있는 AI 비서가 FREE TODO, 업무기록, Jira, Confluence를 주기적으로 확인하고 자율적으로 작업을 수행합니다.',
+      details: [
+        '30분마다 할 일 목록 + 업무기록 자동 분석',
+        'Manager LLM이 판단 → Planner/Executor에게 자율 위임',
+        '영구 기억(Memory Layer) — 대화 맥락을 영원히 기억',
+      ],
+    },
+    {
+      icon: <Zap className="w-7 h-7" />,
+      badge: 'v5.1.2',
+      badgeColor: 'from-emerald-500 to-teal-500',
+      gradient: 'from-emerald-500/20 to-teal-500/20',
+      border: 'border-emerald-500/30',
+      title: '사내 웹 브라우저 에이전트',
+      description: 'Jira 이슈 생성, Confluence 페이지 편집을 브라우저 자동화로 수행합니다. 실시간으로 브라우저 동작을 확인하거나 백그라운드로 실행할 수 있습니다.',
+      details: [
+        'SSO 쿠키 자동 인증 — 로그인 한 번이면 끝',
+        'Settings에서 브라우저 표시 ON/OFF 전환',
+        'JQL 검색, 이슈 생성/수정, 페이지 작성/편집 가능',
+      ],
+    },
+  ];
+
+  return (
+    <section className="relative bg-surface py-24 overflow-hidden border-t border-white/5">
+      <div className="absolute inset-0">
+        <div className="absolute -top-20 right-1/4 w-[600px] h-[600px] rounded-full bg-amber-500/10 blur-[150px]" />
+        <div className="absolute bottom-0 left-1/3 w-[500px] h-[500px] rounded-full bg-violet-500/8 blur-[120px]" />
+      </div>
+
+      <div className="relative max-w-7xl mx-auto px-6">
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 mb-6">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <span className="text-sm text-amber-300 font-medium">New in Nexus Bot v5.1</span>
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
+            새로운 기능
+          </h2>
+          <p className="max-w-2xl mx-auto mt-4 text-gray-400">
+            Nexus Bot이 Knox Messenger, Jira, Confluence와 연동됩니다.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-8">
+          {features.map((feature, idx) => (
+            <div
+              key={idx}
+              className={`relative rounded-2xl glass ${feature.border} border overflow-hidden hover:bg-white/5 transition-all duration-300 hover:-translate-y-1`}
+            >
+              <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-30`} />
+              <div className="relative p-8">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${feature.badgeColor} flex items-center justify-center text-white shadow-lg`}>
+                    {feature.icon}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-bold text-white">{feature.title}</h3>
+                      <span className={`text-xs px-2 py-0.5 rounded-full bg-gradient-to-r ${feature.badgeColor} text-white font-semibold`}>
+                        {feature.badge}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-300 leading-relaxed mb-4">{feature.description}</p>
+                <ul className="space-y-2">
+                  {feature.details.map((detail, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-400">
+                      <ChevronRight className="w-4 h-4 mt-0.5 text-brand-400 shrink-0" />
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   return (
     <>
       <HeroSection />
+      <NewFeaturesSection />
       <GuideSectionsGrid />
       <QuickStartSection />
       <CTASection />
