@@ -58,6 +58,12 @@ interface Service {
 type ServiceTab = 'all' | 'created' | 'team' | 'service-admin';
 
 
+interface EmployeeSearchResult {
+  loginid: string;
+  username: string;
+  deptname: string;
+}
+
 interface ServiceFormData {
   name: string;
   displayName: string;
@@ -70,6 +76,9 @@ interface ServiceFormData {
   serviceCategory: string[];
   standardMD: string;
   jiraTicket: string;
+  registeredBy: string;
+  registeredByName: string;
+  registeredByDept: string;
 }
 
 const EMPTY_FORM: ServiceFormData = {
@@ -84,6 +93,9 @@ const EMPTY_FORM: ServiceFormData = {
   serviceCategory: [],
   standardMD: '',
   jiraTicket: '',
+  registeredBy: '',
+  registeredByName: '',
+  registeredByDept: '',
 };
 
 const SERVICE_CATEGORIES = [
@@ -161,6 +173,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
 
+  // Owner search states
+  const [ownerQuery, setOwnerQuery] = useState('');
+  const [ownerResults, setOwnerResults] = useState<EmployeeSearchResult[]>([]);
+  const [ownerSearching, setOwnerSearching] = useState(false);
+  const [showOwnerDropdown, setShowOwnerDropdown] = useState(false);
+
   // Deploy modal
   const [deployTarget, setDeployTarget] = useState<Service | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -186,6 +204,29 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   useEffect(() => {
     loadServices();
   }, [loadServices]);
+
+  // ── Owner search ──
+
+  useEffect(() => {
+    if (!ownerQuery || ownerQuery.length < 2) {
+      setOwnerResults([]);
+      setShowOwnerDropdown(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setOwnerSearching(true);
+      try {
+        const res = await api.get(`/services/employees/search?q=${encodeURIComponent(ownerQuery)}`);
+        setOwnerResults(res.data.employees || []);
+        setShowOwnerDropdown(true);
+      } catch {
+        setOwnerResults([]);
+      } finally {
+        setOwnerSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [ownerQuery]);
 
   // ── Filter services by tab ──
 
@@ -221,6 +262,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   };
 
   const openEditModal = (service: Service) => {
+    if (service.status === 'DEPLOYED') {
+      setFormError('배포 중인 서비스는 수정할 수 없습니다. 먼저 배포 취소(Undeploy) 후 수정하세요.');
+      setEditingService(service);
+      setShowServiceModal(true);
+      return;
+    }
     setEditingService(service);
     setFormData({
       name: service.name,
@@ -234,7 +281,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       serviceCategory: service.serviceCategory || [],
       standardMD: service.standardMD != null ? String(service.standardMD) : '',
       jiraTicket: service.jiraTicket || '',
+      registeredBy: service.registeredBy || '',
+      registeredByName: '',
+      registeredByDept: service.registeredByDept || '',
     });
+    setOwnerQuery('');
+    setOwnerResults([]);
+    setShowOwnerDropdown(false);
     setFormError(null);
     setShowServiceModal(true);
   };
@@ -244,21 +297,33 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     setEditingService(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setOwnerQuery('');
+    setOwnerResults([]);
+    setShowOwnerDropdown(false);
   };
 
-  const buildPayload = () => ({
-    displayName: formData.displayName,
-    description: formData.description || undefined,
-    type: formData.type,
-    apiOnly: formData.apiOnly,
-    iconUrl: formData.iconUrl.trim() || null,
-    docsUrl: formData.docsUrl.trim() || null,
-    serviceUrl: formData.serviceUrl.trim() || null,
-    // targetMM, savedMM은 서비스 목표 관리 페이지에서만 수정 (감사 로그 기록 필수)
-    serviceCategory: formData.serviceCategory.length > 0 ? formData.serviceCategory : [],
-    standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
-    jiraTicket: formData.jiraTicket.trim() || null,
-  });
+  const buildPayload = () => {
+    const payload: Record<string, unknown> = {
+      displayName: formData.displayName,
+      description: formData.description || undefined,
+      type: formData.type,
+      apiOnly: formData.apiOnly,
+      iconUrl: formData.iconUrl.trim() || null,
+      docsUrl: formData.docsUrl.trim() || null,
+      serviceUrl: formData.serviceUrl.trim() || null,
+      serviceCategory: formData.serviceCategory.length > 0 ? formData.serviceCategory : [],
+      standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
+      jiraTicket: formData.jiraTicket.trim() || null,
+    };
+    // 수정 시: name, registeredBy 포함
+    if (editingService) {
+      if (formData.name !== editingService.name) payload.name = formData.name;
+      if (formData.registeredBy && formData.registeredBy !== editingService.registeredBy) {
+        payload.registeredBy = formData.registeredBy;
+      }
+    }
+    return payload;
+  };
 
   const handleSaveService = async () => {
     if (!formData.name.trim() || !formData.displayName.trim()) {
@@ -691,14 +756,69 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               <h3 className="text-base font-semibold text-gray-900">서비스 수정</h3>
               <button onClick={closeServiceModal} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
+            {/* DEPLOYED 상태 안내 */}
+            {editingService.status === 'DEPLOYED' ? (
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-medium text-amber-800">배포 중인 서비스는 수정할 수 없습니다.</p>
+                  <p className="text-sm text-amber-600 mt-1">먼저 배포 취소(Undeploy) 후 수정하세요.</p>
+                </div>
+                <div className="flex justify-end">
+                  <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">닫기</button>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">서비스 코드</label>
-                <input type="text" value={formData.name} disabled className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed" />
+                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono" />
+                <p className="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 사용 가능</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+              </div>
+              {/* 소유자 검색 */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Crown className="w-3.5 h-3.5" /> 소유자</span></label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={ownerQuery}
+                      onChange={(e) => setOwnerQuery(e.target.value)}
+                      onFocus={() => ownerResults.length > 0 && setShowOwnerDropdown(true)}
+                      placeholder={formData.registeredBy ? `${formData.registeredBy}${formData.registeredByDept ? ` (${formData.registeredByDept})` : ''}` : '사번 또는 이름으로 검색'}
+                      className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                    {ownerSearching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+                    {showOwnerDropdown && ownerResults.length > 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {ownerResults.map((emp) => (
+                          <button
+                            key={emp.loginid}
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, registeredBy: emp.loginid, registeredByName: emp.username, registeredByDept: emp.deptname });
+                              setOwnerQuery('');
+                              setShowOwnerDropdown(false);
+                            }}
+                            className="w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors flex items-center justify-between"
+                          >
+                            <span className="text-sm text-gray-900">{emp.username} <span className="text-gray-400">({emp.loginid})</span></span>
+                            <span className="text-xs text-gray-400">{emp.deptname}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {formData.registeredBy && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    현재: <span className="font-medium">{formData.registeredBy}</span>
+                    {formData.registeredByDept && <span className="text-gray-400"> — {formData.registeredByDept}</span>}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
@@ -768,13 +888,16 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 </div>
               </div>
             </div>
-            {formError && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
+            )}
+            {formError && !editingService?.status?.includes('DEPLOYED') && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
+            {editingService.status !== 'DEPLOYED' && (
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
               <button onClick={handleSaveService} disabled={formSaving} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}저장
               </button>
             </div>
+            )}
           </div>
         </ModalBackdrop>
       )}

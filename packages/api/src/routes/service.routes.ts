@@ -123,13 +123,15 @@ const SERVICE_CATEGORIES = [
   '인프라/도구/협력 요청',
 ] as const;
 
+const flexibleUrlSchema = z.union([z.string().url(), z.string().startsWith('/'), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v);
+
 const createServiceSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Service ID must be lowercase alphanumeric with hyphens only'),
   displayName: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
-  iconUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
-  docsUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
-  serviceUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  iconUrl: flexibleUrlSchema,
+  docsUrl: flexibleUrlSchema,
+  serviceUrl: flexibleUrlSchema,
   enabled: z.boolean().default(true),
   type: z.enum(['STANDARD', 'BACKGROUND']).default('STANDARD'),
   status: z.enum(['DEVELOPMENT', 'DEPLOYED']).default('DEVELOPMENT'),
@@ -141,11 +143,12 @@ const createServiceSchema = z.object({
 });
 
 const updateServiceSchema = z.object({
+  name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Service ID must be lowercase alphanumeric with hyphens only').optional(),
   displayName: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).optional().nullable(),
-  iconUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
-  docsUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
-  serviceUrl: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  iconUrl: flexibleUrlSchema,
+  docsUrl: flexibleUrlSchema,
+  serviceUrl: flexibleUrlSchema,
   enabled: z.boolean().optional(),
   type: z.enum(['STANDARD', 'BACKGROUND']).optional(),
   apiOnly: z.boolean().optional(),
@@ -155,6 +158,7 @@ const updateServiceSchema = z.object({
   serviceCategory: z.array(z.string()).optional().default([]),
   standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
+  registeredBy: z.string().min(1).max(100).optional(),
 });
 
 const deployServiceSchema = z.object({
@@ -183,6 +187,50 @@ function isServiceVisibleByScope(
       return true;
   }
 }
+
+// ============================================
+// GET /services/employees/search
+// 직원 검색 (loginid 기반 Knox 조회)
+// ============================================
+serviceRoutes.get('/employees/search', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const q = (req.query['q'] as string || '').trim();
+    if (!q || q.length < 2) {
+      res.json({ employees: [] });
+      return;
+    }
+
+    // 1차: DB User 테이블에서 loginid/username 검색
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { loginid: { contains: q, mode: 'insensitive' } },
+          { username: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { loginid: true, username: true, deptname: true },
+      take: 10,
+    });
+
+    // 2차: 정확한 loginid로 Knox 조회 (DB에 없는 경우)
+    if (users.length === 0) {
+      const employee = await lookupEmployee(q);
+      if (employee) {
+        res.json({ employees: [{
+          loginid: employee.userId,
+          username: employee.fullName,
+          deptname: employee.departmentName,
+        }] });
+        return;
+      }
+    }
+
+    res.json({ employees: users });
+  } catch (error) {
+    console.error('Employee search error:', error);
+    res.status(500).json({ error: 'Failed to search employees' });
+  }
+});
 
 // ============================================
 // GET /services
@@ -837,19 +885,49 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       return;
     }
 
-    // apiOnly 전환은 DEVELOPMENT 상태에서만 가능
-    if (validation.data.apiOnly !== undefined && validation.data.apiOnly !== existing.apiOnly) {
-      if (existing.status !== 'DEVELOPMENT') {
-        res.status(400).json({
-          error: 'API Only 전환은 개발중(DEVELOPMENT) 상태에서만 가능합니다. 먼저 배포 취소 후 변경하세요.',
-        });
+    // DEPLOYED 상태에서는 수정 불가 — undeploy 후 수정
+    if (existing.status !== 'DEVELOPMENT') {
+      res.status(400).json({
+        error: '배포 중인 서비스는 수정할 수 없습니다. 먼저 배포 취소(Undeploy) 후 수정하세요.',
+      });
+      return;
+    }
+
+    // name 변경 시 중복 체크
+    if (validation.data.name && validation.data.name !== existing.name) {
+      const dup = await prisma.service.findUnique({ where: { name: validation.data.name } });
+      if (dup) {
+        res.status(409).json({ error: `서비스 코드 '${validation.data.name}'은(는) 이미 사용 중입니다.` });
         return;
+      }
+    }
+
+    // registeredBy 변경 시 Knox 조회하여 부서 정보도 갱신
+    const updateData: Record<string, unknown> = { ...validation.data };
+    if (validation.data.registeredBy && validation.data.registeredBy !== existing.registeredBy) {
+      const employee = await lookupEmployee(validation.data.registeredBy);
+      if (!employee) {
+        res.status(400).json({ error: `직원 '${validation.data.registeredBy}'을(를) 찾을 수 없습니다.` });
+        return;
+      }
+      updateData.registeredByDept = employee.departmentName;
+      updateData.registeredByBusinessUnit = extractBusinessUnit(employee.departmentName) || existing.registeredByBusinessUnit;
+      // 조직 계층 갱신
+      try {
+        const hierarchy = await getDepartmentHierarchy(employee.departmentCode, employee.departmentName, employee.enDepartmentName);
+        if (hierarchy) {
+          updateData.team = hierarchy.team || null;
+          updateData.center2Name = hierarchy.center2Name || null;
+          updateData.center1Name = hierarchy.center1Name || null;
+        }
+      } catch (err) {
+        console.error('[Service] Failed to lookup dept hierarchy for new owner:', err);
       }
     }
 
     const service = await prisma.service.update({
       where: { id },
-      data: validation.data,
+      data: updateData,
     });
 
     // 변경 내역 감사 로그
