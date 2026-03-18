@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
-  Layers, Trash2, ChevronDown,
+  Layers, Trash2, ChevronDown, Search,
   Crown, Shield, Link, Image, RefreshCw,
   ArrowLeft, ArrowRight, Check, ExternalLink, FileText, Ticket
 } from 'lucide-react';
@@ -174,10 +174,11 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const [wizardStep, setWizardStep] = useState(0);
 
   // Owner search states
+  const [showOwnerSearch, setShowOwnerSearch] = useState(false);
   const [ownerQuery, setOwnerQuery] = useState('');
   const [ownerResults, setOwnerResults] = useState<EmployeeSearchResult[]>([]);
   const [ownerSearching, setOwnerSearching] = useState(false);
-  const [showOwnerDropdown, setShowOwnerDropdown] = useState(false);
+  const [selectedOwner, setSelectedOwner] = useState<EmployeeSearchResult | null>(null);
 
   // Deploy modal
   const [deployTarget, setDeployTarget] = useState<Service | null>(null);
@@ -207,26 +208,28 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 
   // ── Owner search ──
 
-  useEffect(() => {
-    if (!ownerQuery || ownerQuery.length < 2) {
+  const handleOwnerSearch = async () => {
+    if (!ownerQuery || ownerQuery.length < 2) return;
+    setOwnerSearching(true);
+    setSelectedOwner(null);
+    try {
+      const res = await api.get(`/services/employees/search?q=${encodeURIComponent(ownerQuery)}`);
+      setOwnerResults(res.data.employees || []);
+    } catch {
       setOwnerResults([]);
-      setShowOwnerDropdown(false);
-      return;
+    } finally {
+      setOwnerSearching(false);
     }
-    const timer = setTimeout(async () => {
-      setOwnerSearching(true);
-      try {
-        const res = await api.get(`/services/employees/search?q=${encodeURIComponent(ownerQuery)}`);
-        setOwnerResults(res.data.employees || []);
-        setShowOwnerDropdown(true);
-      } catch {
-        setOwnerResults([]);
-      } finally {
-        setOwnerSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [ownerQuery]);
+  };
+
+  const confirmOwnerChange = () => {
+    if (!selectedOwner) return;
+    setFormData({ ...formData, registeredBy: selectedOwner.loginid, registeredByName: selectedOwner.username, registeredByDept: selectedOwner.deptname });
+    setShowOwnerSearch(false);
+    setOwnerQuery('');
+    setOwnerResults([]);
+    setSelectedOwner(null);
+  };
 
   // ── Filter services by tab ──
 
@@ -285,9 +288,10 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       registeredByName: '',
       registeredByDept: service.registeredByDept || '',
     });
+    setShowOwnerSearch(false);
     setOwnerQuery('');
     setOwnerResults([]);
-    setShowOwnerDropdown(false);
+    setSelectedOwner(null);
     setFormError(null);
     setShowServiceModal(true);
   };
@@ -297,9 +301,10 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     setEditingService(null);
     setFormData(EMPTY_FORM);
     setFormError(null);
+    setShowOwnerSearch(false);
     setOwnerQuery('');
     setOwnerResults([]);
-    setShowOwnerDropdown(false);
+    setSelectedOwner(null);
   };
 
   const buildPayload = () => {
@@ -778,46 +783,64 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
               </div>
-              {/* 소유자 검색 */}
-              <div className="relative">
+              {/* 소유자 */}
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Crown className="w-3.5 h-3.5" /> 소유자</span></label>
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 relative">
-                    <input
-                      type="text"
-                      value={ownerQuery}
-                      onChange={(e) => setOwnerQuery(e.target.value)}
-                      onFocus={() => ownerResults.length > 0 && setShowOwnerDropdown(true)}
-                      placeholder={formData.registeredBy ? `${formData.registeredBy}${formData.registeredByDept ? ` (${formData.registeredByDept})` : ''}` : '사번 또는 이름으로 검색'}
-                      className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    />
-                    {ownerSearching && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
-                    {showOwnerDropdown && ownerResults.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <div className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
+                    {formData.registeredBy || '(없음)'}
+                    {formData.registeredByDept && <span className="text-gray-400 ml-1">— {formData.registeredByDept}</span>}
+                  </div>
+                  <button type="button" onClick={() => { setShowOwnerSearch(true); setOwnerQuery(''); setOwnerResults([]); setSelectedOwner(null); }}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap">
+                    <Search className="w-3.5 h-3.5" /> 변경
+                  </button>
+                </div>
+                {/* 소유자 검색 패널 */}
+                {showOwnerSearch && (
+                  <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={ownerQuery}
+                        onChange={(e) => setOwnerQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleOwnerSearch()}
+                        placeholder="사번 또는 이름 입력"
+                        className="flex-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        autoFocus
+                      />
+                      <button type="button" onClick={handleOwnerSearch} disabled={ownerSearching || ownerQuery.length < 2}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
+                        {ownerSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} 검색
+                      </button>
+                    </div>
+                    {ownerResults.length > 0 && (
+                      <div className="border border-gray-200 rounded-lg bg-white max-h-40 overflow-y-auto divide-y divide-gray-100">
                         {ownerResults.map((emp) => (
-                          <button
-                            key={emp.loginid}
-                            type="button"
-                            onClick={() => {
-                              setFormData({ ...formData, registeredBy: emp.loginid, registeredByName: emp.username, registeredByDept: emp.deptname });
-                              setOwnerQuery('');
-                              setShowOwnerDropdown(false);
-                            }}
-                            className="w-full px-3 py-2 text-left hover:bg-blue-50 transition-colors flex items-center justify-between"
-                          >
-                            <span className="text-sm text-gray-900">{emp.username} <span className="text-gray-400">({emp.loginid})</span></span>
+                          <button key={emp.loginid} type="button"
+                            onClick={() => setSelectedOwner(emp)}
+                            className={`w-full px-3 py-2 text-left flex items-center justify-between transition-colors ${
+                              selectedOwner?.loginid === emp.loginid ? 'bg-blue-50 border-l-2 border-l-blue-500' : 'hover:bg-gray-50'
+                            }`}>
+                            <span className="text-sm text-gray-900">
+                              {selectedOwner?.loginid === emp.loginid && <Check className="w-3.5 h-3.5 text-blue-600 inline mr-1" />}
+                              {emp.username} <span className="text-gray-400">({emp.loginid})</span>
+                            </span>
                             <span className="text-xs text-gray-400">{emp.deptname}</span>
                           </button>
                         ))}
                       </div>
                     )}
+                    {ownerResults.length === 0 && !ownerSearching && ownerQuery.length >= 2 && (
+                      <p className="text-xs text-gray-400 text-center py-2">검색 결과가 없습니다</p>
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => { setShowOwnerSearch(false); setSelectedOwner(null); }}
+                        className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+                      <button type="button" onClick={confirmOwnerChange} disabled={!selectedOwner}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">확인</button>
+                    </div>
                   </div>
-                </div>
-                {formData.registeredBy && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    현재: <span className="font-medium">{formData.registeredBy}</span>
-                    {formData.registeredByDept && <span className="text-gray-400"> — {formData.registeredByDept}</span>}
-                  </p>
                 )}
               </div>
               <div>
