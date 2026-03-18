@@ -27,10 +27,17 @@ import { holidaysRoutes } from './routes/holidays.routes.js';
 import { publicStatsRoutes } from './routes/public-stats.routes.js';
 import { adminLogsRoutes } from './routes/admin-logs.routes.js';
 import { serviceTargetsRoutes } from './routes/service-targets.routes.js';
+import { systemSettingsRoutes } from './routes/system-settings.routes.js';
+import { adminRequestRoutes } from './routes/admin-requests.routes.js';
+import { externalUsageRoutes } from './routes/external-usage.routes.js';
+import { errorLogsRoutes } from './routes/error-logs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
+import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
 import 'dotenv/config';
@@ -80,10 +87,21 @@ app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 app.use('/admin', adminLogsRoutes);
 app.use('/admin', serviceTargetsRoutes);
+app.use('/admin', systemSettingsRoutes);
+app.use('/admin', errorLogsRoutes);
+app.use('/', adminRequestRoutes);
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
+// External Usage API (API Only 서비스용, 인증 불필요)
+// nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
+app.use('/external-usage', externalUsageRoutes);
+// Swagger UI 정적 에셋 (사내망 CDN 차단 대응 — 로컬 서빙)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const swaggerUiDistPath = join(__dirname, '..', 'node_modules', 'swagger-ui-dist');
+app.use('/swagger-ui', express.static(swaggerUiDistPath, { maxAge: '1d' }));
 // Swagger / OpenAPI documentation
 app.get('/api-docs', (_req, res) => {
     res.json(swaggerSpec);
@@ -159,17 +177,21 @@ async function backfillEmptyVisibilityScope() {
     }
 }
 /**
- * 기존 사용자 Knox 인증 일괄 리셋
+ * departmentCode가 없는 사용자만 Knox 인증 리셋
  * → 다음 API 호출 시 Knox 재인증 + 영문 부서명/부서코드/계층 정보 수집
+ * (departmentCode가 이미 있는 사용자는 이미 새 스키마로 인증된 것이므로 스킵)
  */
-async function resetKnoxVerifications() {
+async function resetKnoxForMissingDeptCode() {
     try {
         const result = await prisma.user.updateMany({
-            where: { knoxVerified: true },
+            where: {
+                knoxVerified: true,
+                departmentCode: null,
+            },
             data: { knoxVerified: false },
         });
         if (result.count > 0) {
-            console.log(`[Backfill] Reset Knox verification for ${result.count} user(s) — will re-verify on next request`);
+            console.log(`[Backfill] Reset Knox verification for ${result.count} user(s) without departmentCode — will re-verify on next request`);
         }
     }
     catch (error) {
@@ -262,15 +284,18 @@ async function main() {
         console.log('Redis connected');
         // 빈 visibilityScope 자동 보정 (기존 모델 대상)
         await backfillEmptyVisibilityScope();
-        // Knox 인증 리셋 + 서비스 조직 계층 backfill
-        await resetKnoxVerifications();
-        await backfillServiceHierarchy();
+        // departmentCode 미수집 사용자 Knox 인증 리셋 (DB 쿼리만, 빠름)
+        await resetKnoxForMissingDeptCode();
         // 만료 이미지 자동 삭제 (1시간마다)
         startImageCleanupCron();
         // LLM 헬스체크 (10분마다)
         startHealthCheckCron();
+        startAiEstimationCron();
         const server = app.listen(PORT, () => {
             console.log(`Agent Registry API server running on port ${PORT}`);
+            // 서비스 조직 계층 backfill — 서버 시작 후 비동기 실행
+            // (Knox API 호출이 느릴 수 있으므로 헬스체크 타임아웃 방지)
+            backfillServiceHierarchy().catch(err => console.error('[Backfill] Service hierarchy backfill failed:', err));
         });
         server.keepAliveTimeout = 65000;
         server.headersTimeout = 66000;

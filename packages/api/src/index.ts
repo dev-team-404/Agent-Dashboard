@@ -34,6 +34,8 @@ import { adminRequestRoutes } from './routes/admin-requests.routes.js';
 import { externalUsageRoutes } from './routes/external-usage.routes.js';
 import { errorLogsRoutes } from './routes/error-logs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
@@ -108,6 +110,12 @@ app.use('/public/stats', publicStatsRoutes);
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
 app.use('/external-usage', externalUsageRoutes);
+
+// Swagger UI 정적 에셋 (사내망 CDN 차단 대응 — 로컬 서빙)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const swaggerUiDistPath = join(__dirname, '..', 'node_modules', 'swagger-ui-dist');
+app.use('/swagger-ui', express.static(swaggerUiDistPath, { maxAge: '1d' }));
 
 // Swagger / OpenAPI documentation
 app.get('/api-docs', (_req, res) => {

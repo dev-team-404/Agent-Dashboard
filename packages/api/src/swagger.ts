@@ -816,7 +816,7 @@ export const swaggerSpec = {
 };
 
 /**
- * Swagger UI HTML (CDN-based)
+ * Swagger UI HTML (로컬 에셋 서빙 — 사내망 CDN 차단 대응)
  */
 export function getSwaggerUiHtml(): string {
   const specJson = JSON.stringify(swaggerSpec);
@@ -827,7 +827,7 @@ export function getSwaggerUiHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent Registry - API Documentation</title>
   <link rel="icon" type="image/png" href="/logo.png?v=20260316" />
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <link rel="stylesheet" href="/api/swagger-ui/swagger-ui.css" />
   <style>
     html { box-sizing: border-box; overflow-y: scroll; }
     *, *::before, *::after { box-sizing: inherit; }
@@ -839,7 +839,7 @@ export function getSwaggerUiHtml(): string {
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="/api/swagger-ui/swagger-ui-bundle.js"></script>
   <script>
     SwaggerUIBundle({
       spec: ${specJson},
