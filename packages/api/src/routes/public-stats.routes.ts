@@ -11,7 +11,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../index.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
-import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
+import { isTopLevelDivision, getDepartmentHierarchy, lookupEmployee } from '../services/knoxEmployee.service.js';
 
 function filterHierarchy<T extends { center2Name?: string | null; center1Name?: string | null }>(s: T): T {
   let c2 = s.center2Name ?? null;
@@ -874,5 +874,374 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Public stats dau-mau error:', err);
     res.status(500).json({ error: 'DAU/MAU 조회에 실패했습니다.' });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DTGPT Server Usage APIs
+// 특정 서버(cloud.dtgpt) 사용량 집계 전용 엔드포인트
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const DTGPT_ENDPOINT_PREFIX = 'http://cloud.dtgpt.samsunds.net/llm/v1';
+const DTGPT_FIXED_SERVICES = ['roocode', 'dify', 'openwebui', 'claudecode'];
+const DTGPT_API_SERVICE = 'api';
+
+/**
+ * G1+G3 서비스 ID 조회 (고정 서비스 + api 서비스)
+ */
+async function getDtgptFixedAndApiServiceIds(): Promise<{ g1Ids: string[]; g3Id: string | null }> {
+  const services = await prisma.service.findMany({
+    where: { name: { in: [...DTGPT_FIXED_SERVICES, DTGPT_API_SERVICE] } },
+    select: { id: true, name: true },
+  });
+  const g1Ids = services.filter(s => DTGPT_FIXED_SERVICES.includes(s.name)).map(s => s.id);
+  const g3 = services.find(s => s.name === DTGPT_API_SERVICE);
+  return { g1Ids, g3Id: g3?.id || null };
+}
+
+/**
+ * G2 서비스 ID 조회 (해당 endpoint 모델을 사용하는 서비스)
+ */
+async function getDtgptDynamicServiceIds(): Promise<string[]> {
+  const results = await prisma.$queryRaw<Array<{ service_id: string }>>`
+    SELECT DISTINCT sm.service_id
+    FROM service_models sm
+    INNER JOIN models m ON sm.model_id = m.id
+    WHERE m.endpoint_url LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
+      AND sm.enabled = true
+      AND m.enabled = true
+  `;
+  return results.map(r => r.service_id);
+}
+
+/**
+ * 한글 부서명 → 영문 팀명 변환 (캐시 활용)
+ * 해당 부서에 속한 user를 DB에서 찾아 Knox 조회 후 영문 팀명 resolve
+ */
+async function resolveTeamName(deptname: string): Promise<string> {
+  if (!deptname) return 'Unknown';
+
+  // 1. department_hierarchies 캐시에서 한글 부서명으로 조회
+  try {
+    const cached = await prisma.departmentHierarchy.findFirst({
+      where: { departmentName: deptname },
+      select: { team: true },
+    });
+    if (cached?.team) return cached.team;
+  } catch (_) { /* ignore */ }
+
+  // 2. 해당 부서에 속한 유저 중 departmentCode가 있는 유저 찾기
+  const user = await prisma.user.findFirst({
+    where: { deptname, departmentCode: { not: null } },
+    select: { departmentCode: true, enDeptName: true },
+  });
+
+  if (user?.departmentCode) {
+    const hierarchy = await getDepartmentHierarchy(
+      user.departmentCode,
+      deptname,
+      user.enDeptName || '',
+    );
+    if (hierarchy?.team) return hierarchy.team;
+  }
+
+  // 3. departmentCode 없는 경우 → Knox Employee API로 조회
+  const anyUser = await prisma.user.findFirst({
+    where: { deptname, loginid: { not: 'anonymous' } },
+    select: { loginid: true },
+  });
+
+  if (anyUser) {
+    const emp = await lookupEmployee(anyUser.loginid);
+    if (emp?.departmentCode) {
+      const hierarchy = await getDepartmentHierarchy(
+        emp.departmentCode,
+        emp.departmentName || deptname,
+        emp.enDepartmentName || '',
+      );
+      if (hierarchy?.team) return hierarchy.team;
+      // fallback: 영문 부서명이라도 반환
+      if (emp.enDepartmentName) return emp.enDepartmentName;
+    }
+  }
+
+  return deptname; // 최종 fallback: 한글 부서명 그대로
+}
+
+// ─── 7. GET /stats/dtgpt/team-usage ─────────────────────────
+
+publicStatsRoutes.get('/dtgpt/team-usage', async (req: Request, res: Response) => {
+  try {
+    const month = req.query['month'] as string;
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      res.status(400).json({ error: 'month 파라미터가 필요합니다. (형식: YYYY-MM, 예: 2026-01)' });
+      return;
+    }
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = parseInt(yearStr);
+    const mon = parseInt(monthStr);
+    if (year < 2000 || year > 2100 || mon < 1 || mon > 12) {
+      res.status(400).json({ error: 'year(2000~2100)와 month(1~12)가 유효해야 합니다.' });
+      return;
+    }
+
+    // KST 기준 월 범위
+    const startDate = new Date(year, mon - 1, 1, 0, 0, 0, 0);
+    const endDate = new Date(year, mon, 0, 23, 59, 59, 999); // 해당 월 마지막 날
+
+    // G1 + G3 서비스 ID
+    const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
+    const allIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
+
+    if (allIds.length === 0) {
+      res.json({ month, data: [] });
+      return;
+    }
+
+    // 부서별 토큰 사용량 집계
+    const stats = await prisma.$queryRaw<Array<{
+      deptname: string;
+      total_input: bigint;
+      total_output: bigint;
+      request_count: bigint;
+      unique_users: bigint;
+    }>>`
+      SELECT ul.deptname,
+             COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+             COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+             COALESCE(SUM(ul.request_count), 0) as request_count,
+             COUNT(DISTINCT ul.user_id) as unique_users
+      FROM usage_logs ul
+      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+        AND ul.service_id = ANY(${allIds})
+        AND ul.deptname IS NOT NULL AND ul.deptname != ''
+      GROUP BY ul.deptname
+      ORDER BY SUM(ul."inputTokens") + SUM(ul."outputTokens") DESC
+    `;
+
+    // 한글 부서명 → 영문 팀명 변환 + 팀별 합산
+    const teamMap = new Map<string, {
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      requestCount: number;
+      uniqueUsers: number;
+      depts: string[];
+    }>();
+
+    for (const row of stats) {
+      const teamName = await resolveTeamName(row.deptname);
+      const existing = teamMap.get(teamName);
+      const input = Number(row.total_input);
+      const output = Number(row.total_output);
+
+      if (existing) {
+        existing.totalInputTokens += input;
+        existing.totalOutputTokens += output;
+        existing.totalTokens += input + output;
+        existing.requestCount += Number(row.request_count);
+        existing.uniqueUsers += Number(row.unique_users); // 팀 내 중복 가능하지만 근사치
+        if (!existing.depts.includes(row.deptname)) existing.depts.push(row.deptname);
+      } else {
+        teamMap.set(teamName, {
+          totalInputTokens: input,
+          totalOutputTokens: output,
+          totalTokens: input + output,
+          requestCount: Number(row.request_count),
+          uniqueUsers: Number(row.unique_users),
+          depts: [row.deptname],
+        });
+      }
+    }
+
+    const data = Array.from(teamMap.entries())
+      .map(([team, v]) => ({
+        team,
+        totalInputTokens: v.totalInputTokens,
+        totalOutputTokens: v.totalOutputTokens,
+        totalTokens: v.totalTokens,
+        requestCount: v.requestCount,
+        uniqueUsers: v.uniqueUsers,
+        departments: v.depts,
+      }))
+      .sort((a, b) => b.totalTokens - a.totalTokens);
+
+    res.json({
+      month,
+      server: DTGPT_ENDPOINT_PREFIX,
+      scope: 'G1 (fixed services) + G3 (api service)',
+      fixedServices: DTGPT_FIXED_SERVICES,
+      data,
+    });
+  } catch (err) {
+    console.error('DTGPT team-usage error:', err);
+    res.status(500).json({ error: 'DTGPT 팀별 사용량 조회에 실패했습니다.' });
+  }
+});
+
+// ─── 8. GET /stats/dtgpt/service-usage ──────────────────────
+
+publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response) => {
+  try {
+    const month = req.query['month'] as string;
+    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+      res.status(400).json({ error: 'month 파라미터가 필요합니다. (형식: YYYY-MM, 예: 2026-01)' });
+      return;
+    }
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = parseInt(yearStr);
+    const mon = parseInt(monthStr);
+    if (year < 2000 || year > 2100 || mon < 1 || mon > 12) {
+      res.status(400).json({ error: 'year(2000~2100)와 month(1~12)가 유효해야 합니다.' });
+      return;
+    }
+
+    const startDate = new Date(year, mon - 1, 1, 0, 0, 0, 0);
+    const endDate = new Date(year, mon, 0, 23, 59, 59, 999);
+
+    // G1, G2, G3 서비스 조회
+    const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
+    const g2Ids = await getDtgptDynamicServiceIds();
+
+    // G1 + G2 서비스 정보 (이름 포함)
+    const allServiceIds = [...new Set([...g1Ids, ...g2Ids])];
+    const serviceInfos = await prisma.service.findMany({
+      where: { id: { in: allServiceIds } },
+      select: { id: true, name: true, displayName: true },
+    });
+    const serviceById = new Map(serviceInfos.map(s => [s.id, s]));
+
+    // G1 + G2 서비스별 사용량 조회
+    const serviceStats = allServiceIds.length > 0
+      ? await prisma.$queryRaw<Array<{
+          service_id: string;
+          total_input: bigint;
+          total_output: bigint;
+          request_count: bigint;
+          unique_users: bigint;
+        }>>`
+          SELECT ul.service_id::text as service_id,
+                 COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+                 COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+                 COALESCE(SUM(ul.request_count), 0) as request_count,
+                 COUNT(DISTINCT ul.user_id) as unique_users
+          FROM usage_logs ul
+          WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+            AND ul.service_id::text = ANY(${allServiceIds})
+          GROUP BY ul.service_id
+        `
+      : [];
+
+    // G3 (api 서비스) 전체 사용량
+    let g3Total = { input: 0, output: 0, requests: 0, users: 0 };
+    if (g3Id) {
+      const g3Stats = await prisma.$queryRaw<Array<{
+        total_input: bigint;
+        total_output: bigint;
+        request_count: bigint;
+        unique_users: bigint;
+      }>>`
+        SELECT COALESCE(SUM("inputTokens"), 0) as total_input,
+               COALESCE(SUM("outputTokens"), 0) as total_output,
+               COALESCE(SUM(request_count), 0) as request_count,
+               COUNT(DISTINCT user_id) as unique_users
+        FROM usage_logs
+        WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+          AND service_id = ${g3Id}
+      `;
+      if (g3Stats[0]) {
+        g3Total = {
+          input: Number(g3Stats[0].total_input),
+          output: Number(g3Stats[0].total_output),
+          requests: Number(g3Stats[0].request_count),
+          users: Number(g3Stats[0].unique_users),
+        };
+      }
+    }
+
+    // G2 사용량 합계 (api 서비스에서 빼기 위한 값)
+    // G2 중 G3(api)와 겹치는 서비스의 사용량
+    const g2InG3 = g3Id && g2Ids.includes(g3Id);
+    let g2TotalTokens = 0;
+
+    // 결과 구성
+    const data: Array<{
+      service: string;
+      displayName: string;
+      group: string;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      requestCount: number;
+      uniqueUsers: number;
+    }> = [];
+
+    for (const row of serviceStats) {
+      const svc = serviceById.get(row.service_id);
+      if (!svc) continue;
+
+      const input = Number(row.total_input);
+      const output = Number(row.total_output);
+      const isG1 = g1Ids.includes(row.service_id);
+      const isG2 = g2Ids.includes(row.service_id);
+
+      // G2에 해당하는 사용량 누적 (api 서비스 제외 — api는 G3으로 별도 처리)
+      if (isG2 && row.service_id !== g3Id) {
+        g2TotalTokens += input + output;
+      }
+
+      const groups: string[] = [];
+      if (isG1) groups.push('G1:fixed');
+      if (isG2) groups.push('G2:dynamic');
+
+      data.push({
+        service: svc.name,
+        displayName: svc.displayName,
+        group: groups.join(', '),
+        totalInputTokens: input,
+        totalOutputTokens: output,
+        totalTokens: input + output,
+        requestCount: Number(row.request_count),
+        uniqueUsers: Number(row.unique_users),
+      });
+    }
+
+    // "other" = G3 전체 - G2 사용량 합 (음수면 0)
+    const otherInput = Math.max(g3Total.input - (g2InG3 ? 0 : 0), 0); // G3 자체가 G2에 포함되면 other=0
+    const otherTokens = Math.max((g3Total.input + g3Total.output) - g2TotalTokens, 0);
+    // other의 input/output 비율을 G3 비율로 추정
+    const g3TotalTokens = g3Total.input + g3Total.output;
+    const inputRatio = g3TotalTokens > 0 ? g3Total.input / g3TotalTokens : 0.5;
+
+    data.push({
+      service: 'other',
+      displayName: 'Other (미분류 직접 사용)',
+      group: 'G3:api-remainder',
+      totalInputTokens: Math.round(otherTokens * inputRatio),
+      totalOutputTokens: Math.round(otherTokens * (1 - inputRatio)),
+      totalTokens: otherTokens,
+      requestCount: Math.max(g3Total.requests - data.filter(d => d.group.includes('G2')).reduce((s, d) => s + d.requestCount, 0), 0),
+      uniqueUsers: g3Total.users, // 정확한 차집합은 어려우므로 G3 전체
+    });
+
+    // totalTokens 내림차순 정렬
+    data.sort((a, b) => b.totalTokens - a.totalTokens);
+
+    res.json({
+      month,
+      server: DTGPT_ENDPOINT_PREFIX,
+      scope: 'G1 (fixed) + G2 (dynamic by endpoint) + other (G3 - G2)',
+      fixedServices: DTGPT_FIXED_SERVICES,
+      dynamicServiceCount: g2Ids.length,
+      g3ServiceName: DTGPT_API_SERVICE,
+      g3TotalTokens: g3TotalTokens,
+      g2TotalTokens,
+      data,
+    });
+  } catch (err) {
+    console.error('DTGPT service-usage error:', err);
+    res.status(500).json({ error: 'DTGPT 서비스별 사용량 조회에 실패했습니다.' });
   }
 });
