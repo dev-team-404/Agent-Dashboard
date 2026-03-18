@@ -1103,7 +1103,9 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
 
     // G1, G2, G3 서비스 조회
     const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
-    const g2Ids = await getDtgptDynamicServiceIds();
+    const g2IdsRaw = await getDtgptDynamicServiceIds();
+    // G2에서 G3(api) 제외 — api는 catch-all이므로 G3으로만 처리, 이중 계산 방지
+    const g2Ids = g2IdsRaw.filter(id => id !== g3Id);
 
     // G1 + G2 서비스 정보 (이름 포함)
     const allServiceIds = [...new Set([...g1Ids, ...g2Ids])];
@@ -1161,9 +1163,7 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
       }
     }
 
-    // G2 사용량 합계 (api 서비스에서 빼기 위한 값)
-    // G2 중 G3(api)와 겹치는 서비스의 사용량
-    const g2InG3 = g3Id && g2Ids.includes(g3Id);
+    // G2 사용량 합계 (G3에서 빼서 other 계산용)
     let g2TotalTokens = 0;
 
     // 결과 구성
@@ -1187,8 +1187,8 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
       const isG1 = g1Ids.includes(row.service_id);
       const isG2 = g2Ids.includes(row.service_id);
 
-      // G2에 해당하는 사용량 누적 (api 서비스 제외 — api는 G3으로 별도 처리)
-      if (isG2 && row.service_id !== g3Id) {
+      // G2에 해당하는 사용량 누적 (G3에서 빼서 other 산출용)
+      if (isG2) {
         g2TotalTokens += input + output;
       }
 
@@ -1209,22 +1209,25 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
     }
 
     // "other" = G3 전체 - G2 사용량 합 (음수면 0)
-    const otherInput = Math.max(g3Total.input - (g2InG3 ? 0 : 0), 0); // G3 자체가 G2에 포함되면 other=0
-    const otherTokens = Math.max((g3Total.input + g3Total.output) - g2TotalTokens, 0);
-    // other의 input/output 비율을 G3 비율로 추정
     const g3TotalTokens = g3Total.input + g3Total.output;
-    const inputRatio = g3TotalTokens > 0 ? g3Total.input / g3TotalTokens : 0.5;
+    const otherTokens = Math.max(g3TotalTokens - g2TotalTokens, 0);
 
-    data.push({
-      service: 'other',
-      displayName: 'Other (미분류 직접 사용)',
-      group: 'G3:api-remainder',
-      totalInputTokens: Math.round(otherTokens * inputRatio),
-      totalOutputTokens: Math.round(otherTokens * (1 - inputRatio)),
-      totalTokens: otherTokens,
-      requestCount: Math.max(g3Total.requests - data.filter(d => d.group.includes('G2')).reduce((s, d) => s + d.requestCount, 0), 0),
-      uniqueUsers: g3Total.users, // 정확한 차집합은 어려우므로 G3 전체
-    });
+    if (otherTokens > 0 || g3Total.requests > 0) {
+      // other의 input/output 비율을 G3 비율로 추정
+      const inputRatio = g3TotalTokens > 0 ? g3Total.input / g3TotalTokens : 0.5;
+      const g2TotalRequests = data.filter(d => d.group.includes('G2')).reduce((s, d) => s + d.requestCount, 0);
+
+      data.push({
+        service: 'other',
+        displayName: 'Other (미분류 직접 사용)',
+        group: 'G3:api-remainder',
+        totalInputTokens: Math.round(otherTokens * inputRatio),
+        totalOutputTokens: Math.round(otherTokens * (1 - inputRatio)),
+        totalTokens: otherTokens,
+        requestCount: Math.max(g3Total.requests - g2TotalRequests, 0),
+        uniqueUsers: g3Total.users,
+      });
+    }
 
     // totalTokens 내림차순 정렬
     data.sort((a, b) => b.totalTokens - a.totalTokens);
