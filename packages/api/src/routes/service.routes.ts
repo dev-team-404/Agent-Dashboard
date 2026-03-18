@@ -1063,13 +1063,8 @@ serviceRoutes.get('/:id/stats', authenticateToken, async (req: AuthenticatedRequ
         by: ['userId'],
         where: { serviceId: id, userId: { not: null } },
       }).then(r => r.length),
-      prisma.usageLog.count({ where: { serviceId: id } }),
-      prisma.usageLog.count({
-        where: {
-          serviceId: id,
-          timestamp: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-        },
-      }),
+      prisma.usageLog.aggregate({ where: { serviceId: id }, _sum: { requestCount: true } }).then(r => r._sum?.requestCount || 0),
+      prisma.usageLog.aggregate({ where: { serviceId: id, timestamp: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } }, _sum: { requestCount: true } }).then(r => r._sum?.requestCount || 0),
     ]);
 
     const tokenUsage = await prisma.usageLog.aggregate({

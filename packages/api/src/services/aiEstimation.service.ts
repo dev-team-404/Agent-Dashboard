@@ -167,7 +167,7 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     SELECT ul.service_id::text as service_id,
            DATE(ul.timestamp) as d,
            COUNT(DISTINCT ul.user_id) as dau,
-           COUNT(*) as calls
+           COALESCE(SUM(ul.request_count), 0) as calls
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
@@ -185,7 +185,7 @@ async function getRecentBusinessDayStats(todayKST: Date) {
   >`
     SELECT service_id::text as service_id,
            DATE(timestamp) as d,
-           COUNT(*) as calls
+           COALESCE(SUM(request_count), 0) as calls
     FROM usage_logs
     WHERE timestamp >= ${rangeStart} AND timestamp <= ${rangeEnd}
       AND service_id IS NOT NULL

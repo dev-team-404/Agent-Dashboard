@@ -310,6 +310,7 @@ model UsageLog {
   inputTokens  Int      @default(0)
   outputTokens Int      @default(0)
   totalTokens  Int      @default(0)
+  requestCount Int      @default(1) @map("request_count")  // 외부 사용량: 요청 수, 프록시: 항상 1
   latencyMs    Int?     @map("latency_ms")
   timestamp    DateTime @default(now())
   deptname     String?                          // 요청 dept 추적

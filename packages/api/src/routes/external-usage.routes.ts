@@ -5,7 +5,7 @@
  * - 인증 불필요 (공개 API)
  * - 서비스가 apiOnly=true로 등록되어 있어야 전송 가능
  *
- * POST /by-user: 사용자(Knox ID) 단위 → DailyUsageStat + UserService (프록시와 동일 경로)
+ * POST /by-user: 사용자(Knox ID) 단위 → usageLog + UserService (프록시와 동일 테이블)
  *    - Knox ID 기반 사용자 자동 등록/인증
  *    - 통합 대시보드 중복제거 + Top K Users 반영
  */
@@ -42,14 +42,14 @@ const byUserSchema = z.object({
 /**
  * 사용자(Knox ID) 단위 사용량 제출 (권장)
  *
- * 프록시 서비스와 동일한 DailyUsageStat + UserService에 기록되어
- * 통합 대시보드 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.
+ * 프록시 서비스와 동일한 usageLog 테이블에 기록되어
+ * 통합 대시보드의 모든 통계에 자연스럽게 반영됩니다.
  *
  * 흐름:
  * 1. userId(Knox ID) → DB User 조회 (knoxVerified 확인)
  * 2. 미등록/미인증 → Knox Employee API 일괄 조회 → User upsert
- * 3. modelName → ServiceModel alias → Model 매칭
- * 4. DailyUsageStat upsert (date, userId, modelId, serviceId)
+ * 3. modelName → ServiceModel alias → Model 매칭 → 자동 생성 fallback
+ * 4. usageLog upsert (동일 date+userId+modelId+serviceId → 삭제 후 재삽입)
  * 5. UserService upsert (user-service 관계 추적)
  */
 externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
@@ -183,7 +183,6 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     }
 
     // 4b. alias에서 못 찾은 모델 → Model.name으로 직접 조회
-    // Model.name은 중복 가능하므로 sortOrder ASC로 첫 번째 선택
     const unresolvedModels = uniqueModelNames.filter(n => !modelByName.has(n));
     if (unresolvedModels.length > 0) {
       const globalModels = await prisma.model.findMany({
@@ -195,11 +194,10 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
         orderBy: { sortOrder: 'asc' },
       });
       for (const m of globalModels) {
-        // 중복 이름일 경우 sortOrder가 가장 낮은 (먼저 나온) 모델만 사용
         if (!modelByName.has(m.name)) {
           modelByName.set(m.name, m);
 
-          // 이 서비스에 ServiceModel alias가 없으면 자동 연결 (다음 호출 시 4a에서 바로 매칭)
+          // 이 서비스에 ServiceModel alias가 없으면 자동 연결
           try {
             await prisma.serviceModel.upsert({
               where: { serviceId_modelId_aliasName: { serviceId: service.id, modelId: m.id, aliasName: m.name } },
@@ -232,7 +230,6 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
             },
           });
 
-          // ServiceModel alias 연결
           await prisma.serviceModel.create({
             data: {
               serviceId: service.id,
@@ -258,15 +255,16 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
 
     const failedModelNames = new Set(uniqueModelNames.filter(n => !modelByName.has(n)));
 
-    // 5. Upsert DailyUsageStat + UserService
+    // 5. usageLog에 기록 (동일 date+user+model+service → 삭제 후 재삽입)
     let upserted = 0;
     let skipped = 0;
     const recordErrors: Array<{ index: number; error: string }> = [];
 
-    // 배치 처리용 데이터 준비
+    // 유효한 데이터 분류
     const validOps: Array<{
       index: number;
       dateObj: Date;
+      nextDateObj: Date;
       userDbId: string;
       deptname: string;
       modelId: string;
@@ -278,103 +276,95 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     for (let i = 0; i < data.length; i++) {
       const item = data[i]!;
 
-      // 사용자 검증 실패 → skip
-      if (failedLoginIds.has(item.userId)) {
-        skipped++;
-        continue;
-      }
-
-      // 모델 미발견 → skip
-      if (failedModelNames.has(item.modelName)) {
-        skipped++;
-        continue;
-      }
+      if (failedLoginIds.has(item.userId)) { skipped++; continue; }
+      if (failedModelNames.has(item.modelName)) { skipped++; continue; }
 
       const user = userByLoginId.get(item.userId);
       const model = modelByName.get(item.modelName);
+      if (!user || !model) { skipped++; continue; }
 
-      if (!user || !model) {
+      // requestCount=0이면 기록할 필요 없음
+      if (item.requestCount === 0 && item.totalInputTokens === 0 && item.totalOutputTokens === 0) {
         skipped++;
         continue;
       }
 
+      const dateObj = new Date(item.date + 'T00:00:00.000Z');
+      const nextDateObj = new Date(dateObj.getTime() + 24 * 60 * 60 * 1000);
+
       validOps.push({
         index: i,
-        dateObj: new Date(item.date + 'T00:00:00.000Z'),
+        dateObj,
+        nextDateObj,
         userDbId: user.id,
         deptname: user.deptname,
         modelId: model.id,
-        requestCount: item.requestCount,
+        requestCount: Math.max(item.requestCount, 1),
         totalInputTokens: item.totalInputTokens,
         totalOutputTokens: item.totalOutputTokens,
       });
     }
 
-    // 100건 단위로 트랜잭션 분할
+    // 배치 처리: 100건씩 트랜잭션
     const BATCH_SIZE = 100;
     for (let batch = 0; batch < validOps.length; batch += BATCH_SIZE) {
       const chunk = validOps.slice(batch, batch + BATCH_SIZE);
       try {
-        await prisma.$transaction(
-          chunk.map(op =>
-            prisma.dailyUsageStat.upsert({
+        await prisma.$transaction(async (tx) => {
+          // 1) 기존 데이터 삭제 (동일 date+user+model+service)
+          for (const op of chunk) {
+            await tx.usageLog.deleteMany({
               where: {
-                date_userId_modelId_serviceId: {
-                  date: op.dateObj,
-                  userId: op.userDbId,
-                  modelId: op.modelId,
-                  serviceId: service.id,
-                },
-              },
-              update: {
-                totalInputTokens: op.totalInputTokens,
-                totalOutputTokens: op.totalOutputTokens,
-                requestCount: op.requestCount,
-                deptname: op.deptname,
-              },
-              create: {
-                date: op.dateObj,
+                serviceId: service.id,
                 userId: op.userDbId,
                 modelId: op.modelId,
-                serviceId: service.id,
-                deptname: op.deptname,
-                totalInputTokens: op.totalInputTokens,
-                totalOutputTokens: op.totalOutputTokens,
-                requestCount: op.requestCount,
+                timestamp: { gte: op.dateObj, lt: op.nextDateObj },
               },
-            })
-          )
-        );
+            });
+          }
+
+          // 2) 새 데이터 삽입 (1 row, requestCount에 요청 수 저장)
+          await tx.usageLog.createMany({
+            data: chunk.map(op => ({
+              userId: op.userDbId,
+              modelId: op.modelId,
+              serviceId: service.id,
+              deptname: op.deptname,
+              inputTokens: op.totalInputTokens,
+              outputTokens: op.totalOutputTokens,
+              totalTokens: op.totalInputTokens + op.totalOutputTokens,
+              requestCount: op.requestCount,
+              timestamp: op.dateObj,
+            })),
+          });
+        });
         upserted += chunk.length;
       } catch (err) {
         // 배치 실패 시 개별 재시도
         for (const op of chunk) {
           try {
-            await prisma.dailyUsageStat.upsert({
-              where: {
-                date_userId_modelId_serviceId: {
-                  date: op.dateObj,
+            await prisma.$transaction(async (tx) => {
+              await tx.usageLog.deleteMany({
+                where: {
+                  serviceId: service.id,
+                  userId: op.userDbId,
+                  modelId: op.modelId,
+                  timestamp: { gte: op.dateObj, lt: op.nextDateObj },
+                },
+              });
+              await tx.usageLog.create({
+                data: {
                   userId: op.userDbId,
                   modelId: op.modelId,
                   serviceId: service.id,
+                  deptname: op.deptname,
+                  inputTokens: op.totalInputTokens,
+                  outputTokens: op.totalOutputTokens,
+                  totalTokens: op.totalInputTokens + op.totalOutputTokens,
+                  requestCount: op.requestCount,
+                  timestamp: op.dateObj,
                 },
-              },
-              update: {
-                totalInputTokens: op.totalInputTokens,
-                totalOutputTokens: op.totalOutputTokens,
-                requestCount: op.requestCount,
-                deptname: op.deptname,
-              },
-              create: {
-                date: op.dateObj,
-                userId: op.userDbId,
-                modelId: op.modelId,
-                serviceId: service.id,
-                deptname: op.deptname,
-                totalInputTokens: op.totalInputTokens,
-                totalOutputTokens: op.totalOutputTokens,
-                requestCount: op.requestCount,
-              },
+              });
             });
             upserted++;
           } catch (retryErr) {
@@ -386,25 +376,23 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     }
 
     // 6. UserService upsert (서비스별 사용자 추적)
-    // DailyUsageStat에서 해당 사용자-서비스 조합의 실제 총 requestCount를 재집계
-    // → increment 대신 정확한 값을 세팅하여 재전송 시 이중 누적 방지
     const affectedUserDbIds = [...new Set(validOps.map(op => op.userDbId))];
 
     if (affectedUserDbIds.length > 0) {
-      const userServiceAgg = await prisma.dailyUsageStat.groupBy({
+      const userServiceAgg = await prisma.usageLog.groupBy({
         by: ['userId'],
         where: {
           serviceId: service.id,
           userId: { in: affectedUserDbIds },
         },
         _sum: { requestCount: true },
-        _max: { date: true },
+        _max: { timestamp: true },
       });
 
       for (const agg of userServiceAgg) {
         if (!agg.userId) continue;
         const totalRequests = agg._sum.requestCount ?? 0;
-        const latestDate = agg._max.date ?? new Date();
+        const latestDate = agg._max.timestamp ?? new Date();
 
         try {
           await prisma.userService.upsert({
@@ -436,7 +424,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
           loginid: `external:${service.name}`,
           action: 'SUBMIT_EXTERNAL_USAGE_BY_USER',
           target: service.id,
-          targetType: 'DailyUsageStat',
+          targetType: 'UsageLog',
           details: JSON.parse(JSON.stringify({
             serviceName: service.name,
             serviceType: service.type,
@@ -493,9 +481,3 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     res.status(500).json({ error: '사용자별 사용 기록 저장에 실패했습니다.' });
   }
 });
-
-// GET endpoint 제거: API Only 데이터는 기존 public stats API에 자동 합산
-// - /public/stats/dau-mau: DAU/MAU에 포함
-// - /public/stats/team-usage: 팀별 사용량에 포함
-// - /public/stats/team-usage-all: 전체 팀별 사용량에 포함
-// - /public/stats/top-users: Top K 사용자에 포함 (by-user 사용 시)
