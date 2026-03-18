@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { statsApi, modelsApi } from '../../services/api';
+import { statsApi, servicesApi } from '../../services/api';
 
 interface UserInfo {
   id: string;
@@ -89,11 +89,25 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
 
   const loadModels = async () => {
     try {
-      const response = await modelsApi.list();
-      const modelList = response.data.models;
-      setModels(modelList);
-      if (modelList.length > 0) {
-        setSelectedModelId(modelList[0].id);
+      if (serviceId) {
+        // 서비스 상세 페이지: 해당 서비스에 등록된 모델만 표시
+        const response = await servicesApi.listModels(serviceId);
+        const serviceModels = response.data.serviceModels || [];
+        const modelList: ModelInfo[] = serviceModels.map((sm: { model: ModelInfo }) => sm.model);
+        // 중복 제거 (같은 모델이 여러 alias로 등록될 수 있음)
+        const uniqueModels = Array.from(new Map(modelList.map(m => [m.id, m])).values());
+        setModels(uniqueModels);
+        if (uniqueModels.length > 0) {
+          setSelectedModelId(uniqueModels[0].id);
+        }
+      } else {
+        // 글로벌 대시보드: 전체 모델
+        const response = await statsApi.byModel(30);
+        const modelList = response.data.models || response.data;
+        setModels(Array.isArray(modelList) ? modelList : []);
+        if (modelList.length > 0) {
+          setSelectedModelId(modelList[0].id);
+        }
       }
     } catch (error) {
       console.error('Failed to load models:', error);
