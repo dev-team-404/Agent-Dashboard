@@ -491,9 +491,9 @@ export const swaggerSpec = {
           '> 응답에 추정에 사용된 기준값이 `estimationBaseline`으로 포함됩니다.\n\n' +
           '## API Only Services (API Only 서비스)\n\n' +
           'API Only services use `POST /external-usage/by-user` to submit per-user usage data. ' +
-          'Records are stored in DailyUsageStat (same table as proxy services), so DAU/MAU is calculated identically to proxy services.\n' +
+          'Records are stored in usage_logs (same table as proxy services), so DAU/MAU is calculated identically to proxy services.\n' +
           'API Only 서비스는 `POST /external-usage/by-user`를 통해 사용자별 사용 데이터를 전송합니다. ' +
-          'DailyUsageStat(프록시 서비스와 동일한 테이블)에 기록되므로 DAU/MAU가 프록시 서비스와 동일하게 산출됩니다.',
+          'usage_logs(프록시 서비스와 동일한 테이블)에 기록되므로 DAU/MAU가 프록시 서비스와 동일하게 산출됩니다.',
         tags: ['DAU / MAU'],
         parameters: [
           apiKeyParam,
@@ -717,9 +717,9 @@ export const swaggerSpec = {
         description:
           'Submit per-user daily usage records using **Knox login ID**.\n' +
           '**Knox ID(사번 아이디) 기반** 사용자별 사용 기록을 전송합니다.\n\n' +
-          'Records are stored in the **same table (DailyUsageStat)** as proxy services, ' +
+          'Records are stored in the **same table (usage_logs)** as proxy services, ' +
           'enabling cross-service unique user deduplication, Top K Users ranking, and all other dashboard statistics.\n' +
-          '프록시 서비스와 **동일한 테이블(DailyUsageStat)** 에 기록되어 ' +
+          '프록시 서비스와 **동일한 테이블(usage_logs)** 에 기록되어 ' +
           '통합 대시보드 사용자 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.\n\n' +
           '## Key Features (주요 특징)\n' +
           '- **User-level granularity**: Per-user (Knox ID) tracking / 사용자(Knox ID) 단위 추적\n' +
@@ -730,7 +730,7 @@ export const swaggerSpec = {
           '1. `userId` (Knox ID) → Look up User in DB / DB User 조회\n' +
           '2. Unregistered/unverified → Batch Knox Employee API lookup → Auto-register User / 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +
           '3. `modelName` → Match via ServiceModel alias → Fallback to Model.name / ServiceModel alias 매칭 → Model.name fallback\n' +
-          '4. DailyUsageStat upsert `(date, userId, modelId, serviceId)` — same key = overwrite / 동일 키 = 덮어쓰기\n' +
+          '4. UsageLog upsert `(date, userId, modelId, serviceId)` — same key = overwrite / 동일 키 = 덮어쓰기\n' +
           '5. UserService upsert (user-service relationship tracking / user-service 관계 추적)\n\n' +
           '## Partial Success (부분 성공)\n' +
           'If some users fail Knox verification or some models are unregistered, ' +

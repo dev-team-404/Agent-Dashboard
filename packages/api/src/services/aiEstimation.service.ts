@@ -235,75 +235,13 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     bgMap.set(id, Math.round(total / numDays));
   }
 
-  // API Only STANDARD 서비스의 daily_usage_stats 데이터도 baseline에 포함
-  const apiOnlyStdServices = await prisma.service.findMany({
-    where: { apiOnly: true, type: 'STANDARD', status: 'DEPLOYED' },
-    select: { id: true },
-  });
-  const apiOnlyStdIds = apiOnlyStdServices.map(s => s.id);
-
-  let extStdDau = 0;
-  let extStdCalls = 0;
-  if (apiOnlyStdIds.length > 0) {
-    const extDaily = await prisma.$queryRaw<
-      Array<{ d: Date; total_dau: bigint; total_calls: bigint }>
-    >`
-      SELECT date as d,
-             COUNT(DISTINCT user_id) as total_dau,
-             COALESCE(SUM("requestCount"), 0) as total_calls
-      FROM daily_usage_stats
-      WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
-        AND service_id::text = ANY(${apiOnlyStdIds})
-        AND user_id IS NOT NULL
-        AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
-      GROUP BY date
-      ORDER BY date DESC
-    `;
-    for (const r of extDaily) {
-      const day = new Date(r.d).toISOString().split('T')[0];
-      if (!bizDaySet.has(day)) continue;
-      extStdDau += Number(r.total_dau);
-      extStdCalls += Number(r.total_calls);
-    }
-  }
-
-  // API Only BACKGROUND 서비스의 daily_usage_stats 호출 데이터도 bgMap에 포함
-  const apiOnlyBgServices = await prisma.service.findMany({
-    where: { apiOnly: true, type: 'BACKGROUND', status: 'DEPLOYED' },
-    select: { id: true },
-  });
-  const apiOnlyBgIds = apiOnlyBgServices.map(s => s.id);
-
-  if (apiOnlyBgIds.length > 0) {
-    const extBgDaily = await prisma.$queryRaw<
-      Array<{ service_id: string; total_calls: bigint }>
-    >`
-      SELECT service_id::text as service_id,
-             COALESCE(SUM("requestCount"), 0) as total_calls
-      FROM daily_usage_stats
-      WHERE date >= ${rangeStart} AND date <= ${rangeEnd}
-        AND service_id::text = ANY(${apiOnlyBgIds})
-        AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
-      GROUP BY service_id
-    `;
-    for (const r of extBgDaily) {
-      const existing = bgMap.get(r.service_id) || 0;
-      bgMap.set(r.service_id, existing + Math.round(Number(r.total_calls) / numDays));
-    }
-  }
-
   // STANDARD 기준 1인당 하루 평균 호출 수 (BACKGROUND DAU 추정 베이스라인)
-  // API Only STANDARD 데이터도 합산
   let totalStdCalls = 0;
   let totalStdDau = 0;
   for (const v of stdAgg.values()) {
     totalStdCalls += v.totalCalls;
     totalStdDau += v.totalDau;
   }
-  totalStdCalls += extStdCalls;
-  totalStdDau += extStdDau;
   const avgStdCalls = totalStdCalls / numDays;
   const avgStdDau = totalStdDau / numDays;
   const callsPerPersonPerDay = avgStdDau > 0 ? avgStdCalls / avgStdDau : 0;
@@ -372,37 +310,6 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
         avgDau = stats?.dau || 0;
         avgCalls = stats?.calls || 0;
         isEstimatedDau = false;
-
-        // API Only STANDARD: DailyUsageStat에서 영업일 기준 데이터 보충
-        if (svc.apiOnly) {
-          const extRangeEnd = new Date(todayKST);
-          extRangeEnd.setDate(extRangeEnd.getDate() - 1);
-          const extRangeStart = new Date(todayKST);
-          extRangeStart.setDate(extRangeStart.getDate() - 31);
-          const extStats = await prisma.$queryRaw<
-            Array<{ avg_dau: number; avg_calls: number }>
-          >`
-            WITH daily AS (
-              SELECT date as d,
-                     COUNT(DISTINCT user_id) as dau,
-                     COALESCE(SUM("requestCount"), 0) as calls
-              FROM daily_usage_stats
-              WHERE service_id = ${svc.id}::uuid
-                AND date >= ${extRangeStart} AND date <= ${extRangeEnd}
-                AND user_id IS NOT NULL
-                AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
-              GROUP BY date
-              ORDER BY date DESC
-              LIMIT 5
-            )
-            SELECT COALESCE(AVG(dau), 0)::float as avg_dau,
-                   COALESCE(AVG(calls), 0)::float as avg_calls
-            FROM daily
-          `;
-          avgDau += Math.round(extStats[0]?.avg_dau || 0);
-          avgCalls += Math.round(extStats[0]?.avg_calls || 0);
-        }
       } else {
         avgCalls = bgMap.get(svc.id) || 0;
         avgDau = callsPerPersonPerDay > 0 ? Math.round(avgCalls / callsPerPersonPerDay) : 0;

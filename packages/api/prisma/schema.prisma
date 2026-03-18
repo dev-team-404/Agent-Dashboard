@@ -64,7 +64,6 @@ model Service {
 
   // Relations
   usageLogs           UsageLog[]
-  dailyUsageStats     DailyUsageStat[]
   ratingFeedbacks     RatingFeedback[]
   userServices        UserService[]
   rateLimits          UserRateLimit[]
@@ -93,7 +92,6 @@ model User {
   isActive      Boolean  @default(true)
 
   usageLogs       UsageLog[]
-  dailyUsageStats DailyUsageStat[]
   userServices    UserService[]
   rateLimits      UserRateLimit[]
 
@@ -202,7 +200,6 @@ model Model {
 
   creator         Admin?           @relation(fields: [createdBy], references: [id])
   usageLogs       UsageLog[]
-  dailyUsageStats DailyUsageStat[]
   subModels       SubModel[]
   serviceModels   ServiceModel[]
   healthChecks    HealthCheckLog[]
@@ -329,33 +326,6 @@ model UsageLog {
   @@index([deptname])
   @@index([userId, serviceId, timestamp])  // rate limit aggregate 최적화
   @@map("usage_logs")
-}
-
-// ============================================
-// 일별 사용 통계 (집계)
-// ============================================
-model DailyUsageStat {
-  id                String   @id @default(uuid())
-  date              DateTime @db.Date
-  userId            String?  @map("user_id")    // nullable: background
-  modelId           String   @map("model_id")
-  deptname          String   @default("")
-  totalInputTokens  Int      @default(0)
-  totalOutputTokens Int      @default(0)
-  requestCount      Int      @default(0)
-
-  serviceId String?  @map("service_id")
-  service   Service? @relation(fields: [serviceId], references: [id])
-
-  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  model Model @relation(fields: [modelId], references: [id])
-
-  @@unique([date, userId, modelId, serviceId])
-  @@index([date])
-  @@index([userId])
-  @@index([modelId])
-  @@index([serviceId])
-  @@map("daily_usage_stats")
 }
 
 // ============================================

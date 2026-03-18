@@ -982,7 +982,6 @@ serviceRoutes.delete('/:id', authenticateToken, async (req: AuthenticatedRequest
     // Cascade 삭제: 관련 데이터 정리
     await prisma.$transaction([
       prisma.usageLog.deleteMany({ where: { serviceId: id } }),
-      prisma.dailyUsageStat.deleteMany({ where: { serviceId: id } }),
       prisma.serviceModel.deleteMany({ where: { serviceId: id } }),
       prisma.userService.deleteMany({ where: { serviceId: id } }),
       prisma.userRateLimit.deleteMany({ where: { serviceId: id } }),
@@ -1018,9 +1017,8 @@ serviceRoutes.post('/:id/reset-data', authenticateToken, requireAdmin as Request
       return;
     }
 
-    const [usageLogs, dailyStats, ratings, userServices] = await prisma.$transaction([
+    const [usageLogs, ratings, userServices] = await prisma.$transaction([
       prisma.usageLog.deleteMany({ where: { serviceId: id } }),
-      prisma.dailyUsageStat.deleteMany({ where: { serviceId: id } }),
       prisma.ratingFeedback.deleteMany({ where: { serviceId: id } }),
       prisma.userService.deleteMany({ where: { serviceId: id } }),
     ]);
@@ -1029,7 +1027,6 @@ serviceRoutes.post('/:id/reset-data', authenticateToken, requireAdmin as Request
       message: 'Service data reset successfully',
       deleted: {
         usageLogs: usageLogs.count,
-        dailyStats: dailyStats.count,
         ratings: ratings.count,
         userServices: userServices.count,
       },

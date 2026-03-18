@@ -319,7 +319,6 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin as RequestHandler, a
     await prisma.$transaction([
       prisma.subModel.deleteMany({ where: { parentId: id } }),
       prisma.usageLog.deleteMany({ where: { modelId: id } }),
-      prisma.dailyUsageStat.deleteMany({ where: { modelId: id } }),
       prisma.model.delete({ where: { id } }),
     ]);
 
