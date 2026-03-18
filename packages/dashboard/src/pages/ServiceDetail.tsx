@@ -59,6 +59,7 @@ interface Service {
   serviceCategory?: string | null;
   standardMD?: number | null;
   jiraTicket?: string | null;
+  apiOnly?: boolean;
   createdAt: string;
   _count?: { usageLogs: number; userServices: number; serviceModels: number };
   _isServiceAdmin?: boolean;
@@ -380,7 +381,7 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
 
       {/* ═══════ Tab Navigation ═══════ */}
       <div className="flex items-center gap-1 bg-gray-100/80 rounded-xl p-1 mb-6">
-        {TABS.filter(tab => tab.id !== 'dashboard' || isSystemAdmin).map(tab => {
+        {TABS.filter(tab => (tab.id !== 'dashboard' || isSystemAdmin) && (tab.id !== 'models' || !service?.apiOnly)).map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (

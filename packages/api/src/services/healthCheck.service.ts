@@ -139,7 +139,7 @@ async function checkSingleModel(model: {
 async function runHealthChecks(): Promise<void> {
   try {
     const models = await prisma.model.findMany({
-      where: { enabled: true },
+      where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
       select: {
         id: true,
         name: true,

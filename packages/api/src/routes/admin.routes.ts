@@ -446,6 +446,9 @@ const modelSchema = z.object({
 adminRoutes.get('/models', async (req: AuthenticatedRequest, res) => {
   try {
     const models = await prisma.model.findMany({
+      where: {
+        endpointUrl: { not: 'external://auto-created' },
+      },
       include: {
         creator: {
           select: { loginid: true },
@@ -2500,7 +2503,7 @@ adminRoutes.get('/stats/overview', async (req: AuthenticatedRequest, res) => {
         },
       }),
       prisma.model.count({
-        where: { enabled: true },
+        where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
       }),
     ]);
 

@@ -48,6 +48,7 @@ interface ServiceInfo {
   displayName: string;
   type: 'STANDARD' | 'BACKGROUND';
   status: 'DEVELOPMENT' | 'DEPLOYED';
+  apiOnly?: boolean;
 }
 
 interface AliasGroup {
@@ -121,7 +122,12 @@ export default function ServiceModelConfig() {
         api.get(`/services/${serviceId}/models`),
         api.get(`/services/${serviceId}/available-models`),
       ]);
-      setService(svcRes.data.service);
+      const svc = svcRes.data.service;
+      if (svc?.apiOnly) {
+        navigate(`/my-services/${serviceId}`, { replace: true });
+        return;
+      }
+      setService(svc);
       setServiceModels(modelsRes.data.serviceModels || []);
       setAvailableModels(availableRes.data.models || []);
     } catch (err) {

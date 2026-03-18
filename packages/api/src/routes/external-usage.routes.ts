@@ -198,6 +198,21 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
         // 중복 이름일 경우 sortOrder가 가장 낮은 (먼저 나온) 모델만 사용
         if (!modelByName.has(m.name)) {
           modelByName.set(m.name, m);
+
+          // 이 서비스에 ServiceModel alias가 없으면 자동 연결 (다음 호출 시 4a에서 바로 매칭)
+          try {
+            await prisma.serviceModel.upsert({
+              where: { serviceId_modelId_aliasName: { serviceId: service.id, modelId: m.id, aliasName: m.name } },
+              update: {},
+              create: {
+                serviceId: service.id,
+                modelId: m.id,
+                aliasName: m.name,
+                enabled: true,
+                addedBy: `external:${service.name}`,
+              },
+            });
+          } catch (_) { /* 실패해도 데이터 기록에는 지장 없음 */ }
         }
       }
     }

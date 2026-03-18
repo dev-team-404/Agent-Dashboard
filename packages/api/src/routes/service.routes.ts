@@ -1183,6 +1183,9 @@ serviceRoutes.get('/:id/available-models', authenticateToken, async (req: Authen
     }
 
     const models = await prisma.model.findMany({
+      where: {
+        endpointUrl: { not: 'external://auto-created' },
+      },
       orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
 
