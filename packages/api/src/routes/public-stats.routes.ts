@@ -1187,8 +1187,9 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
       const isG1 = g1Ids.includes(row.service_id);
       const isG2 = g2Ids.includes(row.service_id);
 
-      // G2에 해당하는 사용량 누적 (G3에서 빼서 other 산출용)
-      if (isG2) {
+      // 순수 G2 (G1이 아닌) 서비스 사용량만 누적 (G3에서 빼서 other 산출용)
+      // G1 서비스는 독립적으로 사용량이 쌓이므로 G3에서 빼면 안 됨
+      if (isG2 && !isG1) {
         g2TotalTokens += input + output;
       }
 
@@ -1215,7 +1216,8 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
     if (otherTokens > 0 || g3Total.requests > 0) {
       // other의 input/output 비율을 G3 비율로 추정
       const inputRatio = g3TotalTokens > 0 ? g3Total.input / g3TotalTokens : 0.5;
-      const g2TotalRequests = data.filter(d => d.group.includes('G2')).reduce((s, d) => s + d.requestCount, 0);
+      // 순수 G2(G1 아닌)만 — G1 서비스 requestCount는 G3와 무관
+      const g2TotalRequests = data.filter(d => d.group.includes('G2') && !d.group.includes('G1')).reduce((s, d) => s + d.requestCount, 0);
 
       data.push({
         service: 'other',
