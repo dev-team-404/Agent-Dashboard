@@ -200,7 +200,7 @@ function BarLabelWithLogo({ x, y, width, height, value, index, chartData, metric
   const centerY = (y || 0) + (height || 0) / 2;
   const logoX = textX + formatted.length * 6 + gap;
   const logoY = centerY - logoSize / 2;
-  const clipId = `logo-clip-${entry?.name || Math.random()}`;
+  const clipId = `logo-clip-${metric.key}-${entry?.name || index}`;
 
   return (
     <g>
