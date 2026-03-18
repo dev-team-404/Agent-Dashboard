@@ -907,7 +907,7 @@ async function getDtgptDynamicServiceIds(): Promise<string[]> {
     SELECT DISTINCT sm.service_id
     FROM service_models sm
     INNER JOIN models m ON sm.model_id = m.id
-    WHERE m.endpoint_url LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
+    WHERE m."endpointUrl" LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
       AND sm.enabled = true
       AND m.enabled = true
   `;
