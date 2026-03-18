@@ -218,6 +218,7 @@ export const swaggerSpec = {
           '특정 서비스만 보려면 `/stats/team-usage`를 사용하세요.',
         tags: ['Team Usage (팀별 사용량)'],
         parameters: [
+          apiKeyParam,
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
         ],
@@ -286,6 +287,7 @@ export const swaggerSpec = {
           '`totalTokens` (input + output combined) descending / `totalTokens` (입력 + 출력 합계) 내림차순',
         tags: ['User Usage (사용자별 사용량)'],
         parameters: [
+          apiKeyParam,
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
           serviceNameParam(true),
@@ -376,6 +378,7 @@ export const swaggerSpec = {
           '`totalTokens` (input + output combined) descending / `totalTokens` (입력 + 출력 합계) 내림차순',
         tags: ['User Usage (사용자별 사용량)'],
         parameters: [
+          apiKeyParam,
           dateParam('startDate', 'Start date', '조회 시작일', '2025-01-01'),
           dateParam('endDate', 'End date', '조회 종료일', '2025-01-31'),
           serviceNameParam(true),
@@ -493,6 +496,7 @@ export const swaggerSpec = {
           'DailyUsageStat(프록시 서비스와 동일한 테이블)에 기록되므로 DAU/MAU가 프록시 서비스와 동일하게 산출됩니다.',
         tags: ['DAU / MAU'],
         parameters: [
+          apiKeyParam,
           {
             name: 'year',
             in: 'query',

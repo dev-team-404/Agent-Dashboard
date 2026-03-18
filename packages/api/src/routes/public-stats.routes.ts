@@ -4,7 +4,7 @@
  * 사용량 통계 공개 API
  * - GET 요청: API Key 필수 (SystemSetting 'PUBLIC_STATS_API_KEY')
  * - POST 요청 (external-usage): 인증 불필요
- * DailyUsageStat 집계 테이블을 사용하여 성능 최적화
+ * 프록시 서비스 → usage_logs, API Only 서비스 → daily_usage_stats
  * 모든 날짜는 KST (Asia/Seoul) 기준
  */
 
@@ -99,16 +99,9 @@ function isValidDate(dateStr: string): boolean {
 }
 
 /**
- * YYYY-MM-DD 문자열을 KST 자정 기준 Date 객체로 변환
- * PostgreSQL DATE 칼럼은 UTC 00:00 으로 저장되므로,
- * KST 날짜를 정확히 매칭하려면 UTC 기준으로 변환
+ * YYYY-MM-DD → KST 로컬 Date 객체 변환 (TZ=Asia/Seoul 환경)
+ * usage_logs.timestamp 와 daily_usage_stats.date 양쪽 모두 정확히 매칭
  */
-function toKstDate(dateStr: string): Date {
-  // "2025-01-15" → KST 2025-01-15 00:00 = UTC 2025-01-14 15:00
-  // 하지만 DB에 date만 저장되므로 날짜 자체로 비교하면 됨
-  return new Date(dateStr + 'T00:00:00.000Z');
-}
-
 function parseDateRange(query: Request['query']): {
   startDate: Date;
   endDate: Date;
@@ -133,8 +126,11 @@ function parseDateRange(query: Request['query']): {
     };
   }
 
-  const startDate = toKstDate(startStr);
-  const endDate = toKstDate(endStr);
+  // KST 로컬 시간 (dau-mau 엔드포인트와 동일 방식)
+  const [y1, m1, d1] = startStr.split('-').map(Number);
+  const [y2, m2, d2] = endStr.split('-').map(Number);
+  const startDate = new Date(y1, m1 - 1, d1, 0, 0, 0, 0);
+  const endDate = new Date(y2, m2 - 1, d2, 23, 59, 59, 999);
 
   if (endDate < startDate) {
     return {
@@ -225,6 +221,7 @@ publicStatsRoutes.get('/services', async (_req: Request, res: Response) => {
 
 /**
  * 특정 서비스의 팀별 사용량 (토큰 + API 호출 수)
+ * 프록시 서비스 → usage_logs, API Only 서비스 → daily_usage_stats
  */
 publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
   try {
@@ -240,60 +237,73 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
       return;
     }
 
-    // name → UUID 조회
-    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    const service = await prisma.service.findUnique({
+      where: { name: serviceName },
+      select: { id: true, apiOnly: true },
+    });
     if (!service) {
       res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
       return;
     }
     const serviceId = service.id;
 
-    const stats = await prisma.dailyUsageStat.groupBy({
-      by: ['deptname'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        serviceId,
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-      orderBy: { deptname: 'asc' },
-    });
+    let data;
 
-    // Unique users per dept
-    const uniqueUserRows = await prisma.dailyUsageStat.groupBy({
-      by: ['deptname', 'userId'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        serviceId,
-        userId: { not: null },
-      },
-    });
-    const deptUserMap = new Map<string, Set<string>>();
-    for (const row of uniqueUserRows) {
-      if (!deptUserMap.has(row.deptname)) {
-        deptUserMap.set(row.deptname, new Set());
-      }
-      if (row.userId) {
-        deptUserMap.get(row.deptname)!.add(row.userId);
-      }
-    }
-
-    const data = stats.map(s => {
-      const inputTokens = s._sum.totalInputTokens ?? 0;
-      const outputTokens = s._sum.totalOutputTokens ?? 0;
-      return {
+    if (service.apiOnly) {
+      // API Only → daily_usage_stats
+      const stats = await prisma.$queryRaw<Array<{
+        deptname: string; total_input: bigint; total_output: bigint;
+        request_count: bigint; unique_users: bigint;
+      }>>`
+        SELECT deptname,
+               COALESCE(SUM("totalInputTokens"), 0) as total_input,
+               COALESCE(SUM("totalOutputTokens"), 0) as total_output,
+               COALESCE(SUM("requestCount"), 0) as request_count,
+               COUNT(DISTINCT user_id) as unique_users
+        FROM daily_usage_stats
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id = ${serviceId}
+          AND deptname != ''
+        GROUP BY deptname
+        ORDER BY deptname ASC
+      `;
+      data = stats.map(s => ({
         deptname: s.deptname,
         businessUnit: extractBusinessUnit(s.deptname),
-        totalInputTokens: inputTokens,
-        totalOutputTokens: outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        requestCount: s._sum.requestCount ?? 0,
-        uniqueUsers: deptUserMap.get(s.deptname)?.size ?? 0,
-      };
-    }).sort((a, b) => a.deptname.localeCompare(b.deptname));
+        totalInputTokens: Number(s.total_input),
+        totalOutputTokens: Number(s.total_output),
+        totalTokens: Number(s.total_input) + Number(s.total_output),
+        requestCount: Number(s.request_count),
+        uniqueUsers: Number(s.unique_users),
+      }));
+    } else {
+      // 프록시 서비스 → usage_logs
+      const stats = await prisma.$queryRaw<Array<{
+        deptname: string; total_input: bigint; total_output: bigint;
+        request_count: bigint; unique_users: bigint;
+      }>>`
+        SELECT ul.deptname,
+               COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+               COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+               COUNT(*) as request_count,
+               COUNT(DISTINCT ul.user_id) as unique_users
+        FROM usage_logs ul
+        WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+          AND ul.service_id = ${serviceId}
+          AND ul.deptname IS NOT NULL
+        GROUP BY ul.deptname
+        ORDER BY ul.deptname ASC
+      `;
+      data = stats.map(s => ({
+        deptname: s.deptname,
+        businessUnit: extractBusinessUnit(s.deptname),
+        totalInputTokens: Number(s.total_input),
+        totalOutputTokens: Number(s.total_output),
+        totalTokens: Number(s.total_input) + Number(s.total_output),
+        requestCount: Number(s.request_count),
+        uniqueUsers: Number(s.unique_users),
+      }));
+    }
 
     res.json({ data });
   } catch (err) {
@@ -306,6 +316,7 @@ publicStatsRoutes.get('/team-usage', async (req: Request, res: Response) => {
 
 /**
  * 모든 서비스에 대해 팀별 사용량 (토큰 + API 호출 수)
+ * usage_logs (프록시) + daily_usage_stats (API Only) 병합
  */
 publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => {
   try {
@@ -315,63 +326,104 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
       return;
     }
 
-    const stats = await prisma.dailyUsageStat.groupBy({
-      by: ['deptname', 'serviceId'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-      orderBy: [{ deptname: 'asc' }],
+    // 서비스 정보 조회
+    const allServices = await prisma.service.findMany({
+      select: { id: true, name: true, displayName: true, apiOnly: true },
     });
+    const serviceMap = new Map(allServices.map(s => [s.id, s]));
+    const proxyIds = allServices.filter(s => !s.apiOnly).map(s => s.id);
+    const apiOnlyIds = allServices.filter(s => s.apiOnly).map(s => s.id);
 
-    // Fetch service names
-    const serviceIds = [
-      ...new Set(stats.map((s) => s.serviceId).filter(Boolean)),
-    ] as string[];
-    const services = await prisma.service.findMany({
-      where: { id: { in: serviceIds } },
-      select: { id: true, name: true, displayName: true },
-    });
-    const serviceMap = new Map(services.map((s) => [s.id, s]));
+    // 결과 병합용 맵: "deptname|serviceId" → aggregated data
+    const mergedMap = new Map<string, {
+      deptname: string; serviceId: string;
+      totalInput: number; totalOutput: number;
+      requestCount: number; userIds: Set<string>;
+    }>();
 
-    // Unique users per dept+service
-    const uniqueUserRows = await prisma.dailyUsageStat.groupBy({
-      by: ['deptname', 'serviceId', 'userId'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        userId: { not: null },
-      },
-    });
-    const deptSvcUserMap = new Map<string, Set<string>>();
-    for (const row of uniqueUserRows) {
-      const key = `${row.deptname}|${row.serviceId ?? ''}`;
-      if (!deptSvcUserMap.has(key)) {
-        deptSvcUserMap.set(key, new Set());
+    const mergeRow = (dept: string, svcId: string, inp: number, out: number, cnt: number, uid: string | null) => {
+      const key = `${dept}|${svcId}`;
+      if (!mergedMap.has(key)) {
+        mergedMap.set(key, { deptname: dept, serviceId: svcId, totalInput: 0, totalOutput: 0, requestCount: 0, userIds: new Set() });
       }
-      if (row.userId) {
-        deptSvcUserMap.get(key)!.add(row.userId);
+      const entry = mergedMap.get(key)!;
+      entry.totalInput += inp;
+      entry.totalOutput += out;
+      entry.requestCount += cnt;
+      if (uid) entry.userIds.add(uid);
+    };
+
+    // 1) 프록시 서비스 → usage_logs
+    if (proxyIds.length > 0) {
+      const proxyStats = await prisma.$queryRaw<Array<{
+        deptname: string; service_id: string;
+        total_input: bigint; total_output: bigint;
+        request_count: bigint; unique_users: bigint;
+      }>>`
+        SELECT ul.deptname, ul.service_id::text as service_id,
+               COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+               COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+               COUNT(*) as request_count,
+               COUNT(DISTINCT ul.user_id) as unique_users
+        FROM usage_logs ul
+        WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+          AND ul.service_id::text = ANY(${proxyIds})
+          AND ul.deptname IS NOT NULL
+        GROUP BY ul.deptname, ul.service_id
+      `;
+      for (const r of proxyStats) {
+        const key = `${r.deptname}|${r.service_id}`;
+        mergedMap.set(key, {
+          deptname: r.deptname, serviceId: r.service_id,
+          totalInput: Number(r.total_input), totalOutput: Number(r.total_output),
+          requestCount: Number(r.request_count), userIds: new Set(), // unique_users는 별도
+        });
+        // unique_users 숫자만 저장 (Set 대신)
+        (mergedMap.get(key)! as any)._uniqueUsers = Number(r.unique_users);
       }
     }
 
-    const data = stats.map(s => {
-      const key = `${s.deptname}|${s.serviceId ?? ''}`;
-      const svc = s.serviceId ? serviceMap.get(s.serviceId) : null;
-      const inputTokens = s._sum.totalInputTokens ?? 0;
-      const outputTokens = s._sum.totalOutputTokens ?? 0;
+    // 2) API Only 서비스 → daily_usage_stats
+    if (apiOnlyIds.length > 0) {
+      const extStats = await prisma.$queryRaw<Array<{
+        deptname: string; service_id: string;
+        total_input: bigint; total_output: bigint;
+        request_count: bigint; unique_users: bigint;
+      }>>`
+        SELECT deptname, service_id::text as service_id,
+               COALESCE(SUM("totalInputTokens"), 0) as total_input,
+               COALESCE(SUM("totalOutputTokens"), 0) as total_output,
+               COALESCE(SUM("requestCount"), 0) as request_count,
+               COUNT(DISTINCT user_id) as unique_users
+        FROM daily_usage_stats
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id::text = ANY(${apiOnlyIds})
+          AND deptname != ''
+        GROUP BY deptname, service_id
+      `;
+      for (const r of extStats) {
+        const key = `${r.deptname}|${r.service_id}`;
+        mergedMap.set(key, {
+          deptname: r.deptname, serviceId: r.service_id,
+          totalInput: Number(r.total_input), totalOutput: Number(r.total_output),
+          requestCount: Number(r.request_count), userIds: new Set(),
+        });
+        (mergedMap.get(key)! as any)._uniqueUsers = Number(r.unique_users);
+      }
+    }
+
+    const data = Array.from(mergedMap.values()).map(entry => {
+      const svc = serviceMap.get(entry.serviceId);
       return {
-        deptname: s.deptname,
-        businessUnit: extractBusinessUnit(s.deptname),
+        deptname: entry.deptname,
+        businessUnit: extractBusinessUnit(entry.deptname),
         serviceName: svc?.name || 'unknown',
         serviceDisplayName: svc?.displayName || 'Unknown',
-        totalInputTokens: inputTokens,
-        totalOutputTokens: outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        requestCount: s._sum.requestCount ?? 0,
-        uniqueUsers: deptSvcUserMap.get(key)?.size ?? 0,
+        totalInputTokens: entry.totalInput,
+        totalOutputTokens: entry.totalOutput,
+        totalTokens: entry.totalInput + entry.totalOutput,
+        requestCount: entry.requestCount,
+        uniqueUsers: (entry as any)._uniqueUsers ?? entry.userIds.size,
       };
     }).sort((a, b) => a.deptname.localeCompare(b.deptname));
 
@@ -386,7 +438,7 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
 
 /**
  * 특정 서비스의 Top K 사용자 (토큰 + API 호출 수)
- * topK보다 사용자가 적으면 존재하는 만큼만 반환
+ * 프록시 서비스 → usage_logs, API Only 서비스 → daily_usage_stats
  */
 publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
   try {
@@ -402,49 +454,64 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
       return;
     }
 
-    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    const service = await prisma.service.findUnique({
+      where: { name: serviceName },
+      select: { id: true, apiOnly: true },
+    });
     if (!service) {
       res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
       return;
     }
     const serviceId = service.id;
-
     const topK = Math.min(Math.max(parseInt(req.query['topK'] as string) || 10, 1), 100);
 
-    // Aggregate by userId
-    const stats = await prisma.dailyUsageStat.groupBy({
-      by: ['userId'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        serviceId,
-        userId: { not: null },
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-    });
+    let userStats: Array<{ user_id: string; total_input: bigint; total_output: bigint; request_count: bigint }>;
+
+    if (service.apiOnly) {
+      userStats = await prisma.$queryRaw`
+        SELECT user_id,
+               COALESCE(SUM("totalInputTokens"), 0) as total_input,
+               COALESCE(SUM("totalOutputTokens"), 0) as total_output,
+               COALESCE(SUM("requestCount"), 0) as request_count
+        FROM daily_usage_stats
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id = ${serviceId}
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+      `;
+    } else {
+      userStats = await prisma.$queryRaw`
+        SELECT user_id,
+               COALESCE(SUM("inputTokens"), 0) as total_input,
+               COALESCE(SUM("outputTokens"), 0) as total_output,
+               COUNT(*) as request_count
+        FROM usage_logs
+        WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+          AND service_id = ${serviceId}
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+      `;
+    }
 
     // Sort by totalTokens desc, take topK
-    const sorted = stats
-      .map((s) => ({
-        userId: s.userId!,
-        totalInputTokens: s._sum.totalInputTokens ?? 0,
-        totalOutputTokens: s._sum.totalOutputTokens ?? 0,
-        totalTokens: (s._sum.totalInputTokens ?? 0) + (s._sum.totalOutputTokens ?? 0),
-        requestCount: s._sum.requestCount ?? 0,
+    const sorted = userStats
+      .map(s => ({
+        userId: s.user_id,
+        totalInputTokens: Number(s.total_input),
+        totalOutputTokens: Number(s.total_output),
+        totalTokens: Number(s.total_input) + Number(s.total_output),
+        requestCount: Number(s.request_count),
       }))
       .sort((a, b) => b.totalTokens - a.totalTokens)
       .slice(0, topK);
 
     // Fetch user info
-    const userIds = sorted.map((s) => s.userId);
+    const userIds = sorted.map(s => s.userId);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, loginid: true, username: true, deptname: true },
     });
-    const userMap = new Map(users.map((u) => [u.id, u]));
+    const userMap = new Map(users.map(u => [u.id, u]));
 
     const data = sorted.map((s, i) => {
       const user = userMap.get(s.userId);
@@ -463,7 +530,7 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
 
     res.json({
       topK,
-      totalUsers: stats.length,
+      totalUsers: userStats.length,
       returnedCount: data.length,
       data,
     });
@@ -477,8 +544,7 @@ publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
 
 /**
  * 특정 서비스 + 부서의 Top K 사용자 (토큰 + API 호출 수)
- * deptname 형식: "팀명(사업부)" 예) "S/W혁신팀(S.LSI)"
- * topK보다 사용자가 적으면 존재하는 만큼만 반환
+ * 프록시 서비스 → usage_logs, API Only 서비스 → daily_usage_stats
  */
 publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) => {
   try {
@@ -494,7 +560,10 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
       return;
     }
 
-    const service = await prisma.service.findUnique({ where: { name: serviceName }, select: { id: true } });
+    const service = await prisma.service.findUnique({
+      where: { name: serviceName },
+      select: { id: true, apiOnly: true },
+    });
     if (!service) {
       res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
       return;
@@ -509,41 +578,53 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
 
     const topK = Math.min(Math.max(parseInt(req.query['topK'] as string) || 10, 1), 100);
 
-    // Aggregate by userId within the dept
-    const stats = await prisma.dailyUsageStat.groupBy({
-      by: ['userId'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        serviceId,
-        deptname,
-        userId: { not: null },
-      },
-      _sum: {
-        totalInputTokens: true,
-        totalOutputTokens: true,
-        requestCount: true,
-      },
-    });
+    let userStats: Array<{ user_id: string; total_input: bigint; total_output: bigint; request_count: bigint }>;
 
-    // Sort by totalTokens desc, take topK
-    const sorted = stats
-      .map((s) => ({
-        userId: s.userId!,
-        totalInputTokens: s._sum.totalInputTokens ?? 0,
-        totalOutputTokens: s._sum.totalOutputTokens ?? 0,
-        totalTokens: (s._sum.totalInputTokens ?? 0) + (s._sum.totalOutputTokens ?? 0),
-        requestCount: s._sum.requestCount ?? 0,
+    if (service.apiOnly) {
+      userStats = await prisma.$queryRaw`
+        SELECT user_id,
+               COALESCE(SUM("totalInputTokens"), 0) as total_input,
+               COALESCE(SUM("totalOutputTokens"), 0) as total_output,
+               COALESCE(SUM("requestCount"), 0) as request_count
+        FROM daily_usage_stats
+        WHERE date >= ${startDate} AND date <= ${endDate}
+          AND service_id = ${serviceId}
+          AND deptname = ${deptname}
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+      `;
+    } else {
+      userStats = await prisma.$queryRaw`
+        SELECT user_id,
+               COALESCE(SUM("inputTokens"), 0) as total_input,
+               COALESCE(SUM("outputTokens"), 0) as total_output,
+               COUNT(*) as request_count
+        FROM usage_logs
+        WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
+          AND service_id = ${serviceId}
+          AND deptname = ${deptname}
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+      `;
+    }
+
+    const sorted = userStats
+      .map(s => ({
+        userId: s.user_id,
+        totalInputTokens: Number(s.total_input),
+        totalOutputTokens: Number(s.total_output),
+        totalTokens: Number(s.total_input) + Number(s.total_output),
+        requestCount: Number(s.request_count),
       }))
       .sort((a, b) => b.totalTokens - a.totalTokens)
       .slice(0, topK);
 
-    // Fetch user info
-    const userIds = sorted.map((s) => s.userId);
+    const userIds = sorted.map(s => s.userId);
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, loginid: true, username: true, deptname: true },
     });
-    const userMap = new Map(users.map((u) => [u.id, u]));
+    const userMap = new Map(users.map(u => [u.id, u]));
 
     const data = sorted.map((s, i) => {
       const user = userMap.get(s.userId);
@@ -563,7 +644,7 @@ publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) 
     res.json({
       topK,
       deptname,
-      totalUsersInDept: stats.length,
+      totalUsersInDept: userStats.length,
       returnedCount: data.length,
       data,
     });
