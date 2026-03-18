@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { statsApi, servicesApi } from '../../services/api';
+import { statsApi, serviceApi } from '../../services/api';
 
 interface UserInfo {
   id: string;
@@ -91,7 +91,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
     try {
       if (serviceId) {
         // 서비스 상세 페이지: 해당 서비스에 등록된 모델만 표시
-        const response = await servicesApi.listModels(serviceId);
+        const response = await serviceApi.listModels(serviceId);
         const serviceModels = response.data.serviceModels || [];
         const modelList: ModelInfo[] = serviceModels.map((sm: { model: ModelInfo }) => sm.model);
         // 중복 제거 (같은 모델이 여러 alias로 등록될 수 있음)
