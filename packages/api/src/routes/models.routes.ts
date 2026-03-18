@@ -44,6 +44,7 @@ modelsRoutes.get('/browse', authenticateToken, async (req: AuthenticatedRequest,
       where: {
         enabled: true,
         visibility: { notIn: ['ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] },
+        endpointUrl: { not: 'external://auto-created' },
       },
       orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
@@ -81,6 +82,9 @@ modelsRoutes.get('/browse', authenticateToken, async (req: AuthenticatedRequest,
 modelsRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const models = await prisma.model.findMany({
+      where: {
+        endpointUrl: { not: 'external://auto-created' },
+      },
       orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
     });
 

@@ -602,6 +602,7 @@ export const swaggerSpec = {
     // 7. External Usage - POST by-user (API Only 서비스 사용자별 사용 기록 전송)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/external-usage/by-user': {
+      servers: [{ url: '/api', description: 'External Usage API' }],
       post: {
         summary: 'Submit Usage by User (사용자별 사용 기록 전송) — Recommended / 권장',
         description:

@@ -202,10 +202,44 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
       }
     }
 
-    // 모델 매칭 실패 목록
+    // 4c. 여전히 미해결 모델 → 자동 생성 (API Only 서비스는 사전 등록이 어려우므로)
+    const stillUnresolved = uniqueModelNames.filter(n => !modelByName.has(n));
+    if (stillUnresolved.length > 0) {
+      for (const modelName of stillUnresolved) {
+        try {
+          const newModel = await prisma.model.create({
+            data: {
+              name: modelName,
+              displayName: modelName,
+              endpointUrl: 'external://auto-created',
+              enabled: true,
+              sortOrder: 9999,
+            },
+          });
+
+          // ServiceModel alias 연결
+          await prisma.serviceModel.create({
+            data: {
+              serviceId: service.id,
+              modelId: newModel.id,
+              aliasName: modelName,
+              enabled: true,
+              addedBy: `external:${service.name}`,
+            },
+          });
+
+          modelByName.set(modelName, { id: newModel.id, name: newModel.name, displayName: newModel.displayName });
+          console.log(`[ExternalUsage] Auto-created model "${modelName}" for service "${service.name}"`);
+        } catch (autoErr) {
+          console.error(`[ExternalUsage] Failed to auto-create model "${modelName}":`, autoErr);
+        }
+      }
+    }
+
+    // 모델 매칭 실패 목록 (자동 생성도 실패한 경우)
     const modelErrors = uniqueModelNames
       .filter(n => !modelByName.has(n))
-      .map(n => `Model "${n}" not found. ServiceModel alias 또는 등록된 모델명을 사용하세요.`);
+      .map(n => `Model "${n}" auto-creation failed. 자동 생성에 실패했습니다.`);
 
     const failedModelNames = new Set(uniqueModelNames.filter(n => !modelByName.has(n)));
 
