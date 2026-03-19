@@ -29,7 +29,7 @@ enum DeployScope {
 model Service {
   id          String        @id @default(uuid())
   name        String        @unique              // "my-service" (유니크, 등록시 중복체크)
-  displayName String                             // "My Service"
+  displayName String        @unique              // "My Service" (유니크, 중복 불가)
   description String?
   iconUrl     String?       @map("icon_url")
   docsUrl     String?       @map("docs_url")        // 서비스 설명서 URL

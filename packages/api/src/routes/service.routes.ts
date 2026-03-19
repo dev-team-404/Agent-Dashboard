@@ -719,6 +719,13 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
       console.error('[Service] Failed to lookup dept hierarchy:', err);
     }
 
+    // displayName 중복 체크
+    const existingDisplayName = await prisma.service.findUnique({ where: { displayName: validation.data.displayName } });
+    if (existingDisplayName) {
+      res.status(409).json({ error: `Display name "${validation.data.displayName}" is already in use. / 이미 사용 중인 서비스 표시 이름입니다.` });
+      return;
+    }
+
     const service = await prisma.service.create({
       data: {
         ...validation.data,
@@ -898,6 +905,15 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       const dup = await prisma.service.findUnique({ where: { name: validation.data.name } });
       if (dup) {
         res.status(409).json({ error: `서비스 코드 '${validation.data.name}'은(는) 이미 사용 중입니다.` });
+        return;
+      }
+    }
+
+    // displayName 변경 시 중복 체크
+    if (validation.data.displayName && validation.data.displayName !== existing.displayName) {
+      const dupDisplay = await prisma.service.findUnique({ where: { displayName: validation.data.displayName } });
+      if (dupDisplay) {
+        res.status(409).json({ error: `서비스 표시 이름 '${validation.data.displayName}'은(는) 이미 사용 중입니다.` });
         return;
       }
     }

@@ -395,7 +395,6 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       const svc = svcMap.get(r.service_id);
       return {
         team: deptTeamMap.get(r.deptname) || r.deptname,
-        serviceName: svc?.name || 'unknown',
         serviceDisplayName: svc?.displayName || 'Unknown',
         serviceType: svc?.type || 'STANDARD',
         savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
@@ -468,8 +467,6 @@ async function handleServiceUsage(req: Request, res: Response) {
     const data = usageRows.map(r => {
       const svc = svcMap.get(r.service_id);
       return {
-        id: r.service_id,
-        name: svc?.name || 'unknown',
         displayName: svc?.displayName || 'Unknown',
         llmCallCount: Number(r.llm_call_count),
         tokenUsage: {
@@ -493,36 +490,41 @@ async function handleServiceUsage(req: Request, res: Response) {
 }
 
 // ============================================
-// GET /insight/service-usage/:serviceId
-// 서비스 상세 (팀별 토큰 사용량)
+// GET /insight/service-usage/:serviceName
+// 서비스 상세 (팀별 토큰 사용량) — serviceName = displayName
 // ============================================
 async function handleServiceUsageDetail(req: Request, res: Response) {
   try {
-    const serviceId = req.params['serviceId'] as string;
+    const serviceName = decodeURIComponent(req.params['serviceName'] as string);
 
     const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: { id: true, name: true, displayName: true },
+      where: { displayName: serviceName },
+      select: { id: true, displayName: true },
     });
 
     if (!service) {
-      res.status(404).json({ error: 'Service not found' });
+      res.status(404).json({ error: `Service "${serviceName}" not found` });
       return;
     }
 
     const tm = resolveTargetMonth(req);
     const { targetStart, effectiveEnd, monthLabel } = tm;
 
-    // Team-level token usage
-    const tokenRows = await prisma.$queryRaw<Array<{
+    // Team-level token usage + MAU + LLM call count
+    const teamRows = await prisma.$queryRaw<Array<{
       deptname: string;
       total_tokens: bigint;
+      mau: bigint;
+      llm_call_count: bigint;
     }>>`
-      SELECT u.deptname, COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
+      SELECT u.deptname,
+             COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
+             COUNT(DISTINCT ul.user_id) as mau,
+             COALESCE(SUM(ul.request_count), 0) as llm_call_count
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-        AND ul.service_id = ${serviceId}
+        AND ul.service_id = ${service.id}
         AND u.loginid != 'anonymous'
         AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND u.deptname IS NOT NULL AND u.deptname != ''
@@ -539,19 +541,17 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       }
     }
 
-    const teamTokens = tokenRows.map(r => ({
+    const teamDetails = teamRows.map(r => ({
       team: deptToTeam.get(r.deptname) || r.deptname,
       tokensM: Math.round(Number(r.total_tokens) / 1000000 * 100) / 100,
+      mau: Number(r.mau),
+      llmCallCount: Number(r.llm_call_count),
     }));
 
     res.json({
-      service: {
-        id: service.id,
-        name: service.name,
-        displayName: service.displayName,
-      },
+      displayName: service.displayName,
       period: monthLabel,
-      teamTokens,
+      teamDetails,
     });
   } catch (error) {
     console.error('Insight service-usage detail error:', error);
@@ -563,10 +563,10 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
 insightRoutes.get('/insight/usage-rate', handleUsageRate as RequestHandler);
 insightRoutes.get('/insight/usage-rate/:centerName', handleUsageRateDetail as RequestHandler);
 insightRoutes.get('/insight/service-usage', handleServiceUsage as RequestHandler);
-insightRoutes.get('/insight/service-usage/:serviceId', handleServiceUsageDetail as RequestHandler);
+insightRoutes.get('/insight/service-usage/:serviceName', handleServiceUsageDetail as RequestHandler);
 
 // ── Register public routes (same handlers, no auth) ──
 publicInsightRoutes.get('/insight_ai_usage_rate', handleUsageRate as RequestHandler);
 publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', handleUsageRateDetail as RequestHandler);
 publicInsightRoutes.get('/insight_service_usage', handleServiceUsage as RequestHandler);
-publicInsightRoutes.get('/insight_service_usage/:serviceId', handleServiceUsageDetail as RequestHandler);
+publicInsightRoutes.get('/insight_service_usage/:serviceName', handleServiceUsageDetail as RequestHandler);

@@ -735,9 +735,7 @@ export const swaggerSpec = {
                       items: {
                         type: 'object' as const,
                         properties: {
-                          id: { type: 'string' as const },
-                          name: { type: 'string' as const },
-                          displayName: { type: 'string' as const },
+                          displayName: { type: 'string' as const, description: 'Service display name' },
                           llmCallCount: { type: 'integer' as const },
                           tokenUsage: {
                             type: 'object' as const,
@@ -756,7 +754,7 @@ export const swaggerSpec = {
                 example: {
                   month: '2026-02',
                   services: [
-                    { id: 'uuid', name: 'nexus-coder', displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, mau: 45 },
+                    { displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, mau: 45 },
                   ],
                 },
               },
@@ -766,14 +764,14 @@ export const swaggerSpec = {
         },
       },
     },
-    '/stats/insight_service_usage/{serviceId}': {
+    '/stats/insight_service_usage/{serviceName}': {
       get: {
         summary: 'Service Usage - Team Token Breakdown (팀별 토큰 사용량)',
         description: `특정 서비스의 팀별 토큰 사용량 (지난달).\n팀명 영어, 토큰 단위: M (millions).\n\nPer-team token usage for a specific service.\nTeam names in English. Token values in millions.`,
         tags: ['Insight'],
         parameters: [
           apiKeyParam, yearParam, monthParam,
-          { name: 'serviceId', in: 'path' as const, required: true, description: 'Service UUID', schema: { type: 'string' as const, format: 'uuid' as const } },
+          { name: 'serviceName', in: 'path' as const, required: true, description: 'Service display name (URL-encoded)', schema: { type: 'string' as const, example: 'Nexus Coder (CLI)' } },
         ],
         responses: {
           '200': {
@@ -783,7 +781,7 @@ export const swaggerSpec = {
                 schema: {
                   type: 'object' as const,
                   properties: {
-                    service: { type: 'object' as const, properties: { id: { type: 'string' as const }, name: { type: 'string' as const }, displayName: { type: 'string' as const } } },
+                    displayName: { type: 'string' as const, description: 'Service display name' },
                     period: { type: 'string' as const },
                     teamTokens: {
                       type: 'array' as const,
@@ -798,7 +796,7 @@ export const swaggerSpec = {
                   },
                 },
                 example: {
-                  service: { id: 'uuid', name: 'nexus-coder', displayName: 'Nexus Coder' },
+                  displayName: 'Nexus Coder',
                   period: '2026-02',
                   teamTokens: [
                     { team: 'SW Innovation Team', tokensM: 1.52 },

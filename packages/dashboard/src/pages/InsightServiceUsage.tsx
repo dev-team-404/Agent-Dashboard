@@ -35,8 +35,6 @@ const CARD_BORDERS = [
 ];
 
 interface ServiceUsage {
-  id: string;
-  name: string;
   displayName: string;
   llmCallCount: number;
   tokenUsage: { input: number; output: number; total: number };
@@ -48,14 +46,16 @@ interface OverviewData {
   services: ServiceUsage[];
 }
 
-interface TeamToken {
+interface TeamDetail {
   team: string;
   tokensM: number;
+  mau: number;
+  llmCallCount: number;
 }
 
 interface ServiceDetail {
-  service: { id: string; name: string; displayName: string };
-  teamTokens: TeamToken[];
+  displayName: string;
+  teamDetails: TeamDetail[];
 }
 
 type PeriodTab = 'current' | 'last';
@@ -72,7 +72,7 @@ export default function InsightServiceUsage() {
   const [period, setPeriod] = useState<PeriodTab>('current');
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedService, setSelectedService] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<string | null>(null); // displayName
   const [detail, setDetail] = useState<ServiceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -95,7 +95,7 @@ export default function InsightServiceUsage() {
   const loadDetail = useCallback(async (serviceId: string) => {
     try {
       setDetailLoading(true);
-      const res = await api.get(`/admin/insight/service-usage/${serviceId}`, { params: getMonthParams(period) });
+      const res = await api.get(`/admin/insight/service-usage/${encodeURIComponent(serviceId)}`, { params: getMonthParams(period) });
       setDetail(res.data);
     } catch (err) {
       console.error('Failed to load service detail:', err);
@@ -104,9 +104,9 @@ export default function InsightServiceUsage() {
     }
   }, [period]);
 
-  const handleCardClick = (serviceId: string) => {
-    setSelectedService(serviceId);
-    loadDetail(serviceId);
+  const handleCardClick = (displayName: string) => {
+    setSelectedService(displayName);
+    loadDetail(displayName);
   };
 
   const handleCloseDetail = () => {
@@ -205,19 +205,18 @@ export default function InsightServiceUsage() {
         {sortedServices.map((svc, idx) => {
           const gradient = CARD_GRADIENTS[idx % CARD_GRADIENTS.length];
           const border = CARD_BORDERS[idx % CARD_BORDERS.length];
-          const isSelected = selectedService === svc.id;
+          const isSelected = selectedService === svc.displayName;
 
           return (
             <button
-              key={svc.id}
-              onClick={() => handleCardClick(svc.id)}
+              key={svc.displayName}
+              onClick={() => handleCardClick(svc.displayName)}
               className={`text-left rounded-xl bg-gradient-to-br ${gradient} border ${border} p-5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
                 isSelected ? 'ring-2 ring-violet-400 shadow-lg' : ''
               }`}
             >
               <div className="mb-3">
                 <h3 className="text-base font-bold text-gray-900 truncate" title={svc.displayName}>{svc.displayName}</h3>
-                <p className="text-[10px] text-gray-400 font-mono">{svc.name}</p>
               </div>
 
               <div className="space-y-3">
@@ -258,7 +257,7 @@ export default function InsightServiceUsage() {
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <h2 className="text-lg font-bold text-pastel-800">
-                {detail?.service.displayName || '상세 분석'}
+                {detail?.displayName || '상세 분석'}
               </h2>
             </div>
             <button
@@ -276,9 +275,9 @@ export default function InsightServiceUsage() {
           ) : detail ? (
             <div className="p-6">
               <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 토큰 사용량 (M)</h3>
-              {detail.teamTokens.length > 0 ? (
+              {detail.teamDetails.length > 0 ? (
                 <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={detail.teamTokens} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
+                  <BarChart data={detail.teamDetails} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                     <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
                     <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={(v: number) => `${v.toFixed(1)}M`} />
@@ -287,7 +286,7 @@ export default function InsightServiceUsage() {
                       formatter={(value: number) => [`${value.toFixed(2)}M tokens`, 'Tokens']}
                     />
                     <Bar dataKey="tokensM" radius={[6, 6, 0, 0]} barSize={32}>
-                      {detail.teamTokens.map((_, i) => (
+                      {detail.teamDetails.map((_, i) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Bar>
@@ -295,7 +294,36 @@ export default function InsightServiceUsage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">
-                  팀별 토큰 데이터가 없습니다
+                  팀별 데이터가 없습니다
+                </div>
+              )}
+
+              {/* Team detail table */}
+              {detail.teamDetails.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-3">팀별 상세</h3>
+                  <div className="overflow-x-auto rounded-lg border border-gray-100">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50/80">
+                          <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">팀</th>
+                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">Tokens (M)</th>
+                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">MAU</th>
+                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">LLM Calls</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.teamDetails.map((td, idx) => (
+                          <tr key={td.team} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                            <td className="py-2.5 px-4 font-medium text-pastel-800">{td.team}</td>
+                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.tokensM.toFixed(2)}</td>
+                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.mau.toLocaleString()}</td>
+                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.llmCallCount.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

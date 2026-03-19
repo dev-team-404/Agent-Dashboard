@@ -38,7 +38,6 @@ interface OverviewData {
 
 interface TeamService {
   team: string;
-  serviceName: string;
   serviceDisplayName: string;
   serviceType: string;
   savedMM: number;
@@ -331,11 +330,10 @@ export default function InsightUsageRate() {
                         </tr>
                       ) : (
                         detail.teamServices.map((ts, idx) => (
-                          <tr key={`${ts.team}-${ts.serviceName}-${idx}`} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                          <tr key={`${ts.team}-${ts.serviceDisplayName}-${idx}`} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                             <td className="py-3 px-4 font-medium text-pastel-800">{ts.team}</td>
                             <td className="py-3 px-4">
                               <span className="text-pastel-700">{ts.serviceDisplayName}</span>
-                              <span className="block text-[10px] text-pastel-400 font-mono">{ts.serviceName}</span>
                             </td>
                             <td className="py-3 px-4">
                               <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full ${
