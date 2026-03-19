@@ -182,16 +182,16 @@ async function handleUsageRate(req: Request, res: Response) {
       if (h) {
         teamName = h.team || deptname;
 
-        // service-targets.routes.ts와 동일한 none 처리 로직
-        let c2 = h.center2Name || '';
+        // center1이 더 큰 단위 → center1 우선 그루핑, 없으면 center2 폴백
         let c1 = h.center1Name || '';
-        if (c2 && isTopLevelDivision(c2)) { c2 = ''; c1 = ''; }
-        else if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
+        let c2 = h.center2Name || '';
+        if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
+        if (c2 && isTopLevelDivision(c2)) { c2 = ''; }
 
-        if (c2 && c2 !== 'none') {
-          centerName = c2;
-        } else if (c1 && c1 !== 'none') {
+        if (c1 && c1 !== 'none') {
           centerName = c1;
+        } else if (c2 && c2 !== 'none') {
+          centerName = c2;
         }
       }
 
@@ -259,15 +259,15 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const centerDepts: Array<{ deptname: string; team: string }> = [];
     for (const h of hierarchies) {
       let resolvedCenter = 'Direct';
-      let c2 = h.center2Name || '';
       let c1 = h.center1Name || '';
-      if (c2 && isTopLevelDivision(c2)) { c2 = ''; c1 = ''; }
-      else if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
+      let c2 = h.center2Name || '';
+      if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
+      if (c2 && isTopLevelDivision(c2)) { c2 = ''; }
 
-      if (c2 && c2 !== 'none') {
-        resolvedCenter = c2;
-      } else if (c1 && c1 !== 'none') {
+      if (c1 && c1 !== 'none') {
         resolvedCenter = c1;
+      } else if (c2 && c2 !== 'none') {
+        resolvedCenter = c2;
       }
 
       if (resolvedCenter === centerName) {
