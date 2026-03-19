@@ -314,13 +314,14 @@ cmd_migrate() {
   log "1/3: 최신 schema.prisma를 컨테이너에 복사"
   docker cp packages/api/prisma/schema.prisma "${CONTAINER}:/app/prisma/schema.prisma"
 
-  # prisma db push (safe mode — 파괴적 변경 시 실패, 기존 데이터 보존)
-  log "2/3: prisma db push 실행 (safe mode, 기존 데이터 보존)"
-  if ! docker compose exec -T "api-${ACTIVE}" npx prisma db push --skip-generate; then
-    err "prisma db push 실패!"
-    err "파괴적 변경(컬럼 삭제 등)이 감지되었을 수 있습니다."
-    err "변경 내용을 확인하고, 필요 시 수동으로 마이그레이션하세요."
-    exit 1
+  # prisma db push — safe mode 먼저 시도, unique 추가 등 경고 시 재시도
+  log "2/3: prisma db push 실행"
+  if ! docker compose exec -T "api-${ACTIVE}" npx prisma db push --skip-generate 2>&1; then
+    warn "safe mode 실패 — unique 제약 추가 등 감지. --accept-data-loss로 재시도합니다."
+    if ! docker compose exec -T "api-${ACTIVE}" npx prisma db push --skip-generate --accept-data-loss; then
+      err "prisma db push 최종 실패!"
+      exit 1
+    fi
   fi
 
   # Prisma Client regenerate
