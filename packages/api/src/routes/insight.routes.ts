@@ -15,6 +15,9 @@ import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
 
+// ── 사업부 필터 (S.LSI만 집계) ──
+const INSIGHT_BUSINESS_UNIT = 'S.LSI';
+
 // ── Admin router (auth required) ──
 export const insightRoutes = Router();
 insightRoutes.use(authenticateToken);
@@ -102,6 +105,7 @@ async function handleUsageRate(req: Request, res: Response) {
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND u.loginid != 'anonymous'
+        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
@@ -113,15 +117,19 @@ async function handleUsageRate(req: Request, res: Response) {
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${prevMonthStart} AND ul.timestamp < ${prevMonthEnd}
         AND u.loginid != 'anonymous'
+        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
 
-    // 4. DeptServiceSavedMM grouped by deptname
+    // 4. DeptServiceSavedMM grouped by deptname (S.LSI 소속 부서만)
     const savedMMRows = await prisma.$queryRaw<Array<{ deptname: string; total_saved: number | null }>>`
-      SELECT deptname, COALESCE(SUM(saved_mm), 0)::float as total_saved
-      FROM dept_service_saved_mm
-      GROUP BY deptname
+      SELECT dsm.deptname, COALESCE(SUM(dsm.saved_mm), 0)::float as total_saved
+      FROM dept_service_saved_mm dsm
+      WHERE EXISTS (
+        SELECT 1 FROM users u WHERE u.deptname = dsm.deptname AND u.business_unit = ${INSIGHT_BUSINESS_UNIT} LIMIT 1
+      )
+      GROUP BY dsm.deptname
     `;
 
     // Build maps
@@ -430,11 +438,13 @@ async function handleServiceUsage(req: Request, res: Response) {
              COALESCE(SUM(ul."inputTokens"), 0) as total_input,
              COALESCE(SUM(ul."outputTokens"), 0) as total_output,
              COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
-             COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as mau
+             COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
-      LEFT JOIN users u ON ul.user_id = u.id
+      INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id::text = ANY(${deployedIds})
+        AND u.loginid != 'anonymous'
+        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
       GROUP BY ul.service_id
       ORDER BY llm_call_count DESC
     `;
@@ -516,6 +526,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id = ${serviceId}
         AND u.loginid != 'anonymous'
+        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND u.deptname IS NOT NULL AND u.deptname != ''
       GROUP BY u.deptname
       ORDER BY total_tokens DESC
