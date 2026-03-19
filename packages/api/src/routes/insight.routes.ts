@@ -361,7 +361,19 @@ async function handleServiceUsage(_req: Request, res: Response) {
 
     const [lastMonthStart, lastMonthEnd] = getMonthBoundariesKST(lastYear, lastMonth);
 
-    // Service usage stats
+    // DEPLOYED 서비스 ID 목록
+    const deployedServices = await prisma.service.findMany({
+      where: { status: 'DEPLOYED' },
+      select: { id: true, name: true, displayName: true },
+    });
+    const deployedIds = deployedServices.map(s => s.id);
+
+    if (deployedIds.length === 0) {
+      res.json({ month: `${lastYear}-${String(lastMonth).padStart(2, '0')}`, services: [] });
+      return;
+    }
+
+    // Service usage stats (DEPLOYED only)
     const usageRows = await prisma.$queryRaw<Array<{
       service_id: string;
       llm_call_count: bigint;
@@ -379,20 +391,12 @@ async function handleServiceUsage(_req: Request, res: Response) {
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
-        AND ul.service_id IS NOT NULL
+        AND ul.service_id::text = ANY(${deployedIds})
       GROUP BY ul.service_id
       ORDER BY llm_call_count DESC
     `;
 
-    // Get service info
-    const svcIds = usageRows.map(r => r.service_id);
-    const services = svcIds.length > 0
-      ? await prisma.service.findMany({
-          where: { id: { in: svcIds } },
-          select: { id: true, name: true, displayName: true },
-        })
-      : [];
-    const svcMap = new Map(services.map(s => [s.id, s]));
+    const svcMap = new Map(deployedServices.map(s => [s.id, s]));
 
     const data = usageRows.map(r => {
       const svc = svcMap.get(r.service_id);

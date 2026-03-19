@@ -244,16 +244,16 @@ export default function InsightUsageRate() {
                 <div>
                   <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 MAU 비교</h3>
                   {detail.teamMauChart.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={Math.max(200, detail.teamMauChart.length * 36)}>
-                      <BarChart data={detail.teamMauChart} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                        <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
-                        <YAxis type="category" dataKey="team" width={120} tick={{ fill: '#374151', fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={detail.teamMauChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
                           formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
                         />
-                        <Bar dataKey="mau" radius={[0, 6, 6, 0]} barSize={24}>
+                        <Bar dataKey="mau" radius={[6, 6, 0, 0]} barSize={32}>
                           {detail.teamMauChart.map((_, i) => (
                             <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                           ))}

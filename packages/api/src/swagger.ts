@@ -926,6 +926,215 @@ export const swaggerSpec = {
         },
       },
     },
+
+    // ─── Insight APIs ────────────────────────────────────
+    '/stats/insight_ai_usage_rate': {
+      get: {
+        summary: 'AI Usage Rate by Center',
+        description: `센터별 AI 활용율 대시보드 데이터.\nCenter2 기준 그룹핑 (없으면 Center1, 둘 다 없으면 "Direct").\nSaved M/M 기준 내림차순 정렬.\n\nGroups departments by center hierarchy:\n- If center2 exists → group by center2\n- Else if center1 exists → group by center1\n- Else → "Direct"\n\nSorted by total Saved M/M descending.`,
+        tags: ['Insight'],
+        parameters: [apiKeyParam],
+        responses: {
+          '200': {
+            description: 'Center-level usage rate data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    month: { type: 'string' as const, description: 'Data period (YYYY-MM)', example: '2026-02' },
+                    centers: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          name: { type: 'string' as const, description: 'Center name (English)' },
+                          totalMau: { type: 'integer' as const, description: 'Total MAU across all teams in this center (last month)' },
+                          mauChangePercent: { type: 'number' as const, description: '% change vs previous month' },
+                          totalSavedMM: { type: 'number' as const, description: 'Total Saved M/M across all teams' },
+                          teams: {
+                            type: 'array' as const,
+                            items: {
+                              type: 'object' as const,
+                              properties: {
+                                team: { type: 'string' as const, description: 'Team name (English)' },
+                                deptname: { type: 'string' as const, description: 'Department name (Korean)' },
+                                mau: { type: 'integer' as const },
+                                savedMM: { type: 'number' as const },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  month: '2026-02',
+                  centers: [
+                    {
+                      name: 'SW Innovation Center',
+                      totalMau: 150,
+                      mauChangePercent: 12.5,
+                      totalSavedMM: 8.5,
+                      teams: [
+                        { team: 'SW Innovation Team', deptname: 'S/W혁신팀(S.LSI)', mau: 50, savedMM: 3.0 },
+                        { team: 'Platform Team', deptname: '플랫폼팀(S.LSI)', mau: 30, savedMM: 2.5 },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_ai_usage_rate/{centerName}': {
+      get: {
+        summary: 'AI Usage Rate - Center Detail',
+        description: `특정 센터의 상세 데이터: 팀별 MAU 차트, 월별 MAU 트렌드, 팀-서비스 매트릭스.\n\nReturns:\n- teamMauChart: Team MAU comparison (horizontal: team name, vertical: MAU)\n- monthlyTrend: 6-month MAU trend\n- teamServices: Team × Service matrix with Saved M/M, MAU, LLM call count`,
+        tags: ['Insight'],
+        parameters: [
+          apiKeyParam,
+          { name: 'centerName', in: 'path' as const, required: true, description: 'Center name (URL-encoded)', schema: { type: 'string' as const, example: 'SW Innovation Center' } },
+        ],
+        responses: {
+          '200': {
+            description: 'Center detail data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    centerName: { type: 'string' as const },
+                    period: { type: 'string' as const },
+                    teamMauChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
+                    monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
+                    teamServices: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          team: { type: 'string' as const, description: 'English team name' },
+                          serviceName: { type: 'string' as const },
+                          serviceDisplayName: { type: 'string' as const },
+                          serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
+                          savedMM: { type: 'number' as const, nullable: true },
+                          mau: { type: 'integer' as const },
+                          llmCallCount: { type: 'integer' as const },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '404': errorResponse('Center not found'),
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_service_usage': {
+      get: {
+        summary: 'Service Usage by LLM Calls',
+        description: `모든 배포된 서비스를 LLM 호출 수 기준으로 정렬.\n카드: LLM Call Count, Token Usage (input/output/total), MAU (last month).\n\nAll deployed services sorted by LLM call count (descending).\nReturns per-service: call count, token usage breakdown, MAU.`,
+        tags: ['Insight'],
+        parameters: [apiKeyParam],
+        responses: {
+          '200': {
+            description: 'Service usage data sorted by LLM calls',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    month: { type: 'string' as const, example: '2026-02' },
+                    services: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          id: { type: 'string' as const },
+                          name: { type: 'string' as const },
+                          displayName: { type: 'string' as const },
+                          llmCallCount: { type: 'integer' as const },
+                          tokenUsage: {
+                            type: 'object' as const,
+                            properties: {
+                              input: { type: 'integer' as const },
+                              output: { type: 'integer' as const },
+                              total: { type: 'integer' as const },
+                            },
+                          },
+                          mau: { type: 'integer' as const },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  month: '2026-02',
+                  services: [
+                    { id: 'uuid', name: 'nexus-coder', displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, mau: 45 },
+                  ],
+                },
+              },
+            },
+          },
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_service_usage/{serviceId}': {
+      get: {
+        summary: 'Service Usage - Team Token Breakdown',
+        description: `특정 서비스의 팀별 토큰 사용량 (지난달).\n팀명 영어, 토큰 단위: M (millions).\n\nPer-team token usage for a specific service.\nTeam names in English. Token values in millions.`,
+        tags: ['Insight'],
+        parameters: [
+          apiKeyParam,
+          { name: 'serviceId', in: 'path' as const, required: true, description: 'Service UUID', schema: { type: 'string' as const, format: 'uuid' as const } },
+        ],
+        responses: {
+          '200': {
+            description: 'Team-level token usage',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    service: { type: 'object' as const, properties: { id: { type: 'string' as const }, name: { type: 'string' as const }, displayName: { type: 'string' as const } } },
+                    period: { type: 'string' as const },
+                    teamTokens: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          team: { type: 'string' as const, description: 'English team name' },
+                          tokensM: { type: 'number' as const, description: 'Total tokens in millions' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  service: { id: 'uuid', name: 'nexus-coder', displayName: 'Nexus Coder' },
+                  period: '2026-02',
+                  teamTokens: [
+                    { team: 'SW Innovation Team', tokensM: 1.52 },
+                    { team: 'Platform Team', tokensM: 0.83 },
+                  ],
+                },
+              },
+            },
+          },
+          '404': errorResponse('Service not found'),
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
   },
 };
 
