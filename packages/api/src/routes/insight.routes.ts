@@ -374,7 +374,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const services = svcIds.length > 0
       ? await prisma.service.findMany({
           where: { id: { in: svcIds } },
-          select: { id: true, name: true, displayName: true, type: true },
+          select: { id: true, name: true, displayName: true, type: true, jiraTicket: true },
         })
       : [];
     const svcMap = new Map(services.map(s => [s.id, s]));
@@ -400,6 +400,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
         savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
         mau: Number(r.mau),
         llmCallCount: Number(r.llm_call_count),
+        jiraLink: svc?.jiraTicket || 'none',
       };
     }).sort((a, b) => b.llmCallCount - a.llmCallCount);
 
