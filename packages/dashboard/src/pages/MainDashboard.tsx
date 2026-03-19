@@ -293,24 +293,36 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         for (const e of (aiRes.data.estimations || [])) {
           aiMap.set(e.serviceId, e.estimatedMM);
         }
-        // 부서별 savedMM 합산
+        // 부서별 savedMM 합산 (새 시스템: savedMMBreakdown 사용)
         const deptMap = new Map<string, number>();
         let totalTarget = 0;
         let totalSaved = 0;
         let totalAi = 0;
         for (const s of services) {
-          const dept = s.registeredByDept || '미지정';
-          if (s.savedMM != null) {
-            deptMap.set(dept, (deptMap.get(dept) || 0) + s.savedMM);
-          }
           totalTarget += s.targetMM || 0;
-          totalSaved += s.savedMM || 0;
-          totalAi += aiMap.get(s.id) || 0;
+          // 새 시스템: aggregatedSavedMM (DeptServiceSavedMM 합산)
+          const saved = s.aggregatedSavedMM ?? s.savedMM ?? 0;
+          totalSaved += saved;
+          // AI 추정: 부서별 합산 우선, 없으면 기존 AiEstimation 사용
+          const ai = s.aggregatedAiEstimatedMM ?? aiMap.get(s.id) ?? 0;
+          totalAi += ai;
+          // 부서별 breakdown이 있으면 부서 단위로 집계
+          if (s.savedMMBreakdown && s.savedMMBreakdown.length > 0) {
+            for (const bd of s.savedMMBreakdown) {
+              if (bd.savedMM != null) {
+                deptMap.set(bd.deptname, (deptMap.get(bd.deptname) || 0) + bd.savedMM);
+              }
+            }
+          } else if (saved > 0) {
+            // 레거시 호환: breakdown 없으면 등록 부서에 귀속
+            const dept = s.registeredByDept || '미지정';
+            deptMap.set(dept, (deptMap.get(dept) || 0) + saved);
+          }
         }
         const byDept = [...deptMap.entries()]
           .map(([dept, savedMM]) => ({ dept, savedMM: Math.round(savedMM * 10) / 10 }))
           .sort((a, b) => b.savedMM - a.savedMM);
-        setMmTargetData({ byDept, totalTargetMM: totalTarget, totalSavedMM: totalSaved, totalAiEstimatedMM: Math.round(totalAi * 10) / 10 });
+        setMmTargetData({ byDept, totalTargetMM: totalTarget, totalSavedMM: Math.round(totalSaved * 10) / 10, totalAiEstimatedMM: Math.round(totalAi * 10) / 10 });
       } catch (err) {
         console.error('Failed to load M/M target data:', err);
       }

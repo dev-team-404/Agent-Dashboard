@@ -137,6 +137,16 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
     // 지난달 DAU/MAU 계산 (raw SQL)
     const { start: lastMonthStart, end: lastMonthEnd, bizDaysCount } = getLastMonthBoundariesKST();
 
+    // 이번달 경계 계산 (KST)
+    const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const curYear = kstNow.getUTCFullYear();
+    const curMonth = kstNow.getUTCMonth();
+    const currentMonthStart = new Date(Date.UTC(curYear, curMonth, 1, -9, 0, 0));
+    const currentMonthEnd = new Date(Date.UTC(curYear, curMonth + 1, 1, -9, 0, 0));
+
+    // Admin 부서 결정
+    const adminDept = req.adminDept || req.user?.deptname || '';
+
     // MAU: 지난달 서비스별 고유 사용자 수 (anonymous 제외, 주말/공휴일 제외)
     const mauRows = serviceIds.length > 0
       ? await prisma.$queryRaw<Array<{ service_id: string; mau: bigint }>>`
@@ -173,6 +183,70 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
         `
       : [];
 
+    // 이번달 MAU: 서비스별 고유 사용자 수 (anonymous 제외, 주말/공휴일 제외)
+    const currentMauRows = serviceIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; mau: bigint }>>`
+          SELECT ul.service_id::text as service_id,
+                 COUNT(DISTINCT ul.user_id) as mau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${currentMonthEnd}
+            AND u.loginid != 'anonymous'
+            AND ul.service_id IS NOT NULL
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY ul.service_id
+        `
+      : [];
+
+    // 이번달 DAU: 서비스별 일별 고유 사용자 수 합계 (anonymous 제외, 주말/공휴일 제외)
+    const currentDauRows = serviceIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; total_dau: bigint }>>`
+          SELECT service_id::text as service_id, SUM(daily_dau) as total_dau
+          FROM (
+            SELECT ul.service_id,
+                   COUNT(DISTINCT ul.user_id) as daily_dau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${currentMonthEnd}
+              AND u.loginid != 'anonymous'
+              AND ul.service_id IS NOT NULL
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY ul.service_id, DATE(ul.timestamp)
+          ) sub
+          GROUP BY service_id
+        `
+      : [];
+
+    // LLM 호출 수 (지난달, 서비스별)
+    const callCountRows = serviceIds.length > 0
+      ? await prisma.$queryRaw<Array<{ service_id: string; call_count: bigint }>>`
+          SELECT ul.service_id::text as service_id,
+                 COALESCE(SUM(ul.request_count), 0) as call_count
+          FROM usage_logs ul
+          WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+            AND ul.service_id IS NOT NULL
+          GROUP BY ul.service_id
+        `
+      : [];
+
+    // 우리 부서 사용량 (지난달, 서비스별 MAU + 호출 수)
+    const deptUsageRows = (serviceIds.length > 0 && adminDept)
+      ? await prisma.$queryRaw<Array<{ service_id: string; dept_mau: bigint; dept_calls: bigint }>>`
+          SELECT ul.service_id::text as service_id,
+                 COUNT(DISTINCT ul.user_id) as dept_mau,
+                 COALESCE(SUM(ul.request_count), 0) as dept_calls
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+            AND u.loginid != 'anonymous'
+            AND ul.service_id IS NOT NULL
+            AND u.deptname = ${adminDept}
+          GROUP BY ul.service_id
+        `
+      : [];
+
     // 공휴일 수 (지난달, 평일에 해당하는 공휴일만)
     const holidayRows = await prisma.$queryRaw<Array<{ cnt: bigint }>>`
       SELECT COUNT(*) as cnt FROM holidays
@@ -187,6 +261,40 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
 
     const dauAvgMap = new Map<string, number>();
     for (const r of dauRows) dauAvgMap.set(r.service_id, Math.round(Number(r.total_dau) / actualBizDays * 10) / 10);
+
+    const currentMauMap = new Map<string, number>();
+    for (const r of currentMauRows) currentMauMap.set(r.service_id, Number(r.mau));
+
+    // 이번달 공휴일 수 + 영업일 계산 (DAU 평균용)
+    const currentHolidayRows = await prisma.$queryRaw<Array<{ cnt: bigint }>>`
+      SELECT COUNT(*) as cnt FROM holidays
+      WHERE date >= ${currentMonthStart} AND date < ${currentMonthEnd}
+        AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+    `;
+    const currentHolidayCount = Number(currentHolidayRows[0]?.cnt || 0);
+    // 이번달은 오늘까지의 영업일만 (미래 날짜 제외)
+    let currentBizDays = 0;
+    const curCursor = new Date(Date.UTC(curYear, curMonth, 1));
+    const todayUTC = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
+    while (curCursor <= todayUTC) {
+      const dow = curCursor.getUTCDay();
+      if (dow !== 0 && dow !== 6) currentBizDays++;
+      curCursor.setUTCDate(curCursor.getUTCDate() + 1);
+    }
+    const actualCurrentBizDays = Math.max(currentBizDays - currentHolidayCount, 1);
+
+    const currentDauAvgMap = new Map<string, number>();
+    for (const r of currentDauRows) currentDauAvgMap.set(r.service_id, Math.round(Number(r.total_dau) / actualCurrentBizDays * 10) / 10);
+
+    const callCountMap = new Map<string, number>();
+    for (const r of callCountRows) callCountMap.set(r.service_id, Number(r.call_count));
+
+    const deptMauMap = new Map<string, number>();
+    const deptCallsMap = new Map<string, number>();
+    for (const r of deptUsageRows) {
+      deptMauMap.set(r.service_id, Number(r.dept_mau));
+      deptCallsMap.set(r.service_id, Number(r.dept_calls));
+    }
 
     res.json({
       services: services.map(s => {
@@ -227,6 +335,11 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
           aiEstimatedMMBreakdown,
           totalMauLastMonth: mauMap.get(s.id) ?? 0,
           totalDauAvgLastMonth: dauAvgMap.get(s.id) ?? 0,
+          totalMauCurrentMonth: currentMauMap.get(s.id) ?? 0,
+          totalDauAvgCurrentMonth: currentDauAvgMap.get(s.id) ?? 0,
+          totalLlmCallCountLastMonth: callCountMap.get(s.id) ?? 0,
+          myDeptMauLastMonth: deptMauMap.get(s.id) ?? 0,
+          myDeptCallsLastMonth: deptCallsMap.get(s.id) ?? 0,
         };
       }),
     });

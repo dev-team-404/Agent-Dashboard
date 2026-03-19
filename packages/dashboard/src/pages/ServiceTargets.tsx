@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Search, Save, Loader2, AlertCircle, Check, Sparkles, Users as UsersIcon } from 'lucide-react';
+import { Target, Search, Save, Loader2, AlertCircle, Check, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import DeptSavedMM from './DeptSavedMM';
 
@@ -27,7 +27,11 @@ interface ServiceTarget {
   aggregatedAiEstimatedMM: number | null;
   aiEstimatedMMBreakdown: AiDeptBreakdown[];
   totalMauLastMonth: number | null;
+  totalMauCurrentMonth: number | null;
   totalDauAvgLastMonth: number | null;
+  totalLlmCallCountLastMonth: number | null;
+  myDeptMauLastMonth: number | null;
+  myDeptCallsLastMonth: number | null;
   registeredBy: string | null;
   registeredByDept: string | null;
   team?: string | null;
@@ -277,10 +281,10 @@ export default function ServiceTargets() {
           {/* Table */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full" style={{ minWidth: '1200px' }}>
+              <table className="w-full" style={{ minWidth: '1360px' }}>
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100/80">
-                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[200px]">서비스</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[300px]">서비스</th>
                     <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">타입</th>
                     <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">상태</th>
                     <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">등록 부서</th>
@@ -327,16 +331,25 @@ export default function ServiceTargets() {
                         <tr key={s.id} className={`group transition-colors ${isEditing ? 'bg-indigo-50/30' : 'hover:bg-gray-50/50'}`}>
                           {/* Service name + DAU/MAU info */}
                           <td className="px-4 py-3">
-                            <div className="max-w-[200px]">
+                            <div className="max-w-[280px]">
                               <p className="text-sm font-medium text-pastel-800 truncate" title={s.displayName}>{s.displayName}</p>
                               <p className="text-xs text-pastel-400 font-mono truncate">{s.name}</p>
-                              {(s.totalMauLastMonth != null || s.totalDauAvgLastMonth != null) && (
-                                <div className="flex items-center gap-2 mt-1">
-                                  <UsersIcon className="w-3 h-3 text-pastel-400" />
+                              {(s.totalMauLastMonth != null || s.totalMauCurrentMonth != null || s.totalLlmCallCountLastMonth != null) && (
+                                <div className="flex items-center gap-1.5 mt-1">
                                   <span className="text-[10px] text-pastel-400">
-                                    {s.totalDauAvgLastMonth != null && `DAU ${s.totalDauAvgLastMonth}`}
-                                    {s.totalDauAvgLastMonth != null && s.totalMauLastMonth != null && ' / '}
-                                    {s.totalMauLastMonth != null && `MAU ${s.totalMauLastMonth}`}
+                                    {'\u{1F4CA}'} 지난달 MAU {s.totalMauLastMonth != null ? s.totalMauLastMonth.toLocaleString() : '-'}
+                                    {' / 이번달 MAU '}
+                                    {s.totalMauCurrentMonth != null ? s.totalMauCurrentMonth.toLocaleString() : '-'}
+                                    {s.totalLlmCallCountLastMonth != null && ` | LLM Calls ${s.totalLlmCallCountLastMonth.toLocaleString()}`}
+                                  </span>
+                                </div>
+                              )}
+                              {(s.myDeptMauLastMonth != null || s.myDeptCallsLastMonth != null) && (
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className="text-[10px] text-pastel-400">
+                                    {'\u{1F465}'} 우리팀: MAU {s.myDeptMauLastMonth != null ? s.myDeptMauLastMonth.toLocaleString() : '-'}
+                                    {' / Calls '}
+                                    {s.myDeptCallsLastMonth != null ? s.myDeptCallsLastMonth.toLocaleString() : '-'}
                                   </span>
                                 </div>
                               )}
