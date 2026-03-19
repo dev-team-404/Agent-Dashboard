@@ -60,6 +60,14 @@ interface ServiceDetail {
 
 type PeriodTab = 'current' | 'last';
 
+function getMonthParams(p: PeriodTab): { year: number; month: number } {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  if (p === 'current') return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
+  const last = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
+  return { year: last.getUTCFullYear(), month: last.getUTCMonth() + 1 };
+}
+
 export default function InsightServiceUsage() {
   const [period, setPeriod] = useState<PeriodTab>('current');
   const [data, setData] = useState<OverviewData | null>(null);
@@ -73,7 +81,7 @@ export default function InsightServiceUsage() {
       setLoading(true);
       setSelectedService(null);
       setDetail(null);
-      const res = await api.get('/admin/insight/service-usage', { params: { period: p } });
+      const res = await api.get('/admin/insight/service-usage', { params: getMonthParams(p) });
       setData(res.data);
     } catch (err) {
       console.error('Failed to load service usage insight:', err);
@@ -87,7 +95,7 @@ export default function InsightServiceUsage() {
   const loadDetail = useCallback(async (serviceId: string) => {
     try {
       setDetailLoading(true);
-      const res = await api.get(`/admin/insight/service-usage/${serviceId}`, { params: { period } });
+      const res = await api.get(`/admin/insight/service-usage/${serviceId}`, { params: getMonthParams(period) });
       setDetail(res.data);
     } catch (err) {
       console.error('Failed to load service detail:', err);

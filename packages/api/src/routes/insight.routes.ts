@@ -39,6 +39,50 @@ function getMonthBoundariesKST(year: number, month: number): [Date, Date] {
   return [start, end];
 }
 
+// ── 요청 파라미터에서 대상 월 결정 ──
+// ?year=2026&month=3 → 해당 월, 미입력 → 이번달
+function resolveTargetMonth(req: Request): {
+  targetYear: number; targetMonth: number;
+  prevYear: number; prevMonth: number;
+  targetStart: Date; targetEnd: Date; effectiveEnd: Date;
+  prevStart: Date; prevEnd: Date;
+  isCurrentMonth: boolean;
+  monthLabel: string;
+} {
+  const kstNow = getKSTNow();
+  const curYear = kstNow.getUTCFullYear();
+  const curMonth = kstNow.getUTCMonth() + 1;
+
+  const qYear = req.query['year'] ? parseInt(req.query['year'] as string) : null;
+  const qMonth = req.query['month'] ? parseInt(req.query['month'] as string) : null;
+
+  let targetYear: number, targetMonth: number;
+  if (qYear && qMonth && qMonth >= 1 && qMonth <= 12) {
+    targetYear = qYear;
+    targetMonth = qMonth;
+  } else {
+    // 미입력 → 이번달
+    targetYear = curYear;
+    targetMonth = curMonth;
+  }
+
+  const isCurrentMonth = targetYear === curYear && targetMonth === curMonth;
+  const prev = new Date(Date.UTC(targetYear, targetMonth - 2, 1));
+  const prevYear = prev.getUTCFullYear();
+  const prevMonth = prev.getUTCMonth() + 1;
+
+  const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
+  const [prevStart, prevEnd] = getMonthBoundariesKST(prevYear, prevMonth);
+  const effectiveEnd = isCurrentMonth ? new Date() : targetEnd;
+
+  return {
+    targetYear, targetMonth, prevYear, prevMonth,
+    targetStart, targetEnd, effectiveEnd, prevStart, prevEnd,
+    isCurrentMonth,
+    monthLabel: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+  };
+}
+
 // ── Shared handler types ──
 interface DeptHierarchyRow {
   id: string;
@@ -60,34 +104,9 @@ interface MauRow {
 // ============================================
 async function handleUsageRate(req: Request, res: Response) {
   try {
-    const kstNow = getKSTNow();
-    const currentYear = kstNow.getUTCFullYear();
-    const currentMonth = kstNow.getUTCMonth() + 1;
-    const period = (req.query['period'] as string) || 'last'; // 'current' | 'last'
-
-    // target month: 이번달(current) 또는 지난달(last)
-    let targetYear: number, targetMonth: number;
-    let prevYear: number, prevMonth: number;
-    if (period === 'current') {
-      targetYear = currentYear;
-      targetMonth = currentMonth;
-      // 비교 대상: 지난달
-      const prev = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-      prevYear = prev.getUTCFullYear();
-      prevMonth = prev.getUTCMonth() + 1;
-    } else {
-      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-      targetYear = last.getUTCFullYear();
-      targetMonth = last.getUTCMonth() + 1;
-      const prev = new Date(Date.UTC(targetYear, targetMonth - 2, 1));
-      prevYear = prev.getUTCFullYear();
-      prevMonth = prev.getUTCMonth() + 1;
-    }
-
-    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
-    const [prevMonthStart, prevMonthEnd] = getMonthBoundariesKST(prevYear, prevMonth);
-    // 이번달(current)이면 현재 시점까지만 조회
-    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
+    const tm = resolveTargetMonth(req);
+    const { targetStart, effectiveEnd, isCurrentMonth, monthLabel } = tm;
+    const { prevStart: prevMonthStart, prevEnd: prevMonthEnd } = tm;
 
     // 1. Department hierarchies
     const hierarchies = await prisma.departmentHierarchy.findMany();
@@ -212,9 +231,8 @@ async function handleUsageRate(req: Request, res: Response) {
     centers.sort((a, b) => b.totalSavedMM - a.totalSavedMM);
 
     res.json({
-      month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
-      period,
-      isCurrentMonth: period === 'current',
+      month: monthLabel,
+      isCurrentMonth,
       centers,
     });
   } catch (error) {
@@ -230,24 +248,10 @@ async function handleUsageRate(req: Request, res: Response) {
 async function handleUsageRateDetail(req: Request, res: Response) {
   try {
     const centerName = decodeURIComponent(req.params['centerName'] as string);
-    const period = (req.query['period'] as string) || 'last';
-
-    const kstNow = getKSTNow();
-    const currentYear = kstNow.getUTCFullYear();
-    const currentMonth = kstNow.getUTCMonth() + 1;
-
-    let targetYear: number, targetMonth: number;
-    if (period === 'current') {
-      targetYear = currentYear;
-      targetMonth = currentMonth;
-    } else {
-      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-      targetYear = last.getUTCFullYear();
-      targetMonth = last.getUTCMonth() + 1;
-    }
-
-    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
-    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
+    const tm = resolveTargetMonth(req);
+    const { targetYear, targetMonth, targetStart, effectiveEnd, monthLabel } = tm;
+    const currentYear = targetYear;
+    const currentMonth = targetMonth;
 
     // 1. Find all deptnames belonging to this center
     const hierarchies = await prisma.departmentHierarchy.findMany();
@@ -377,7 +381,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 
     res.json({
       centerName,
-      period: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+      period: monthLabel,
       teamMauChart,
       monthlyTrend,
       teamServices,
@@ -394,23 +398,8 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 // ============================================
 async function handleServiceUsage(req: Request, res: Response) {
   try {
-    const kstNow = getKSTNow();
-    const currentYear = kstNow.getUTCFullYear();
-    const currentMonth = kstNow.getUTCMonth() + 1;
-    const period = (req.query['period'] as string) || 'last';
-
-    let targetYear: number, targetMonth: number;
-    if (period === 'current') {
-      targetYear = currentYear;
-      targetMonth = currentMonth;
-    } else {
-      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-      targetYear = last.getUTCFullYear();
-      targetMonth = last.getUTCMonth() + 1;
-    }
-
-    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
-    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
+    const tm = resolveTargetMonth(req);
+    const { targetStart, effectiveEnd, isCurrentMonth, monthLabel } = tm;
 
     // DEPLOYED 서비스 ID 목록
     const deployedServices = await prisma.service.findMany({
@@ -420,7 +409,7 @@ async function handleServiceUsage(req: Request, res: Response) {
     const deployedIds = deployedServices.map(s => s.id);
 
     if (deployedIds.length === 0) {
-      res.json({ month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`, period, isCurrentMonth: period === 'current', services: [] });
+      res.json({ month: monthLabel, isCurrentMonth, services: [] });
       return;
     }
 
@@ -468,9 +457,8 @@ async function handleServiceUsage(req: Request, res: Response) {
     });
 
     res.json({
-      month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
-      period,
-      isCurrentMonth: period === 'current',
+      month: monthLabel,
+      isCurrentMonth,
       services: data,
     });
   } catch (error) {
@@ -497,23 +485,8 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       return;
     }
 
-    const kstNow = getKSTNow();
-    const currentYear = kstNow.getUTCFullYear();
-    const currentMonth = kstNow.getUTCMonth() + 1;
-    const period = (req.query['period'] as string) || 'last';
-
-    let targetYear: number, targetMonth: number;
-    if (period === 'current') {
-      targetYear = currentYear;
-      targetMonth = currentMonth;
-    } else {
-      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-      targetYear = last.getUTCFullYear();
-      targetMonth = last.getUTCMonth() + 1;
-    }
-
-    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
-    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
+    const tm = resolveTargetMonth(req);
+    const { targetStart, effectiveEnd, monthLabel } = tm;
 
     // Team-level token usage
     const tokenRows = await prisma.$queryRaw<Array<{
@@ -552,7 +525,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
         name: service.name,
         displayName: service.displayName,
       },
-      period: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+      period: monthLabel,
       teamTokens,
     });
   } catch (error) {

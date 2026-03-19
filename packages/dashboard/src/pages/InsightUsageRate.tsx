@@ -62,6 +62,14 @@ interface CenterDetail {
 
 type PeriodTab = 'current' | 'last';
 
+function getMonthParams(p: PeriodTab): { year: number; month: number } {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  if (p === 'current') return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
+  const last = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
+  return { year: last.getUTCFullYear(), month: last.getUTCMonth() + 1 };
+}
+
 export default function InsightUsageRate() {
   const [period, setPeriod] = useState<PeriodTab>('current');
   const [data, setData] = useState<OverviewData | null>(null);
@@ -75,7 +83,7 @@ export default function InsightUsageRate() {
       setLoading(true);
       setSelectedCenter(null);
       setDetail(null);
-      const res = await api.get('/admin/insight/usage-rate', { params: { period: p } });
+      const res = await api.get('/admin/insight/usage-rate', { params: getMonthParams(p) });
       setData(res.data);
     } catch (err) {
       console.error('Failed to load usage rate insight:', err);
@@ -89,7 +97,7 @@ export default function InsightUsageRate() {
   const loadDetail = useCallback(async (centerName: string) => {
     try {
       setDetailLoading(true);
-      const res = await api.get(`/admin/insight/usage-rate/${encodeURIComponent(centerName)}`, { params: { period } });
+      const res = await api.get(`/admin/insight/usage-rate/${encodeURIComponent(centerName)}`, { params: getMonthParams(period) });
       setDetail(res.data);
     } catch (err) {
       console.error('Failed to load center detail:', err);
