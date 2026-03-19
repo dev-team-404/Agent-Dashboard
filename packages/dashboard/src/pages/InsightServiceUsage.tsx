@@ -48,6 +48,7 @@ interface OverviewData {
 
 interface TeamDetail {
   team: string;
+  teamKr: string;
   tokensM: number;
   mau: number;
   llmCallCount: number;
@@ -315,7 +316,10 @@ export default function InsightServiceUsage() {
                       <tbody>
                         {detail.teamDetails.map((td, idx) => (
                           <tr key={td.team} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                            <td className="py-2.5 px-4 font-medium text-pastel-800">{td.team}</td>
+                            <td className="py-2.5 px-4">
+                              <span className="font-medium text-pastel-800">{td.team}</span>
+                              <span className="block text-[10px] text-pastel-400">{td.teamKr}</span>
+                            </td>
                             <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.tokensM.toFixed(2)}</td>
                             <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.mau.toLocaleString()}</td>
                             <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.llmCallCount.toLocaleString()}</td>

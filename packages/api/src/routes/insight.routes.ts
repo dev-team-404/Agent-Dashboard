@@ -543,6 +543,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
 
     const teamDetails = teamRows.map(r => ({
       team: deptToTeam.get(r.deptname) || r.deptname,
+      teamKr: r.deptname,
       tokensM: Math.round(Number(r.total_tokens) / 1000000 * 100) / 100,
       mau: Number(r.mau),
       llmCallCount: Number(r.llm_call_count),

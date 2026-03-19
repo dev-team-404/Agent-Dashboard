@@ -789,7 +789,10 @@ export const swaggerSpec = {
                         type: 'object' as const,
                         properties: {
                           team: { type: 'string' as const, description: 'English team name' },
+                          teamKr: { type: 'string' as const, description: 'Korean department name' },
                           tokensM: { type: 'number' as const, description: 'Total tokens in millions' },
+                          mau: { type: 'integer' as const, description: 'Monthly active users' },
+                          llmCallCount: { type: 'integer' as const, description: 'LLM call count' },
                         },
                       },
                     },
@@ -797,10 +800,10 @@ export const swaggerSpec = {
                 },
                 example: {
                   displayName: 'Nexus Coder',
-                  period: '2026-02',
-                  teamTokens: [
-                    { team: 'SW Innovation Team', tokensM: 1.52 },
-                    { team: 'Platform Team', tokensM: 0.83 },
+                  period: '2026-03',
+                  teamDetails: [
+                    { team: 'SW Innovation Team', teamKr: 'S/W혁신팀(S.LSI)', tokensM: 1.52, mau: 8, llmCallCount: 2542 },
+                    { team: 'Platform Team', teamKr: '플랫폼팀(S.LSI)', tokensM: 0.83, mau: 3, llmCallCount: 450 },
                   ],
                 },
               },
