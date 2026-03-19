@@ -33,6 +33,9 @@ import { systemSettingsRoutes } from './routes/system-settings.routes.js';
 import { adminRequestRoutes } from './routes/admin-requests.routes.js';
 import { externalUsageRoutes } from './routes/external-usage.routes.js';
 import { errorLogsRoutes } from './routes/error-logs.routes.js';
+import { deptSavedMMRoutes } from './routes/dept-saved-mm.routes.js';
+import { insightRoutes, publicInsightRoutes } from './routes/insight.routes.js';
+import { deptMappingRoutes } from './routes/dept-mapping.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -97,6 +100,9 @@ app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 app.use('/admin', adminLogsRoutes);
 app.use('/admin', serviceTargetsRoutes);
+app.use('/admin', deptSavedMMRoutes);
+app.use('/admin', insightRoutes);
+app.use('/admin', deptMappingRoutes);
 app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
@@ -106,6 +112,7 @@ app.use('/v1', proxyRoutes);
 
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
+app.use('/public/stats', publicInsightRoutes);
 
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)

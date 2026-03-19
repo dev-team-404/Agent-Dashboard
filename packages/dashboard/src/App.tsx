@@ -26,6 +26,9 @@ const AdminRequestsManage = lazy(() => import('./pages/AdminRequestsManage'));
 const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
+const InsightUsageRate = lazy(() => import('./pages/InsightUsageRate'));
+const InsightServiceUsage = lazy(() => import('./pages/InsightServiceUsage'));
+const DeptMapping = lazy(() => import('./pages/DeptMapping'));
 
 interface User {
   id: string;
@@ -136,6 +139,8 @@ function App() {
               <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service-targets" element={<ServiceTargets />} />
               <Route path="/admin-requests-manage" element={<AdminRequestsManage />} />
+              <Route path="/insight-usage-rate" element={<InsightUsageRate />} />
+              <Route path="/insight-service-usage" element={<InsightServiceUsage />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
             </>
@@ -151,6 +156,7 @@ function App() {
               <Route path="/audit-logs" element={<AuditLogs />} />
               <Route path="/error-management" element={<ErrorManagement />} />
               <Route path="/knox-verifications" element={<KnoxVerifications />} />
+              <Route path="/dept-mapping" element={<DeptMapping />} />
             </>
           )}
 

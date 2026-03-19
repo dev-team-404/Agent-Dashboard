@@ -297,19 +297,57 @@ cmd_deploy() {
   docker compose ps
 }
 
+# ─── migrate 명령 (스키마만 동기화, 컨테이너 재빌드 없음) ───
+cmd_migrate() {
+  local ACTIVE
+  ACTIVE=$(get_active)
+  local CONTAINER="agent-registry-api-${ACTIVE}"
+
+  echo ""
+  echo -e "${BOLD}DB 스키마 마이그레이션${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "  대상 컨테이너: ${GREEN}api-${ACTIVE}${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  # 현재 호스트의 최신 schema.prisma를 실행 중인 컨테이너에 복사
+  log "1/3: 최신 schema.prisma를 컨테이너에 복사"
+  docker cp packages/api/prisma/schema.prisma "${CONTAINER}:/app/prisma/schema.prisma"
+
+  # prisma db push (safe mode — 파괴적 변경 시 실패, 기존 데이터 보존)
+  log "2/3: prisma db push 실행 (safe mode, 기존 데이터 보존)"
+  if ! docker compose exec -T "api-${ACTIVE}" npx prisma db push --skip-generate; then
+    err "prisma db push 실패!"
+    err "파괴적 변경(컬럼 삭제 등)이 감지되었을 수 있습니다."
+    err "변경 내용을 확인하고, 필요 시 수동으로 마이그레이션하세요."
+    exit 1
+  fi
+
+  # Prisma Client regenerate
+  log "3/3: Prisma Client 재생성"
+  docker compose exec -T "api-${ACTIVE}" npx prisma generate
+
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "마이그레이션 완료!"
+  info "주의: API 서버 재시작 필요 시 → ./deploy.sh"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
 # ─── 옵션 파싱 ───
 COMMAND=""
 for arg in "$@"; do
   case "$arg" in
     --with-docs) WITH_DOCS=true ;;
-    status|init|deploy) COMMAND="$arg" ;;
+    status|init|deploy|migrate) COMMAND="$arg" ;;
     *)
-      echo "사용법: $0 [deploy|status|init] [--with-docs]"
+      echo "사용법: $0 [deploy|status|init|migrate] [--with-docs]"
       echo ""
       echo "  deploy              Blue-Green 무중단 배포 (기본값)"
       echo "  deploy --with-docs  docs-site 포함 배포 (nginx 재시작, 짧은 끊김)"
       echo "  status              현재 활성 슬롯 확인"
       echo "  init                최초 설치 (전체 빌드 + 순차 시작)"
+      echo "  migrate             DB 스키마만 동기화 (컨테이너 재빌드 없음, 데이터 보존)"
       exit 1
       ;;
   esac
@@ -322,6 +360,9 @@ case "${COMMAND:-deploy}" in
     ;;
   init)
     cmd_init
+    ;;
+  migrate)
+    cmd_migrate
     ;;
   deploy|"")
     cmd_deploy

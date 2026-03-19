@@ -381,6 +381,29 @@ export const holidaysApi = {
     api.delete<{ message: string }>(`/holidays/${id}`),
 };
 
+// 부서별 Saved M/M 관리 API
+export const deptSavedMmApi = {
+  list: (deptname?: string) => api.get('/admin/dept-saved-mm', { params: { deptname } }),
+  update: (serviceId: string, data: { savedMM: number | null; reason: string | null }) =>
+    api.put(`/admin/dept-saved-mm/${serviceId}`, data),
+};
+
+// Insight API
+export const insightApi = {
+  usageRate: () => api.get('/admin/insight/usage-rate'),
+  usageRateDetail: (centerName: string) => api.get(`/admin/insight/usage-rate/${encodeURIComponent(centerName)}`),
+  serviceUsage: () => api.get('/admin/insight/service-usage'),
+  serviceUsageDetail: (serviceId: string) => api.get(`/admin/insight/service-usage/${serviceId}`),
+};
+
+// 부서 매핑 관리 API (슈퍼 관리자)
+export const deptMappingApi = {
+  list: () => api.get('/admin/dept-mapping'),
+  update: (id: string, data: { team?: string; center2Name?: string; center1Name?: string }) =>
+    api.put(`/admin/dept-mapping/${id}`, data),
+  sync: () => api.post('/admin/dept-mapping/sync'),
+};
+
 // 공개 통계 API (인증 불필요)
 export const publicStatsApi = {
   dauMau: (year: number, month: number) =>

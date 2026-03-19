@@ -378,6 +378,343 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
   return { processed, errors };
 }
 
+// ── 부서별 프롬프트 빌더 ──
+function buildDeptPrompt(service: {
+  name: string;
+  displayName: string;
+  type: string;
+  description: string | null;
+  createdAt: Date;
+}, deptname: string, deptDau: number, deptCalls: number, lastMonthMau: number, currentMonthMau: number, bizDaysElapsed: number, bizDaysTotal: number, savedMM: number | null, deptLlmCallCount: number, deptTotalTokens: number): string {
+  return [
+    `Estimate the M/M savings that the department "${deptname}" gets from using this AI service:`,
+    ``,
+    `Service Name: ${service.name}`,
+    `Service Display Name: ${service.displayName}`,
+    `Type: ${service.type} (${service.type === 'STANDARD' ? 'interactive user-facing' : 'automated batch processing'})`,
+    `Description: ${service.description || 'No description'}`,
+    ``,
+    `Department-specific usage:`,
+    `- Recent avg daily active users from this dept: ${deptDau}`,
+    `- Recent avg daily API calls from this dept: ${deptCalls}`,
+    `- Last month MAU from this dept: ${lastMonthMau}`,
+    `- Current month MAU from this dept: ${currentMonthMau} (${bizDaysElapsed} out of ${bizDaysTotal} business days)`,
+    `- Last month total LLM call count from this dept: ${deptLlmCallCount.toLocaleString()}`,
+    `- Last month total token usage from this dept: ${deptTotalTokens.toLocaleString()} tokens (${(deptTotalTokens / 1000000).toFixed(2)}M)`,
+    ``,
+    `Context:`,
+    `- Manually recorded Saved M/M by this dept: ${savedMM ?? 'not set'}`,
+    `- Service running since: ${service.createdAt.toISOString().split('T')[0]}`,
+    ``,
+    `Respond in JSON:`,
+    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<2-3 sentences in Korean explaining the estimate for this specific department>"}`,
+  ].join('\n');
+}
+
+// ── KST 영업일 계산 helpers ──
+function getKstNow(): Date {
+  const now = new Date();
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000);
+}
+
+function getMonthBoundariesKST(kstNow: Date, monthOffset: number): { start: Date; end: Date } {
+  const year = kstNow.getUTCFullYear();
+  const month = kstNow.getUTCMonth() + monthOffset;
+  // start: 1일 00:00 KST → UTC
+  const start = new Date(Date.UTC(year, month, 1, -9, 0, 0));
+  // end: 다음달 1일 00:00 KST → UTC
+  const end = new Date(Date.UTC(year, month + 1, 1, -9, 0, 0));
+  return { start, end };
+}
+
+function countWeekdaysInRange(start: Date, end: Date): number {
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor < end) {
+    const dow = cursor.getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return count;
+}
+
+// ── 부서별 AI 추정 ──
+export async function runDeptAiEstimations(): Promise<{ processed: number; errors: number }> {
+  // 1. 시스템 LLM 설정 확인
+  const setting = await prisma.systemSetting.findUnique({ where: { key: 'SYSTEM_LLM_MODEL_ID' } });
+  if (!setting?.value) {
+    console.log('[DeptAiEstimation] System LLM not configured — skipping');
+    return { processed: 0, errors: 0 };
+  }
+
+  const model = await prisma.model.findUnique({
+    where: { id: setting.value },
+    select: { id: true, name: true, endpointUrl: true, apiKey: true, extraHeaders: true, extraBody: true, enabled: true, type: true },
+  });
+  if (!model || !model.enabled || model.type !== 'CHAT') {
+    console.log('[DeptAiEstimation] System LLM not found, disabled, or not CHAT type — skipping');
+    return { processed: 0, errors: 0 };
+  }
+
+  // 2. 배포된 서비스 목록
+  const services = await prisma.service.findMany({
+    where: { status: 'DEPLOYED' },
+    select: {
+      id: true, name: true, displayName: true, description: true,
+      type: true, createdAt: true,
+    },
+  });
+
+  if (services.length === 0) {
+    console.log('[DeptAiEstimation] No deployed services — skipping');
+    return { processed: 0, errors: 0 };
+  }
+
+  // 3. KST 시간 계산
+  const kstNow = getKstNow();
+  const todayKST = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate()));
+
+  // 최근 5영업일 범위
+  const rangeEnd = new Date(todayKST);
+  rangeEnd.setDate(rangeEnd.getDate() - 1);
+  rangeEnd.setHours(23, 59, 59, 999);
+  const rangeStart = new Date(todayKST);
+  rangeStart.setDate(rangeStart.getDate() - 31);
+  rangeStart.setHours(0, 0, 0, 0);
+
+  // 지난달/이번달 경계
+  const lastMonth = getMonthBoundariesKST(kstNow, -1);
+  const currentMonth = getMonthBoundariesKST(kstNow, 0);
+  const currentMonthBizTotal = countWeekdaysInRange(
+    new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), 1)),
+    new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth() + 1, 1)),
+  );
+  // 이번달 경과 영업일 (오늘까지)
+  const currentMonthBizElapsed = countWeekdaysInRange(
+    new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), 1)),
+    new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate() + 1)),
+  );
+
+  // 4. 서비스별 부서 사용 현황 조회 (최근 5영업일 기준 DAU/calls)
+  const deptDailyStats = await prisma.$queryRaw<
+    Array<{ service_id: string; deptname: string; d: Date; dau: bigint; calls: bigint }>
+  >`
+    SELECT ul.service_id::text as service_id,
+           u.deptname,
+           DATE(ul.timestamp) as d,
+           COUNT(DISTINCT ul.user_id) as dau,
+           COALESCE(SUM(ul.request_count), 0) as calls
+    FROM usage_logs ul
+    INNER JOIN users u ON ul.user_id = u.id
+    WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
+      AND u.loginid != 'anonymous'
+      AND ul.service_id IS NOT NULL
+      AND u.deptname IS NOT NULL AND u.deptname != ''
+      AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+      AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+    GROUP BY ul.service_id, u.deptname, DATE(ul.timestamp)
+    ORDER BY DATE(ul.timestamp) DESC
+  `;
+
+  // 영업일 목록 (최근 5일만)
+  const bizDaysSet = new Set<string>();
+  for (const r of deptDailyStats) {
+    bizDaysSet.add(new Date(r.d).toISOString().split('T')[0]);
+  }
+  const bizDays = [...bizDaysSet].sort().reverse().slice(0, 5);
+  const bizDaySet = new Set(bizDays);
+  const numBizDays = bizDays.length;
+
+  if (numBizDays === 0) {
+    console.log('[DeptAiEstimation] No recent business days with data — skipping');
+    return { processed: 0, errors: 0 };
+  }
+
+  // 서비스+부서별 평균 DAU/calls 집계
+  const deptAgg = new Map<string, Map<string, { totalDau: number; totalCalls: number }>>();
+  for (const r of deptDailyStats) {
+    const day = new Date(r.d).toISOString().split('T')[0];
+    if (!bizDaySet.has(day)) continue;
+    if (!deptAgg.has(r.service_id)) deptAgg.set(r.service_id, new Map());
+    const svcMap = deptAgg.get(r.service_id)!;
+    const cur = svcMap.get(r.deptname) || { totalDau: 0, totalCalls: 0 };
+    cur.totalDau += Number(r.dau);
+    cur.totalCalls += Number(r.calls);
+    svcMap.set(r.deptname, cur);
+  }
+
+  // 5. 지난달 MAU (부서별)
+  const lastMonthMauRows = await prisma.$queryRaw<
+    Array<{ service_id: string; deptname: string; mau: bigint }>
+  >`
+    SELECT ul.service_id::text as service_id,
+           u.deptname,
+           COUNT(DISTINCT ul.user_id) as mau
+    FROM usage_logs ul
+    INNER JOIN users u ON ul.user_id = u.id
+    WHERE ul.timestamp >= ${lastMonth.start} AND ul.timestamp < ${lastMonth.end}
+      AND u.loginid != 'anonymous'
+      AND ul.service_id IS NOT NULL
+      AND u.deptname IS NOT NULL AND u.deptname != ''
+      AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+      AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+    GROUP BY ul.service_id, u.deptname
+  `;
+  const lastMonthMauMap = new Map<string, Map<string, number>>();
+  for (const r of lastMonthMauRows) {
+    if (!lastMonthMauMap.has(r.service_id)) lastMonthMauMap.set(r.service_id, new Map());
+    lastMonthMauMap.get(r.service_id)!.set(r.deptname, Number(r.mau));
+  }
+
+  // 6. 이번달 MAU (부서별)
+  const currentMonthMauRows = await prisma.$queryRaw<
+    Array<{ service_id: string; deptname: string; mau: bigint }>
+  >`
+    SELECT ul.service_id::text as service_id,
+           u.deptname,
+           COUNT(DISTINCT ul.user_id) as mau
+    FROM usage_logs ul
+    INNER JOIN users u ON ul.user_id = u.id
+    WHERE ul.timestamp >= ${currentMonth.start} AND ul.timestamp < ${currentMonth.end}
+      AND u.loginid != 'anonymous'
+      AND ul.service_id IS NOT NULL
+      AND u.deptname IS NOT NULL AND u.deptname != ''
+      AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+      AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+    GROUP BY ul.service_id, u.deptname
+  `;
+  const currentMonthMauMap = new Map<string, Map<string, number>>();
+  for (const r of currentMonthMauRows) {
+    if (!currentMonthMauMap.has(r.service_id)) currentMonthMauMap.set(r.service_id, new Map());
+    currentMonthMauMap.get(r.service_id)!.set(r.deptname, Number(r.mau));
+  }
+
+  // 7. 지난달 부서별 LLM call count + token usage (서비스별)
+  const lastMonthUsageRows = await prisma.$queryRaw<
+    Array<{ service_id: string; deptname: string; call_count: bigint; total_tokens: bigint }>
+  >`
+    SELECT ul.service_id::text as service_id,
+           u.deptname,
+           COALESCE(SUM(ul.request_count), 0) as call_count,
+           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
+    FROM usage_logs ul
+    INNER JOIN users u ON ul.user_id = u.id
+    WHERE ul.timestamp >= ${lastMonth.start} AND ul.timestamp < ${lastMonth.end}
+      AND u.loginid != 'anonymous'
+      AND ul.service_id IS NOT NULL
+      AND u.deptname IS NOT NULL AND u.deptname != ''
+    GROUP BY ul.service_id, u.deptname
+  `;
+  const lastMonthUsageMap = new Map<string, { callCount: number; totalTokens: number }>();
+  for (const r of lastMonthUsageRows) {
+    lastMonthUsageMap.set(`${r.service_id}::${r.deptname}`, {
+      callCount: Number(r.call_count),
+      totalTokens: Number(r.total_tokens),
+    });
+  }
+
+  // 8. 기존 DeptServiceSavedMM (manual savedMM 조회)
+  const existingSavedMMs = await prisma.deptServiceSavedMM.findMany({
+    select: { serviceId: true, deptname: true, savedMM: true },
+  });
+  const savedMMMap = new Map<string, number | null>();
+  for (const r of existingSavedMMs) {
+    savedMMMap.set(`${r.serviceId}::${r.deptname}`, r.savedMM);
+  }
+
+  let processed = 0;
+  let errors = 0;
+
+  console.log(`[DeptAiEstimation] Starting for ${services.length} services (model: ${model.name})`);
+
+  for (const svc of services) {
+    try {
+      const svcDeptMap = deptAgg.get(svc.id);
+      if (!svcDeptMap || svcDeptMap.size === 0) continue;
+
+      for (const [deptname, agg] of svcDeptMap) {
+        try {
+          const avgDau = Math.round(agg.totalDau / numBizDays);
+          const avgCalls = Math.round(agg.totalCalls / numBizDays);
+
+          // 0 사용량 스킵
+          if (avgCalls === 0) continue;
+
+          const lmMau = lastMonthMauMap.get(svc.id)?.get(deptname) ?? 0;
+          const cmMau = currentMonthMauMap.get(svc.id)?.get(deptname) ?? 0;
+          const manualSavedMM = savedMMMap.get(`${svc.id}::${deptname}`) ?? null;
+          const usageInfo = lastMonthUsageMap.get(`${svc.id}::${deptname}`);
+          const deptLlmCallCount = usageInfo?.callCount ?? 0;
+          const deptTotalTokens = usageInfo?.totalTokens ?? 0;
+
+          const prompt = buildDeptPrompt(
+            svc, deptname, avgDau, avgCalls,
+            lmMau, cmMau,
+            currentMonthBizElapsed, currentMonthBizTotal,
+            manualSavedMM, deptLlmCallCount, deptTotalTokens,
+          );
+
+          const raw = await callSystemLlm(model, prompt);
+          const result = parseEstimation(raw);
+
+          if (!result) {
+            console.error(`[DeptAiEstimation] Failed to parse for "${svc.name}" / "${deptname}":`, raw.substring(0, 200));
+            errors++;
+            continue;
+          }
+
+          // Upsert: AI fields only (preserve manual savedMM)
+          await prisma.deptServiceSavedMM.upsert({
+            where: { serviceId_deptname: { serviceId: svc.id, deptname } },
+            update: {
+              aiEstimatedMM: result.estimatedMM,
+              aiConfidence: result.confidence,
+              aiReasoning: result.reasoning,
+            },
+            create: {
+              serviceId: svc.id,
+              deptname,
+              aiEstimatedMM: result.estimatedMM,
+              aiConfidence: result.confidence,
+              aiReasoning: result.reasoning,
+            },
+          });
+
+          processed++;
+          console.log(`[DeptAiEstimation] ${svc.name} / ${deptname}: ${result.estimatedMM} M/M (${result.confidence})`);
+
+          // Rate limit 방지 딜레이
+          await new Promise(r => setTimeout(r, DELAY_BETWEEN_CALLS_MS));
+        } catch (err) {
+          console.error(`[DeptAiEstimation] Error for "${svc.name}" / "${deptname}":`, err);
+          errors++;
+        }
+      }
+
+      // 서비스별 savedMM 재계산: SUM of all dept manual savedMMs
+      try {
+        const deptSavedRows = await prisma.deptServiceSavedMM.findMany({
+          where: { serviceId: svc.id },
+          select: { savedMM: true },
+        });
+        const totalSavedMM = deptSavedRows.reduce((sum, r) => sum + (r.savedMM ?? 0), 0);
+        await prisma.service.update({
+          where: { id: svc.id },
+          data: { savedMM: Math.round(totalSavedMM * 10) / 10 },
+        });
+      } catch (err) {
+        console.error(`[DeptAiEstimation] Failed to recalc savedMM for "${svc.name}":`, err);
+      }
+    } catch (err) {
+      console.error(`[DeptAiEstimation] Error for service "${svc.name}":`, err);
+      errors++;
+    }
+  }
+
+  console.log(`[DeptAiEstimation] Done: ${processed} processed, ${errors} errors`);
+  return { processed, errors };
+}
+
 // ── Cron 스케줄러 ──
 export function startAiEstimationCron(): void {
   // 1시간마다 체크, 자정(KST 00:00~00:59)이면 실행
@@ -391,6 +728,8 @@ export function startAiEstimationCron(): void {
     lastRunDate = today;
     console.log(`[AiEstimation] Midnight KST — starting daily estimation`);
     await runAiEstimations().catch(err => console.error('[AiEstimation] Cron failed:', err));
+    // 부서별 AI 추정 실행 (per-service 추정 완료 후)
+    await runDeptAiEstimations().catch(err => console.error('[DeptAiEstimation] Cron failed:', err));
   }, ESTIMATION_INTERVAL_MS);
 
   console.log('[AiEstimation] Cron scheduled (runs daily at midnight KST)');

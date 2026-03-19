@@ -65,5 +65,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "const http=require('http');const r=http.get('http://localhost:3000/health',res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.setTimeout(2000,()=>{r.destroy();process.exit(1)})"
 
-# Run prisma db push → backfill → fix alias names → seed holidays → start server
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/backfill-service-fields.js && node dist/fix-alias-names.js && node dist/seed-holidays.js && node dist/index.js"]
+# Run prisma db push (safe mode) → backfill → fix alias names → seed holidays → start server
+# --accept-data-loss 제거: 파괴적 변경 시 실패하도록 (데이터 보호)
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/backfill-service-fields.js && node dist/fix-alias-names.js && node dist/seed-holidays.js && node dist/index.js"]

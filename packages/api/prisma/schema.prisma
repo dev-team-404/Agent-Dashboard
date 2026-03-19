@@ -71,6 +71,7 @@ model Service {
   serviceModels       ServiceModel[]
   requestLogs         RequestLog[]
   aiEstimations       AiEstimation[]
+  deptSavedMMs        DeptServiceSavedMM[]
 
   @@map("services")
 }
@@ -562,5 +563,29 @@ model AiEstimation {
   @@index([serviceId])
   @@index([date])
   @@map("ai_estimations")
+}
+
+// ============================================
+// 부서별 서비스 Saved M/M (부서-서비스 단위 절감 실적)
+// ============================================
+model DeptServiceSavedMM {
+  id            String   @id @default(uuid())
+  serviceId     String   @map("service_id")
+  deptname      String                               // 한글 부서명 (admin.deptname, user.deptname 매칭)
+  savedMM       Float?   @map("saved_mm")             // 수기 입력 Saved M/M
+  reason        String?  @db.Text                     // 입력 사유/근거
+  aiEstimatedMM Float?   @map("ai_estimated_mm")      // AI 추정 M/M (부서+서비스 단위)
+  aiConfidence  String?  @map("ai_confidence")        // HIGH / MEDIUM / LOW
+  aiReasoning   String?  @map("ai_reasoning") @db.Text // AI 추정 근거
+  updatedBy     String?  @map("updated_by")           // 마지막 수정자 loginid
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, deptname])
+  @@index([serviceId])
+  @@index([deptname])
+  @@map("dept_service_saved_mm")
 }
 

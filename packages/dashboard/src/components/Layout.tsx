@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, Building2 } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -103,6 +103,9 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/audit-logs') return '감사 로그';
     if (location.pathname === '/error-management') return '에러 관리';
     if (location.pathname === '/knox-verifications') return '인증 기록';
+    if (location.pathname === '/insight-usage-rate') return 'AI 사용률 인사이트';
+    if (location.pathname === '/insight-service-usage') return '서비스 사용량 인사이트';
+    if (location.pathname === '/dept-mapping') return '부서 매핑 관리';
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
@@ -188,6 +191,8 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
                 <NavLink path="/users" label="사용자 관리" icon={Users} />
                 <NavLink path="/service-targets" label="서비스 목표 관리" icon={Target} />
+                <NavLink path="/insight-usage-rate" label="AI 사용률 인사이트" icon={BarChart3} />
+                <NavLink path="/insight-service-usage" label="서비스 사용량 인사이트" icon={Cpu} />
                 <NavLink path="/admin-requests-manage" label="권한 신청 관리" icon={ShieldCheck} />
               </div>
             </div>
@@ -207,6 +212,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/error-management" label="에러 관리" icon={AlertTriangle} />
                 <NavLink path="/knox-verifications" label="인증 기록" icon={ShieldCheck} />
                 <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
+                <NavLink path="/dept-mapping" label="부서 매핑 관리" icon={Building2} />
               </div>
             </div>
           )}
