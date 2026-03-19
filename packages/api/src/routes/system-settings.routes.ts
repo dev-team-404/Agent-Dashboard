@@ -13,7 +13,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth.js';
-import { runAiEstimations } from '../services/aiEstimation.service.js';
+import { runAiEstimations, runDeptAiEstimations } from '../services/aiEstimation.service.js';
 import { generateMissingLogos } from '../services/logoGenerator.service.js';
 import { invalidateApiKeyCache } from './public-stats.routes.js';
 
@@ -306,14 +306,24 @@ systemSettingsRoutes.get('/ai-estimations', (async (_req: AuthenticatedRequest, 
 // ============================================
 systemSettingsRoutes.post('/ai-estimations/run', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
+    // 서비스별 AI 추정 (AiEstimation 테이블)
     const result = await runAiEstimations();
+    // 부서별 AI 추정 (DeptServiceSavedMM.aiEstimatedMM)
+    const deptResult = await runDeptAiEstimations();
 
     recordAudit(req, 'RUN_AI_ESTIMATION', null, 'SystemSetting', {
       processed: result.processed,
       errors: result.errors,
+      deptProcessed: deptResult.processed,
+      deptErrors: deptResult.errors,
     }).catch(() => {});
 
-    res.json(result);
+    res.json({
+      processed: result.processed,
+      errors: result.errors,
+      deptProcessed: deptResult.processed,
+      deptErrors: deptResult.errors,
+    });
   } catch (error) {
     console.error('Run AI estimation error:', error);
     res.status(500).json({ error: 'Failed to run AI estimation' });
