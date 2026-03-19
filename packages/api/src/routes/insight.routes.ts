@@ -241,7 +241,7 @@ async function handleUsageRate(req: Request, res: Response) {
         totalMau,
         mauChangePercent,
         totalSavedMM: Math.round(totalSavedMM * 100) / 100,
-        teams: group.teams.sort((a, b) => b.mau - a.mau),
+        teamCount: group.teams.length,
       };
     });
 

@@ -23,19 +23,12 @@ const CHART_COLORS = [
   '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
-interface CenterTeam {
-  team: string;
-  deptname: string;
-  mau: number;
-  savedMM: number;
-}
-
 interface Center {
   name: string;
   totalMau: number;
   mauChangePercent: number;
   totalSavedMM: number;
-  teams: CenterTeam[];
+  teamCount: number;
 }
 
 interface OverviewData {
@@ -233,7 +226,7 @@ export default function InsightUsageRate() {
 
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <Users className="w-3 h-3" />
-                <span>{center.teams.length}개 팀</span>
+                <span>{center.teamCount}개 팀</span>
               </div>
             </button>
           );

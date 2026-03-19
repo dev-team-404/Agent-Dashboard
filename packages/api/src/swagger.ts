@@ -644,18 +644,7 @@ export const swaggerSpec = {
                           totalMau: { type: 'integer' as const, description: 'Total MAU across all teams in this center (last month)' },
                           mauChangePercent: { type: 'number' as const, description: '% change vs previous month' },
                           totalSavedMM: { type: 'number' as const, description: 'Total Saved M/M across all teams' },
-                          teams: {
-                            type: 'array' as const,
-                            items: {
-                              type: 'object' as const,
-                              properties: {
-                                team: { type: 'string' as const, description: 'Team name (English)' },
-                                deptname: { type: 'string' as const, description: 'Department name (Korean)' },
-                                mau: { type: 'integer' as const },
-                                savedMM: { type: 'number' as const },
-                              },
-                            },
-                          },
+                          teamCount: { type: 'integer' as const, description: 'Number of teams in this center' },
                         },
                       },
                     },
@@ -669,10 +658,7 @@ export const swaggerSpec = {
                       totalMau: 150,
                       mauChangePercent: 12.5,
                       totalSavedMM: 8.5,
-                      teams: [
-                        { team: 'SW Innovation Team', deptname: 'S/W혁신팀(S.LSI)', mau: 50, savedMM: 3.0 },
-                        { team: 'Platform Team', deptname: '플랫폼팀(S.LSI)', mau: 30, savedMM: 2.5 },
-                      ],
+                      teamCount: 3,
                     },
                   ],
                 },
