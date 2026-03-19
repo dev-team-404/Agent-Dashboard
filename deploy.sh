@@ -324,9 +324,7 @@ cmd_migrate() {
     fi
   fi
 
-  # Prisma Client regenerate
-  log "3/3: Prisma Client 재생성"
-  docker compose exec -T "api-${ACTIVE}" npx prisma generate
+  log "3/3: 스키마 동기화 완료 (Prisma Client는 다음 deploy 시 재생성됩니다)"
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
