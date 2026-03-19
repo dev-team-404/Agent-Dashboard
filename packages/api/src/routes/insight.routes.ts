@@ -156,13 +156,21 @@ async function handleUsageRate(req: Request, res: Response) {
     const prevMauMap = new Map(prevMonthMauRows.map(r => [r.deptname, Number(r.mau)]));
     const savedMMMap = new Map(savedMMRows.map(r => [r.deptname, r.total_saved || 0]));
 
-    // 5. Determine center group for each deptname
-    // Collect all unique deptnames from MAU results
+    // 5. Build knownCenter1s: 제외 목록 빼고 한번이라도 center1으로 등장한 값들
+    // → 이 값이 누군가의 center2에 나와도 동일 그룹(center1급)으로 취급
+    const knownCenter1s = new Set<string>();
+    for (const h of hierarchies) {
+      const c1 = (h.center1Name || '').trim();
+      if (c1 && c1 !== 'none' && !isTopLevelDivision(c1)) {
+        knownCenter1s.add(c1);
+      }
+    }
+
+    // 6. Determine center group for each deptname
     const allDeptnames = new Set<string>();
     for (const r of targetMauRows) allDeptnames.add(r.deptname);
     for (const r of savedMMRows) allDeptnames.add(r.deptname);
 
-    // centerName → { teams: [...] }
     const centerGroups = new Map<string, {
       teams: Array<{
         team: string;
@@ -182,15 +190,25 @@ async function handleUsageRate(req: Request, res: Response) {
       if (h) {
         teamName = h.team || deptname;
 
-        // center1이 더 큰 단위 → center1 우선 그루핑, 없으면 center2 폴백
-        let c1 = h.center1Name || '';
-        let c2 = h.center2Name || '';
-        if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
-        if (c2 && isTopLevelDivision(c2)) { c2 = ''; }
+        const c1 = (h.center1Name || '').trim();
+        const c2 = (h.center2Name || '').trim();
+        const c1Valid = c1 && c1 !== 'none' && !isTopLevelDivision(c1);
+        const c2Valid = c2 && c2 !== 'none' && !isTopLevelDivision(c2);
 
-        if (c1 && c1 !== 'none') {
+        // center1이 유효하고 knownCenter1s에 있으면 → center1로 그루핑
+        if (c1Valid && knownCenter1s.has(c1)) {
           centerName = c1;
-        } else if (c2 && c2 !== 'none') {
+        }
+        // center2가 knownCenter1s에 있으면 → center2이지만 center1급으로 그루핑
+        else if (c2Valid && knownCenter1s.has(c2)) {
+          centerName = c2;
+        }
+        // 그 외 유효한 center1
+        else if (c1Valid) {
+          centerName = c1;
+        }
+        // 그 외 유효한 center2
+        else if (c2Valid) {
           centerName = c2;
         }
       }
@@ -253,22 +271,29 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const currentYear = targetYear;
     const currentMonth = targetMonth;
 
-    // 1. Find all deptnames belonging to this center
+    // 1. Build knownCenter1s + find depts belonging to this center
     const hierarchies = await prisma.departmentHierarchy.findMany();
+
+    const knownCenter1s = new Set<string>();
+    for (const h of hierarchies) {
+      const c1 = (h.center1Name || '').trim();
+      if (c1 && c1 !== 'none' && !isTopLevelDivision(c1)) {
+        knownCenter1s.add(c1);
+      }
+    }
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
     for (const h of hierarchies) {
-      let resolvedCenter = 'Direct';
-      let c1 = h.center1Name || '';
-      let c2 = h.center2Name || '';
-      if (c1 && isTopLevelDivision(c1)) { c1 = ''; }
-      if (c2 && isTopLevelDivision(c2)) { c2 = ''; }
+      const c1 = (h.center1Name || '').trim();
+      const c2 = (h.center2Name || '').trim();
+      const c1Valid = c1 && c1 !== 'none' && !isTopLevelDivision(c1);
+      const c2Valid = c2 && c2 !== 'none' && !isTopLevelDivision(c2);
 
-      if (c1 && c1 !== 'none') {
-        resolvedCenter = c1;
-      } else if (c2 && c2 !== 'none') {
-        resolvedCenter = c2;
-      }
+      let resolvedCenter = 'Direct';
+      if (c1Valid && knownCenter1s.has(c1)) resolvedCenter = c1;
+      else if (c2Valid && knownCenter1s.has(c2)) resolvedCenter = c2;
+      else if (c1Valid) resolvedCenter = c1;
+      else if (c2Valid) resolvedCenter = c2;
 
       if (resolvedCenter === centerName) {
         centerDepts.push({ deptname: h.departmentName, team: h.team || h.departmentName });
