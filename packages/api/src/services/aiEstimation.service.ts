@@ -84,7 +84,7 @@ async function callSystemLlm(
   }
 }
 
-// ── 프롬프트 빌더 ──
+// ── 프롬프트 빌더 (서비스 전체) ──
 function buildPrompt(service: {
   displayName: string;
   type: string;
@@ -94,41 +94,33 @@ function buildPrompt(service: {
   savedMM: number | null;
   createdAt: Date;
 }, avgDau: number, isEstimatedDau: boolean, avgCalls: number, numDays: number): string {
-  const lines = [
-    `Estimate the M/M savings for this AI service:`,
+  const callsPerUser = avgDau > 0 ? Math.round(avgCalls / avgDau * 10) / 10 : 0;
+
+  return [
+    `You are estimating M/M (Man-Month) savings for an AI service.`,
+    ``,
+    `Your reasoning MUST follow this structure:`,
+    `1. Based on the service description and usage data (LLM call count, token usage), estimate the per-DAU M/M effect — how much time does 1 daily active user save per month by using this service?`,
+    `2. Then multiply: with MAU of X and avg DAU of Y, the total estimated M/M savings is calculated.`,
+    ``,
+    `Key definitions:`,
+    `- 1 M/M = 1 person × 1 month full-time (≈20 business days, 160 hours)`,
+    `- 1 M/D = 0.05 M/M`,
     ``,
     `Service: ${service.displayName}`,
     `Type: ${service.type} (${service.type === 'STANDARD' ? 'interactive user-facing' : 'automated batch processing'})`,
     `Description: ${service.description || 'No description'}`,
-  ];
-
-  if (service.type === 'BACKGROUND' && service.standardMD) {
-    lines.push(`Standard workload per task: ${service.standardMD} M/D`);
-  }
-
-  lines.push(
+    ...(service.type === 'BACKGROUND' && service.standardMD ? [`Standard workload per task: ${service.standardMD} M/D`] : []),
     ``,
-    `Recent usage (avg of last ${numDays} business days, excluding weekends/holidays):`,
-    `- Avg daily DAU: ${avgDau}${isEstimatedDau ? ' (estimated from API call volume)' : ''}`,
-    `- Avg daily API calls: ${avgCalls}`,
-    ``,
-    `Context:`,
-    `- Running since: ${service.createdAt.toISOString().split('T')[0]}`,
+    `Usage data (avg of last ${numDays} business days):`,
+    `- Avg daily DAU: ${avgDau}${isEstimatedDau ? ' (estimated)' : ''}`,
+    `- Avg daily LLM calls: ${avgCalls} (${callsPerUser} calls/user/day)`,
     `- Owner's target M/M: ${service.targetMM ?? 'not set'}`,
     `- Manually recorded Saved M/M: ${service.savedMM ?? 'not set'}`,
-  );
-
-  if (service.type === 'BACKGROUND' && service.standardMD) {
-    lines.push(`- For BACKGROUND: Saved M/M ≈ daily_tasks × ${service.standardMD} M/D ÷ 20`);
-  }
-
-  lines.push(
     ``,
-    `Respond in JSON:`,
-    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<2-3 sentences in Korean>"}`,
-  );
-
-  return lines.join('\n');
+    `Respond ONLY with valid JSON:`,
+    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<Korean. 서비스 설명과 사용량을 보니 DAU 1인당 ~의 M/M 효과가 예상되고, MAU X명·평균 DAU Y명이므로 현재 ~의 M/M 효과를 보고있는 것으로 추정된다 형식으로 작성>"}`,
+  ].join('\n');
 }
 
 // ── JSON 파싱 (안전) ──
@@ -386,28 +378,36 @@ function buildDeptPrompt(service: {
   description: string | null;
   createdAt: Date;
 }, deptname: string, deptDau: number, deptCalls: number, lastMonthMau: number, currentMonthMau: number, bizDaysElapsed: number, bizDaysTotal: number, savedMM: number | null, deptLlmCallCount: number, deptTotalTokens: number): string {
+  const callsPerUser = deptDau > 0 ? Math.round(deptCalls / deptDau * 10) / 10 : 0;
+  const tokensPerCall = deptLlmCallCount > 0 ? Math.round(deptTotalTokens / deptLlmCallCount) : 0;
+
   return [
-    `Estimate the M/M savings that the department "${deptname}" gets from using this AI service:`,
+    `You are estimating the M/M (Man-Month) savings that department "${deptname}" gets from using an AI service.`,
     ``,
-    `Service Name: ${service.name}`,
-    `Service Display Name: ${service.displayName}`,
+    `Your reasoning MUST follow this structure:`,
+    `1. Look at the service description, LLM call count (${deptLlmCallCount.toLocaleString()}), and token usage (${(deptTotalTokens / 1000000).toFixed(2)}M tokens) to understand the complexity and nature of work being automated.`,
+    `2. Estimate per-DAU M/M effect: how much time does 1 daily active user save per month by using this service? Consider that each user makes ~${callsPerUser} calls/day with ~${tokensPerCall} tokens/call.`,
+    `3. Then calculate total: with MAU ${lastMonthMau}명 and avg DAU ${deptDau}명, the total M/M savings is estimated.`,
+    ``,
+    `Key definitions:`,
+    `- 1 M/M = 1 person × 1 month full-time (≈20 business days, 160 hours)`,
+    `- 1 M/D = 0.05 M/M`,
+    ``,
+    `Service: ${service.displayName} (${service.name})`,
     `Type: ${service.type} (${service.type === 'STANDARD' ? 'interactive user-facing' : 'automated batch processing'})`,
     `Description: ${service.description || 'No description'}`,
     ``,
-    `Department-specific usage:`,
-    `- Recent avg daily active users from this dept: ${deptDau}`,
-    `- Recent avg daily API calls from this dept: ${deptCalls}`,
-    `- Last month MAU from this dept: ${lastMonthMau}`,
-    `- Current month MAU from this dept: ${currentMonthMau} (${bizDaysElapsed} out of ${bizDaysTotal} business days)`,
-    `- Last month total LLM call count from this dept: ${deptLlmCallCount.toLocaleString()}`,
-    `- Last month total token usage from this dept: ${deptTotalTokens.toLocaleString()} tokens (${(deptTotalTokens / 1000000).toFixed(2)}M)`,
+    `Department "${deptname}" usage data:`,
+    `- Avg daily active users (DAU): ${deptDau}`,
+    `- Avg daily LLM calls: ${deptCalls} (${callsPerUser} calls/user/day)`,
+    `- Last month MAU: ${lastMonthMau}`,
+    `- Current month MAU: ${currentMonthMau} (${bizDaysElapsed}/${bizDaysTotal} business days elapsed)`,
+    `- Last month LLM call count: ${deptLlmCallCount.toLocaleString()}`,
+    `- Last month token usage: ${deptTotalTokens.toLocaleString()} tokens (${(deptTotalTokens / 1000000).toFixed(2)}M)`,
+    `- Manually recorded Saved M/M: ${savedMM ?? 'not set'}`,
     ``,
-    `Context:`,
-    `- Manually recorded Saved M/M by this dept: ${savedMM ?? 'not set'}`,
-    `- Service running since: ${service.createdAt.toISOString().split('T')[0]}`,
-    ``,
-    `Respond in JSON:`,
-    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<2-3 sentences in Korean explaining the estimate for this specific department>"}`,
+    `Respond ONLY with valid JSON:`,
+    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<Korean. 서비스 설명과 LLM 호출량(${deptLlmCallCount.toLocaleString()}회), 토큰 사용량(${(deptTotalTokens / 1000000).toFixed(2)}M)을 보니 DAU 1인당 ~의 M/M 효과가 예상되고, MAU ${lastMonthMau}명·평균 DAU ${deptDau}명이므로 현재 ~의 M/M 효과를 보고있는 것으로 추정된다 형식으로 작성>"}`,
   ].join('\n');
 }
 
