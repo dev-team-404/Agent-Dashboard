@@ -34,6 +34,22 @@ const apiKeyParam = {
   schema: { type: 'string' as const, example: 'your-api-key' },
 };
 
+const yearParam = {
+  name: 'year',
+  in: 'query' as const,
+  required: false,
+  description: 'Year (YYYY). Defaults to current year if omitted / 연도. 미입력 시 올해',
+  schema: { type: 'integer' as const, example: 2026 },
+};
+
+const monthParam = {
+  name: 'month',
+  in: 'query' as const,
+  required: false,
+  description: 'Month (1-12). Defaults to current month if omitted / 월. 미입력 시 이번달',
+  schema: { type: 'integer' as const, minimum: 1, maximum: 12, example: 3 },
+};
+
 const errorResponse = (desc: string, example?: string) => ({
   description: desc,
   content: {
@@ -607,9 +623,9 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate': {
       get: {
         summary: 'AI Usage Rate by Center (센터별 AI 활용율)',
-        description: `센터별 AI 활용율 대시보드 데이터.\nCenter2 기준 그룹핑 (없으면 Center1, 둘 다 없으면 "Direct").\nSaved M/M 기준 내림차순 정렬.\n\nGroups departments by center hierarchy:\n- If center2 exists → group by center2\n- Else if center1 exists → group by center1\n- Else → "Direct"\n\nSorted by total Saved M/M descending.`,
+        description: `센터별 AI 활용율 대시보드 데이터.\nCenter2 기준 그룹핑 (없으면 Center1, 둘 다 없으면 "Direct").\nSaved M/M 기준 내림차순 정렬.\n\nGroups departments by center hierarchy:\n- If center2 exists → group by center2\n- Else if center1 exists → group by center1\n- Else → "Direct"\n\nSorted by total Saved M/M descending.\n\nS.LSI 사업부 소속 부서만 집계됩니다.`,
         tags: ['Insight'],
-        parameters: [apiKeyParam],
+        parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
           '200': {
             description: 'Center-level usage rate data',
@@ -673,7 +689,7 @@ export const swaggerSpec = {
         description: `특정 센터의 상세 데이터: 팀별 MAU 차트, 월별 MAU 트렌드, 팀-서비스 매트릭스.\n\nReturns:\n- teamMauChart: Team MAU comparison (X: team name English, Y: MAU)\n- monthlyTrend: 6-month MAU trend\n- teamServices: Team × Service matrix with Saved M/M, MAU, LLM call count`,
         tags: ['Insight'],
         parameters: [
-          apiKeyParam,
+          apiKeyParam, yearParam, monthParam,
           { name: 'centerName', in: 'path' as const, required: true, description: 'Center name (URL-encoded)', schema: { type: 'string' as const, example: 'SW Innovation Center' } },
         ],
         responses: {
@@ -716,9 +732,9 @@ export const swaggerSpec = {
     '/stats/insight_service_usage': {
       get: {
         summary: 'Service Usage by LLM Calls (서비스별 LLM 호출 순위)',
-        description: `모든 배포된 서비스를 LLM 호출 수 기준으로 정렬.\n카드: LLM Call Count, Token Usage (input/output/total), MAU (last month).\n\nAll deployed services sorted by LLM call count (descending).\nReturns per-service: call count, token usage breakdown, MAU.`,
+        description: `모든 배포된 서비스를 LLM 호출 수 기준으로 정렬.\n카드: LLM Call Count, Token Usage (input/output/total), MAU.\n\nAll deployed services sorted by LLM call count (descending).\nReturns per-service: call count, token usage breakdown, MAU.\n\nS.LSI 사업부 소속 사용자 기준 집계.`,
         tags: ['Insight'],
-        parameters: [apiKeyParam],
+        parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
           '200': {
             description: 'Service usage data sorted by LLM calls',
@@ -770,7 +786,7 @@ export const swaggerSpec = {
         description: `특정 서비스의 팀별 토큰 사용량 (지난달).\n팀명 영어, 토큰 단위: M (millions).\n\nPer-team token usage for a specific service.\nTeam names in English. Token values in millions.`,
         tags: ['Insight'],
         parameters: [
-          apiKeyParam,
+          apiKeyParam, yearParam, monthParam,
           { name: 'serviceId', in: 'path' as const, required: true, description: 'Service UUID', schema: { type: 'string' as const, format: 'uuid' as const } },
         ],
         responses: {
