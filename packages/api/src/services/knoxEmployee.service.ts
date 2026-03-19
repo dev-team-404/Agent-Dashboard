@@ -456,13 +456,20 @@ function extractBU(deptname: string): string {
  */
 const TOP_LEVEL_DIVISIONS = [
   'Device Solution',
+  'Device Solutions',
+  'System LSI',
   'System LSI Business',
   'SAMSUNG SDS',
   'Samsung Electronics',
+  'Samsung Semiconductor',
 ];
 
 export function isTopLevelDivision(name: string): boolean {
   if (!name) return false;
-  const lower = name.toLowerCase();
-  return TOP_LEVEL_DIVISIONS.some(d => lower === d.toLowerCase());
+  const lower = name.toLowerCase().trim();
+  // 정확히 일치하거나 포함 관계로 매칭 (Device Solution ↔ Device Solutions 등)
+  return TOP_LEVEL_DIVISIONS.some(d => {
+    const dl = d.toLowerCase();
+    return lower === dl || lower.startsWith(dl) || dl.startsWith(lower);
+  });
 }
