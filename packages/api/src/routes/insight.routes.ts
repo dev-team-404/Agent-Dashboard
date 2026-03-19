@@ -55,22 +55,36 @@ interface MauRow {
 // GET /insight/usage-rate
 // 센터별 AI 활용율 (MAU + Saved M/M)
 // ============================================
-async function handleUsageRate(_req: Request, res: Response) {
+async function handleUsageRate(req: Request, res: Response) {
   try {
     const kstNow = getKSTNow();
     const currentYear = kstNow.getUTCFullYear();
     const currentMonth = kstNow.getUTCMonth() + 1;
+    const period = (req.query['period'] as string) || 'last'; // 'current' | 'last'
 
-    const lastMonthDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-    const lastYear = lastMonthDate.getUTCFullYear();
-    const lastMonth = lastMonthDate.getUTCMonth() + 1;
+    // target month: 이번달(current) 또는 지난달(last)
+    let targetYear: number, targetMonth: number;
+    let prevYear: number, prevMonth: number;
+    if (period === 'current') {
+      targetYear = currentYear;
+      targetMonth = currentMonth;
+      // 비교 대상: 지난달
+      const prev = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+      prevYear = prev.getUTCFullYear();
+      prevMonth = prev.getUTCMonth() + 1;
+    } else {
+      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+      targetYear = last.getUTCFullYear();
+      targetMonth = last.getUTCMonth() + 1;
+      const prev = new Date(Date.UTC(targetYear, targetMonth - 2, 1));
+      prevYear = prev.getUTCFullYear();
+      prevMonth = prev.getUTCMonth() + 1;
+    }
 
-    const prevMonthDate = new Date(Date.UTC(lastYear, lastMonth - 2, 1));
-    const prevYear = prevMonthDate.getUTCFullYear();
-    const prevMonth = prevMonthDate.getUTCMonth() + 1;
-
-    const [lastMonthStart, lastMonthEnd] = getMonthBoundariesKST(lastYear, lastMonth);
+    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
     const [prevMonthStart, prevMonthEnd] = getMonthBoundariesKST(prevYear, prevMonth);
+    // 이번달(current)이면 현재 시점까지만 조회
+    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
 
     // 1. Department hierarchies
     const hierarchies = await prisma.departmentHierarchy.findMany();
@@ -81,18 +95,18 @@ async function handleUsageRate(_req: Request, res: Response) {
       deptHierarchyMap.set(h.departmentName, h as DeptHierarchyRow);
     }
 
-    // 2. Last month MAU per deptname
-    const lastMonthMauRows = await prisma.$queryRaw<MauRow[]>`
+    // 2. Target month MAU per deptname
+    const targetMauRows = await prisma.$queryRaw<MauRow[]>`
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND u.loginid != 'anonymous'
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
 
-    // 3. Previous month MAU per deptname
+    // 3. Previous month MAU per deptname (비교용)
     const prevMonthMauRows = await prisma.$queryRaw<MauRow[]>`
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
@@ -111,14 +125,14 @@ async function handleUsageRate(_req: Request, res: Response) {
     `;
 
     // Build maps
-    const lastMauMap = new Map(lastMonthMauRows.map(r => [r.deptname, Number(r.mau)]));
+    const targetMauMap = new Map(targetMauRows.map(r => [r.deptname, Number(r.mau)]));
     const prevMauMap = new Map(prevMonthMauRows.map(r => [r.deptname, Number(r.mau)]));
     const savedMMMap = new Map(savedMMRows.map(r => [r.deptname, r.total_saved || 0]));
 
     // 5. Determine center group for each deptname
     // Collect all unique deptnames from MAU results
     const allDeptnames = new Set<string>();
-    for (const r of lastMonthMauRows) allDeptnames.add(r.deptname);
+    for (const r of targetMauRows) allDeptnames.add(r.deptname);
     for (const r of savedMMRows) allDeptnames.add(r.deptname);
 
     // centerName → { teams: [...] }
@@ -161,7 +175,7 @@ async function handleUsageRate(_req: Request, res: Response) {
       centerGroups.get(centerName)!.teams.push({
         team: teamName,
         deptname,
-        mau: lastMauMap.get(deptname) || 0,
+        mau: targetMauMap.get(deptname) || 0,
         savedMM: savedMMMap.get(deptname) || 0,
       });
     }
@@ -190,7 +204,9 @@ async function handleUsageRate(_req: Request, res: Response) {
     centers.sort((a, b) => b.totalSavedMM - a.totalSavedMM);
 
     res.json({
-      month: `${lastYear}-${String(lastMonth).padStart(2, '0')}`,
+      month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+      period,
+      isCurrentMonth: period === 'current',
       centers,
     });
   } catch (error) {
@@ -206,16 +222,24 @@ async function handleUsageRate(_req: Request, res: Response) {
 async function handleUsageRateDetail(req: Request, res: Response) {
   try {
     const centerName = decodeURIComponent(req.params['centerName'] as string);
+    const period = (req.query['period'] as string) || 'last';
 
     const kstNow = getKSTNow();
     const currentYear = kstNow.getUTCFullYear();
     const currentMonth = kstNow.getUTCMonth() + 1;
 
-    const lastMonthDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-    const lastYear = lastMonthDate.getUTCFullYear();
-    const lastMonth = lastMonthDate.getUTCMonth() + 1;
+    let targetYear: number, targetMonth: number;
+    if (period === 'current') {
+      targetYear = currentYear;
+      targetMonth = currentMonth;
+    } else {
+      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+      targetYear = last.getUTCFullYear();
+      targetMonth = last.getUTCMonth() + 1;
+    }
 
-    const [lastMonthStart, lastMonthEnd] = getMonthBoundariesKST(lastYear, lastMonth);
+    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
+    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
 
     // 1. Find all deptnames belonging to this center
     const hierarchies = await prisma.departmentHierarchy.findMany();
@@ -252,7 +276,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND u.loginid != 'anonymous'
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
@@ -301,7 +325,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
              COALESCE(SUM(ul.request_count), 0) as llm_call_count
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND u.loginid != 'anonymous'
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
@@ -345,7 +369,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 
     res.json({
       centerName,
-      period: `${lastYear}-${String(lastMonth).padStart(2, '0')}`,
+      period: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
       teamMauChart,
       monthlyTrend,
       teamServices,
@@ -360,17 +384,25 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 // GET /insight/service-usage
 // 서비스별 LLM 호출량 순위 (last month)
 // ============================================
-async function handleServiceUsage(_req: Request, res: Response) {
+async function handleServiceUsage(req: Request, res: Response) {
   try {
     const kstNow = getKSTNow();
     const currentYear = kstNow.getUTCFullYear();
     const currentMonth = kstNow.getUTCMonth() + 1;
+    const period = (req.query['period'] as string) || 'last';
 
-    const lastMonthDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-    const lastYear = lastMonthDate.getUTCFullYear();
-    const lastMonth = lastMonthDate.getUTCMonth() + 1;
+    let targetYear: number, targetMonth: number;
+    if (period === 'current') {
+      targetYear = currentYear;
+      targetMonth = currentMonth;
+    } else {
+      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+      targetYear = last.getUTCFullYear();
+      targetMonth = last.getUTCMonth() + 1;
+    }
 
-    const [lastMonthStart, lastMonthEnd] = getMonthBoundariesKST(lastYear, lastMonth);
+    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
+    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
 
     // DEPLOYED 서비스 ID 목록
     const deployedServices = await prisma.service.findMany({
@@ -380,7 +412,7 @@ async function handleServiceUsage(_req: Request, res: Response) {
     const deployedIds = deployedServices.map(s => s.id);
 
     if (deployedIds.length === 0) {
-      res.json({ month: `${lastYear}-${String(lastMonth).padStart(2, '0')}`, services: [] });
+      res.json({ month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`, period, isCurrentMonth: period === 'current', services: [] });
       return;
     }
 
@@ -401,7 +433,7 @@ async function handleServiceUsage(_req: Request, res: Response) {
              COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as mau
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id::text = ANY(${deployedIds})
       GROUP BY ul.service_id
       ORDER BY llm_call_count DESC
@@ -426,7 +458,9 @@ async function handleServiceUsage(_req: Request, res: Response) {
     });
 
     res.json({
-      month: `${lastYear}-${String(lastMonth).padStart(2, '0')}`,
+      month: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
+      period,
+      isCurrentMonth: period === 'current',
       services: data,
     });
   } catch (error) {
@@ -456,12 +490,20 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
     const kstNow = getKSTNow();
     const currentYear = kstNow.getUTCFullYear();
     const currentMonth = kstNow.getUTCMonth() + 1;
+    const period = (req.query['period'] as string) || 'last';
 
-    const lastMonthDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
-    const lastYear = lastMonthDate.getUTCFullYear();
-    const lastMonth = lastMonthDate.getUTCMonth() + 1;
+    let targetYear: number, targetMonth: number;
+    if (period === 'current') {
+      targetYear = currentYear;
+      targetMonth = currentMonth;
+    } else {
+      const last = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+      targetYear = last.getUTCFullYear();
+      targetMonth = last.getUTCMonth() + 1;
+    }
 
-    const [lastMonthStart, lastMonthEnd] = getMonthBoundariesKST(lastYear, lastMonth);
+    const [targetStart, targetEnd] = getMonthBoundariesKST(targetYear, targetMonth);
+    const effectiveEnd = period === 'current' ? new Date() : targetEnd;
 
     // Team-level token usage
     const tokenRows = await prisma.$queryRaw<Array<{
@@ -471,7 +513,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       SELECT u.deptname, COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id = ${serviceId}
         AND u.loginid != 'anonymous'
         AND u.deptname IS NOT NULL AND u.deptname != ''
@@ -499,7 +541,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
         name: service.name,
         displayName: service.displayName,
       },
-      period: `${lastYear}-${String(lastMonth).padStart(2, '0')}`,
+      period: `${targetYear}-${String(targetMonth).padStart(2, '0')}`,
       teamTokens,
     });
   } catch (error) {

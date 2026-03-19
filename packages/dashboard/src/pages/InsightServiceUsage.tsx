@@ -58,17 +58,22 @@ interface ServiceDetail {
   teamTokens: TeamToken[];
 }
 
+type PeriodTab = 'current' | 'last';
+
 export default function InsightServiceUsage() {
+  const [period, setPeriod] = useState<PeriodTab>('current');
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [detail, setDetail] = useState<ServiceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (p: PeriodTab) => {
     try {
       setLoading(true);
-      const res = await api.get('/admin/insight/service-usage');
+      setSelectedService(null);
+      setDetail(null);
+      const res = await api.get('/admin/insight/service-usage', { params: { period: p } });
       setData(res.data);
     } catch (err) {
       console.error('Failed to load service usage insight:', err);
@@ -77,19 +82,19 @@ export default function InsightServiceUsage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(period); }, [loadData, period]);
 
   const loadDetail = useCallback(async (serviceId: string) => {
     try {
       setDetailLoading(true);
-      const res = await api.get(`/admin/insight/service-usage/${serviceId}`);
+      const res = await api.get(`/admin/insight/service-usage/${serviceId}`, { params: { period } });
       setDetail(res.data);
     } catch (err) {
       console.error('Failed to load service detail:', err);
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [period]);
 
   const handleCardClick = (serviceId: string) => {
     setSelectedService(serviceId);
@@ -144,7 +149,7 @@ export default function InsightServiceUsage() {
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
         <Zap className="w-12 h-12 text-pastel-300 mb-4" />
         <p className="text-sm font-semibold text-pastel-600">데이터를 불러올 수 없습니다</p>
-        <button onClick={loadData} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+        <button onClick={() => loadData(period)} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
           다시 시도
         </button>
       </div>
@@ -166,8 +171,24 @@ export default function InsightServiceUsage() {
             <p className="text-sm text-pastel-500 mt-0.5">서비스별 LLM 호출 및 토큰 사용량을 분석합니다</p>
           </div>
         </div>
-        <div className="inline-flex items-center px-3 py-1.5 bg-violet-50 text-violet-700 rounded-full text-sm font-medium">
-          {data.month}
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-lg bg-gray-100 p-0.5">
+            <button
+              onClick={() => setPeriod('current')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'current' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              이번달 (실시간)
+            </button>
+            <button
+              onClick={() => setPeriod('last')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'last' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              지난달
+            </button>
+          </div>
+          <span className="inline-flex items-center px-3 py-1.5 bg-violet-50 text-violet-700 rounded-full text-sm font-medium">
+            {data.month}{period === 'current' ? ' (진행중)' : ''}
+          </span>
         </div>
       </div>
 
