@@ -192,7 +192,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/users" label="사용자 관리" icon={Users} />
                 <NavLink path="/service-targets" label="서비스 목표 관리" icon={Target} />
                 <NavLink path="/insight-usage-rate" label="AI 사용률 인사이트" icon={BarChart3} />
-                <NavLink path="/insight-service-usage" label="서비스 사용량 인사이트" icon={Cpu} />
                 <NavLink path="/admin-requests-manage" label="권한 신청 관리" icon={ShieldCheck} />
               </div>
             </div>

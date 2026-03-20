@@ -390,10 +390,8 @@ export const deptSavedMmApi = {
 
 // Insight API
 export const insightApi = {
-  usageRate: () => api.get('/admin/insight/usage-rate'),
-  usageRateDetail: (centerName: string) => api.get(`/admin/insight/usage-rate/${encodeURIComponent(centerName)}`),
-  serviceUsage: () => api.get('/admin/insight/service-usage'),
-  serviceUsageDetail: (serviceId: string) => api.get(`/admin/insight/service-usage/${serviceId}`),
+  tokenUsage: (centerName?: string, granularity?: string) =>
+    api.get('/admin/insight/token-usage', { params: { centerName, granularity } }),
 };
 
 // 부서 매핑 관리 API (슈퍼 관리자)
