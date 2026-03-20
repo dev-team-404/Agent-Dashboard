@@ -40,7 +40,7 @@ interface TokenUsageData {
 
 const GRAN: Record<Granularity, { label: string; sub: string }> = {
   daily:   { label: 'Daily',   sub: '최근 30일' },
-  weekly:  { label: 'Weekly',  sub: '최근 6개월' },
+  weekly:  { label: 'Weekly',  sub: '최근 12주' },
   monthly: { label: 'Monthly', sub: '최근 12개월' },
 };
 

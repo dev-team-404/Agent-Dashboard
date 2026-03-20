@@ -1187,15 +1187,41 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     let qStart: Date;
     let dateExpr: string;
 
+    // allExpectedPeriods: 데이터 없어도 가로축에 표시할 전체 기간 목록
+    let allExpectedPeriods: string[];
+
     if (granularity === 'daily') {
+      // 최근 30일
       qStart = new Date(Date.UTC(ky, km, kd - 29) - 9 * 3600000);
       dateExpr = `TO_CHAR((ul.timestamp + INTERVAL '9 hours')::date, 'YYYY-MM-DD')`;
+      allExpectedPeriods = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(Date.UTC(ky, km, kd - i));
+        allExpectedPeriods.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`);
+      }
     } else if (granularity === 'weekly') {
-      qStart = new Date(Date.UTC(ky, km - 5, 1) - 9 * 3600000);
+      // 최근 12주
+      qStart = new Date(Date.UTC(ky, km, kd - 83) - 9 * 3600000);
       dateExpr = `TO_CHAR(DATE_TRUNC('week', ul.timestamp + INTERVAL '9 hours'), 'YYYY-MM-DD')`;
+      allExpectedPeriods = [];
+      // 이번주 월요일 구하기
+      const todayKST = new Date(Date.UTC(ky, km, kd));
+      const dow = todayKST.getUTCDay(); // 0=Sun
+      const mondayOffset = dow === 0 ? -6 : 1 - dow;
+      const thisMonday = new Date(Date.UTC(ky, km, kd + mondayOffset));
+      for (let i = 11; i >= 0; i--) {
+        const mon = new Date(thisMonday.getTime() - i * 7 * 86400000);
+        allExpectedPeriods.push(`${mon.getUTCFullYear()}-${String(mon.getUTCMonth() + 1).padStart(2, '0')}-${String(mon.getUTCDate()).padStart(2, '0')}`);
+      }
     } else {
+      // 최근 12개월
       qStart = new Date(Date.UTC(ky, km - 11, 1) - 9 * 3600000);
       dateExpr = `TO_CHAR(DATE_TRUNC('month', ul.timestamp + INTERVAL '9 hours'), 'YYYY-MM')`;
+      allExpectedPeriods = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(Date.UTC(ky, km - i, 1));
+        allExpectedPeriods.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      }
     }
     const qEnd = new Date();
 
@@ -1308,7 +1334,7 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       pm.set(sn, (pm.get(sn) || 0) + tokens);
     }
 
-    // 9. Top N + '기타'
+    // 9. Top N + '기타' (데이터 없는 기간도 가로축 포함)
     function topNWithOther(totals: Map<string, number>, periods: Map<string, Map<string, number>>) {
       const sorted = Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
       const topKeys = sorted.slice(0, MAX_DTGPT_CHART_ITEMS).map(([k]) => k);
@@ -1316,8 +1342,7 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       const hasOther = otherKeys.size > 0;
       const keys = hasOther ? [...topKeys, '기타'] : topKeys;
 
-      const allPeriods = Array.from(periods.keys()).sort();
-      const chartData = allPeriods.map(p => {
+      const chartData = allExpectedPeriods.map(p => {
         const m = periods.get(p) || new Map();
         const entry: Record<string, any> = { period: p };
         let otherTotal = 0;
