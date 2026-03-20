@@ -1,337 +1,365 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BarChart3, ChevronDown, Loader2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, X, ArrowLeft, Users, BarChart3, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, TooltipProps,
-  ResponsiveContainer, Legend,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell,
 } from 'recharts';
 
-/* ── 팀/서비스 색상 팔레트 (최대 13: top 12 + 기타) ── */
-const TEAM_COLORS = [
+const CARD_COLORS = [
+  { bg: 'from-blue-50 to-indigo-50', border: 'border-blue-100', accent: 'text-blue-700', bar: '#3b82f6' },
+  { bg: 'from-emerald-50 to-teal-50', border: 'border-emerald-100', accent: 'text-emerald-700', bar: '#10b981' },
+  { bg: 'from-violet-50 to-purple-50', border: 'border-violet-100', accent: 'text-violet-700', bar: '#8b5cf6' },
+  { bg: 'from-amber-50 to-yellow-50', border: 'border-amber-100', accent: 'text-amber-700', bar: '#f59e0b' },
+  { bg: 'from-rose-50 to-pink-50', border: 'border-rose-100', accent: 'text-rose-700', bar: '#ec4899' },
+  { bg: 'from-cyan-50 to-sky-50', border: 'border-cyan-100', accent: 'text-cyan-700', bar: '#06b6d4' },
+  { bg: 'from-orange-50 to-red-50', border: 'border-orange-100', accent: 'text-orange-700', bar: '#ea580c' },
+  { bg: 'from-lime-50 to-green-50', border: 'border-lime-100', accent: 'text-lime-700', bar: '#84cc16' },
+];
+
+const CHART_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
   '#06b6d4', '#ea580c', '#6366f1', '#22c55e', '#ef4444',
-  '#a855f7', '#0ea5e9', '#94a3b8',
-];
-const SERVICE_COLORS = [
-  '#6366f1', '#f97316', '#14b8a6', '#e11d48', '#8b5cf6',
-  '#0891b2', '#d946ef', '#84cc16', '#fb923c', '#3b82f6',
-  '#22c55e', '#ef4444', '#94a3b8',
+  '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
-/* ── Types ── */
-type Granularity = 'daily' | 'weekly' | 'monthly';
-
-interface TokenUsageData {
-  centers: string[];
-  centerName: string;
-  granularity: Granularity;
-  byTeam: Array<Record<string, any>>;
-  byService: Array<Record<string, any>>;
-  teams: string[];
-  services: string[];
+interface Center {
+  name: string;
+  totalMau: number;
+  mauChangePercent: number;
+  totalSavedMM: number;
+  teamCount: number;
 }
 
-const GRAN_META: Record<Granularity, { label: string; sub: string }> = {
-  daily:   { label: 'Daily',   sub: '최근 30일' },
-  weekly:  { label: 'Weekly',  sub: '최근 6개월' },
-  monthly: { label: 'Monthly', sub: '최근 12개월' },
-};
-
-/* ── Helpers ── */
-
-function fmtTokens(v: number): string {
-  if (v >= 1_000_000_000) return `${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1_000_000) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1e3).toFixed(1)}K`;
-  return v.toLocaleString();
+interface OverviewData {
+  month: string;
+  centers: Center[];
 }
 
-function fmtPeriod(p: string, g: Granularity): string {
-  if (g === 'daily') {
-    // "2026-03-15" → "03/15"
-    const [, m, d] = p.split('-');
-    return `${m}/${d}`;
-  }
-  if (g === 'weekly') {
-    // "2026-03-10" (Monday) → "03/10"
-    const [, m, d] = p.split('-');
-    return `${m}/${d}`;
-  }
-  // "2026-03" → "'26/03"
-  const [y, m] = p.split('-');
-  return `${y.slice(2)}/${m}`;
+interface TeamService {
+  team: string;
+  serviceDisplayName: string;
+  serviceType: string;
+  savedMM: number;
+  mau: number;
+  llmCallCount: number;
 }
 
-/* ── Custom Tooltip ── */
-
-function ChartTooltip({ active, payload, label, colors }: TooltipProps<number, string> & { colors: string[] }) {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
-  const visible = payload.filter(p => (p.value ?? 0) > 0).reverse();
-
-  return (
-    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[200px] max-w-[280px]">
-      <p className="text-[11px] font-medium text-gray-400 mb-1">{label}</p>
-      <p className="text-sm font-bold text-gray-900 mb-3">
-        Total <span className="text-blue-600">{fmtTokens(total)}</span> tokens
-      </p>
-      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-        {visible.map((p, i) => (
-          <div key={p.dataKey} className="flex items-center justify-between gap-3 text-[11px]">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
-                style={{ backgroundColor: p.color || colors[i % colors.length] }}
-              />
-              <span className="text-gray-600 truncate">{p.dataKey}</span>
-            </div>
-            <span className="font-semibold text-gray-800 tabular-nums flex-shrink-0">{fmtTokens(p.value ?? 0)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+interface CenterDetail {
+  center: string;
+  teamMauChart: Array<{ team: string; mau: number }>;
+  monthlyTrend: Array<{ month: string; mau: number }>;
+  teamServices: TeamService[];
 }
 
-/* ── Stacked Bar Chart Section ── */
+type PeriodTab = 'current' | 'last';
 
-function StackedChart({
-  title,
-  subtitle,
-  data,
-  keys,
-  colors,
-  granularity,
-}: {
-  title: string;
-  subtitle: string;
-  data: Array<Record<string, any>>;
-  keys: string[];
-  colors: string[];
-  granularity: Granularity;
-}) {
-  const empty = data.length === 0 || keys.length === 0;
-
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-      <div className="mb-5">
-        <h3 className="text-base font-semibold text-gray-800">{title}</h3>
-        <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
-      </div>
-
-      {empty ? (
-        <div className="flex items-center justify-center h-52 text-gray-400 text-sm">해당 기간의 데이터가 없습니다</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={420}>
-          <BarChart data={data} margin={{ top: 10, right: 16, left: 4, bottom: granularity === 'daily' ? 50 : 24 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-            <XAxis
-              dataKey="period"
-              tick={{ fill: '#6b7280', fontSize: 11 }}
-              tickLine={false}
-              axisLine={{ stroke: '#e5e7eb' }}
-              tickFormatter={(v: string) => fmtPeriod(v, granularity)}
-              angle={granularity === 'daily' ? -45 : 0}
-              textAnchor={granularity === 'daily' ? 'end' : 'middle'}
-              interval={granularity === 'daily' ? 1 : 0}
-            />
-            <YAxis
-              tick={{ fill: '#6b7280', fontSize: 11 }}
-              tickLine={false}
-              axisLine={{ stroke: '#e5e7eb' }}
-              tickFormatter={fmtTokens}
-              width={56}
-            />
-            <Tooltip
-              content={<ChartTooltip colors={colors} />}
-              cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }}
-            />
-            <Legend
-              wrapperStyle={{ paddingTop: 12, fontSize: 12 }}
-              iconType="square"
-              iconSize={10}
-              formatter={(v: string) => <span className="text-[11px] text-gray-600 ml-1">{v}</span>}
-            />
-            {keys.map((key, i) => (
-              <Bar
-                key={key}
-                dataKey={key}
-                stackId="s"
-                fill={colors[i % colors.length]}
-                radius={i === keys.length - 1 ? [3, 3, 0, 0] : undefined}
-              />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-    </div>
-  );
+function getMonthParams(p: PeriodTab): { year: number; month: number } {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  if (p === 'current') return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
+  const last = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
+  return { year: last.getUTCFullYear(), month: last.getUTCMonth() + 1 };
 }
-
-/* ── Page Component ── */
 
 export default function InsightUsageRate() {
-  const [data, setData] = useState<TokenUsageData | null>(null);
+  const [period, setPeriod] = useState<PeriodTab>('current');
+  const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [center, setCenter] = useState('');
-  const [gran, setGran] = useState<Granularity>('monthly');
-  const [ddOpen, setDdOpen] = useState(false);
+  const [selectedCenter, setSelectedCenter] = useState<string | null>(null);
+  const [detail, setDetail] = useState<CenterDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-  const load = useCallback(async (c?: string, g?: Granularity) => {
+  const loadData = useCallback(async (p: PeriodTab) => {
     try {
       setLoading(true);
-      const params: Record<string, string> = { granularity: g || gran };
-      if (c) params.centerName = c;
-      const res = await api.get('/admin/insight/token-usage', { params });
+      setSelectedCenter(null);
+      setDetail(null);
+      const res = await api.get('/admin/insight/usage-rate', { params: getMonthParams(p) });
       setData(res.data);
-      if (!c && res.data.centerName) setCenter(res.data.centerName);
     } catch (err) {
-      console.error('Failed to load token usage:', err);
+      console.error('Failed to load usage rate insight:', err);
     } finally {
       setLoading(false);
     }
-  }, [gran]);
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { loadData(period); }, [loadData, period]);
 
-  const pickCenter = (c: string) => { setCenter(c); setDdOpen(false); load(c, gran); };
-  const pickGran = (g: Granularity) => { setGran(g); load(center, g); };
+  const loadDetail = useCallback(async (centerName: string) => {
+    try {
+      setDetailLoading(true);
+      const res = await api.get(`/admin/insight/usage-rate/${encodeURIComponent(centerName)}`, { params: getMonthParams(period) });
+      setDetail(res.data);
+    } catch (err) {
+      console.error('Failed to load center detail:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [period]);
 
-  /* ── Loading skeleton ── */
-  if (loading && !data) {
+  const handleCardClick = (centerName: string) => {
+    setSelectedCenter(centerName);
+    loadDetail(centerName);
+  };
+
+  const handleCloseDetail = () => {
+    setSelectedCenter(null);
+    setDetail(null);
+  };
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toLocaleString();
+  };
+
+  if (loading) {
     return (
       <div className="space-y-6 animate-fade-in">
-        <Header />
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-blue-50">
+            <BarChart3 className="w-6 h-6 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">AI 사용률 인사이트</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">센터별 AI 활용 현황을 한눈에 파악합니다</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="rounded-xl bg-white border border-gray-100 p-6 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-32 mb-4" />
+              <div className="h-10 bg-gray-100 rounded w-20 mb-2" />
+              <div className="h-4 bg-gray-100 rounded w-24" />
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
-  /* ── No data fallback ── */
   if (!data) {
     return (
-      <div className="space-y-6 animate-fade-in">
-        <Header />
-        <div className="flex flex-col items-center justify-center py-24">
-          <BarChart3 className="w-12 h-12 text-gray-300 mb-4" />
-          <p className="text-sm font-medium text-gray-500">데이터를 불러올 수 없습니다</p>
-          <button onClick={() => load()} className="mt-3 px-4 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-            다시 시도
-          </button>
-        </div>
+      <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
+        <BarChart3 className="w-12 h-12 text-pastel-300 mb-4" />
+        <p className="text-sm font-semibold text-pastel-600">데이터를 불러올 수 없습니다</p>
+        <button onClick={() => loadData(period)} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+          다시 시도
+        </button>
       </div>
     );
   }
+
+  const sortedCenters = [...data.centers].sort((a, b) => b.totalSavedMM - a.totalSavedMM);
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* ── Header + Controls ── */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <Header />
-
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Center Dropdown */}
-          {data.centers.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setDdOpen(v => !v)}
-                className="flex items-center gap-2 pl-4 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-blue-300 transition-colors shadow-sm min-w-[160px]"
-              >
-                <span className="truncate max-w-[180px]">{center || 'Center 선택'}</span>
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ddOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {ddOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setDdOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-1">
-                    {data.centers.map(c => (
-                      <button
-                        key={c}
-                        onClick={() => pickCenter(c)}
-                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                          c === center
-                            ? 'bg-blue-50 text-blue-700 font-semibold'
-                            : 'text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Granularity Toggle */}
-          <div className="inline-flex rounded-lg bg-gray-100 p-0.5 shadow-inner">
-            {(['daily', 'weekly', 'monthly'] as Granularity[]).map(g => (
-              <button
-                key={g}
-                onClick={() => pickGran(g)}
-                className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${
-                  gran === g
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {GRAN_META[g].label}
-              </button>
-            ))}
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-blue-50">
+            <BarChart3 className="w-6 h-6 text-blue-600" />
           </div>
-
-          {loading && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
+          <div>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">AI 사용률 인사이트</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">센터별 AI 활용 현황을 한눈에 파악합니다</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-lg bg-gray-100 p-0.5">
+            <button
+              onClick={() => setPeriod('current')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'current' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              이번달 (실시간)
+            </button>
+            <button
+              onClick={() => setPeriod('last')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'last' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              지난달
+            </button>
+          </div>
+          <span className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium">
+            {data.month}{period === 'current' ? ' (진행중)' : ''}
+          </span>
         </div>
       </div>
 
-      {/* ── Period Badge ── */}
-      <div className="flex items-center gap-2">
-        <span className="inline-flex items-center px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
-          {GRAN_META[gran].sub}
-        </span>
-        {center && (
-          <span className="inline-flex items-center px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-medium">
-            {center}
-          </span>
-        )}
+      {/* Center Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {sortedCenters.map((center, idx) => {
+          const colorScheme = CARD_COLORS[idx % CARD_COLORS.length];
+          const isSelected = selectedCenter === center.name;
+          const trendPositive = center.mauChangePercent >= 0;
+
+          return (
+            <button
+              key={center.name}
+              onClick={() => handleCardClick(center.name)}
+              className={`text-left rounded-xl bg-gradient-to-br ${colorScheme.bg} border ${colorScheme.border} p-5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
+                isSelected ? 'ring-2 ring-indigo-400 shadow-lg' : ''
+              }`}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <h3 className={`text-lg font-bold ${colorScheme.accent}`}>{center.name}</h3>
+                <div className={`flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                  trendPositive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {trendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  {Math.abs(center.mauChangePercent).toFixed(1)}%
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-3">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">Total MAU</p>
+                  <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatNumber(center.totalMau)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">Saved M/M</p>
+                  <p className="text-2xl font-bold text-emerald-700 tabular-nums">{center.totalSavedMM.toFixed(1)}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <Users className="w-3 h-3" />
+                <span>{center.teamCount}개 팀</span>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Charts ── */}
-      <div className="space-y-6">
-        <StackedChart
-          title="팀별 토큰 사용량"
-          subtitle={`${center} 내부 팀별 총 토큰 사용량 추이`}
-          data={data.byTeam}
-          keys={data.teams}
-          colors={TEAM_COLORS}
-          granularity={gran}
-        />
-        <StackedChart
-          title="서비스별 토큰 사용량"
-          subtitle={`${center} 내부 서비스별 총 토큰 사용량 추이`}
-          data={data.byService}
-          keys={data.services}
-          colors={SERVICE_COLORS}
-          granularity={gran}
-        />
-      </div>
-    </div>
-  );
-}
+      {/* Detail Modal/Panel */}
+      {selectedCenter && (
+        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden animate-fade-in">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCloseDetail}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <h2 className="text-lg font-bold text-pastel-800">{selectedCenter} 상세</h2>
+            </div>
+            <button
+              onClick={handleCloseDetail}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-/* ── Title Block ── */
-function Header() {
-  return (
-    <div className="flex items-center gap-4">
-      <div className="p-3 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 shadow-sm">
-        <BarChart3 className="w-6 h-6 text-blue-600" />
-      </div>
-      <div>
-        <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">AI 사용률 인사이트</h1>
-        <p className="text-sm text-pastel-500 mt-0.5">센터별 토큰 사용량을 팀/서비스 단위로 분석합니다</p>
-      </div>
+          {detailLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+            </div>
+          ) : detail ? (
+            <div className="p-6 space-y-8">
+              {/* Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Team MAU Bar Chart */}
+                <div>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 MAU 비교</h3>
+                  {detail.teamMauChart.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={detail.teamMauChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
+                        />
+                        <Bar dataKey="mau" radius={[6, 6, 0, 0]} barSize={32}>
+                          {detail.teamMauChart.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                  )}
+                </div>
+
+                {/* Monthly MAU Trend */}
+                <div>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">월별 MAU 추이</h3>
+                  {detail.monthlyTrend.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={detail.monthlyTrend} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
+                        />
+                        <Line type="monotone" dataKey="mau" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 5, strokeWidth: 2 }} activeDot={{ r: 7 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Team-Service Detail Table */}
+              <div>
+                <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀-서비스 상세</h3>
+                <div className="overflow-x-auto rounded-lg border border-gray-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">팀</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">타입</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">Saved M/M</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">MAU</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">LLM Calls</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.teamServices.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-12 text-center text-pastel-400 text-sm">상세 데이터가 없습니다</td>
+                        </tr>
+                      ) : (
+                        detail.teamServices.map((ts, idx) => (
+                          <tr key={`${ts.team}-${ts.serviceDisplayName}-${idx}`} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                            <td className="py-3 px-4 font-medium text-pastel-800">{ts.team}</td>
+                            <td className="py-3 px-4">
+                              <span className="text-pastel-700">{ts.serviceDisplayName}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full ${
+                                ts.serviceType === 'STANDARD' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80' : 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80'
+                              }`}>
+                                {ts.serviceType === 'STANDARD' ? '표준' : '백그라운드'}
+                              </span>
+                            </td>
+                            <td className="text-right py-3 px-4 font-medium text-emerald-700 tabular-nums">{ts.savedMM != null ? ts.savedMM.toFixed(1) : '-'}</td>
+                            <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.mau)}</td>
+                            <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.llmCallCount)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-16 text-pastel-400">
+              상세 데이터를 불러올 수 없습니다
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

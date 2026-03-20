@@ -27,6 +27,7 @@ const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
 const InsightUsageRate = lazy(() => import('./pages/InsightUsageRate'));
+const InsightServiceUsage = lazy(() => import('./pages/InsightServiceUsage'));
 const DeptMapping = lazy(() => import('./pages/DeptMapping'));
 
 interface User {
@@ -139,7 +140,7 @@ function App() {
               <Route path="/service-targets" element={<ServiceTargets />} />
               <Route path="/admin-requests-manage" element={<AdminRequestsManage />} />
               <Route path="/insight-usage-rate" element={<InsightUsageRate />} />
-              <Route path="/insight-service-usage" element={<Navigate to="/insight-usage-rate" replace />} />
+              <Route path="/insight-service-usage" element={<InsightServiceUsage />} />
               <Route path="/service/:serviceId" element={<ServiceDashboardWrapper adminRole={adminRole} />} />
               <Route path="/service/:serviceId/users" element={<ServiceUsersWrapper />} />
             </>

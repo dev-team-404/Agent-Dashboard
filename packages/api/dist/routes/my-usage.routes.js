@@ -140,7 +140,7 @@ myUsageRoutes.get('/daily', async (req, res) => {
             dailyStats = await prisma.$queryRaw `
         SELECT
           DATE(timestamp) as date,
-          COALESCE(SUM(request_count), 0) as requests,
+          COUNT(*) as requests,
           COALESCE(SUM("inputTokens"), 0) as input_tokens,
           COALESCE(SUM("outputTokens"), 0) as output_tokens,
           COALESCE(SUM("totalTokens"), 0) as total_tokens
@@ -156,7 +156,7 @@ myUsageRoutes.get('/daily', async (req, res) => {
             dailyStats = await prisma.$queryRaw `
         SELECT
           DATE(timestamp) as date,
-          COALESCE(SUM(request_count), 0) as requests,
+          COUNT(*) as requests,
           COALESCE(SUM("inputTokens"), 0) as input_tokens,
           COALESCE(SUM("outputTokens"), 0) as output_tokens,
           COALESCE(SUM("totalTokens"), 0) as total_tokens

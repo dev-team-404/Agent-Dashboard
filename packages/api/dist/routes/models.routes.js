@@ -41,7 +41,6 @@ modelsRoutes.get('/browse', authenticateToken, async (req, res) => {
             where: {
                 enabled: true,
                 visibility: { notIn: ['ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] },
-                endpointUrl: { not: 'external://auto-created' },
             },
             orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
         });
@@ -77,9 +76,6 @@ modelsRoutes.get('/browse', authenticateToken, async (req, res) => {
 modelsRoutes.get('/', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const models = await prisma.model.findMany({
-            where: {
-                endpointUrl: { not: 'external://auto-created' },
-            },
             orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
         });
         // 권한에 따라 필터링
@@ -291,6 +287,7 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin, async (req, res) =>
         await prisma.$transaction([
             prisma.subModel.deleteMany({ where: { parentId: id } }),
             prisma.usageLog.deleteMany({ where: { modelId: id } }),
+            prisma.dailyUsageStat.deleteMany({ where: { modelId: id } }),
             prisma.model.delete({ where: { id } }),
         ]);
         recordAudit(req, 'DELETE_MODEL', id, 'Model', { name: modelName }).catch(() => { });

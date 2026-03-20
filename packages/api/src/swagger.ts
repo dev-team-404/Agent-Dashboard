@@ -618,95 +618,198 @@ export const swaggerSpec = {
     // 7. External Usage - POST by-user (API Only 서비스 사용자별 사용 기록 전송)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 8. Insight — Center Token Usage Time Series (센터별 토큰 사용량 시계열)
+    // 8. Insight — AI Usage Rate & Service Usage (센터별/서비스별 인사이트)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    '/stats/insight_token_usage': {
+    '/stats/insight_ai_usage_rate': {
       get: {
-        summary: 'Center Token Usage Time Series (센터별 토큰 사용량 시계열)',
-        description:
-          'Returns time-series token usage data for a specific center, broken down by **team** and **service**.\n' +
-          '특정 센터의 시계열 토큰 사용량 데이터를 **팀별** 및 **서비스별**로 반환합니다.\n\n' +
-          '## Granularity (시간 단위)\n' +
-          '| Value | Period | Description |\n' +
-          '|-------|--------|-------------|\n' +
-          '| `daily` | Last 30 days / 최근 30일 | Daily aggregation / 일별 집계 |\n' +
-          '| `weekly` | Last 6 months / 최근 6개월 | Weekly aggregation (ISO week, Monday start) / 주별 집계 |\n' +
-          '| `monthly` | Last 12 months / 최근 12개월 | Monthly aggregation / 월별 집계 |\n\n' +
-          '## Center Resolution (센터 결정 로직)\n' +
-          '- center1 (priority) → center2 (fallback) → "Direct"\n' +
-          '- `centerName` 미입력 시 알파벳 순 첫 번째 센터\n\n' +
-          '## Response\n' +
-          '- `byTeam`: Stacked bar chart data per team (top 12 + 기타)\n' +
-          '- `byService`: Stacked bar chart data per service (top 12 + 기타)\n\n' +
-          'S.LSI 사업부 소속 사용자 기준 집계.',
-        tags: ['Insight (인사이트)'],
-        parameters: [
-          apiKeyParam,
-          {
-            name: 'centerName',
-            in: 'query' as const,
-            required: false,
-            description: 'Center name. Defaults to first center / 센터명. 미입력 시 첫 번째 센터',
-            schema: { type: 'string' as const, example: 'Platform Technology Center' },
-          },
-          {
-            name: 'granularity',
-            in: 'query' as const,
-            required: false,
-            description: 'Time granularity: daily|weekly|monthly. Default: monthly',
-            schema: { type: 'string' as const, enum: ['daily', 'weekly', 'monthly'], default: 'monthly' },
-          },
-        ],
+        summary: 'AI Usage Rate by Center (센터별 AI 활용율)',
+        description: `센터별 AI 활용율 대시보드 데이터.\nCenter1(상위) 기준 그룹핑 (없으면 Center2, 둘 다 없으면 "Direct").\nSaved M/M 기준 내림차순 정렬.\n\nGroups departments by center hierarchy:\n- If center1 exists → group by center1 (larger org unit)\n- Else if center2 exists → group by center2\n- Else → "Direct"\n\nSorted by total Saved M/M descending.\n\nS.LSI 사업부 소속 부서만 집계됩니다.`,
+        tags: ['Insight'],
+        parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
           '200': {
-            description: 'Token usage time series / 토큰 사용량 시계열',
+            description: 'Center-level usage rate data',
             content: {
               'application/json': {
                 schema: {
                   type: 'object' as const,
                   properties: {
-                    centers: { type: 'array' as const, items: { type: 'string' as const }, description: 'Available centers / 센터 목록' },
-                    centerName: { type: 'string' as const, description: 'Selected center / 선택된 센터' },
-                    granularity: { type: 'string' as const, enum: ['daily', 'weekly', 'monthly'] },
-                    teams: { type: 'array' as const, items: { type: 'string' as const }, description: 'Team keys (top 12 + 기타)' },
-                    services: { type: 'array' as const, items: { type: 'string' as const }, description: 'Service keys (top 12 + 기타)' },
-                    byTeam: {
+                    month: { type: 'string' as const, description: 'Data period (YYYY-MM)', example: '2026-02' },
+                    centers: {
                       type: 'array' as const,
                       items: {
                         type: 'object' as const,
-                        properties: { period: { type: 'string' as const } },
-                        additionalProperties: { type: 'integer' as const },
-                      },
-                    },
-                    byService: {
-                      type: 'array' as const,
-                      items: {
-                        type: 'object' as const,
-                        properties: { period: { type: 'string' as const } },
-                        additionalProperties: { type: 'integer' as const },
+                        properties: {
+                          name: { type: 'string' as const, description: 'Center name (English)' },
+                          totalMau: { type: 'integer' as const, description: 'Total MAU across all teams in this center (last month)' },
+                          mauChangePercent: { type: 'number' as const, description: '% change vs previous month' },
+                          totalSavedMM: { type: 'number' as const, description: 'Total Saved M/M across all teams' },
+                          teamCount: { type: 'integer' as const, description: 'Number of teams in this center' },
+                        },
                       },
                     },
                   },
                 },
                 example: {
-                  centers: ['AI Development Center', 'Platform Technology Center'],
-                  centerName: 'Platform Technology Center',
-                  granularity: 'monthly',
-                  teams: ['SW Innovation Team', 'DevOps Team', '기타'],
-                  services: ['Nexus Coder (CLI)', 'Hanseol'],
-                  byTeam: [
-                    { period: '2025-04', 'SW Innovation Team': 2500000, 'DevOps Team': 1200000, '기타': 300000 },
-                    { period: '2025-05', 'SW Innovation Team': 3100000, 'DevOps Team': 1500000, '기타': 420000 },
-                  ],
-                  byService: [
-                    { period: '2025-04', 'Nexus Coder (CLI)': 3200000, 'Hanseol': 900000 },
-                    { period: '2025-05', 'Nexus Coder (CLI)': 4100000, 'Hanseol': 1100000 },
+                  month: '2026-02',
+                  centers: [
+                    {
+                      name: 'SW Innovation Center',
+                      totalMau: 150,
+                      mauChangePercent: 12.5,
+                      totalSavedMM: 8.5,
+                      teamCount: 3,
+                    },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid granularity'),
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_ai_usage_rate/{centerName}': {
+      get: {
+        summary: 'AI Usage Rate - Center Detail (센터 상세)',
+        description: `특정 센터의 상세 데이터: 팀별 MAU 차트, 월별 MAU 트렌드, 팀-서비스 매트릭스.\n\nReturns:\n- teamMauChart: Team MAU comparison (X: team name English, Y: MAU)\n- monthlyTrend: 6-month MAU trend\n- teamServices: Team × Service matrix with Saved M/M, MAU, LLM call count`,
+        tags: ['Insight'],
+        parameters: [
+          apiKeyParam, yearParam, monthParam,
+          { name: 'centerName', in: 'path' as const, required: true, description: 'Center name (URL-encoded)', schema: { type: 'string' as const, example: 'SW Innovation Center' } },
+        ],
+        responses: {
+          '200': {
+            description: 'Center detail data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    centerName: { type: 'string' as const },
+                    period: { type: 'string' as const },
+                    teamMauChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
+                    monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
+                    teamServices: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          team: { type: 'string' as const, description: 'English team name' },
+                          serviceName: { type: 'string' as const },
+                          serviceDisplayName: { type: 'string' as const },
+                          serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
+                          savedMM: { type: 'number' as const, nullable: true },
+                          mau: { type: 'integer' as const },
+                          llmCallCount: { type: 'integer' as const },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '404': errorResponse('Center not found'),
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_service_usage': {
+      get: {
+        summary: 'Service Usage by LLM Calls (서비스별 LLM 호출 순위)',
+        description: `모든 배포된 서비스를 LLM 호출 수 기준으로 정렬.\n카드: LLM Call Count, Token Usage (input/output/total), MAU.\n\nAll deployed services sorted by LLM call count (descending).\nReturns per-service: call count, token usage breakdown, MAU.\n\nS.LSI 사업부 소속 사용자 기준 집계.`,
+        tags: ['Insight'],
+        parameters: [apiKeyParam, yearParam, monthParam],
+        responses: {
+          '200': {
+            description: 'Service usage data sorted by LLM calls',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    month: { type: 'string' as const, example: '2026-02' },
+                    services: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          displayName: { type: 'string' as const, description: 'Service display name' },
+                          llmCallCount: { type: 'integer' as const },
+                          tokenUsage: {
+                            type: 'object' as const,
+                            properties: {
+                              input: { type: 'integer' as const },
+                              output: { type: 'integer' as const },
+                              total: { type: 'integer' as const },
+                            },
+                          },
+                          mau: { type: 'integer' as const },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  month: '2026-02',
+                  services: [
+                    { displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, mau: 45 },
+                  ],
+                },
+              },
+            },
+          },
+          '500': errorResponse('Internal server error'),
+        },
+      },
+    },
+    '/stats/insight_service_usage/{serviceName}': {
+      get: {
+        summary: 'Service Usage - Team Token Breakdown (팀별 토큰 사용량)',
+        description: `특정 서비스의 팀별 토큰 사용량 (지난달).\n팀명 영어, 토큰 단위: M (millions).\n\nPer-team token usage for a specific service.\nTeam names in English. Token values in millions.`,
+        tags: ['Insight'],
+        parameters: [
+          apiKeyParam, yearParam, monthParam,
+          { name: 'serviceName', in: 'path' as const, required: true, description: 'Service display name (URL-encoded)', schema: { type: 'string' as const, example: 'Nexus Coder (CLI)' } },
+        ],
+        responses: {
+          '200': {
+            description: 'Team-level token usage',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object' as const,
+                  properties: {
+                    displayName: { type: 'string' as const, description: 'Service display name' },
+                    period: { type: 'string' as const },
+                    teamTokens: {
+                      type: 'array' as const,
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          team: { type: 'string' as const, description: 'English team name' },
+                          teamKr: { type: 'string' as const, description: 'Korean department name' },
+                          tokensM: { type: 'number' as const, description: 'Total tokens in millions' },
+                          mau: { type: 'integer' as const, description: 'Monthly active users' },
+                          llmCallCount: { type: 'integer' as const, description: 'LLM call count' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  displayName: 'Nexus Coder',
+                  period: '2026-03',
+                  teamDetails: [
+                    { team: 'SW Innovation Team', teamKr: 'S/W혁신팀(S.LSI)', tokensM: 1.52, mau: 8, llmCallCount: 2542 },
+                    { team: 'Platform Team', teamKr: '플랫폼팀(S.LSI)', tokensM: 0.83, mau: 3, llmCallCount: 450 },
+                  ],
+                },
+              },
+            },
+          },
+          '404': errorResponse('Service not found'),
           '500': errorResponse('Internal server error'),
         },
       },

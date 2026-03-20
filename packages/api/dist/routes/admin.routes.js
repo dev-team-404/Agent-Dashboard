@@ -386,9 +386,6 @@ const modelSchema = z.object({
 adminRoutes.get('/models', async (req, res) => {
     try {
         const models = await prisma.model.findMany({
-            where: {
-                endpointUrl: { not: 'external://auto-created' },
-            },
             include: {
                 creator: {
                     select: { loginid: true },
@@ -626,6 +623,10 @@ adminRoutes.delete('/models/:id', requireSuperAdmin, async (req, res) => {
             });
             console.log(`Force deleted ${usageCount} usage logs for model ${id}`);
         }
+        // Also delete daily_usage_stats
+        await prisma.dailyUsageStat.deleteMany({
+            where: { modelId: id },
+        });
         await prisma.model.delete({
             where: { id },
         });
@@ -2256,7 +2257,7 @@ adminRoutes.get('/stats/overview', async (req, res) => {
                 },
             }),
             prisma.model.count({
-                where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+                where: { enabled: true },
             }),
         ]);
         // 서비스별 today's usage (DB에서 계산)
@@ -2274,11 +2275,11 @@ adminRoutes.get('/stats/overview', async (req, res) => {
                     inputTokens: true,
                     outputTokens: true,
                     totalTokens: true,
-                    requestCount: true,
                 },
+                _count: true,
             });
             serviceTodayUsage = {
-                requests: todayStats._sum?.requestCount || 0,
+                requests: todayStats._count,
                 inputTokens: todayStats._sum.inputTokens || 0,
                 outputTokens: todayStats._sum.outputTokens || 0,
             };
@@ -2327,7 +2328,7 @@ adminRoutes.get('/stats/daily', async (req, res) => {
         DATE(ul.timestamp) as date,
         COALESCE(SUM(ul."inputTokens"), 0) as total_input,
         COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
+        COUNT(*) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
       ${whereClause}
@@ -2478,7 +2479,7 @@ adminRoutes.get('/stats/by-dept', async (req, res) => {
         COALESCE(u.deptname, 'Unknown') as deptname,
         COALESCE(SUM(ul."inputTokens"), 0) as total_input,
         COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
+        COUNT(*) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
       ${whereClause}
@@ -2949,7 +2950,7 @@ adminRoutes.get('/stats/latency/history', async (req, res) => {
         m.id as model_id,
         m."displayName" as model_name,
         AVG(ul.latency_ms) as avg_latency,
-        COALESCE(SUM(request_count), 0) as request_count
+        COUNT(*) as request_count
       FROM usage_logs ul
       INNER JOIN services s ON ul.service_id = s.id
       INNER JOIN models m ON ul.model_id = m.id
@@ -3073,13 +3074,12 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
                     },
                 }).then((r) => r.length),
                 // Today's requests
-                prisma.usageLog.aggregate({
+                prisma.usageLog.count({
                     where: {
                         serviceId: service.id,
                         timestamp: { gte: todayStart },
                     },
-                    _sum: { requestCount: true },
-                }).then((r) => r._sum.requestCount || 0),
+                }),
                 // Today's active users (distinct)
                 prisma.$queryRaw `
             SELECT COUNT(DISTINCT ul.user_id) as count
@@ -3126,10 +3126,9 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
                     _sum: { totalTokens: true },
                 }).then((r) => r._sum.totalTokens || 0),
                 // Total requests (cumulative)
-                prisma.usageLog.aggregate({
+                prisma.usageLog.count({
                     where: { serviceId: service.id },
-                    _sum: { requestCount: true },
-                }).then((r) => r._sum.requestCount || 0),
+                }),
             ]);
             return {
                 serviceId: service.id,
@@ -3229,7 +3228,7 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
         });
         // Get daily stats per service
         const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COALESCE(SUM(request_count), 0) as req_count
+      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COUNT(*) as req_count
       FROM usage_logs
       WHERE timestamp >= ${startDate}
         AND service_id IS NOT NULL
@@ -3364,7 +3363,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
         SELECT
           service_id::text as service_id,
           DATE(timestamp) as log_date,
-          COALESCE(SUM(request_count), 0) as call_count
+          COUNT(*) as call_count
         FROM usage_logs
         WHERE timestamp >= ${startDate}
           AND service_id::text = ANY(${backgroundServiceIds})
@@ -3932,7 +3931,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
         startDate.setHours(0, 0, 0, 0);
         // 1. Get top N dept+service combinations by request count
         const topCombos = await prisma.$queryRaw `
-      SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
+      SELECT u.business_unit, s.name as service_name, COUNT(*) as request_count
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       INNER JOIN services s ON ul.service_id = s.id
@@ -3949,7 +3948,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
         const topServices = [...new Set(topCombos.map(c => c.service_name))];
         // 2. Get daily requests for top business units and services
         const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
+      SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COUNT(*) as requests
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       INNER JOIN services s ON ul.service_id = s.id
@@ -4118,16 +4117,16 @@ adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req, res) =
             where: { enabled: true },
             select: { id: true, name: true, displayName: true },
         });
-        // Get daily token sums per service from usage_logs
+        // Get daily token sums per service from DailyUsageStat
         const dailyTokens = await prisma.$queryRaw `
       SELECT
-        DATE(timestamp) as date,
+        date,
         service_id::text as service_id,
-        SUM("inputTokens" + "outputTokens") as total_tokens
-      FROM usage_logs
+        SUM("totalInputTokens" + "totalOutputTokens") as total_tokens
+      FROM daily_usage_stats
       WHERE service_id IS NOT NULL
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
+      GROUP BY date, service_id
+      ORDER BY date ASC
     `;
         // Build date range
         const dateRange = [];
@@ -4201,40 +4200,40 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
         // STANDARD DAU: Count distinct userIds per (date, service)
         const dauStats = await prisma.$queryRaw `
       SELECT
-        DATE(timestamp) as date,
+        date,
         service_id::text as service_id,
         COUNT(DISTINCT user_id) as dau
-      FROM usage_logs
+      FROM daily_usage_stats
       WHERE service_id IS NOT NULL
         AND user_id IS NOT NULL
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
     `;
         // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
         const [baselineDailyRes, baselineDauRes] = await Promise.all([
             prisma.$queryRaw `
         WITH daily_calls AS (
-          SELECT DATE(timestamp) as d, SUM(request_count) as cnt
-          FROM usage_logs
+          SELECT date, SUM("requestCount") as cnt
+          FROM daily_usage_stats
           WHERE service_id::text = ANY(${standardServiceIds})
-            AND timestamp >= ${startDate}
-            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
-          GROUP BY DATE(timestamp)
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
         )
         SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
       `,
             prisma.$queryRaw `
         WITH daily_dau AS (
-          SELECT DATE(timestamp) as d, COUNT(DISTINCT user_id) as dau
-          FROM usage_logs
+          SELECT date, COUNT(DISTINCT user_id) as dau
+          FROM daily_usage_stats
           WHERE service_id::text = ANY(${standardServiceIds})
             AND user_id IS NOT NULL
-            AND timestamp >= ${startDate}
-            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
-          GROUP BY DATE(timestamp)
+            AND date >= ${startDate}
+            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
+          GROUP BY date
         )
         SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
       `,
@@ -4244,12 +4243,12 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
         const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
         // BACKGROUND services: daily total calls (all days)
         const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id::text as service_id, SUM(request_count) as total_calls
-      FROM usage_logs
+      SELECT date, service_id::text as service_id, SUM("requestCount") as total_calls
+      FROM daily_usage_stats
       WHERE service_id::text = ANY(${backgroundServiceIds})
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
     ` : [];
         // Build date range
         const dateRange = [];
@@ -4322,14 +4321,14 @@ adminRoutes.get('/stats/global/dept-usage-by-service', async (req, res) => {
         d.service_id::text as service_id,
         s."displayName" as service_display_name,
         d.deptname,
-        SUM(d."inputTokens" + d."outputTokens") as total_tokens,
-        SUM(d.request_count) as request_count
-      FROM usage_logs d
+        SUM(d."totalInputTokens" + d."totalOutputTokens") as total_tokens,
+        SUM(d."requestCount") as request_count
+      FROM daily_usage_stats d
       INNER JOIN services s ON d.service_id = s.id
       WHERE d.service_id IS NOT NULL
         AND d.deptname IS NOT NULL
         AND d.deptname != ''
-        AND d.timestamp >= ${startDate}
+        AND d.date >= ${startDate}
       GROUP BY d.service_id, s."displayName", d.deptname
       ORDER BY total_tokens DESC
       LIMIT ${topN}
@@ -4365,17 +4364,17 @@ adminRoutes.get('/stats/global/service-daily-requests', async (req, res) => {
             where: { enabled: true },
             select: { id: true, name: true, displayName: true },
         });
-        // Sum request_count per (date, service) from usage_logs
+        // Sum requestCount per (date, service) from DailyUsageStat
         const requestStats = await prisma.$queryRaw `
       SELECT
-        DATE(timestamp) as date,
+        date,
         service_id::text as service_id,
-        SUM(request_count) as request_count
-      FROM usage_logs
+        SUM("requestCount") as request_count
+      FROM daily_usage_stats
       WHERE service_id IS NOT NULL
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
+        AND date >= ${startDate}
+      GROUP BY date, service_id
+      ORDER BY date ASC
     `;
         // Build date range
         const dateRange = [];
@@ -4482,7 +4481,7 @@ adminRoutes.get('/scope/departments', async (_req, res) => {
 /**
  * DELETE /admin/users/:id
  * 사용자 기록 말소 (SUPER_ADMIN only)
- * cascade로 UsageLog, UserService, UserRateLimit 모두 삭제
+ * cascade로 UsageLog, DailyUsageStat, UserService, UserRateLimit 모두 삭제
  */
 adminRoutes.delete('/users/:id', async (req, res) => {
     try {
@@ -4503,7 +4502,7 @@ adminRoutes.delete('/users/:id', async (req, res) => {
         }
         // Admin 레코드도 삭제 (존재하면)
         await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
-        // User 삭제 (cascade: UsageLog, UserService, UserRateLimit)
+        // User 삭제 (cascade: UsageLog, DailyUsageStat, UserService, UserRateLimit)
         await prisma.user.delete({ where: { id } });
         console.log(`[User Delete] ${req.user.loginid} deleted user ${user.loginid} (${user.username})`);
         res.json({

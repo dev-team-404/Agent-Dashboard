@@ -32,41 +32,11 @@ usageRoutes.get('/summary', async (_req, res) => {
 usageRoutes.get('/daily', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 7));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        const raw = await prisma.usageLog.groupBy({
-            by: ['timestamp'],
-            where: { timestamp: { gte: startDate } },
-            _sum: {
-                inputTokens: true,
-                outputTokens: true,
-                totalTokens: true,
-            },
-            _count: true,
+        const stats = await prisma.dailyUsageStat.findMany({
+            orderBy: { date: 'desc' },
+            take: days,
         });
-        // Aggregate by date (YYYY-MM-DD)
-        const byDate = new Map();
-        for (const r of raw) {
-            const dateStr = r.timestamp.toISOString().slice(0, 10);
-            const existing = byDate.get(dateStr);
-            if (existing) {
-                existing.requests += r._count;
-                existing.inputTokens += r._sum?.inputTokens ?? 0;
-                existing.outputTokens += r._sum?.outputTokens ?? 0;
-                existing.totalTokens += r._sum?.totalTokens ?? 0;
-            }
-            else {
-                byDate.set(dateStr, {
-                    date: dateStr,
-                    requests: r._count,
-                    inputTokens: r._sum?.inputTokens ?? 0,
-                    outputTokens: r._sum?.outputTokens ?? 0,
-                    totalTokens: r._sum?.totalTokens ?? 0,
-                });
-            }
-        }
-        const stats = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-        res.json({ stats });
+        res.json({ stats: stats.reverse() });
     }
     catch (error) {
         console.error('Get daily usage error:', error);
