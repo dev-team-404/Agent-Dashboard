@@ -1398,9 +1398,10 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       : [];
     const svcNameMap = new Map(svcs.map(s => [s.id, s.displayName]));
 
-    // 7. Aggregate by team
+    // 7. Aggregate by team + teamInfo (한글 부서명, 사업부)
     const teamTotals = new Map<string, number>();
     const teamPeriods = new Map<string, Map<string, number>>();
+    const teamDepts = new Map<string, Set<string>>(); // team → deptnames
     for (const r of rawData) {
       const team = deptTeamMap.get(r.deptname) || r.deptname;
       const tokens = Number(r.total_tokens);
@@ -1408,6 +1409,8 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       if (!teamPeriods.has(r.period)) teamPeriods.set(r.period, new Map());
       const pm = teamPeriods.get(r.period)!;
       pm.set(team, (pm.get(team) || 0) + tokens);
+      if (!teamDepts.has(team)) teamDepts.set(team, new Set());
+      teamDepts.get(team)!.add(r.deptname);
     }
 
     // 8. Aggregate by service
@@ -1449,6 +1452,31 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     const teamResult = topNWithOther(teamTotals, teamPeriods);
     const svcResult = topNWithOther(svcTotals, svcPeriods);
 
+    // teamInfo: 영문 팀명 → { deptnames(한글), businessUnits, institute(외국 자사) }
+    const teamInfo: Record<string, {
+      deptnames: string[];
+      businessUnits: string[];
+      teamShort: string | null;   // 외국 자사: 팀 약칭 (예: ASP/DI)
+      institute: string | null;   // 외국 자사: 연구소명 (예: SSCR)
+    }> = {};
+    for (const team of teamResult.keys) {
+      if (team === '기타') continue;
+      const deps = teamDepts.get(team);
+      const deptArr = deps ? Array.from(deps) : [];
+      const buSet = new Set(deptArr.map(d => extractBusinessUnit(d)).filter(Boolean));
+
+      // 외국 자사 파싱: 공백 없고 /가 있으면 → 마지막 segment = 연구소
+      let teamShort: string | null = null;
+      let institute: string | null = null;
+      if (!team.includes(' ') && team.includes('/')) {
+        const lastSlash = team.lastIndexOf('/');
+        teamShort = team.substring(0, lastSlash);
+        institute = team.substring(lastSlash + 1);
+      }
+
+      teamInfo[team] = { deptnames: deptArr, businessUnits: Array.from(buSet), teamShort, institute };
+    }
+
     res.json({
       centers,
       centerName: selected,
@@ -1459,6 +1487,7 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       byService: svcResult.chartData,
       teams: teamResult.keys,
       services: svcResult.keys,
+      teamInfo,
     });
   } catch (err) {
     console.error('DTGPT token-usage error:', err);

@@ -19,6 +19,13 @@ const SERVICE_COLORS = [
 
 type Granularity = 'daily' | 'weekly' | 'monthly';
 
+interface TeamInfoEntry {
+  deptnames: string[];
+  businessUnits: string[];
+  teamShort: string | null;
+  institute: string | null;
+}
+
 interface TokenUsageData {
   centers: string[];
   centerName: string;
@@ -27,6 +34,7 @@ interface TokenUsageData {
   byService: Array<Record<string, any>>;
   teams: string[];
   services: string[];
+  teamInfo?: Record<string, TeamInfoEntry>;
 }
 
 const GRAN: Record<Granularity, { label: string; sub: string }> = {
@@ -48,31 +56,43 @@ function fmtPeriod(p: string, g: Granularity): string {
   return `${m}/${d}`;
 }
 
-function ChartTooltip({ active, payload, label }: TooltipProps<number, string> & { colors: string[] }) {
+function ChartTooltip({ active, payload, label, teamInfo }: TooltipProps<number, string> & { colors: string[]; teamInfo?: Record<string, TeamInfoEntry> }) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
   const visible = payload.filter(p => (p.value ?? 0) > 0).reverse();
   return (
-    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[200px] max-w-[280px]">
+    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[220px] max-w-[320px]">
       <p className="text-[11px] font-medium text-gray-400 mb-1">{label}</p>
       <p className="text-sm font-bold text-gray-900 mb-3">Total <span className="text-violet-600">{fmtTokens(total)}</span> tokens</p>
-      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-        {visible.map((p) => (
-          <div key={p.dataKey} className="flex items-center justify-between gap-3 text-[11px]">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: p.color }} />
-              <span className="text-gray-600 truncate">{p.dataKey}</span>
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+        {visible.map((p) => {
+          const info = teamInfo?.[p.dataKey as string];
+          return (
+            <div key={p.dataKey}>
+              <div className="flex items-center justify-between gap-3 text-[11px]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: p.color }} />
+                  <span className="text-gray-600 truncate">{p.dataKey}</span>
+                </div>
+                <span className="font-semibold text-gray-800 tabular-nums flex-shrink-0">{fmtTokens(p.value ?? 0)}</span>
+              </div>
+              {info && (
+                <div className="ml-4 mt-0.5 text-[10px] text-gray-400 space-y-0.5">
+                  {info.deptnames.map(d => <div key={d}>{d}</div>)}
+                  {info.institute && <div>연구소: {info.institute}</div>}
+                  {info.businessUnits.length > 0 && <div>사업부: {info.businessUnits.join(', ')}</div>}
+                </div>
+              )}
             </div>
-            <span className="font-semibold text-gray-800 tabular-nums flex-shrink-0">{fmtTokens(p.value ?? 0)}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function StackedChart({ title, subtitle, data, keys, colors, granularity }: {
-  title: string; subtitle: string; data: Array<Record<string, any>>; keys: string[]; colors: string[]; granularity: Granularity;
+function StackedChart({ title, subtitle, data, keys, colors, granularity, teamInfo }: {
+  title: string; subtitle: string; data: Array<Record<string, any>>; keys: string[]; colors: string[]; granularity: Granularity; teamInfo?: Record<string, TeamInfoEntry>;
 }) {
   if (data.length === 0 || keys.length === 0) {
     return (
@@ -95,7 +115,7 @@ function StackedChart({ title, subtitle, data, keys, colors, granularity }: {
             angle={granularity === 'daily' ? -45 : 0} textAnchor={granularity === 'daily' ? 'end' : 'middle'}
             interval={granularity === 'daily' ? 1 : 0} />
           <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={fmtTokens} width={56} />
-          <Tooltip content={<ChartTooltip colors={colors} />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }} />
+          <Tooltip content={<ChartTooltip colors={colors} teamInfo={teamInfo} />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }} />
           <Legend wrapperStyle={{ paddingTop: 12, fontSize: 12 }} iconType="square" iconSize={10}
             formatter={(v: string) => <span className="text-[11px] text-gray-600 ml-1">{v}</span>} />
           {keys.map((key, i) => (
@@ -203,7 +223,7 @@ export default function InsightServiceUsage() {
 
       <div className="space-y-6">
         <StackedChart title="팀별 토큰 사용량" subtitle={`${center} 내부 팀별 총 토큰 사용량 추이`}
-          data={data.byTeam} keys={data.teams} colors={TEAM_COLORS} granularity={gran} />
+          data={data.byTeam} keys={data.teams} colors={TEAM_COLORS} granularity={gran} teamInfo={data.teamInfo} />
         <StackedChart title="서비스별 토큰 사용량" subtitle={`${center} 내부 서비스별 총 토큰 사용량 추이`}
           data={data.byService} keys={data.services} colors={SERVICE_COLORS} granularity={gran} />
       </div>
