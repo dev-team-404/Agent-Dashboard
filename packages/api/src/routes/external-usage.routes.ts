@@ -5,9 +5,9 @@
  * - 인증 불필요 (공개 API)
  * - 서비스가 apiOnly=true로 등록되어 있어야 전송 가능
  *
- * POST /by-user: 사용자(Knox ID) 단위 → usageLog + UserService (프록시와 동일 테이블)
- *    - STANDARD 서비스: userId(Knox ID) 필수
- *    - BACKGROUND 서비스: userId 선택 (없으면 서비스 레벨로 기록, userId=null)
+ * POST /by-user: 사용량 기록 → usageLog + UserService (프록시와 동일 테이블)
+ *    - STANDARD 서비스: userId(Knox ID) 필수, deptName 선택
+ *    - BACKGROUND 서비스: userId 선택, userId 없으면 deptName 필수
  *    - Knox ID 기반 사용자 자동 등록/인증
  *    - 통합 대시보드 중복제거 + Top K Users 반영
  */
@@ -26,7 +26,8 @@ const byUserItemSchema = z.object({
   date: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD format')
     .refine(s => !isNaN(new Date(s + 'T00:00:00.000Z').getTime()), 'date is not a valid calendar date'),
-  userId: z.string().optional().default(''),  // BACKGROUND 서비스는 userId 없이 전송 가능
+  userId: z.string().optional().default(''),    // STANDARD 필수, BACKGROUND 선택
+  deptName: z.string().optional().default(''),   // BACKGROUND 필수, STANDARD 선택 (user의 부서로 자동 설정)
   modelName: z.string().min(1, 'modelName is required'),
   requestCount: z.number().int().min(0),
   totalInputTokens: z.number().int().min(0),
@@ -100,12 +101,23 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
 
     const isBackground = service.type === 'BACKGROUND';
 
-    // STANDARD 서비스는 userId 필수 검증
+    // STANDARD 서비스: userId 필수
     if (!isBackground) {
       const missingUserItems = data.filter(d => !d.userId);
       if (missingUserItems.length > 0) {
         res.status(400).json({
-          error: 'STANDARD 서비스는 userId(Knox login ID)가 필수입니다. BACKGROUND 서비스만 userId 없이 전송할 수 있습니다.',
+          error: 'STANDARD 서비스는 userId(Knox login ID)가 필수입니다.',
+        });
+        return;
+      }
+    }
+
+    // BACKGROUND 서비스: deptName 필수 (userId 없는 항목)
+    if (isBackground) {
+      const missingDept = data.filter(d => !d.userId && !d.deptName);
+      if (missingDept.length > 0) {
+        res.status(400).json({
+          error: 'BACKGROUND 서비스에서 userId가 없는 항목은 deptName이 필수입니다.',
         });
         return;
       }
@@ -332,7 +344,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
           totalOutputTokens: item.totalOutputTokens,
         });
       } else {
-        // BACKGROUND 서비스: userId 없이 서비스 레벨로 기록
+        // BACKGROUND 서비스: userId 없이 서비스 레벨로 기록 (deptName 사용)
         const dateObj = new Date(item.date + 'T00:00:00.000Z');
         const nextDateObj = new Date(dateObj.getTime() + 24 * 60 * 60 * 1000);
 
@@ -341,7 +353,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
           dateObj,
           nextDateObj,
           userDbId: null,
-          deptname: null,
+          deptname: item.deptName || null,
           modelId: model.id,
           requestCount: Math.max(item.requestCount, 1),
           totalInputTokens: item.totalInputTokens,
