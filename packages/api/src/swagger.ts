@@ -921,6 +921,80 @@ export const swaggerSpec = {
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 10. DTGPT Server — Token Usage Time Series (센터별 토큰 사용량 시계열)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    '/stats/dtgpt/token-usage': {
+      get: {
+        summary: 'DTGPT Server — Token Usage Time Series (센터별 토큰 사용량 시계열)',
+        description:
+          'Returns time-series token usage for the DTGPT server, broken down by **team** and **service** within a center.\n' +
+          'DTGPT 서버의 시계열 토큰 사용량을 센터 내 **팀별** 및 **서비스별**로 반환합니다.\n\n' +
+          '## Scope (집계 범위)\n' +
+          '- **Services**: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
+          '- **Models**: `cloud.dtgpt.samsunds.net` endpoint models only\n' +
+          '- Both conditions applied (AND)\n\n' +
+          '## Granularity (시간 단위)\n' +
+          '| Value | Period |\n' +
+          '|-------|--------|\n' +
+          '| `daily` | Last 30 days / 최근 30일 |\n' +
+          '| `weekly` | Last 6 months / 최근 6개월 |\n' +
+          '| `monthly` | Last 12 months / 최근 12개월 |\n\n' +
+          '## Center (센터)\n' +
+          '- center1 (priority) → center2 (fallback)\n' +
+          '- Only centers with DTGPT usage data are returned\n' +
+          '- `centerName` 미입력 시 첫 번째 센터\n\n' +
+          '## Response\n' +
+          '- `byTeam`: Stacked bar chart data per team (top 12 + 기타)\n' +
+          '- `byService`: Stacked bar chart data per service (top 12 + 기타)\n',
+        tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
+        parameters: [
+          apiKeyParam,
+          {
+            name: 'centerName',
+            in: 'query' as const,
+            required: false,
+            description: 'Center name. Defaults to first center with data / 센터명. 미입력 시 데이터 있는 첫 번째 센터',
+            schema: { type: 'string' as const, example: 'Platform Technology Center' },
+          },
+          {
+            name: 'granularity',
+            in: 'query' as const,
+            required: false,
+            description: 'Time granularity: daily|weekly|monthly. Default: monthly',
+            schema: { type: 'string' as const, enum: ['daily', 'weekly', 'monthly'], default: 'monthly' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Token usage time series / 토큰 사용량 시계열',
+            content: {
+              'application/json': {
+                example: {
+                  centers: ['AI Development Center', 'Platform Technology Center'],
+                  centerName: 'Platform Technology Center',
+                  granularity: 'monthly',
+                  server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
+                  fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
+                  teams: ['SW Innovation Team', 'DevOps Team', '기타'],
+                  services: ['Roo Code', 'Claude Code', 'Dify'],
+                  byTeam: [
+                    { period: '2025-04', 'SW Innovation Team': 2500000, 'DevOps Team': 1200000, '기타': 300000 },
+                    { period: '2025-05', 'SW Innovation Team': 3100000, 'DevOps Team': 1500000, '기타': 420000 },
+                  ],
+                  byService: [
+                    { period: '2025-04', 'Roo Code': 3200000, 'Claude Code': 500000, 'Dify': 300000 },
+                    { period: '2025-05', 'Roo Code': 4100000, 'Claude Code': 600000, 'Dify': 320000 },
+                  ],
+                },
+              },
+            },
+          },
+          '400': errorResponse('Invalid granularity', 'granularity must be daily, weekly, or monthly'),
+          '500': errorResponse('Internal server error / 서버 내부 오류'),
+        },
+      },
+    },
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 9. External Usage - POST by-user (API Only 서비스 사용자별 사용 기록 전송)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/external-usage/by-user': {

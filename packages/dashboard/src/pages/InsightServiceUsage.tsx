@@ -1,343 +1,226 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, X, ArrowLeft, Loader2 } from 'lucide-react';
+import { Zap, ChevronDown, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, TooltipProps,
+  ResponsiveContainer, Legend,
 } from 'recharts';
 
-const CHART_COLORS = [
+const TEAM_COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
   '#06b6d4', '#ea580c', '#6366f1', '#22c55e', '#ef4444',
-  '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
+  '#a855f7', '#0ea5e9', '#94a3b8',
+];
+const SERVICE_COLORS = [
+  '#6366f1', '#f97316', '#14b8a6', '#e11d48', '#8b5cf6',
+  '#0891b2', '#d946ef', '#84cc16', '#fb923c', '#3b82f6',
+  '#22c55e', '#ef4444', '#94a3b8',
 ];
 
-const CARD_GRADIENTS = [
-  'from-blue-50 to-indigo-50',
-  'from-emerald-50 to-teal-50',
-  'from-violet-50 to-purple-50',
-  'from-amber-50 to-yellow-50',
-  'from-rose-50 to-pink-50',
-  'from-cyan-50 to-sky-50',
-  'from-orange-50 to-red-50',
-  'from-lime-50 to-green-50',
-];
+type Granularity = 'daily' | 'weekly' | 'monthly';
 
-const CARD_BORDERS = [
-  'border-blue-100',
-  'border-emerald-100',
-  'border-violet-100',
-  'border-amber-100',
-  'border-rose-100',
-  'border-cyan-100',
-  'border-orange-100',
-  'border-lime-100',
-];
-
-interface ServiceUsage {
-  displayName: string;
-  llmCallCount: number;
-  tokenUsage: { input: number; output: number; total: number };
-  mau: number;
+interface TokenUsageData {
+  centers: string[];
+  centerName: string;
+  granularity: Granularity;
+  byTeam: Array<Record<string, any>>;
+  byService: Array<Record<string, any>>;
+  teams: string[];
+  services: string[];
 }
 
-interface OverviewData {
-  month: string;
-  services: ServiceUsage[];
+const GRAN: Record<Granularity, { label: string; sub: string }> = {
+  daily:   { label: 'Daily',   sub: '최근 30일' },
+  weekly:  { label: 'Weekly',  sub: '최근 6개월' },
+  monthly: { label: 'Monthly', sub: '최근 12개월' },
+};
+
+function fmtTokens(v: number): string {
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return v.toLocaleString();
 }
 
-interface TeamDetail {
-  team: string;
-  teamKr: string;
-  tokensM: number;
-  mau: number;
-  llmCallCount: number;
+function fmtPeriod(p: string, g: Granularity): string {
+  if (g === 'monthly') { const [y, m] = p.split('-'); return `${y.slice(2)}/${m}`; }
+  const [, m, d] = p.split('-');
+  return `${m}/${d}`;
 }
 
-interface ServiceDetail {
-  displayName: string;
-  teamDetails: TeamDetail[];
+function ChartTooltip({ active, payload, label }: TooltipProps<number, string> & { colors: string[] }) {
+  if (!active || !payload?.length) return null;
+  const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
+  const visible = payload.filter(p => (p.value ?? 0) > 0).reverse();
+  return (
+    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[200px] max-w-[280px]">
+      <p className="text-[11px] font-medium text-gray-400 mb-1">{label}</p>
+      <p className="text-sm font-bold text-gray-900 mb-3">Total <span className="text-violet-600">{fmtTokens(total)}</span> tokens</p>
+      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+        {visible.map((p) => (
+          <div key={p.dataKey} className="flex items-center justify-between gap-3 text-[11px]">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: p.color }} />
+              <span className="text-gray-600 truncate">{p.dataKey}</span>
+            </div>
+            <span className="font-semibold text-gray-800 tabular-nums flex-shrink-0">{fmtTokens(p.value ?? 0)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-type PeriodTab = 'current' | 'last';
-
-function getMonthParams(p: PeriodTab): { year: number; month: number } {
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  if (p === 'current') return { year: kst.getUTCFullYear(), month: kst.getUTCMonth() + 1 };
-  const last = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth() - 1, 1));
-  return { year: last.getUTCFullYear(), month: last.getUTCMonth() + 1 };
+function StackedChart({ title, subtitle, data, keys, colors, granularity }: {
+  title: string; subtitle: string; data: Array<Record<string, any>>; keys: string[]; colors: string[]; granularity: Granularity;
+}) {
+  if (data.length === 0 || keys.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h3 className="text-base font-semibold text-gray-800 mb-1">{title}</h3>
+        <p className="text-xs text-gray-500 mt-0.5 mb-4">{subtitle}</p>
+        <div className="flex items-center justify-center h-52 text-gray-400 text-sm">해당 기간의 데이터가 없습니다</div>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <h3 className="text-base font-semibold text-gray-800 mb-1">{title}</h3>
+      <p className="text-xs text-gray-500 mt-0.5 mb-5">{subtitle}</p>
+      <ResponsiveContainer width="100%" height={420}>
+        <BarChart data={data} margin={{ top: 10, right: 16, left: 4, bottom: granularity === 'daily' ? 50 : 24 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+          <XAxis dataKey="period" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }}
+            tickFormatter={(v: string) => fmtPeriod(v, granularity)}
+            angle={granularity === 'daily' ? -45 : 0} textAnchor={granularity === 'daily' ? 'end' : 'middle'}
+            interval={granularity === 'daily' ? 1 : 0} />
+          <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={fmtTokens} width={56} />
+          <Tooltip content={<ChartTooltip colors={colors} />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }} />
+          <Legend wrapperStyle={{ paddingTop: 12, fontSize: 12 }} iconType="square" iconSize={10}
+            formatter={(v: string) => <span className="text-[11px] text-gray-600 ml-1">{v}</span>} />
+          {keys.map((key, i) => (
+            <Bar key={key} dataKey={key} stackId="s" fill={colors[i % colors.length]}
+              radius={i === keys.length - 1 ? [3, 3, 0, 0] : undefined} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 export default function InsightServiceUsage() {
-  const [period, setPeriod] = useState<PeriodTab>('current');
-  const [data, setData] = useState<OverviewData | null>(null);
+  const [data, setData] = useState<TokenUsageData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedService, setSelectedService] = useState<string | null>(null); // displayName
-  const [detail, setDetail] = useState<ServiceDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [center, setCenter] = useState('');
+  const [gran, setGran] = useState<Granularity>('monthly');
+  const [ddOpen, setDdOpen] = useState(false);
 
-  const loadData = useCallback(async (p: PeriodTab) => {
+  const load = useCallback(async (c?: string, g?: Granularity) => {
     try {
       setLoading(true);
-      setSelectedService(null);
-      setDetail(null);
-      const res = await api.get('/admin/insight/service-usage', { params: getMonthParams(p) });
+      const params: Record<string, string> = { granularity: g || gran };
+      if (c) params.centerName = c;
+      const res = await api.get('/public/stats/dtgpt/token-usage', { params });
       setData(res.data);
+      if (!c && res.data.centerName) setCenter(res.data.centerName);
     } catch (err) {
-      console.error('Failed to load service usage insight:', err);
+      console.error('Failed to load DTGPT token usage:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [gran]);
 
-  useEffect(() => { loadData(period); }, [loadData, period]);
+  useEffect(() => { load(); }, []);
 
-  const loadDetail = useCallback(async (serviceId: string) => {
-    try {
-      setDetailLoading(true);
-      const res = await api.get(`/admin/insight/service-usage/${encodeURIComponent(serviceId)}`, { params: getMonthParams(period) });
-      setDetail(res.data);
-    } catch (err) {
-      console.error('Failed to load service detail:', err);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [period]);
+  const pickCenter = (c: string) => { setCenter(c); setDdOpen(false); load(c, gran); };
+  const pickGran = (g: Granularity) => { setGran(g); load(center, g); };
 
-  const handleCardClick = (displayName: string) => {
-    setSelectedService(displayName);
-    loadDetail(displayName);
-  };
-
-  const handleCloseDetail = () => {
-    setSelectedService(null);
-    setDetail(null);
-  };
-
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  };
-
-  const formatTokens = (num: number): string => {
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  };
-
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="space-y-6 animate-fade-in">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-violet-50">
-            <Zap className="w-6 h-6 text-violet-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">서비스 사용량 인사이트</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">서비스별 LLM 호출 및 토큰 사용량을 분석합니다</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="rounded-xl bg-white border border-gray-100 p-6 animate-pulse">
-              <div className="h-5 bg-gray-200 rounded w-28 mb-4" />
-              <div className="h-8 bg-gray-100 rounded w-24 mb-2" />
-              <div className="h-4 bg-gray-100 rounded w-20" />
-            </div>
-          ))}
-        </div>
+        <PageHeader />
+        <div className="flex items-center justify-center py-24"><Loader2 className="w-8 h-8 text-violet-500 animate-spin" /></div>
       </div>
     );
   }
 
   if (!data) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-        <Zap className="w-12 h-12 text-pastel-300 mb-4" />
-        <p className="text-sm font-semibold text-pastel-600">데이터를 불러올 수 없습니다</p>
-        <button onClick={() => loadData(period)} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-          다시 시도
-        </button>
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader />
+        <div className="flex flex-col items-center justify-center py-24">
+          <Zap className="w-12 h-12 text-gray-300 mb-4" />
+          <p className="text-sm font-medium text-gray-500">데이터를 불러올 수 없습니다</p>
+          <button onClick={() => load()} className="mt-3 px-4 py-2 text-xs font-medium text-violet-600 bg-violet-50 rounded-lg hover:bg-violet-100 transition-colors">다시 시도</button>
+        </div>
       </div>
     );
   }
 
-  const sortedServices = [...data.services].sort((a, b) => b.llmCallCount - a.llmCallCount);
-
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-violet-50">
-            <Zap className="w-6 h-6 text-violet-600" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">서비스 사용량 인사이트</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">서비스별 LLM 호출 및 토큰 사용량을 분석합니다</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="inline-flex rounded-lg bg-gray-100 p-0.5">
-            <button
-              onClick={() => setPeriod('current')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'current' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              이번달 (실시간)
-            </button>
-            <button
-              onClick={() => setPeriod('last')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'last' ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              지난달
-            </button>
-          </div>
-          <span className="inline-flex items-center px-3 py-1.5 bg-violet-50 text-violet-700 rounded-full text-sm font-medium">
-            {data.month}{period === 'current' ? ' (진행중)' : ''}
-          </span>
-        </div>
-      </div>
-
-      {/* Service Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {sortedServices.map((svc, idx) => {
-          const gradient = CARD_GRADIENTS[idx % CARD_GRADIENTS.length];
-          const border = CARD_BORDERS[idx % CARD_BORDERS.length];
-          const isSelected = selectedService === svc.displayName;
-
-          return (
-            <button
-              key={svc.displayName}
-              onClick={() => handleCardClick(svc.displayName)}
-              className={`text-left rounded-xl bg-gradient-to-br ${gradient} border ${border} p-5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
-                isSelected ? 'ring-2 ring-violet-400 shadow-lg' : ''
-              }`}
-            >
-              <div className="mb-3">
-                <h3 className="text-base font-bold text-gray-900 truncate" title={svc.displayName}>{svc.displayName}</h3>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">LLM Calls</p>
-                  <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatNumber(svc.llmCallCount)}</p>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">Tokens</p>
-                    <p className="text-sm font-semibold text-gray-700 tabular-nums">{formatTokens(svc.tokenUsage.total)} tokens</p>
-                  </div>
-                  <div className="inline-flex items-center px-2 py-0.5 bg-white/60 rounded-full text-xs font-medium text-gray-600">
-                    MAU {formatNumber(svc.mau)}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 text-[10px] text-gray-400">
-                  <span>In: {formatTokens(svc.tokenUsage.input)}</span>
-                  <span>Out: {formatTokens(svc.tokenUsage.output)}</span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Detail Panel */}
-      {selectedService && (
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden animate-fade-in">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleCloseDetail}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
+        <PageHeader />
+        <div className="flex items-center gap-3 flex-wrap">
+          {data.centers.length > 0 && (
+            <div className="relative">
+              <button onClick={() => setDdOpen(v => !v)}
+                className="flex items-center gap-2 pl-4 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-violet-300 transition-colors shadow-sm min-w-[160px]">
+                <span className="truncate max-w-[180px]">{center || 'Center 선택'}</span>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ddOpen ? 'rotate-180' : ''}`} />
               </button>
-              <h2 className="text-lg font-bold text-pastel-800">
-                {detail?.displayName || '상세 분석'}
-              </h2>
-            </div>
-            <button
-              onClick={handleCloseDetail}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {detailLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
-            </div>
-          ) : detail ? (
-            <div className="p-6">
-              <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 토큰 사용량 (M)</h3>
-              {detail.teamDetails.length > 0 ? (
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={detail.teamDetails} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
-                    <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={(v: number) => `${v.toFixed(1)}M`} />
-                    <Tooltip
-                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                      formatter={(value: number) => [`${value.toFixed(2)}M tokens`, 'Tokens']}
-                    />
-                    <Bar dataKey="tokensM" radius={[6, 6, 0, 0]} barSize={32}>
-                      {detail.teamDetails.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">
-                  팀별 데이터가 없습니다
-                </div>
-              )}
-
-              {/* Team detail table */}
-              {detail.teamDetails.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="text-sm font-semibold text-pastel-700 mb-3">팀별 상세</h3>
-                  <div className="overflow-x-auto rounded-lg border border-gray-100">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50/80">
-                          <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">팀</th>
-                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">Tokens (M)</th>
-                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">MAU</th>
-                          <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 text-xs uppercase">LLM Calls</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.teamDetails.map((td, idx) => (
-                          <tr key={td.team} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                            <td className="py-2.5 px-4">
-                              <span className="font-medium text-pastel-800">{td.team}</span>
-                              <span className="block text-[10px] text-pastel-400">{td.teamKr}</span>
-                            </td>
-                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.tokensM.toFixed(2)}</td>
-                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.mau.toLocaleString()}</td>
-                            <td className="text-right py-2.5 px-4 text-pastel-700 tabular-nums">{td.llmCallCount.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              {ddOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setDdOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-1">
+                    {data.centers.map(c => (
+                      <button key={c} onClick={() => pickCenter(c)}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${c === center ? 'bg-violet-50 text-violet-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}>
+                        {c}
+                      </button>
+                    ))}
                   </div>
-                </div>
+                </>
               )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-16 text-pastel-400">
-              상세 데이터를 불러올 수 없습니다
             </div>
           )}
+          <div className="inline-flex rounded-lg bg-gray-100 p-0.5 shadow-inner">
+            {(['daily', 'weekly', 'monthly'] as Granularity[]).map(g => (
+              <button key={g} onClick={() => pickGran(g)}
+                className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-all ${gran === g ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {GRAN[g].label}
+              </button>
+            ))}
+          </div>
+          {loading && <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />}
         </div>
-      )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center px-3 py-1 bg-violet-50 text-violet-700 rounded-full text-xs font-medium">{GRAN[gran].sub}</span>
+        {center && <span className="inline-flex items-center px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">{center}</span>}
+      </div>
+
+      <div className="space-y-6">
+        <StackedChart title="팀별 토큰 사용량" subtitle={`${center} 내부 팀별 총 토큰 사용량 추이`}
+          data={data.byTeam} keys={data.teams} colors={TEAM_COLORS} granularity={gran} />
+        <StackedChart title="서비스별 토큰 사용량" subtitle={`${center} 내부 서비스별 총 토큰 사용량 추이`}
+          data={data.byService} keys={data.services} colors={SERVICE_COLORS} granularity={gran} />
+      </div>
+    </div>
+  );
+}
+
+function PageHeader() {
+  return (
+    <div className="flex items-center gap-4">
+      <div className="p-3 rounded-xl bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm">
+        <Zap className="w-6 h-6 text-violet-600" />
+      </div>
+      <div>
+        <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">서비스 사용량 인사이트</h1>
+        <p className="text-sm text-pastel-500 mt-0.5">DTGPT 서버 토큰 사용량을 팀/서비스 단위로 분석합니다</p>
+      </div>
     </div>
   );
 }
