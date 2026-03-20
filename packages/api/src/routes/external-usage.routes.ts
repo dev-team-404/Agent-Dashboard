@@ -1,11 +1,13 @@
 /**
  * External Usage Routes
  *
- * API Only 서비스가 자체 시스템 API를 통해 사용자별 사용 기록을 전송하는 엔드포인트
+ * API Only 서비스가 자체 시스템 API를 통해 사용 기록을 전송하는 엔드포인트
  * - 인증 불필요 (공개 API)
  * - 서비스가 apiOnly=true로 등록되어 있어야 전송 가능
  *
  * POST /by-user: 사용자(Knox ID) 단위 → usageLog + UserService (프록시와 동일 테이블)
+ *    - STANDARD 서비스: userId(Knox ID) 필수
+ *    - BACKGROUND 서비스: userId 선택 (없으면 서비스 레벨로 기록, userId=null)
  *    - Knox ID 기반 사용자 자동 등록/인증
  *    - 통합 대시보드 중복제거 + Top K Users 반영
  */
@@ -24,7 +26,7 @@ const byUserItemSchema = z.object({
   date: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD format')
     .refine(s => !isNaN(new Date(s + 'T00:00:00.000Z').getTime()), 'date is not a valid calendar date'),
-  userId: z.string().min(1, 'userId (Knox login ID) is required'),
+  userId: z.string().optional().default(''),  // BACKGROUND 서비스는 userId 없이 전송 가능
   modelName: z.string().min(1, 'modelName is required'),
   requestCount: z.number().int().min(0),
   totalInputTokens: z.number().int().min(0),
@@ -96,15 +98,37 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
       return;
     }
 
-    // 3. Resolve users: collect unique Knox IDs
-    const uniqueLoginIds = [...new Set(data.map(d => d.userId))];
+    const isBackground = service.type === 'BACKGROUND';
+
+    // STANDARD 서비스는 userId 필수 검증
+    if (!isBackground) {
+      const missingUserItems = data.filter(d => !d.userId);
+      if (missingUserItems.length > 0) {
+        res.status(400).json({
+          error: 'STANDARD 서비스는 userId(Knox login ID)가 필수입니다. BACKGROUND 서비스만 userId 없이 전송할 수 있습니다.',
+        });
+        return;
+      }
+    }
+
+    // userId가 있는 항목과 없는 항목 분리
+    const dataWithUser = data.filter(d => d.userId);
+    const dataWithoutUser = data.filter(d => !d.userId);
+
+    // 3. Resolve users: collect unique Knox IDs (userId가 있는 항목만)
+    const uniqueLoginIds = [...new Set(dataWithUser.map(d => d.userId))];
 
     // 3a. DB에서 기존 사용자 일괄 조회
-    const existingUsers = await prisma.user.findMany({
-      where: { loginid: { in: uniqueLoginIds } },
-      select: { id: true, loginid: true, username: true, deptname: true, knoxVerified: true, businessUnit: true },
-    });
-    const userByLoginId = new Map(existingUsers.map(u => [u.loginid, u]));
+    const userByLoginId = new Map<string, { id: string; loginid: string; username: string; deptname: string; knoxVerified: boolean; businessUnit: string | null }>();
+    if (uniqueLoginIds.length > 0) {
+      const existingUsers = await prisma.user.findMany({
+        where: { loginid: { in: uniqueLoginIds } },
+        select: { id: true, loginid: true, username: true, deptname: true, knoxVerified: true, businessUnit: true },
+      });
+      for (const u of existingUsers) {
+        userByLoginId.set(u.loginid, u);
+      }
+    }
 
     // 3b. Knox 인증이 필요한 사용자 식별 (미등록 또는 knoxVerified=false)
     const needKnoxLookup = uniqueLoginIds.filter(lid => {
@@ -265,8 +289,8 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
       index: number;
       dateObj: Date;
       nextDateObj: Date;
-      userDbId: string;
-      deptname: string;
+      userDbId: string | null;
+      deptname: string | null;
       modelId: string;
       requestCount: number;
       totalInputTokens: number;
@@ -276,12 +300,10 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     for (let i = 0; i < data.length; i++) {
       const item = data[i]!;
 
-      if (failedLoginIds.has(item.userId)) { skipped++; continue; }
       if (failedModelNames.has(item.modelName)) { skipped++; continue; }
 
-      const user = userByLoginId.get(item.userId);
       const model = modelByName.get(item.modelName);
-      if (!user || !model) { skipped++; continue; }
+      if (!model) { skipped++; continue; }
 
       // requestCount=0이면 기록할 필요 없음
       if (item.requestCount === 0 && item.totalInputTokens === 0 && item.totalOutputTokens === 0) {
@@ -289,20 +311,43 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
         continue;
       }
 
-      const dateObj = new Date(item.date + 'T00:00:00.000Z');
-      const nextDateObj = new Date(dateObj.getTime() + 24 * 60 * 60 * 1000);
+      // userId가 있는 항목: 사용자 resolve 필요
+      if (item.userId) {
+        if (failedLoginIds.has(item.userId)) { skipped++; continue; }
+        const user = userByLoginId.get(item.userId);
+        if (!user) { skipped++; continue; }
 
-      validOps.push({
-        index: i,
-        dateObj,
-        nextDateObj,
-        userDbId: user.id,
-        deptname: user.deptname,
-        modelId: model.id,
-        requestCount: Math.max(item.requestCount, 1),
-        totalInputTokens: item.totalInputTokens,
-        totalOutputTokens: item.totalOutputTokens,
-      });
+        const dateObj = new Date(item.date + 'T00:00:00.000Z');
+        const nextDateObj = new Date(dateObj.getTime() + 24 * 60 * 60 * 1000);
+
+        validOps.push({
+          index: i,
+          dateObj,
+          nextDateObj,
+          userDbId: user.id,
+          deptname: user.deptname,
+          modelId: model.id,
+          requestCount: Math.max(item.requestCount, 1),
+          totalInputTokens: item.totalInputTokens,
+          totalOutputTokens: item.totalOutputTokens,
+        });
+      } else {
+        // BACKGROUND 서비스: userId 없이 서비스 레벨로 기록
+        const dateObj = new Date(item.date + 'T00:00:00.000Z');
+        const nextDateObj = new Date(dateObj.getTime() + 24 * 60 * 60 * 1000);
+
+        validOps.push({
+          index: i,
+          dateObj,
+          nextDateObj,
+          userDbId: null,
+          deptname: null,
+          modelId: model.id,
+          requestCount: Math.max(item.requestCount, 1),
+          totalInputTokens: item.totalInputTokens,
+          totalOutputTokens: item.totalOutputTokens,
+        });
+      }
     }
 
     // 배치 처리: 100건씩 트랜잭션
@@ -375,8 +420,8 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
       }
     }
 
-    // 6. UserService upsert (서비스별 사용자 추적)
-    const affectedUserDbIds = [...new Set(validOps.map(op => op.userDbId))];
+    // 6. UserService upsert (서비스별 사용자 추적, userId가 있는 항목만)
+    const affectedUserDbIds = [...new Set(validOps.map(op => op.userDbId).filter((id): id is string => id != null))];
 
     if (affectedUserDbIds.length > 0) {
       const userServiceAgg = await prisma.usageLog.groupBy({
@@ -417,7 +462,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
 
     // 7. 감사 로그
     const dates = data.map(d => d.date).sort();
-    const userIds = [...new Set(data.map(d => d.userId))];
+    const userIds = [...new Set(data.map(d => d.userId).filter(Boolean))];
     try {
       await prisma.auditLog.create({
         data: {
@@ -462,6 +507,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
         upserted,
         skipped,
         errors: recordErrors.length,
+        ...(dataWithoutUser.length > 0 ? { serviceLevelRecords: dataWithoutUser.length } : {}),
       },
       users: {
         total: uniqueLoginIds.length,

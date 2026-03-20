@@ -421,7 +421,7 @@ export default function ServiceTargets() {
                                     {s.savedMMBreakdown.map((bd, idx) => (
                                       <div key={idx} className="flex items-center justify-between text-xs">
                                         <span className="text-pastel-600 truncate max-w-[140px]" title={bd.deptname}>{bd.deptname}</span>
-                                        <span className="font-medium text-emerald-700 tabular-nums">{bd.savedMM.toFixed(1)}</span>
+                                        <span className="font-medium text-emerald-700 tabular-nums">{(bd.savedMM ?? 0).toFixed(1)}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -487,7 +487,7 @@ export default function ServiceTargets() {
                                           {aiBreakdown.map((bd, idx) => (
                                             <div key={idx} className="flex items-center justify-between text-xs">
                                               <span className="text-pastel-600 truncate max-w-[120px]" title={bd.deptname}>{bd.deptname}</span>
-                                              <span className="font-medium text-violet-700 tabular-nums">{bd.aiEstimatedMM.toFixed(1)}</span>
+                                              <span className="font-medium text-violet-700 tabular-nums">{(bd.aiEstimatedMM ?? 0).toFixed(1)}</span>
                                             </div>
                                           ))}
                                         </div>
@@ -514,14 +514,14 @@ export default function ServiceTargets() {
                                     title={fallbackAi.reasoning}
                                   >
                                     <Sparkles className="w-3 h-3 text-violet-500 flex-shrink-0" />
-                                    <span className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{fallbackAi.estimatedMM.toFixed(1)}</span>
+                                    <span className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{(fallbackAi.estimatedMM ?? 0).toFixed(1)}</span>
                                     <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${confDot}`} title={fallbackAi.confidence} />
                                   </button>
                                   {isExpanded && (
                                     <div className="absolute z-20 right-0 top-full mt-1 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 text-left animate-fade-in">
                                       <div className="flex items-center gap-1.5 mb-2">
                                         <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-                                        <span className="text-xs font-semibold text-violet-700">AI 추정 {fallbackAi.estimatedMM.toFixed(1)} M/M</span>
+                                        <span className="text-xs font-semibold text-violet-700">AI 추정 {(fallbackAi.estimatedMM ?? 0).toFixed(1)} M/M</span>
                                         <span className={`text-[10px] font-bold ml-auto ${confColor}`}>{fallbackAi.confidence}</span>
                                       </div>
                                       <p className="text-xs text-pastel-600 leading-relaxed">{fallbackAi.reasoning}</p>
