@@ -1258,30 +1258,35 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       return;
     }
 
-    // centerInfo: 센터명 기준 파싱 → 사업부/연구소 라벨 (dropdown 표시용)
-    // 1) 센터명에 (XXX) 있으면 → 사업부
-    // 2) 센터명에 / 있으면 → 마지막 segment = 연구소
-    // 3) 둘 다 없으면 → 내부 deptname에서 사업부 추출
+    // centerInfo: 팀명 기준 파싱 → 사업부/연구소 라벨 (dropdown 표시용)
+    // 1) deptname에서 (사업부) 추출
+    // 2) 영문 팀명에 / 있으면 마지막 segment = 연구소
     const centerInfo: Record<string, string> = {};
     for (const cName of centers) {
-      let label = '';
+      const cData = activeCenterMap.get(cName)!;
 
-      // 센터명에서 괄호 사업부 추출: "SOC Business Team(S.LSI)" → "S.LSI"
-      const parenMatch = cName.match(/\(([^)]+)\)/);
-      if (parenMatch) {
-        label = parenMatch[1];
+      // deptname에서 사업부 추출: "S/W혁신팀(S.LSI)" → "S.LSI"
+      const buSet = new Set<string>();
+      for (const d of cData.deptnames) {
+        const bu = extractBusinessUnit(d);
+        if (bu) buSet.add(bu);
       }
-      // 센터명에 / → 마지막 segment = 연구소: "ASP/DI/SSCR" → "SSCR"
-      else if (cName.includes('/')) {
-        // 괄호 제거 후 / 파싱
-        const nameClean = cName.replace(/\([^)]*\)/, '').trim();
-        label = nameClean.substring(nameClean.lastIndexOf('/') + 1);
+
+      // 영문 팀명에서 연구소 추출: "Wi-Fi Firmware/SCSC" → "SCSC"
+      const instituteSet = new Set<string>();
+      for (const d of cData.deptnames) {
+        const team = cData.deptTeamMap.get(d) || '';
+        if (team.includes('/')) {
+          instituteSet.add(team.substring(team.lastIndexOf('/') + 1));
+        }
       }
-      // fallback: 내부 deptname에서 사업부
-      else {
-        const cData = activeCenterMap.get(cName)!;
-        const buSet = new Set(cData.deptnames.map(d => extractBusinessUnit(d)).filter(Boolean));
-        if (buSet.size > 0) label = Array.from(buSet).join('/');
+
+      // 연구소가 있으면 연구소 우선, 없으면 사업부
+      let label = '';
+      if (instituteSet.size > 0) {
+        label = Array.from(instituteSet).join('/');
+      } else if (buSet.size > 0) {
+        label = Array.from(buSet).join('/');
       }
 
       centerInfo[cName] = label;
