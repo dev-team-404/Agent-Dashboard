@@ -1258,22 +1258,42 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       return;
     }
 
-    // centerInfo: 센터명 → 사업부/연구소 라벨 (dropdown 표시용)
+    // centerInfo: 센터명 기준 파싱 → 사업부/연구소 라벨 (dropdown 표시용)
+    // 1) 센터명에 (XXX) 있으면 → 사업부
+    // 2) 센터명에 / 있으면 → 마지막 segment = 연구소
+    // 3) 둘 다 없으면 → 내부 deptname에서 사업부 추출
     const centerInfo: Record<string, string> = {};
     for (const cName of centers) {
-      const cData = activeCenterMap.get(cName)!;
-      // 센터 내 부서들에서 사업부 추출
-      const buSet = new Set(cData.deptnames.map(d => extractBusinessUnit(d)).filter(Boolean));
-      // 센터명 자체에 / 있으면 연구소 파싱
       let label = '';
-      if (cName.includes('/')) {
-        const inst = cName.substring(cName.lastIndexOf('/') + 1);
-        label = inst;
-      } else if (buSet.size > 0) {
-        label = Array.from(buSet).join('/');
+
+      // 센터명에서 괄호 사업부 추출: "SOC Business Team(S.LSI)" → "S.LSI"
+      const parenMatch = cName.match(/\(([^)]+)\)/);
+      if (parenMatch) {
+        label = parenMatch[1];
       }
+      // 센터명에 / → 마지막 segment = 연구소: "ASP/DI/SSCR" → "SSCR"
+      else if (cName.includes('/')) {
+        // 괄호 제거 후 / 파싱
+        const nameClean = cName.replace(/\([^)]*\)/, '').trim();
+        label = nameClean.substring(nameClean.lastIndexOf('/') + 1);
+      }
+      // fallback: 내부 deptname에서 사업부
+      else {
+        const cData = activeCenterMap.get(cName)!;
+        const buSet = new Set(cData.deptnames.map(d => extractBusinessUnit(d)).filter(Boolean));
+        if (buSet.size > 0) label = Array.from(buSet).join('/');
+      }
+
       centerInfo[cName] = label;
     }
+
+    // 같은 사업부/연구소 기준으로 센터 정렬
+    centers.sort((a, b) => {
+      const la = centerInfo[a] || '';
+      const lb = centerInfo[b] || '';
+      if (la !== lb) return la.localeCompare(lb);
+      return a.localeCompare(b);
+    });
 
     const selected = centerParam ? decodeURIComponent(centerParam) : centers[0];
     const centerData = activeCenterMap.get(selected);
