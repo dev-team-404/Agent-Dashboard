@@ -1303,16 +1303,11 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       return;
     }
 
-    // 1. DTGPT 모델 ID + 서비스 ID
-    const dtgptModelRows = await prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM models WHERE "endpointUrl" LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
-    `;
-    const dtgptModelIds = dtgptModelRows.map(r => r.id);
-
+    // 1. DTGPT 서비스 ID (G1: roocode,dify,openwebui,claudecode + G3: api)
     const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
     const dtgptServiceIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
 
-    if (dtgptModelIds.length === 0 || dtgptServiceIds.length === 0) {
+    if (dtgptServiceIds.length === 0) {
       res.json(empty);
       return;
     }
@@ -1338,12 +1333,11 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     }
     const qEnd = new Date();
 
-    // 3. DTGPT 사용 실적이 있는 부서만
+    // 3. DTGPT 사용 실적이 있는 부서만 (서비스 ID 기준 — 기존 team-usage와 동일 조건)
     const activeDeptRows = await prisma.$queryRaw<Array<{ deptname: string }>>`
       SELECT DISTINCT ul.deptname
       FROM usage_logs ul
       WHERE ul.timestamp >= ${qStart} AND ul.timestamp < ${qEnd}
-        AND ul.model_id = ANY(${dtgptModelIds})
         AND ul.service_id = ANY(${dtgptServiceIds})
         AND ul.deptname IS NOT NULL AND ul.deptname != ''
     `;
@@ -1392,7 +1386,6 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       FROM usage_logs ul
       WHERE ul.timestamp >= ${qStart} AND ul.timestamp < ${qEnd}
         AND ul.deptname = ANY(${deptnames})
-        AND ul.model_id = ANY(${dtgptModelIds})
         AND ul.service_id = ANY(${dtgptServiceIds})
       GROUP BY 1, ul.deptname, ul.service_id
       ORDER BY 1
