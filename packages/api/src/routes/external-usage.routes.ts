@@ -74,7 +74,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     // 2. Verify service
     const service = await prisma.service.findUnique({
       where: { name: serviceName },
-      select: { id: true, name: true, type: true, apiOnly: true, enabled: true },
+      select: { id: true, name: true, type: true, apiOnly: true, enabled: true, registeredByDept: true },
     });
 
     if (!service) {
@@ -341,7 +341,7 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
           dateObj,
           nextDateObj,
           userDbId: null,
-          deptname: null,
+          deptname: service.registeredByDept || null,
           modelId: model.id,
           requestCount: Math.max(item.requestCount, 1),
           totalInputTokens: item.totalInputTokens,
