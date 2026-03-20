@@ -815,108 +815,94 @@ export const swaggerSpec = {
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 9. DTGPT Server — Team Usage (팀별 사용량)
+    // 9. DTGPT Server — Daily Team Usage (일별 센터×팀 사용량)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/stats/dtgpt/team-usage': {
       get: {
-        summary: 'DTGPT Server — Team Usage by Month (팀별 월간 사용량)',
+        summary: 'DTGPT Server — Daily Team Usage by Center (일별 센터×팀 토큰 사용량)',
         description:
-          'Get monthly token usage grouped by **English team name** for the DTGPT server (`cloud.dtgpt.samsunds.net`).\n' +
-          'DTGPT 서버의 월별 토큰 사용량을 **영문 팀명** 기준으로 집계합니다.\n\n' +
-          '## Scope (집계 범위)\n' +
-          '- **G1 (Fixed services)**: roocode, dify, openwebui, claudecode\n' +
-          '- **G3 (API service)**: `api` service (direct endpoint usage)\n' +
-          '- G1 + G3 합산, 부서별 → 영문 팀명 변환 후 팀 단위 합산\n\n' +
-          '## Team Name Resolution (팀명 변환)\n' +
-          '- Korean dept name → Knox Employee API → English team name\n' +
-          '- 한글 부서명에서 Knox API를 통해 영문 팀명으로 변환 (결과 DB 캐시)\n',
+          'Returns **daily token usage** for each center → team for the given month.\n' +
+          '해당 월의 **일별** center1 × 팀 토큰 사용량을 반환합니다.\n\n' +
+          '## Scope\n' +
+          '- Services: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
+          '- Center: center1 기준 그룹핑 (라벨에 사업부/연구소 포함)\n' +
+          '- Teams: 영문 팀명, center 내 totalTokens 내림차순\n',
         tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
         parameters: [
           apiKeyParam,
-          {
-            name: 'month',
-            in: 'query' as const,
-            required: true,
-            description: 'Target month (YYYY-MM) / 조회 월',
-            schema: { type: 'string' as const, example: '2026-03' },
-          },
+          { name: 'year', in: 'query' as const, required: true, description: 'Year (2000-2100)', schema: { type: 'integer' as const, example: 2026 } },
+          { name: 'month', in: 'query' as const, required: true, description: 'Month (1-12)', schema: { type: 'integer' as const, minimum: 1, maximum: 12, example: 3 } },
         ],
         responses: {
           '200': {
-            description: 'Team usage list / 팀별 사용량 목록',
+            description: 'Daily team usage by center / 일별 센터×팀 사용량',
             content: {
               'application/json': {
                 example: {
-                  month: '2026-03',
+                  year: 2026, month: 3,
                   server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
-                  scope: 'G1 (fixed services) + G3 (api service)',
                   fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
                   data: [
-                    { team: 'AI Platform Team', totalInputTokens: 500000, totalOutputTokens: 250000, totalTokens: 750000, requestCount: 1200, uniqueUsers: 15, departments: ['AI플랫폼팀(DS)'] },
-                    { team: 'SW Innovation Team', totalInputTokens: 300000, totalOutputTokens: 150000, totalTokens: 450000, requestCount: 800, uniqueUsers: 10, departments: ['S/W혁신팀(S.LSI)'] },
+                    {
+                      date: '2026-03-01',
+                      centers: [
+                        { center: 'SOC Business Team (S.LSI)', teams: { 'SOC Platform Team': 130000, 'Security Power Team': 284500 } },
+                        { center: 'ACE Center (SSCR)', teams: { 'ACE Design Team': 50000 } },
+                      ],
+                    },
+                    {
+                      date: '2026-03-02',
+                      centers: [
+                        { center: 'SOC Business Team (S.LSI)', teams: { 'SOC Platform Team': 145000, 'Security Power Team': 310200 } },
+                      ],
+                    },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid month format / 잘못된 월 형식', 'month 파라미터가 필요합니다. (형식: YYYY-MM, 예: 2026-01)'),
-          '500': errorResponse('Internal server error / 서버 내부 오류'),
+          '400': errorResponse('Invalid year/month', 'year(2000~2100)와 month(1~12)는 필수입니다.'),
+          '500': errorResponse('Internal server error'),
         },
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 8. DTGPT Server — Service Usage (서비스별 사용량)
+    // 10. DTGPT Server — Daily Service Usage (일별 서비스 사용량)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/stats/dtgpt/service-usage': {
       get: {
-        summary: 'DTGPT Server — Service Usage by Month (서비스별 월간 사용량)',
+        summary: 'DTGPT Server — Daily Service Usage (일별 서비스별 토큰 사용량)',
         description:
-          'Get monthly token usage per service for the DTGPT server (`cloud.dtgpt.samsunds.net`).\n' +
-          'DTGPT 서버의 월별 서비스별 토큰 사용량을 집계합니다.\n\n' +
-          '## Service Groups (서비스 그룹)\n' +
-          '- **G1 (Fixed)**: roocode, dify, openwebui, claudecode — shown individually\n' +
-          '- **G2 (Dynamic)**: Services using models hosted at `cloud.dtgpt.samsunds.net` — shown individually\n' +
-          '- **other**: `api` service total − G2 total = unattributed direct usage (min 0)\n' +
-          '  `api` 서비스 전체 사용량에서 G2 서비스 사용량을 뺀 미분류 직접 사용량 (음수 시 0)\n\n' +
-          '## Notes\n' +
-          '- G1 and G3 do not overlap (G1 서비스명에 api 미포함)\n' +
-          '- G2 and G3 may overlap (api service may use DTGPT-hosted models)\n' +
-          '- `other` represents usage in the `api` service not attributable to any G2 service\n',
+          'Returns **daily token usage** per service for the given month.\n' +
+          '해당 월의 **일별** 서비스별 토큰 사용량을 반환합니다.\n\n' +
+          '## Scope\n' +
+          '- Services: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
+          '- Each day lists service displayName → totalTokens\n',
         tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
         parameters: [
           apiKeyParam,
-          {
-            name: 'month',
-            in: 'query' as const,
-            required: true,
-            description: 'Target month (YYYY-MM) / 조회 월',
-            schema: { type: 'string' as const, example: '2026-03' },
-          },
+          { name: 'year', in: 'query' as const, required: true, description: 'Year (2000-2100)', schema: { type: 'integer' as const, example: 2026 } },
+          { name: 'month', in: 'query' as const, required: true, description: 'Month (1-12)', schema: { type: 'integer' as const, minimum: 1, maximum: 12, example: 3 } },
         ],
         responses: {
           '200': {
-            description: 'Service usage list / 서비스별 사용량 목록',
+            description: 'Daily service usage / 일별 서비스별 사용량',
             content: {
               'application/json': {
                 example: {
-                  month: '2026-03',
+                  year: 2026, month: 3,
                   server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
-                  scope: 'G1 (fixed) + G2 (dynamic by endpoint) + other (G3 - G2)',
                   fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
-                  dynamicServiceCount: 5,
-                  g3ServiceName: 'api',
-                  g3TotalTokens: 2000000,
-                  g2TotalTokens: 800000,
                   data: [
-                    { service: 'roocode', displayName: 'Roo Code', group: 'G1:fixed', totalInputTokens: 400000, totalOutputTokens: 200000, totalTokens: 600000, requestCount: 1000, uniqueUsers: 20 },
-                    { service: 'other', displayName: 'Other (미분류 직접 사용)', group: 'G3:api-remainder', totalInputTokens: 720000, totalOutputTokens: 480000, totalTokens: 1200000, requestCount: 500, uniqueUsers: 30 },
+                    { date: '2026-03-01', services: { 'Roo Code': 350000, 'Claude Code': 120000, 'Dify': 85000, 'Open WebUI': 42000 } },
+                    { date: '2026-03-02', services: { 'Roo Code': 410000, 'Claude Code': 135000, 'Dify': 91000, 'Open WebUI': 38000 } },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid month format / 잘못된 월 형식', 'month 파라미터가 필요합니다. (형식: YYYY-MM, 예: 2026-01)'),
-          '500': errorResponse('Internal server error / 서버 내부 오류'),
+          '400': errorResponse('Invalid year/month', 'year(2000~2100)와 month(1~12)는 필수입니다.'),
+          '500': errorResponse('Internal server error'),
         },
       },
     },
