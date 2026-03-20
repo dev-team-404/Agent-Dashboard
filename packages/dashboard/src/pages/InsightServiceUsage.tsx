@@ -28,6 +28,7 @@ interface TeamInfoEntry {
 
 interface TokenUsageData {
   centers: string[];
+  centerInfo?: Record<string, string>;
   centerName: string;
   granularity: Granularity;
   byTeam: Array<Record<string, any>>;
@@ -187,7 +188,9 @@ export default function InsightServiceUsage() {
             <div className="relative">
               <button onClick={() => setDdOpen(v => !v)}
                 className="flex items-center gap-2 pl-4 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-violet-300 transition-colors shadow-sm min-w-[160px]">
-                <span className="truncate max-w-[180px]">{center || 'Center 선택'}</span>
+                <span className="truncate max-w-[260px]">
+                  {center ? (<>{center}{data?.centerInfo?.[center] ? <span className="text-gray-400 ml-1">({data.centerInfo[center]})</span> : null}</>) : 'Center 선택'}
+                </span>
                 <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ddOpen ? 'rotate-180' : ''}`} />
               </button>
               {ddOpen && (
@@ -197,7 +200,7 @@ export default function InsightServiceUsage() {
                     {data.centers.map(c => (
                       <button key={c} onClick={() => pickCenter(c)}
                         className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${c === center ? 'bg-violet-50 text-violet-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}>
-                        {c}
+                        {c}{data.centerInfo?.[c] ? <span className="text-gray-400 ml-1">({data.centerInfo[c]})</span> : null}
                       </button>
                     ))}
                   </div>

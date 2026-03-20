@@ -1366,6 +1366,23 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       return;
     }
 
+    // centerInfo: 센터명 → 사업부/연구소 라벨 (dropdown 표시용)
+    const centerInfo: Record<string, string> = {};
+    for (const cName of centers) {
+      const cData = activeCenterMap.get(cName)!;
+      // 센터 내 부서들에서 사업부 추출
+      const buSet = new Set(cData.deptnames.map(d => extractBusinessUnit(d)).filter(Boolean));
+      // 센터명 자체에 / 있으면 연구소 파싱
+      let label = '';
+      if (cName.includes('/')) {
+        const inst = cName.substring(cName.lastIndexOf('/') + 1);
+        label = inst;
+      } else if (buSet.size > 0) {
+        label = Array.from(buSet).join('/');
+      }
+      centerInfo[cName] = label;
+    }
+
     const selected = centerParam ? decodeURIComponent(centerParam) : centers[0];
     const centerData = activeCenterMap.get(selected);
     if (!centerData || centerData.deptnames.length === 0) {
@@ -1481,6 +1498,7 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
 
     res.json({
       centers,
+      centerInfo,
       centerName: selected,
       granularity,
       server: DTGPT_ENDPOINT_PREFIX,
