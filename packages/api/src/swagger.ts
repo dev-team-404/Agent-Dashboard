@@ -928,23 +928,28 @@ export const swaggerSpec = {
       post: {
         summary: 'Submit Usage by User (사용자별 사용 기록 전송) — Recommended / 권장',
         description:
-          'Submit per-user daily usage records using **Knox login ID**.\n' +
-          '**Knox ID(사번 아이디) 기반** 사용자별 사용 기록을 전송합니다.\n\n' +
+          'Submit daily usage records. Supports both user-level (STANDARD) and service-level (BACKGROUND) tracking.\n' +
+          '일별 사용 기록을 전송합니다. 사용자 단위(STANDARD)와 서비스 단위(BACKGROUND) 모두 지원합니다.\n\n' +
           'Records are stored in the **same table (usage_logs)** as proxy services, ' +
           'enabling cross-service unique user deduplication, Top K Users ranking, and all other dashboard statistics.\n' +
           '프록시 서비스와 **동일한 테이블(usage_logs)** 에 기록되어 ' +
           '통합 대시보드 사용자 중복제거, Top K Users 등 모든 통계에 자연스럽게 반영됩니다.\n\n' +
+          '## Service Type Rules (서비스 타입별 필수 필드)\n' +
+          '| Field | STANDARD | BACKGROUND |\n' +
+          '|-------|----------|------------|\n' +
+          '| `userId` | **필수** | 선택 |\n' +
+          '| `deptName` | 선택 (Knox 자동) | userId 없으면 **필수** |\n\n' +
           '## Key Features (주요 특징)\n' +
           '- **User-level granularity**: Per-user (Knox ID) tracking / 사용자(Knox ID) 단위 추적\n' +
+          '- **Service-level**: BACKGROUND services can submit without userId / BACKGROUND 서비스는 userId 없이 전송 가능\n' +
           '- **Cross-service dedup**: Unique user deduplication across services / 서비스 간 사용자 중복제거 가능\n' +
-          '- **Top K Users**: Reflected in user rankings / 사용자 순위에 반영\n' +
-          '- **Auto dept info**: Department info auto-resolved from Knox API / Knox API에서 부서 정보 자동 조회\n\n' +
+          '- **Auto dept info**: Department info auto-resolved from Knox API (when userId provided) / userId 제공 시 Knox API에서 부서 정보 자동 조회\n\n' +
           '## Processing Flow (처리 흐름)\n' +
-          '1. `userId` (Knox ID) → Look up User in DB / DB User 조회\n' +
+          '1. `userId` (Knox ID) → Look up User in DB / DB User 조회 (userId 있는 항목만)\n' +
           '2. Unregistered/unverified → Batch Knox Employee API lookup → Auto-register User / 미등록/미인증 → Knox Employee API 일괄 조회 → User 자동 등록\n' +
           '3. `modelName` → Match via ServiceModel alias → Fallback to Model.name / ServiceModel alias 매칭 → Model.name fallback\n' +
           '4. UsageLog upsert `(date, userId, modelId, serviceId)` — same key = overwrite / 동일 키 = 덮어쓰기\n' +
-          '5. UserService upsert (user-service relationship tracking / user-service 관계 추적)\n\n' +
+          '5. UserService upsert (user-service relationship tracking / user-service 관계 추적, userId 있는 항목만)\n\n' +
           '## Partial Success (부분 성공)\n' +
           'If some users fail Knox verification or some models are unregistered, ' +
           'only those records are skipped — the rest are processed normally. ' +
@@ -974,7 +979,7 @@ export const swaggerSpec = {
                     description: 'Array of per-user daily usage records (max 5000) / 사용자별 일별 사용 기록 배열 (최대 5000건)',
                     items: {
                       type: 'object',
-                      required: ['date', 'userId', 'modelName', 'requestCount', 'totalInputTokens', 'totalOutputTokens'],
+                      required: ['date', 'modelName', 'requestCount', 'totalInputTokens', 'totalOutputTokens'],
                       properties: {
                         date: {
                           type: 'string', format: 'date',
@@ -983,8 +988,13 @@ export const swaggerSpec = {
                         },
                         userId: {
                           type: 'string',
-                          description: 'Knox login ID. Unregistered users are auto-registered via Knox Employee API. / Knox 로그인 ID (사번 아이디). 미등록 사용자는 Knox API로 자동 등록',
+                          description: '**STANDARD: 필수** / BACKGROUND: 선택. Knox login ID. Unregistered users are auto-registered via Knox Employee API. / Knox 로그인 ID (사번 아이디). 미등록 사용자는 Knox API로 자동 등록',
                           example: 'hong.gildong',
+                        },
+                        deptName: {
+                          type: 'string',
+                          description: 'STANDARD: 선택 / **BACKGROUND: userId 없으면 필수**. Department name / 부서명. 예: "S/W혁신팀(S.LSI)"',
+                          example: 'S/W혁신팀(S.LSI)',
                         },
                         modelName: {
                           type: 'string',
@@ -1029,6 +1039,16 @@ export const swaggerSpec = {
                     serviceId: 'my-api-service',
                     data: [
                       { date: '2026-03-15', userId: 'hong.gildong', modelName: 'gpt-4o', requestCount: 55, totalInputTokens: 110000, totalOutputTokens: 55000 },
+                    ],
+                  },
+                },
+                'background-service': {
+                  summary: 'BACKGROUND service (no userId, deptName required) / 백그라운드 서비스 (userId 없이 deptName 필수)',
+                  value: {
+                    serviceId: 'my-background-service',
+                    data: [
+                      { date: '2026-03-15', deptName: 'S/W혁신팀(S.LSI)', modelName: 'gpt-4o', requestCount: 100, totalInputTokens: 200000, totalOutputTokens: 100000 },
+                      { date: '2026-03-16', deptName: 'S/W혁신팀(S.LSI)', modelName: 'claude-sonnet', requestCount: 50, totalInputTokens: 80000, totalOutputTokens: 40000 },
                     ],
                   },
                 },
