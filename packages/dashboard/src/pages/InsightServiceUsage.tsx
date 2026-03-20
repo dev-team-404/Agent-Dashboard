@@ -61,10 +61,10 @@ function ChartTooltip({ active, payload, label, teamInfo }: TooltipProps<number,
   const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
   const visible = payload.filter(p => (p.value ?? 0) > 0).reverse();
   return (
-    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[220px] max-w-[320px]">
+    <div className="bg-white/95 backdrop-blur rounded-xl border border-gray-200 shadow-xl p-4 min-w-[220px] max-w-[320px] pointer-events-auto">
       <p className="text-[11px] font-medium text-gray-400 mb-1">{label}</p>
       <p className="text-sm font-bold text-gray-900 mb-3">Total <span className="text-violet-600">{fmtTokens(total)}</span> tokens</p>
-      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1 overscroll-contain">
         {visible.map((p) => {
           const info = teamInfo?.[p.dataKey as string];
           return (
@@ -78,8 +78,9 @@ function ChartTooltip({ active, payload, label, teamInfo }: TooltipProps<number,
               </div>
               {info && (
                 <div className="ml-4 mt-0.5 text-[10px] text-gray-400 space-y-0.5">
-                  {info.deptnames.map(d => <div key={d}>{d}</div>)}
+                  {info.teamShort && <div>팀: {info.teamShort}</div>}
                   {info.institute && <div>연구소: {info.institute}</div>}
+                  {info.deptnames.map(d => <div key={d}>부서: {d}</div>)}
                   {info.businessUnits.length > 0 && <div>사업부: {info.businessUnits.join(', ')}</div>}
                 </div>
               )}
@@ -115,7 +116,7 @@ function StackedChart({ title, subtitle, data, keys, colors, granularity, teamIn
             angle={granularity === 'daily' ? -45 : 0} textAnchor={granularity === 'daily' ? 'end' : 'middle'}
             interval={granularity === 'daily' ? 1 : 0} />
           <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={fmtTokens} width={56} />
-          <Tooltip content={<ChartTooltip colors={colors} teamInfo={teamInfo} />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }} />
+          <Tooltip content={<ChartTooltip colors={colors} teamInfo={teamInfo} />} cursor={{ fill: 'rgba(0,0,0,0.04)', radius: 4 }} wrapperStyle={{ pointerEvents: 'auto' }} allowEscapeViewBox={{ x: true, y: true }} />
           <Legend wrapperStyle={{ paddingTop: 12, fontSize: 12 }} iconType="square" iconSize={10}
             formatter={(v: string) => <span className="text-[11px] text-gray-600 ml-1">{v}</span>} />
           {keys.map((key, i) => (

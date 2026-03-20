@@ -1465,10 +1465,12 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
       const deptArr = deps ? Array.from(deps) : [];
       const buSet = new Set(deptArr.map(d => extractBusinessUnit(d)).filter(Boolean));
 
-      // 외국 자사 파싱: 공백 없고 /가 있으면 → 마지막 segment = 연구소
+      // 팀/연구소 파싱: /가 있으면 마지막 / 기준 분리
+      // Wi-Fi Firmware/SCSC → 팀:Wi-Fi Firmware, 연구소:SCSC
+      // PI/PD/DSRJ(DS) → 팀:PI/PD, 연구소:DSRJ(DS)
       let teamShort: string | null = null;
       let institute: string | null = null;
-      if (!team.includes(' ') && team.includes('/')) {
+      if (team.includes('/')) {
         const lastSlash = team.lastIndexOf('/');
         teamShort = team.substring(0, lastSlash);
         institute = team.substring(lastSlash + 1);
