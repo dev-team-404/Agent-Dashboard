@@ -8,7 +8,7 @@ export async function fetchHolidayDates(): Promise<Set<string>> {
   if (fetchPromise) return fetchPromise;
 
   fetchPromise = holidaysApi
-    .getDates(730)
+    .getDates(365)
     .then((res) => {
       cachedHolidays = new Set(res.data.dates);
       return cachedHolidays;

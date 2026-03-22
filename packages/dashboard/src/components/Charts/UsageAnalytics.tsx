@@ -183,7 +183,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       days: dailyChartData.length,
       totalDays: dailyData.length,
     };
-  }, [dailyChartData]);
+  }, [dailyChartData, dailyData.length]);
 
   // Transform user data for charts
   const userChartData = useMemo(() =>
