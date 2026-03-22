@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { publicStatsApi } from '../services/api';
+import { useHolidayDates } from '../hooks/useHolidayDates';
+import { filterBusinessDays } from '../utils/businessDayFilter';
 
 // ── Types ──
 
@@ -448,7 +450,13 @@ export default function PublicDashboard() {
   const [overallDAU, setOverallDAU] = useState(0);
   const [dailyDauChart, setDailyDauChart] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
+  const holidayDates = useHolidayDates();
   const [error, setError] = useState('');
+
+  // 주말/휴일 제외된 일별 DAU 차트 데이터
+  const filteredDailyDauChart = useMemo(() =>
+    filterBusinessDays(dailyDauChart, (d) => String(d.date), holidayDates),
+  [dailyDauChart, holidayDates]);
 
   useEffect(() => {
     loadData();
@@ -564,8 +572,8 @@ export default function PublicDashboard() {
       </div>
 
       {/* Daily DAU Line Chart */}
-      {!error && dailyDauChart.length > 0 && (
-        <DailyDauLineChart data={dailyDauChart} />
+      {!error && filteredDailyDauChart.length > 0 && (
+        <DailyDauLineChart data={filteredDailyDauChart} />
       )}
 
       {/* Bar Charts */}

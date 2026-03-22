@@ -13,6 +13,8 @@ import {
 } from 'recharts';
 import { Users, TrendingUp } from 'lucide-react';
 import { statsApi } from '../../services/api';
+import { useHolidayDates } from '../../hooks/useHolidayDates';
+import { filterBusinessDays } from '../../utils/businessDayFilter';
 
 interface DailyActiveData {
   date: string;
@@ -47,6 +49,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const [chartType, setChartType] = useState<ChartType>('cumulative');
+  const holidayDates = useHolidayDates();
 
   useEffect(() => {
     loadData();
@@ -70,36 +73,46 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
     }
   };
 
+  // 주말/휴일 제외 필터링
+  const filteredDailyData = useMemo(() =>
+    filterBusinessDays(dailyData, (d) => d.date, holidayDates),
+    [dailyData, holidayDates]);
+
+  const filteredCumulativeData = useMemo(() =>
+    filterBusinessDays(cumulativeData, (d) => d.date, holidayDates),
+    [cumulativeData, holidayDates]);
+
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
   };
 
   const tickInterval = useMemo(() => {
-    if (days <= 14) return 1;
-    if (days <= 30) return 2;
-    if (days <= 90) return 7;
-    if (days <= 180) return 14;
+    const count = chartType === 'cumulative' ? filteredCumulativeData.length : filteredDailyData.length;
+    if (count <= 14) return 1;
+    if (count <= 30) return 2;
+    if (count <= 90) return 7;
+    if (count <= 180) return 14;
     return 30;
-  }, [days]);
+  }, [filteredDailyData.length, filteredCumulativeData.length, chartType]);
 
   // Calculate stats for daily active
   const dailyStats = useMemo(() => {
-    if (dailyData.length === 0) return { avg: 0, max: 0, today: 0 };
-    const counts = dailyData.map((d) => d.userCount);
+    if (filteredDailyData.length === 0) return { avg: 0, max: 0, today: 0 };
+    const counts = filteredDailyData.map((d) => d.userCount);
     return {
       avg: Math.round(counts.reduce((a, b) => a + b, 0) / counts.length),
       max: Math.max(...counts),
       today: counts[counts.length - 1] || 0,
     };
-  }, [dailyData]);
+  }, [filteredDailyData]);
 
   // Calculate stats for cumulative
   const cumulativeStats = useMemo(() => {
-    if (cumulativeData.length === 0) return { newInPeriod: 0, growthRate: 0 };
-    const newUsers = cumulativeData.reduce((sum, d) => sum + d.newUsers, 0);
-    const startCount = cumulativeData[0]?.cumulativeUsers || 0;
-    const endCount = cumulativeData[cumulativeData.length - 1]?.cumulativeUsers || 0;
+    if (filteredCumulativeData.length === 0) return { newInPeriod: 0, growthRate: 0 };
+    const newUsers = filteredCumulativeData.reduce((sum, d) => sum + d.newUsers, 0);
+    const startCount = filteredCumulativeData[0]?.cumulativeUsers || 0;
+    const endCount = filteredCumulativeData[filteredCumulativeData.length - 1]?.cumulativeUsers || 0;
     // 시작이 0이면 1로 처리 (0으로 나누기 방지)
     const baseCount = startCount > 0 ? startCount : 1;
     const growthRate = ((endCount - startCount) / baseCount) * 100;
@@ -107,7 +120,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
       newInPeriod: newUsers,
       growthRate: Math.round(growthRate * 10) / 10,
     };
-  }, [cumulativeData]);
+  }, [filteredCumulativeData]);
 
   if (loading) {
     return (
@@ -222,13 +235,13 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
       {/* Chart */}
       <div className="h-64">
         {chartType === 'cumulative' ? (
-          cumulativeData.length === 0 ? (
+          filteredCumulativeData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-gray-400">
               데이터가 없습니다
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cumulativeData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <LineChart data={filteredCumulativeData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="cumulativeGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
@@ -286,13 +299,13 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
               </LineChart>
             </ResponsiveContainer>
           )
-        ) : dailyData.length === 0 ? (
+        ) : filteredDailyData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">
             데이터가 없습니다
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={dailyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+            <AreaChart data={filteredDailyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
               <defs>
                 <linearGradient id="dailyGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />

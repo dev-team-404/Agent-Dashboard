@@ -8,6 +8,8 @@ import {
   Download, Loader2, Calendar, BarChart3, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { statsApi } from '../../services/api';
+import { useHolidayDates } from '../../hooks/useHolidayDates';
+import { filterBusinessDays } from '../../utils/businessDayFilter';
 
 const COLORS = [
   '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981',
@@ -102,6 +104,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
 
   const [dailyData, setDailyData] = useState<DailyItem[]>([]);
   const [userData, setUserData] = useState<UserItem[]>([]);
+  const holidayDates = useHolidayDates();
   const [modelData, setModelData] = useState<ModelItem[]>([]);
   const [deptData, setDeptData] = useState<DeptItem[]>([]);
   const [dauData, setDauData] = useState<DauItem[]>([]);
@@ -156,35 +159,29 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
     loadData();
   }, [loadData]);
 
-  // Transform daily data for charts
-  const dailyChartData = useMemo(() =>
-    dailyData.map((d) => ({
+  // Transform daily data for charts (주말/휴일 제외)
+  const dailyChartData = useMemo(() => {
+    const mapped = dailyData.map((d) => ({
       date: typeof d.date === 'string' ? d.date.split('T')[0] : new Date(d.date).toISOString().split('T')[0],
       inputTokens: d._sum.totalInputTokens || 0,
       outputTokens: d._sum.totalOutputTokens || 0,
       requests: d._sum.requestCount || 0,
-    })),
-  [dailyData]);
+    }));
+    return filterBusinessDays(mapped, (d) => d.date, holidayDates);
+  }, [dailyData, holidayDates]);
 
-  // Business day averages
+  // Business day averages (dailyChartData는 이미 주말/휴일 제외 상태)
   const businessDayStats = useMemo(() => {
     if (dailyChartData.length === 0) return null;
-    // Filter weekdays only (Mon-Fri)
-    const bizDays = dailyChartData.filter((d) => {
-      const date = new Date(d.date!);
-      const dow = date.getDay();
-      return dow !== 0 && dow !== 6;
-    });
-    if (bizDays.length === 0) return null;
-    const totalReq = bizDays.reduce((s, d) => s + d.requests, 0);
-    const totalIn = bizDays.reduce((s, d) => s + d.inputTokens, 0);
-    const totalOut = bizDays.reduce((s, d) => s + d.outputTokens, 0);
+    const totalReq = dailyChartData.reduce((s, d) => s + d.requests, 0);
+    const totalIn = dailyChartData.reduce((s, d) => s + d.inputTokens, 0);
+    const totalOut = dailyChartData.reduce((s, d) => s + d.outputTokens, 0);
     return {
-      avgRequests: Math.round(totalReq / bizDays.length),
-      avgInputTokens: Math.round(totalIn / bizDays.length),
-      avgOutputTokens: Math.round(totalOut / bizDays.length),
-      days: bizDays.length,
-      totalDays: dailyChartData.length,
+      avgRequests: Math.round(totalReq / dailyChartData.length),
+      avgInputTokens: Math.round(totalIn / dailyChartData.length),
+      avgOutputTokens: Math.round(totalOut / dailyChartData.length),
+      days: dailyChartData.length,
+      totalDays: dailyData.length,
     };
   }, [dailyChartData]);
 
@@ -219,6 +216,11 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       outputTokens: d._sum.totalOutputTokens || 0,
     })),
   [deptData]);
+
+  // DAU 차트 데이터 (주말/휴일 제외)
+  const filteredDauData = useMemo(() =>
+    filterBusinessDays(dauData, (d) => d.date, holidayDates),
+  [dauData, holidayDates]);
 
   const handleExport = () => {
     switch (activeTab) {
@@ -370,11 +372,11 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
             {/* DAU */}
             <div className="bg-white rounded-xl shadow-card p-6">
               <h3 className="text-base font-semibold text-gray-900 mb-4">일별 활성 사용자</h3>
-              {dauData.length === 0 ? (
+              {filteredDauData.length === 0 ? (
                 <div className="h-64 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={dauData}>
+                  <LineChart data={filteredDauData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDate} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />

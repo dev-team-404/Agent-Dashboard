@@ -10,6 +10,8 @@ import {
   Legend,
 } from 'recharts';
 import { statsApi, serviceApi } from '../../services/api';
+import { useHolidayDates } from '../../hooks/useHolidayDates';
+import { filterBusinessDays } from '../../utils/businessDayFilter';
 
 interface UserInfo {
   id: string;
@@ -74,6 +76,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
   const [loadingChart, setLoadingChart] = useState(false);
   const [days, setDays] = useState(30);
   const [topN, setTopN] = useState(10);
+  const holidayDates = useHolidayDates();
 
   // Load models on mount or when serviceId changes
   useEffect(() => {
@@ -129,14 +132,15 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
     }
   };
 
-  // 일별 데이터를 누적 데이터로 변환
+  // 주말/휴일 제외 후 누적 데이터로 변환
   const cumulativeChartData = useMemo(() => {
     if (chartData.length === 0 || users.length === 0) return [];
 
+    const filtered = filterBusinessDays(chartData, (d) => d.date, holidayDates);
     const cumulative: Record<string, number> = {};
     users.forEach((u) => (cumulative[u.id] = 0));
 
-    return chartData.map((item) => {
+    return filtered.map((item) => {
       const newItem: ChartDataItem = { date: item.date };
       users.forEach((user) => {
         const dailyValue = (item[user.id] as number) || 0;
@@ -145,7 +149,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
       });
       return newItem;
     });
-  }, [chartData, users]);
+  }, [chartData, users, holidayDates]);
 
   const formatYAxis = (value: number): string => {
     if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';

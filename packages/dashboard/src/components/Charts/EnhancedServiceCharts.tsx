@@ -5,6 +5,8 @@ import {
 } from 'recharts';
 import { TrendingUp, Users, Zap, BarChart3, Activity, CalendarDays } from 'lucide-react';
 import { statsApi } from '../../services/api';
+import { useHolidayDates } from '../../hooks/useHolidayDates';
+import { filterBusinessDays } from '../../utils/businessDayFilter';
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
@@ -83,6 +85,7 @@ function OverflowTable({ data, keys, label }: { data: Record<string, unknown>[];
 export default function EnhancedServiceCharts() {
   const [tab, setTab] = useState<ChartType>('cumUsers');
   const [days, setDays] = useState(30);
+  const holidayDates = useHolidayDates();
   const [loading, setLoading] = useState(true);
   const [cumUsersData, setCumUsersData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
   const [cumTokensData, setCumTokensData] = useState<{ data: Record<string, unknown>[] }>({ data: [] });
@@ -144,7 +147,8 @@ export default function EnhancedServiceCharts() {
     }
   };
 
-  const renderLineChart = (data: Record<string, unknown>[], yFormatter?: (v: number) => string) => {
+  const renderLineChart = (rawData: Record<string, unknown>[], yFormatter?: (v: number) => string) => {
+    const data = filterBusinessDays(rawData, (d) => String(d.date), holidayDates);
     if (data.length === 0) return <EmptyState />;
     const { top, rest } = rankServiceKeys(data, 10);
     return (
@@ -178,7 +182,8 @@ export default function EnhancedServiceCharts() {
     );
   };
 
-  const renderAreaChart = (data: Record<string, unknown>[]) => {
+  const renderAreaChart = (rawData: Record<string, unknown>[]) => {
+    const data = filterBusinessDays(rawData, (d) => String(d.date), holidayDates);
     if (data.length === 0) return <EmptyState />;
     const { top, rest } = rankServiceKeys(data, 10);
     return (
@@ -213,7 +218,8 @@ export default function EnhancedServiceCharts() {
   };
 
   const renderDauChart = () => {
-    const { data, serviceTypeMap, estimationMeta } = dauData;
+    const { data: rawData, serviceTypeMap, estimationMeta } = dauData;
+    const data = filterBusinessDays(rawData, (d) => String(d.date), holidayDates);
     if (data.length === 0) return <EmptyState />;
     const { top, rest } = rankServiceKeys(data, 10);
     const hasBg = top.some(k => serviceTypeMap?.[k] === 'BACKGROUND');

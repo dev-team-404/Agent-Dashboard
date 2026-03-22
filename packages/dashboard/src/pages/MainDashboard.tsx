@@ -14,6 +14,8 @@ import {
 } from 'recharts';
 import { api } from '../services/api';
 import { Sparkles, Target } from 'lucide-react';
+import { useHolidayDates } from '../hooks/useHolidayDates';
+import { isBusinessDay } from '../utils/businessDayFilter';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -221,6 +223,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [healthCheckHistory, setHealthCheckHistory] = useState<HealthCheckHistory>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
+  const holidayDates = useHolidayDates();
 
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
@@ -347,8 +350,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const totalTokens = globalTotals?.totalTokens ?? globalOverview.reduce((sum, s) => sum + s.totalTokens, 0);
   const totalRequests = globalTotals?.totalRequests ?? globalOverview.reduce((sum, s) => sum + s.totalRequests, 0);
 
-  // ── Chart data transforms ──
-  const uniqueDates = [...new Set(serviceDaily.map(d => d.date))].sort();
+  // ── Chart data transforms (주말/휴일 제외) ──
+  const uniqueDates = [...new Set(serviceDaily.map(d => d.date))]
+    .sort()
+    .filter(date => isBusinessDay(date, holidayDates));
   const uniqueServices = [...new Set(serviceDaily.map(d => d.serviceName))];
 
   const serviceRechartsData = uniqueDates.map(date => {
@@ -369,9 +374,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const topServices = rankedServices.slice(0, 10);
   const restServices = rankedServices.slice(10);
 
-  const deptTokenRechartsData = deptDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
-  const deptUsersRechartsData = deptUsersDailyData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
-  const deptServiceRechartsData: DeptServiceRequestsDaily[] = deptServiceRequestsData.map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptTokenRechartsData = deptDailyData
+    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptUsersRechartsData = deptUsersDailyData
+    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .map(d => ({ ...d, date: (d.date as string).slice(5) }));
+  const deptServiceRechartsData: DeptServiceRequestsDaily[] = deptServiceRequestsData
+    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .map(d => ({ ...d, date: (d.date as string).slice(5) }));
 
   // Top 10 dept-service combos by total requests
   const rankedCombos = [...deptServiceCombos].sort((a, b) => {

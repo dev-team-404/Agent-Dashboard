@@ -10,6 +10,8 @@ import {
   Legend,
 } from 'recharts';
 import { ratingApi } from '../../services/api';
+import { useHolidayDates } from '../../hooks/useHolidayDates';
+import { isBusinessDay } from '../../utils/businessDayFilter';
 
 interface DailyRating {
   date: string;
@@ -77,6 +79,7 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
   const [modelStats, setModelStats] = useState<ModelStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
+  const holidayDates = useHolidayDates();
 
   useEffect(() => {
     loadData();
@@ -112,12 +115,12 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
     return map;
   }, [modelNames]);
 
-  // Transform daily data into chart format with date padding
+  // Transform daily data into chart format with date padding (주말/휴일 제외)
   const chartData = useMemo(() => {
     if (modelNames.length === 0) return [];
 
-    // Generate all dates in range
-    const allDates = generateDateRange(days);
+    // Generate all dates in range, excluding weekends/holidays
+    const allDates = generateDateRange(days).filter(d => isBusinessDay(d, holidayDates));
 
     // Create a map of date+model -> rating
     const ratingMap = new Map<string, number>();
@@ -136,7 +139,7 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
       });
       return item;
     });
-  }, [dailyData, modelNames, days]);
+  }, [dailyData, modelNames, days, holidayDates]);
 
   // Calculate cumulative average (all-time average up to each date)
   const cumulativeChartData = useMemo(() => {
