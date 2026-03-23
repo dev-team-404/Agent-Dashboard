@@ -195,6 +195,17 @@ const CHART_COLORS = [
   '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
+/** UTC ISO 문자열 → KST "HH:mm" 변환 */
+function toKstHHmm(isoOrDate: string | Date): string {
+  return new Date(isoOrDate).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+/** UTC ISO 문자열 → KST 정렬용 버킷 키 "YYYY-MM-DDTHH:mm" */
+function toKstBucketKey(isoOrDate: string | Date): string {
+  const d = new Date(isoOrDate);
+  const parts = d.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }); // "2026-03-23 18:05:00"
+  return parts.slice(0, 16).replace(' ', 'T'); // "2026-03-23T18:05"
+}
+
 /** 모델명 → 고정 색상 인덱스 (granularity 변경 시에도 동일 모델은 같은 색 유지) */
 function stableColorIndex(name: string): number {
   let hash = 0;
@@ -448,9 +459,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const latencyKeys = Object.keys(latencyHistory);
   const latencyRechartsData = latencyKeys.length > 0
     ? (latencyHistory[latencyKeys[0]] || []).map((point, idx) => {
-        const time = new Date(point.time);
         const row: Record<string, string | number> = {
-          time: `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`,
+          time: toKstHHmm(point.time),
         };
         latencyKeys.forEach(key => {
           row[key] = latencyHistory[key]?.[idx]?.avgLatency || 0;
@@ -467,13 +477,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const hcErrorMap = new Map<string, Record<string, string>>();
   const hcRechartsData: Record<string, string | number>[] = (() => {
     if (hcModelNames.length === 0) return [];
-    // 분 단위 버킷: "2026-03-12T03:41" 형태로 그룹핑
+    // 분 단위 버킷: KST "2026-03-12T18:05" 형태로 그룹핑
     const bucketMap = new Map<string, Record<string, string | number>>();
     hcModelNames.forEach(name => {
       healthCheckHistory[name]?.forEach(p => {
-        const d = new Date(p.time);
-        const bucket = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-        const timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        const bucket = toKstBucketKey(p.time);
+        const timeLabel = toKstHHmm(p.time);
         if (!bucketMap.has(bucket)) {
           bucketMap.set(bucket, { time: timeLabel });
         }
@@ -808,7 +817,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         )].sort();
         const errorChartData = allHours.map(h => {
           const row: Record<string, string | number> = {
-            hour: new Date(h).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            hour: toKstHHmm(h),
           };
           // 에러 많은 상위 8개 모델만 표시
           const topModels = errorRateSummary.slice(0, 8).map(s => s.model);

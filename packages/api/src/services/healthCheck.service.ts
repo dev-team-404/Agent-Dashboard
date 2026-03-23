@@ -392,12 +392,8 @@ async function runHealthChecks(): Promise<void> {
     // 배치 시작 시점을 checkedAt으로 통일 (응답 속도와 무관하게 같은 X축)
     const batchCheckedAt = new Date();
 
-    // 동시 실행 (너무 많으면 5개씩 배치)
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < models.length; i += BATCH_SIZE) {
-      const batch = models.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(batch.map(m => checkSingleModel(m, batchCheckedAt)));
-    }
+    // 전체 병렬 실행 (timeout 모델이 다른 모델을 블로킹하지 않도록)
+    await Promise.allSettled(models.map(m => checkSingleModel(m, batchCheckedAt)));
 
     console.log(`[HealthCheck] Done.`);
   } catch (err) {
