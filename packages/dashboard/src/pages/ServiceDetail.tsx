@@ -90,6 +90,7 @@ interface ServiceModelItem {
   enabled: boolean;
   fallbackModelId?: string | null;
   fallbackModel?: { id: string; name: string; displayName: string; type: string } | null;
+  maxRetries?: number;
   addedBy?: string;
   addedAt: string;
   accessible: boolean;
@@ -1384,6 +1385,30 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                       <option key={m.id} value={m.id}>{m.displayName}</option>
                     ))}
                   </select>
+                  {/* Retry count */}
+                  <div className="flex items-center gap-1" title="에러 시 재시도 횟수 (0=재시도 안함)">
+                    <span className="text-[10px] text-gray-400">재시도</span>
+                    <select
+                      value={group.items[0]?.maxRetries ?? 0}
+                      onChange={async (e) => {
+                        try {
+                          setSaving(true);
+                          await api.put(`/services/${serviceId}/models/max-retries`, { aliasName: group.aliasName, maxRetries: parseInt(e.target.value) });
+                          await loadData();
+                        } catch (err) {
+                          console.error('Failed to set max retries:', err);
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-12 px-1 py-1.5 text-xs text-center border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {[0, 1, 2, 3, 5, 10].map(n => (
+                        <option key={n} value={n}>{n}회</option>
+                      ))}
+                    </select>
+                  </div>
                   <button onClick={() => setAddingToAlias(addingToAlias === group.aliasName ? null : group.aliasName)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100">
                     <Plus className="w-3 h-3" />모델 추가

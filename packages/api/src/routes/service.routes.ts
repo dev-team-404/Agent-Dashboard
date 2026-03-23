@@ -1168,6 +1168,7 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
         addedAt: sm.addedAt,
         fallbackModelId: sm.fallbackModelId,
         fallbackModel: sm.fallbackModel,
+        maxRetries: sm.maxRetries,
         model: sm.model,
         accessible, // 현재 사용자가 이 모델에 접근 가능한지
       };
@@ -1453,6 +1454,41 @@ serviceRoutes.put('/:id/models/fallback', authenticateToken, async (req: Authent
   } catch (error) {
     console.error('Set fallback model error:', error);
     res.status(500).json({ error: 'Failed to set fallback model' });
+  }
+});
+
+/**
+ * PUT /services/:id/models/max-retries
+ * 별칭(alias) 그룹의 재시도 횟수 설정
+ */
+serviceRoutes.put('/:id/models/max-retries', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const schema = z.object({
+      aliasName: z.string().min(1),
+      maxRetries: z.number().int().min(0).max(10),
+    });
+    const validation = schema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+    const { aliasName, maxRetries } = validation.data;
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const updated = await prisma.serviceModel.updateMany({
+      where: { serviceId, aliasName },
+      data: { maxRetries },
+    });
+
+    res.json({ message: `maxRetries set to ${maxRetries} for alias "${aliasName}"`, updated: updated.count });
+  } catch (error) {
+    console.error('Set max retries error:', error);
+    res.status(500).json({ error: 'Failed to set max retries' });
   }
 });
 

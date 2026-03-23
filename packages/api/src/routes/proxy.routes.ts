@@ -142,7 +142,8 @@ proxyRoutes.post(
       const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
       const isSingleEndpoint = endpoints.length === 1;
-      const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+      const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
       let lastError: string | undefined;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -151,7 +152,7 @@ proxyRoutes.post(
 
         if (attempt > 0) {
           if (isSingleEndpoint) {
-            console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+            console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${cfgRetries}`);
             await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
           } else {
             console.log(`[Failover] ASR model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
@@ -251,7 +252,7 @@ proxyRoutes.post(
       }
 
       // 모든 시도 실패
-      const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+      const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
       console.error(`[Failover] ${label} failed for ASR model "${model.name}"`);
       recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => {});
       res.status(503).json({
@@ -297,7 +298,7 @@ interface EndpointInfo {
 }
 
 // 단일 엔드포인트 5xx retry 설정
-const SINGLE_ENDPOINT_MAX_RETRIES = 3;
+// maxRetries는 ServiceModel.maxRetries에서 alias 그룹 단위로 설정 (기본 0)
 const SINGLE_ENDPOINT_RETRY_DELAY_MS = 500; // 500ms → 1000ms → 1500ms (linear backoff)
 
 async function getModelEndpoints(modelId: string, parentEndpoint: EndpointInfo): Promise<EndpointInfo[]> {
@@ -362,8 +363,8 @@ async function resolveModelWithServiceRR(
   serviceId: string,
   modelName: string,
 ): Promise<
-  | { found: true; model: ResolvedModel; fallbackModelId: string | null }
-  | { found: false; model: null; fallbackModelId: null }
+  | { found: true; model: ResolvedModel; fallbackModelId: string | null; maxRetries: number }
+  | { found: false; model: null; fallbackModelId: null; maxRetries: number }
 > {
   // aliasName으로 매칭하는 ServiceModel 조회 (유일한 경로)
   const serviceModels = await prisma.serviceModel.findMany({
@@ -379,15 +380,17 @@ async function resolveModelWithServiceRR(
 
   // alias 매칭 없음 → 모델 없음 (전역 fallback 없음)
   if (serviceModels.length === 0) {
-    return { found: false, model: null, fallbackModelId: null };
+    return { found: false, model: null, fallbackModelId: null, maxRetries: 0 };
   }
 
   // 그룹의 fallbackModelId (첫 번째 non-null 사용)
   const fallbackModelId = serviceModels.find(sm => sm.fallbackModelId)?.fallbackModelId || null;
+  // 그룹의 maxRetries (첫 번째 값 사용, 기본 0)
+  const maxRetries = serviceModels[0]?.maxRetries ?? 0;
 
   // 하나만 매칭 → 그대로 사용
   if (serviceModels.length === 1) {
-    return { found: true, model: serviceModels[0]!.model, fallbackModelId };
+    return { found: true, model: serviceModels[0]!.model, fallbackModelId, maxRetries };
   }
 
   // 여러 개 매칭 → weight 기반 라운드로빈
@@ -403,10 +406,10 @@ async function resolveModelWithServiceRR(
     if (idx === 1) await redis.expire(rrKey, 3600);
     const selected = weightedModels[(idx - 1) % weightedModels.length]!;
     console.log(`[ServiceRR] service=${serviceId} alias="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
-    return { found: true, model: selected, fallbackModelId };
+    return { found: true, model: selected, fallbackModelId, maxRetries };
   } catch (error) {
     console.error('[ServiceRR] Redis error, falling back to first model:', error);
-    return { found: true, model: serviceModels[0]!.model, fallbackModelId };
+    return { found: true, model: serviceModels[0]!.model, fallbackModelId, maxRetries };
   }
 }
 
@@ -851,7 +854,8 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     }
 
     const isSingleEndpoint = endpoints.length === 1;
-    const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+    const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
     let lastFailoverError: string | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -860,7 +864,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
       if (attempt > 0) {
         if (isSingleEndpoint) {
-          console.log(`[Retry] Model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}: ${endpoint.endpointUrl}`);
+          console.log(`[Retry] Model "${model.name}" retry ${attempt}/${cfgRetries}: ${endpoint.endpointUrl}`);
           await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
         } else {
           console.log(`[Failover] Model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
@@ -908,7 +912,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
       lastFailoverError = `Endpoint ${endpoint.endpointUrl} failed`;
     }
 
-    const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+    const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for model "${model.name}"`);
 
     // ── Fallback 모델 시도 ──
@@ -1391,7 +1395,8 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
     const isSingleEndpoint = endpoints.length === 1;
-    const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+    const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
     let lastError: string | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1400,7 +1405,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
 
       if (attempt > 0) {
         if (isSingleEndpoint) {
-          console.log(`[Retry] Embeddings model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+          console.log(`[Retry] Embeddings model "${model.name}" retry ${attempt}/${cfgRetries}`);
           await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
         } else {
           console.log(`[Failover] Embeddings model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
@@ -1499,7 +1504,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     }
 
     // 모든 시도 실패
-    const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+    const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for embeddings model "${model.name}"`);
     res.status(503).json({
       error: 'Service temporarily unavailable',
@@ -1584,7 +1589,8 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
     const isSingleEndpoint = endpoints.length === 1;
-    const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+    const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
     let lastError: string | null = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1593,7 +1599,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
 
       if (attempt > 0) {
         if (isSingleEndpoint) {
-          console.log(`[Retry] Rerank model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+          console.log(`[Retry] Rerank model "${model.name}" retry ${attempt}/${cfgRetries}`);
           await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
         } else {
           console.log(`[Failover] Rerank model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
@@ -1697,7 +1703,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     }
 
     // 모든 시도 실패
-    const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+    const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for rerank model "${model.name}"`);
     res.status(503).json({
       error: 'Service temporarily unavailable',
@@ -1769,7 +1775,8 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
     const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
 
     const isSingleEndpoint = endpoints.length === 1;
-    const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
+    const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
     let lastError: string | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1778,7 +1785,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
 
       if (attempt > 0) {
         if (isSingleEndpoint) {
-          console.log(`[Retry] Image model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+          console.log(`[Retry] Image model "${model.name}" retry ${attempt}/${cfgRetries}`);
           await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
         } else {
           console.log(`[Failover] Image model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}: ${endpoint.endpointUrl}`);
@@ -1855,7 +1862,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
 
     // 모든 엔드포인트 실패
     const label = isSingleEndpoint
-      ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries`
+      ? `after ${cfgRetries} retries`
       : `all ${endpoints.length} endpoints`;
     res.status(503).json({
       error: 'Service temporarily unavailable',

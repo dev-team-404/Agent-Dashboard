@@ -221,6 +221,7 @@ model ServiceModel {
   weight          Int      @default(1) @map("weight")            // 라운드로빈 호출 횟수 (1~10)
   enabled         Boolean  @default(true)                         // 비활성화 시 라운드로빈 제외
   fallbackModelId String?  @map("fallback_model_id")             // 에러 시 호출할 폴백 모델 (alias 그룹 공유)
+  maxRetries      Int      @default(0) @map("max_retries")      // 단일 엔드포인트 재시도 횟수 (0=재시도 안함)
   addedBy         String?  @map("added_by")     // 추가한 사용자 loginid
   addedAt         DateTime @default(now()) @map("added_at")
 
