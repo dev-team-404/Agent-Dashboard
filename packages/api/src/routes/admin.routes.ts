@@ -3480,58 +3480,60 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
 
 /**
  * GET /admin/stats/error-rate
- * 모델별 시간당 에러 빈도 (timeout, 5xx, 기타)
- * Query: ?hours=24 (기본 24)
+ * 모델별 일별 에러 빈도 (timeout, 5xx, 기타) — 최근 N 영업일
+ * Query: ?days=10 (기본 10, 영업일 기준 조회를 위해 약 days*2 달력일 조회)
  */
 adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
   try {
-    const hours = Math.min(168, Math.max(1, parseInt(req.query['hours'] as string) || 24));
-    const startDate = new Date(Date.now() - hours * 3600_000);
+    const days = Math.min(60, Math.max(1, parseInt(req.query['days'] as string) || 10));
+    // 영업일 10일 ≈ 달력일 약 14일. 넉넉하게 days*2 달력일 조회
+    const calendarDays = days * 2;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - calendarDays);
+    startDate.setHours(0, 0, 0, 0);
 
+    // 일별 + 모델별 + 에러유형별 집계
     const rows = await prisma.$queryRawUnsafe<Array<{
-      hour: Date;
+      day: Date;
       model_name: string;
-      timeout_count: bigint;
-      server_error_count: bigint;
-      client_error_count: bigint;
-      total_error_count: bigint;
+      error_type: string;
+      cnt: bigint;
     }>>(
       `SELECT
-        date_trunc('hour', r.timestamp) as hour,
+        date_trunc('day', r.timestamp) as day,
         COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
-        COUNT(*) FILTER (WHERE r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%') as timeout_count,
-        COUNT(*) FILTER (WHERE r.status_code >= 500 AND r.error_message NOT ILIKE '%timed out%' AND r.error_message NOT ILIKE '%timeout%' AND r.error_message NOT ILIKE '%aborted%') as server_error_count,
-        COUNT(*) FILTER (WHERE r.status_code >= 400 AND r.status_code < 500) as client_error_count,
-        COUNT(*) as total_error_count
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
+          WHEN r.status_code = 500 THEN '500'
+          WHEN r.status_code = 502 THEN '502'
+          WHEN r.status_code = 503 THEN '503'
+          WHEN r.status_code = 504 THEN '504'
+          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+          ELSE 'Other'
+        END as error_type,
+        COUNT(*) as cnt
       FROM request_logs r
       LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
       WHERE r.status_code != 200
         AND r.timestamp >= $1
-      GROUP BY hour, COALESCE(m."displayName", r.resolved_model, r.model_name)
-      ORDER BY hour, model_name`,
+      GROUP BY day, COALESCE(m."displayName", r.resolved_model, r.model_name), error_type
+      ORDER BY day, model_name, error_type`,
       startDate
     );
 
-    // 모델별 그룹핑
-    const byModel: Record<string, Array<{
-      hour: string;
-      timeout: number;
-      serverError: number;
-      clientError: number;
-      total: number;
-    }>> = {};
+    // 일별 데이터 구성
+    type DayEntry = { day: string; byModel: Record<string, Record<string, number>> };
+    const dayMap = new Map<string, DayEntry>();
 
     for (const row of rows) {
-      const key = row.model_name;
-      if (!byModel[key]) byModel[key] = [];
-      byModel[key].push({
-        hour: row.hour.toISOString(),
-        timeout: Number(row.timeout_count),
-        serverError: Number(row.server_error_count),
-        clientError: Number(row.client_error_count),
-        total: Number(row.total_error_count),
-      });
+      const dayStr = row.day.toISOString().split('T')[0]; // YYYY-MM-DD
+      if (!dayMap.has(dayStr)) dayMap.set(dayStr, { day: dayStr, byModel: {} });
+      const entry = dayMap.get(dayStr)!;
+      if (!entry.byModel[row.model_name]) entry.byModel[row.model_name] = {};
+      entry.byModel[row.model_name][row.error_type] = Number(row.cnt);
     }
+
+    const daily = [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
 
     // 모델별 대표 에러 원인 조회
     const topErrors = await prisma.$queryRawUnsafe<Array<{
@@ -3589,16 +3591,25 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       });
     }
 
-    // 모델별 요약 (정렬용)
-    const summary = Object.entries(byModel).map(([model, data]) => ({
+    // 모델별 총계
+    const modelTotals: Record<string, Record<string, number>> = {};
+    for (const entry of daily) {
+      for (const [model, types] of Object.entries(entry.byModel)) {
+        if (!modelTotals[model]) modelTotals[model] = {};
+        for (const [type, cnt] of Object.entries(types)) {
+          modelTotals[model][type] = (modelTotals[model][type] || 0) + cnt;
+        }
+      }
+    }
+
+    const summary = Object.entries(modelTotals).map(([model, types]) => ({
       model,
-      totalErrors: data.reduce((s, d) => s + d.total, 0),
-      totalTimeouts: data.reduce((s, d) => s + d.timeout, 0),
-      totalServerErrors: data.reduce((s, d) => s + d.serverError, 0),
-      errorTypes: modelErrorTypes[model] || [],
+      totalErrors: Object.values(types).reduce((s, c) => s + c, 0),
+      errorTypes: (modelErrorTypes[model] || []),
+      byType: types,
     })).sort((a, b) => b.totalErrors - a.totalErrors);
 
-    res.json({ byModel, summary, hours });
+    res.json({ daily, summary, days });
   } catch (error) {
     console.error('Get error rate error:', error);
     res.status(500).json({ error: 'Failed to get error rate' });
