@@ -923,7 +923,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
                   <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [`${(value / 1000).toFixed(2)}s`, undefined]} />
+                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [`${(value / 1000).toFixed(2)}s`, name]} />
                   <Legend />
                   {latencyKeys.map((key, i) => (
                     <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
@@ -976,7 +976,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           <Legend />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
@@ -1007,7 +1007,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           <Legend />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
