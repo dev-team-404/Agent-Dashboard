@@ -679,8 +679,19 @@ insightRoutes.get('/insight/usage-rate/:centerName', handleUsageRateDetail as Re
 insightRoutes.get('/insight/service-usage', handleServiceUsage as RequestHandler);
 insightRoutes.get('/insight/service-usage/:serviceName', handleServiceUsageDetail as RequestHandler);
 
-// ── Register public routes (same handlers, no auth) ──
+// ── Register public routes (no auth, UI 전용 필드 제거) ──
 publicInsightRoutes.get('/insight_ai_usage_rate', handleUsageRate as RequestHandler);
-publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', handleUsageRateDetail as RequestHandler);
+publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', (async (req: Request, res: Response) => {
+  // 원본 res.json을 가로채서 teamServices, teamKrMap 제거
+  const origJson = res.json.bind(res);
+  res.json = (body: Record<string, unknown>) => {
+    if (body && typeof body === 'object') {
+      delete body.teamServices;
+      delete body.teamKrMap;
+    }
+    return origJson(body);
+  };
+  await handleUsageRateDetail(req, res);
+}) as RequestHandler);
 publicInsightRoutes.get('/insight_service_usage', handleServiceUsage as RequestHandler);
 publicInsightRoutes.get('/insight_service_usage/:serviceName', handleServiceUsageDetail as RequestHandler);
