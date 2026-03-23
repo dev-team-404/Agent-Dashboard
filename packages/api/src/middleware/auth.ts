@@ -146,6 +146,15 @@ export async function requireAdmin(req: AuthenticatedRequest, res: Response, nex
     });
 
     if (!admin) {
+      // Admin이 아닌 경우: /stats/ 경로 + serviceId가 있으면 서비스 관리자(OWNER/ADMIN) 허용
+      const serviceId = (req.query?.serviceId || req.query?.service_id) as string | undefined;
+      if (req.path.startsWith('/stats/') && serviceId) {
+        const canAccess = await checkServiceManagerAccess(req.user.loginid, serviceId);
+        if (canAccess) {
+          next();
+          return;
+        }
+      }
       res.status(403).json({ error: 'Admin access required' });
       return;
     }
@@ -226,6 +235,27 @@ export function isModelVisibleTo(
       return false; // Only super admins can see; handled separately before calling this
     default:
       return false;
+  }
+}
+
+/**
+ * 서비스 관리자(OWNER/ADMIN) 여부 확인 — stats API 접근 허용용
+ */
+async function checkServiceManagerAccess(loginid: string, serviceId: string): Promise<boolean> {
+  try {
+    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    if (!service) return false;
+    // 서비스 소유자 (생성자)
+    if (service.registeredBy === loginid) return true;
+    // UserService OWNER/ADMIN
+    const user = await prisma.user.findUnique({ where: { loginid } });
+    if (!user) return false;
+    const membership = await prisma.userService.findFirst({
+      where: { serviceId, userId: user.id, role: { in: ['OWNER', 'ADMIN'] } },
+    });
+    return !!membership;
+  } catch {
+    return false;
   }
 }
 
