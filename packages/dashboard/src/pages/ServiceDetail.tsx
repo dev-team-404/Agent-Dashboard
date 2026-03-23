@@ -216,8 +216,7 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
   const navigate = useNavigate();
   const [service, setService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
-  const isSystemAdmin = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
-  const [activeTab, setActiveTab] = useState<TabId>(isSystemAdmin ? 'dashboard' : 'members');
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
 
   const loadService = useCallback(async () => {
     if (!serviceId) return;
@@ -386,7 +385,7 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
 
       {/* ═══════ Tab Navigation ═══════ */}
       <div className="flex items-center gap-1 bg-gray-100/80 rounded-xl p-1 mb-6">
-        {TABS.filter(tab => (tab.id !== 'dashboard' || isSystemAdmin) && (tab.id !== 'models' || !service?.apiOnly)).map(tab => {
+        {TABS.filter(tab => (tab.id !== 'models' || !service?.apiOnly)).map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -408,7 +407,7 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
 
       {/* ═══════ Tab Content ═══════ */}
       <div className="min-h-[50vh]">
-        {activeTab === 'dashboard' && isSystemAdmin && <DashboardTab serviceId={serviceId!} adminRole={adminRole} />}
+        {activeTab === 'dashboard' && <DashboardTab serviceId={serviceId!} adminRole={adminRole} />}
         {activeTab === 'members' && <MembersTab serviceId={serviceId!} />}
         {activeTab === 'ratelimit' && <RateLimitTab serviceId={serviceId!} />}
         {activeTab === 'models' && <ModelsTab serviceId={serviceId!} />}
