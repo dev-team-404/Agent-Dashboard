@@ -825,13 +825,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         const allModels = errorRateSummary.map(m => m.model);
         const totalErrors = errorRateSummary.reduce((s, m) => s + m.totalErrors, 0);
 
-        // 일별 차트 데이터: 각 날짜에 "모델::에러유형" 키로 count
+        // 일별 차트 데이터: 모델별 총 에러 합계
         const dailyChartData = errorRateDaily.map(d => {
           const row: Record<string, string | number> = { day: d.day.slice(5) }; // "MM-DD"
           for (const model of allModels) {
-            for (const type of allErrorTypes) {
-              row[`${model}::${type}`] = d.byModel[model]?.[type] || 0;
-            }
+            const types = d.byModel[model] || {};
+            row[model] = Object.values(types).reduce((s, c) => s + c, 0);
           }
           return row;
         });
@@ -877,13 +876,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
                     <Legend />
                     {allModels.map(model => (
-                      <Bar key={model} dataKey={`${model}::${allErrorTypes[0] || 'Timeout'}`} name={model} stackId="daily" fill={CHART_COLORS[stableColorIndex(model)]} />
+                      <Bar key={model} dataKey={model} stackId="daily" fill={CHART_COLORS[stableColorIndex(model)]} />
                     ))}
-                    {allModels.map(model =>
-                      allErrorTypes.slice(1).map(type => (
-                        <Bar key={`${model}::${type}`} dataKey={`${model}::${type}`} name="" stackId="daily" fill={CHART_COLORS[stableColorIndex(model)]} legendType="none" />
-                      ))
-                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -3545,13 +3545,13 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       `SELECT
         COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
         CASE
-          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'timeout'
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
           WHEN r.status_code = 500 THEN '500'
           WHEN r.status_code = 502 THEN '502'
           WHEN r.status_code = 503 THEN '503'
           WHEN r.status_code = 504 THEN '504'
           WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
-          ELSE 'other'
+          ELSE 'Other'
         END as error_type,
         CASE
           WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'LLM 응답 시간 초과'
