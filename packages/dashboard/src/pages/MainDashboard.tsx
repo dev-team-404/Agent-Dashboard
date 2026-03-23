@@ -749,11 +749,11 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
       {/* Model Health Status */}
       {(() => {
-        const entries = Object.values(healthStatuses);
-        if (entries.length === 0 && totalEnabledModels === 0) return null;
-        const healthyCount = entries.filter(s => s.success).length;
-        const unhealthyList = entries.filter(s => !s.success);
-        const checkedCount = entries.length;
+        const allEntries = Object.entries(healthStatuses);
+        if (allEntries.length === 0 && totalEnabledModels === 0) return null;
+        const healthyCount = allEntries.filter(([, s]) => s.success).length;
+        const unhealthyEntries = allEntries.filter(([, s]) => !s.success);
+        const checkedCount = allEntries.length;
         const uncheckedCount = Math.max(0, totalEnabledModels - checkedCount);
 
         return (
@@ -771,10 +771,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <span className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-green-700 font-medium">{healthyCount}</span>
                 </span>
-                {unhealthyList.length > 0 && (
+                {unhealthyEntries.length > 0 && (
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-red-500" />
-                    <span className="text-red-600 font-medium">{unhealthyList.length}</span>
+                    <span className="text-red-600 font-medium">{unhealthyEntries.length}</span>
                   </span>
                 )}
                 {uncheckedCount > 0 && (
@@ -785,18 +785,18 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 )}
               </div>
             </div>
-            {unhealthyList.length > 0 && (
+            {unhealthyEntries.length > 0 && (
               <div className="px-6 pb-4 pt-0">
                 <div className="flex items-center gap-1.5 text-xs text-red-600 mb-2">
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span className="font-medium">장애 모델</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {unhealthyList.map(s => {
+                  {unhealthyEntries.map(([modelId, s]) => {
                     const ago = Math.round((Date.now() - new Date(s.checkedAt).getTime()) / 60000);
                     return (
                       <span
-                        key={s.modelName}
+                        key={modelId}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100"
                         title={s.errorMessage || ''}
                       >
