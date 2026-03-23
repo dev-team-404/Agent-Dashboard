@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, ChevronDown, Loader2 } from 'lucide-react';
+import { Zap, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, TooltipProps,
@@ -27,9 +27,6 @@ interface TeamInfoEntry {
 }
 
 interface TokenUsageData {
-  centers: string[];
-  centerInfo?: Record<string, string>;
-  centerName: string;
   granularity: Granularity;
   byTeam: Array<Record<string, any>>;
   byService: Array<Record<string, any>>;
@@ -133,18 +130,14 @@ function StackedChart({ title, subtitle, data, keys, colors, granularity, teamIn
 export default function InsightServiceUsage() {
   const [data, setData] = useState<TokenUsageData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [center, setCenter] = useState('');
   const [gran, setGran] = useState<Granularity>('monthly');
-  const [ddOpen, setDdOpen] = useState(false);
 
-  const load = useCallback(async (c?: string, g?: Granularity) => {
+  const load = useCallback(async (g?: Granularity) => {
     try {
       setLoading(true);
       const params: Record<string, string> = { granularity: g || gran };
-      if (c) params.centerName = c;
       const res = await api.get('/public/stats/dtgpt/token-usage', { params });
       setData(res.data);
-      if (!c && res.data.centerName) setCenter(res.data.centerName);
     } catch (err) {
       console.error('Failed to load DTGPT token usage:', err);
     } finally {
@@ -154,8 +147,7 @@ export default function InsightServiceUsage() {
 
   useEffect(() => { load(); }, []);
 
-  const pickCenter = (c: string) => { setCenter(c); setDdOpen(false); load(c, gran); };
-  const pickGran = (g: Granularity) => { setGran(g); load(center, g); };
+  const pickGran = (g: Granularity) => { setGran(g); load(g); };
 
   if (loading && !data) {
     return (
@@ -184,30 +176,6 @@ export default function InsightServiceUsage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <PageHeader />
         <div className="flex items-center gap-3 flex-wrap">
-          {data.centers.length > 0 && (
-            <div className="relative">
-              <button onClick={() => setDdOpen(v => !v)}
-                className="flex items-center gap-2 pl-4 pr-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:border-violet-300 transition-colors shadow-sm min-w-[160px]">
-                <span className="truncate max-w-[260px]">
-                  {center ? (<>{center}{data?.centerInfo?.[center] ? <span className="text-gray-400 ml-1">({data.centerInfo[center]})</span> : null}</>) : 'Center 선택'}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${ddOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {ddOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setDdOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1.5 w-72 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-1">
-                    {data.centers.map(c => (
-                      <button key={c} onClick={() => pickCenter(c)}
-                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${c === center ? 'bg-violet-50 text-violet-700 font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}>
-                        {c}{data.centerInfo?.[c] ? <span className="text-gray-400 ml-1">({data.centerInfo[c]})</span> : null}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
           <div className="inline-flex rounded-lg bg-gray-100 p-0.5 shadow-inner">
             {(['daily', 'weekly', 'monthly'] as Granularity[]).map(g => (
               <button key={g} onClick={() => pickGran(g)}
@@ -222,13 +190,12 @@ export default function InsightServiceUsage() {
 
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center px-3 py-1 bg-violet-50 text-violet-700 rounded-full text-xs font-medium">{GRAN[gran].sub}</span>
-        {center && <span className="inline-flex items-center px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">{center}</span>}
       </div>
 
       <div className="space-y-6">
-        <StackedChart title="팀별 토큰 사용량" subtitle={`${center} 내부 팀별 총 토큰 사용량 추이`}
+        <StackedChart title="팀별 토큰 사용량" subtitle="전체 팀별 총 토큰 사용량 추이"
           data={data.byTeam} keys={data.teams} colors={TEAM_COLORS} granularity={gran} teamInfo={data.teamInfo} />
-        <StackedChart title="서비스별 토큰 사용량" subtitle={`${center} 내부 서비스별 총 토큰 사용량 추이`}
+        <StackedChart title="서비스별 토큰 사용량" subtitle="전체 서비스별 총 토큰 사용량 추이"
           data={data.byService} keys={data.services} colors={SERVICE_COLORS} granularity={gran} />
       </div>
     </div>

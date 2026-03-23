@@ -1160,9 +1160,8 @@ function buildDtgptCenterMap(hierarchies: Array<{
 
 publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) => {
   try {
-    const centerParam = req.query['centerName'] as string | undefined;
     const granularity = (req.query['granularity'] as string) || 'monthly';
-    const empty = { centers: [] as string[], centerName: '', granularity, byTeam: [], byService: [], teams: [], services: [] };
+    const empty = { granularity, byTeam: [], byService: [], teams: [], services: [] };
 
     if (!['daily', 'weekly', 'monthly'].includes(granularity)) {
       res.status(400).json({ error: 'granularity must be daily, weekly, or monthly' });
@@ -1225,7 +1224,7 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     }
     const qEnd = new Date();
 
-    // 3. DTGPT 사용 실적이 있는 부서만 (서비스 ID 기준 — 기존 team-usage와 동일 조건)
+    // 3. DTGPT 사용 실적이 있는 부서만
     const activeDeptRows = await prisma.$queryRaw<Array<{ deptname: string }>>`
       SELECT DISTINCT ul.deptname
       FROM usage_logs ul
@@ -1233,81 +1232,19 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
         AND ul.service_id = ANY(${dtgptServiceIds})
         AND ul.deptname IS NOT NULL AND ul.deptname != ''
     `;
-    const activeDeptSet = new Set(activeDeptRows.map(r => r.deptname));
+    const deptnames = activeDeptRows.map(r => r.deptname);
 
-    if (activeDeptSet.size === 0) {
+    if (deptnames.length === 0) {
       res.json(empty);
       return;
     }
 
-    // 4. Center 매핑 (활성 부서만)
+    // 4. 부서 → 팀 매핑 (hierarchy 기반)
     const hierarchies = await prisma.departmentHierarchy.findMany();
-    const fullCenterMap = buildDtgptCenterMap(hierarchies);
-
-    const activeCenterMap = new Map<string, { deptnames: string[]; deptTeamMap: Map<string, string> }>();
-    for (const [cName, cData] of fullCenterMap.entries()) {
-      const activeDepts = cData.deptnames.filter(d => activeDeptSet.has(d));
-      if (activeDepts.length > 0) {
-        activeCenterMap.set(cName, { deptnames: activeDepts, deptTeamMap: cData.deptTeamMap });
-      }
+    const deptTeamMap = new Map<string, string>();
+    for (const h of hierarchies) {
+      deptTeamMap.set(h.departmentName, h.team || h.departmentName);
     }
-
-    const centers = Array.from(activeCenterMap.keys()).filter(c => c !== 'Direct').sort();
-    if (centers.length === 0) {
-      res.json(empty);
-      return;
-    }
-
-    // centerInfo: 팀명 기준 파싱 → 사업부/연구소 라벨 (dropdown 표시용)
-    // 1) deptname에서 (사업부) 추출
-    // 2) 영문 팀명에 / 있으면 마지막 segment = 연구소
-    const centerInfo: Record<string, string> = {};
-    for (const cName of centers) {
-      const cData = activeCenterMap.get(cName)!;
-
-      // deptname에서 사업부 추출: "S/W혁신팀(S.LSI)" → "S.LSI"
-      const buSet = new Set<string>();
-      for (const d of cData.deptnames) {
-        const bu = extractBusinessUnit(d);
-        if (bu) buSet.add(bu);
-      }
-
-      // 영문 팀명에서 연구소 추출: "Wi-Fi Firmware/SCSC" → "SCSC"
-      const instituteSet = new Set<string>();
-      for (const d of cData.deptnames) {
-        const team = cData.deptTeamMap.get(d) || '';
-        if (team.includes('/')) {
-          instituteSet.add(team.substring(team.lastIndexOf('/') + 1));
-        }
-      }
-
-      // 연구소가 있으면 연구소 우선, 없으면 사업부
-      let label = '';
-      if (instituteSet.size > 0) {
-        label = Array.from(instituteSet).join('/');
-      } else if (buSet.size > 0) {
-        label = Array.from(buSet).join('/');
-      }
-
-      centerInfo[cName] = label;
-    }
-
-    // 같은 사업부/연구소 기준으로 센터 정렬
-    centers.sort((a, b) => {
-      const la = centerInfo[a] || '';
-      const lb = centerInfo[b] || '';
-      if (la !== lb) return la.localeCompare(lb);
-      return a.localeCompare(b);
-    });
-
-    const selected = centerParam ? decodeURIComponent(centerParam) : centers[0];
-    const centerData = activeCenterMap.get(selected);
-    if (!centerData || centerData.deptnames.length === 0) {
-      res.json({ ...empty, centers, centerName: selected });
-      return;
-    }
-
-    const { deptnames, deptTeamMap } = centerData;
 
     // 5. 메인 쿼리: DTGPT 모델 + DTGPT 서비스 + 센터 부서
     const rawData = await prisma.$queryRaw<Array<{
@@ -1413,9 +1350,6 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     }
 
     res.json({
-      centers,
-      centerInfo,
-      centerName: selected,
       granularity,
       server: DTGPT_ENDPOINT_PREFIX,
       fixedServices: DTGPT_FIXED_SERVICES,
