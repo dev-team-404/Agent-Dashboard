@@ -9,8 +9,32 @@ import { prisma } from '../index.js';
 
 const HEALTH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10분
 const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초
+const ASR_HEALTH_CHECK_TIMEOUT_MS = 60000; // ASR은 60초
 
-// 모델 타입별 테스트 요청 생성
+// 1초 무음 WAV 생성 (16kHz mono 16-bit PCM) — ASR 헬스체크용
+function generateSilentWavBuffer(): Buffer {
+  const sampleRate = 16000;
+  const numSamples = sampleRate; // 1초
+  const dataSize = numSamples * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);           // PCM
+  buffer.writeUInt16LE(1, 22);           // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);           // block align
+  buffer.writeUInt16LE(16, 34);          // bits per sample
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+  // 나머지는 0 (무음)
+  return buffer;
+}
+
+// 모델 타입별 테스트 요청 생성 (ASR은 별도 처리)
 function buildTestRequest(type: string, modelName: string): { url: string; body: Record<string, unknown> } | null {
   switch (type) {
     case 'CHAT':
@@ -37,7 +61,7 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
       // 이미지 생성은 비용이 크므로 헬스체크 스킵
       return null;
     case 'ASR':
-      // ASR은 오디오 파일 필요하므로 헬스체크 스킵
+      // ASR은 checkAsrModel()에서 별도 처리
       return null;
     default:
       return {
@@ -63,6 +87,97 @@ function buildEndpointUrl(baseUrl: string, path: string): string {
   return `${url}${path}`;
 }
 
+// ASR 모델 헬스체크 (무음 WAV로 테스트)
+async function checkAsrModel(model: {
+  id: string;
+  name: string;
+  displayName: string;
+  endpointUrl: string;
+  apiKey: string | null;
+  extraHeaders: unknown;
+  asrMethod: string | null;
+}): Promise<void> {
+  const method = model.asrMethod || 'AUDIO_URL';
+  const headers: Record<string, string> = {};
+  if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+  if (model.extraHeaders && typeof model.extraHeaders === 'object') {
+    for (const [k, v] of Object.entries(model.extraHeaders as Record<string, string>)) {
+      const lower = k.toLowerCase();
+      if (lower !== 'content-type' && lower !== 'authorization') headers[k] = v;
+    }
+  }
+
+  const wavBuffer = generateSilentWavBuffer();
+  const startTime = Date.now();
+  let statusCode: number | null = null;
+  let success = false;
+  let errorMessage: string | null = null;
+  let url: string;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ASR_HEALTH_CHECK_TIMEOUT_MS);
+    let response: Response;
+
+    if (method === 'OPENAI_TRANSCRIBE') {
+      // Whisper 호환: multipart → /audio/transcriptions
+      url = buildEndpointUrl(model.endpointUrl, '/audio/transcriptions');
+      const formData = new FormData();
+      formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'healthcheck.wav');
+      formData.append('model', model.name);
+      formData.append('response_format', 'json');
+      response = await fetch(url, { method: 'POST', headers, body: formData, signal: controller.signal });
+    } else {
+      // AUDIO_URL: base64 → /chat/completions
+      url = buildEndpointUrl(model.endpointUrl, '/chat/completions');
+      headers['Content-Type'] = 'application/json';
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: model.name,
+          messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: wavBuffer.toString('base64'), format: 'wav' } }] }],
+          max_tokens: 64,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+    }
+    clearTimeout(timeoutId);
+
+    statusCode = response.status;
+    success = response.ok;
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      errorMessage = text.substring(0, 500);
+    }
+  } catch (err) {
+    url = model.endpointUrl;
+    errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    if (errorMessage.includes('abort')) {
+      errorMessage = `Timeout after ${ASR_HEALTH_CHECK_TIMEOUT_MS}ms`;
+    }
+  }
+
+  const latencyMs = Date.now() - startTime;
+
+  try {
+    await prisma.healthCheckLog.create({
+      data: {
+        modelId: model.id,
+        modelName: model.displayName || model.name,
+        endpointUrl: url!,
+        latencyMs: success ? latencyMs : null,
+        statusCode,
+        success,
+        errorMessage,
+      },
+    });
+  } catch (err) {
+    console.error(`[HealthCheck] Failed to save ASR log for ${model.name}:`, err);
+  }
+}
+
 async function checkSingleModel(model: {
   id: string;
   name: string;
@@ -71,7 +186,13 @@ async function checkSingleModel(model: {
   apiKey: string | null;
   extraHeaders: unknown;
   type: string;
+  asrMethod: string | null;
 }): Promise<void> {
+  // ASR은 별도 처리
+  if (model.type === 'ASR') {
+    return checkAsrModel(model);
+  }
+
   const testReq = buildTestRequest(model.type, model.name);
   if (!testReq) return; // IMAGE 등 스킵
 
@@ -148,6 +269,7 @@ async function runHealthChecks(): Promise<void> {
         apiKey: true,
         extraHeaders: true,
         type: true,
+        asrMethod: true,
       },
     });
 

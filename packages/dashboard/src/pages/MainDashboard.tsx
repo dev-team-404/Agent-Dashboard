@@ -756,14 +756,19 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         const checkedCount = allEntries.length;
         const uncheckedCount = Math.max(0, totalEnabledModels - checkedCount);
 
+        const hasIssue = unhealthyEntries.length > 0;
+
         return (
-          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+          <div className={`bg-white rounded-lg border shadow-card overflow-hidden ${hasIssue ? 'border-red-200 ring-1 ring-red-100' : 'border-gray-200'}`}>
             <div className="px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-50">
-                  <Cpu className="w-4 h-4 text-blue-600" />
+                <div className={`p-2 rounded-lg ${hasIssue ? 'bg-red-50' : 'bg-blue-50'}`}>
+                  {hasIssue ? <AlertTriangle className="w-4 h-4 text-red-500" /> : <Cpu className="w-4 h-4 text-blue-600" />}
                 </div>
-                <h2 className="text-sm font-semibold text-pastel-800">모델 상태</h2>
+                <h2 className="text-sm font-semibold text-pastel-800">
+                  모델 상태
+                  {hasIssue && <span className="ml-2 text-xs text-red-600 font-medium">장애 {unhealthyEntries.length}건</span>}
+                </h2>
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <span className="text-pastel-500">전체 <span className="font-bold text-pastel-700">{totalEnabledModels}</span></span>
