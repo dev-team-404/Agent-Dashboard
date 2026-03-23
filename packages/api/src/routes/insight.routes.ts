@@ -38,6 +38,19 @@ function resolveCenter(h: { team: string; center1Name: string; center2Name: stri
   return '';
 }
 
+/**
+ * Overseas R&D Center 내부 서브그룹 결정
+ * - center1 = SSCR → "SSCR"
+ * - 팀명에 / → 마지막 / 뒤 (연구소명)  예: "Wi-Fi Firmware/SCSC" → "SCSC"
+ */
+function resolveOverseasSubgroup(h: { team: string; center1Name: string }): string {
+  const c1 = (h.center1Name || '').trim();
+  if (c1 === 'SSCR') return 'SSCR';
+  const team = (h.team || '').trim();
+  if (team.includes('/')) return team.substring(team.lastIndexOf('/') + 1);
+  return 'Other';
+}
+
 // ── Admin router (auth required) ──
 export const insightRoutes = Router();
 insightRoutes.use(authenticateToken);
@@ -227,12 +240,23 @@ async function handleUsageRate(req: Request, res: Response) {
         ? Math.round(((totalMau - prevMau) / prevMau) * 10000) / 100
         : totalMau > 0 ? 100 : 0;
 
+      // Overseas R&D Center → 서브그룹(연구소/SSCR) 수로 카운트
+      let teamCount = group.teams.length;
+      if (name === 'Overseas R&D Center') {
+        const subgroups = new Set<string>();
+        for (const t of group.teams) {
+          const h = deptHierarchyMap.get(t.deptname);
+          if (h) subgroups.add(resolveOverseasSubgroup(h));
+        }
+        teamCount = subgroups.size;
+      }
+
       return {
         name,
         totalMau,
         mauChangePercent,
         totalSavedMM: Math.round(totalSavedMM * 100) / 100,
-        teamCount: group.teams.length,
+        teamCount,
       };
     });
 
@@ -280,7 +304,22 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const deptnames = centerDepts.map(d => d.deptname);
     const deptTeamMap = new Map(centerDepts.map(d => [d.deptname, d.team]));
 
-    // 2. teamMauChart: MAU per team (last month)
+    // Overseas R&D Center → deptname을 서브그룹(연구소/SSCR)으로 매핑
+    const isOverseas = centerName === 'Overseas R&D Center';
+    const deptHierarchyMap2 = new Map(hierarchies.map(h => [h.departmentName, h]));
+    const deptGroupMap = new Map<string, string>(); // deptname → display group
+    if (isOverseas) {
+      for (const d of centerDepts) {
+        const h = deptHierarchyMap2.get(d.deptname);
+        deptGroupMap.set(d.deptname, h ? resolveOverseasSubgroup(h) : d.team);
+      }
+    } else {
+      for (const d of centerDepts) {
+        deptGroupMap.set(d.deptname, d.team);
+      }
+    }
+
+    // 2. teamMauChart: MAU per group
     const teamMauRows = await prisma.$queryRaw<MauRow[]>`
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
@@ -292,10 +331,15 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       GROUP BY u.deptname
     `;
 
-    const teamMauChart = teamMauRows.map(r => ({
-      team: deptTeamMap.get(r.deptname) || r.deptname,
-      mau: Number(r.mau),
-    })).sort((a, b) => b.mau - a.mau);
+    // 서브그룹별 합산
+    const mauByGroup = new Map<string, number>();
+    for (const r of teamMauRows) {
+      const group = deptGroupMap.get(r.deptname) || r.deptname;
+      mauByGroup.set(group, (mauByGroup.get(group) || 0) + Number(r.mau));
+    }
+    const teamMauChart = Array.from(mauByGroup.entries())
+      .map(([team, mau]) => ({ team, mau }))
+      .sort((a, b) => b.mau - a.mau);
 
     // 3. monthlyTrend: last 6 months total MAU for the center
     const monthlyTrend: Array<{ month: string; mau: number }> = [];
@@ -336,10 +380,14 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       GROUP BY u.deptname
     `;
 
-    const teamTokenChart = teamTokenRows.map(r => ({
-      team: deptTeamMap.get(r.deptname) || r.deptname,
-      tokens: Number(r.total_tokens),
-    })).sort((a, b) => b.tokens - a.tokens);
+    const tokensByGroup = new Map<string, number>();
+    for (const r of teamTokenRows) {
+      const group = deptGroupMap.get(r.deptname) || r.deptname;
+      tokensByGroup.set(group, (tokensByGroup.get(group) || 0) + Number(r.total_tokens));
+    }
+    const teamTokenChart = Array.from(tokensByGroup.entries())
+      .map(([team, tokens]) => ({ team, tokens }))
+      .sort((a, b) => b.tokens - a.tokens);
 
     // 5. monthlyTokenTrend: 최근 6개월 센터 토큰 추이
     const monthlyTokenTrend: Array<{ month: string; tokens: number }> = [];
@@ -410,7 +458,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const teamServices = teamServiceRows.map(r => {
       const svc = svcMap.get(r.service_id);
       return {
-        team: deptTeamMap.get(r.deptname) || r.deptname,
+        team: deptGroupMap.get(r.deptname) || r.deptname,
         serviceDisplayName: svc?.displayName || 'Unknown',
         serviceType: svc?.type || 'STANDARD',
         savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
