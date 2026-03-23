@@ -449,6 +449,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   // 같은 헬스체크 사이클의 모델들은 타임스탬프가 밀리초 단위로 다르므로
   // 분 단위로 버킷팅하여 하나의 행으로 합침
   const hcModelNames = Object.keys(healthCheckHistory);
+  // 버킷별 에러 정보 (tooltip 표시용)
+  const hcErrorMap = new Map<string, Record<string, string>>();
   const hcRechartsData: Record<string, string | number>[] = (() => {
     if (hcModelNames.length === 0) return [];
     // 분 단위 버킷: "2026-03-12T03:41" 형태로 그룹핑
@@ -457,14 +459,18 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       healthCheckHistory[name]?.forEach(p => {
         const d = new Date(p.time);
         const bucket = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        const timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         if (!bucketMap.has(bucket)) {
-          bucketMap.set(bucket, {
-            time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-          });
+          bucketMap.set(bucket, { time: timeLabel });
         }
         const row = bucketMap.get(bucket)!;
         if (p.latency != null) {
           row[name] = p.latency;
+        }
+        // 에러 정보 저장
+        if (p.error) {
+          if (!hcErrorMap.has(timeLabel)) hcErrorMap.set(timeLabel, {});
+          hcErrorMap.get(timeLabel)![name] = p.error;
         }
       });
     });
@@ -682,8 +688,33 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#9ca3af" />
                     <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                     <Tooltip
-                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                      formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', maxWidth: 400 }}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const errors = hcErrorMap.get(label as string);
+                        return (
+                          <div style={{ background: '#fff', borderRadius: 12, padding: '10px 14px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+                            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{label}</p>
+                            {payload.map((entry) => {
+                              const modelName = String(entry.name || '');
+                              const val = Number(entry.value || 0);
+                              const err = errors?.[modelName];
+                              return (
+                                <div key={modelName} style={{ marginBottom: 4 }}>
+                                  <span style={{ color: entry.color as string, fontWeight: 600, fontSize: 13 }}>
+                                    {modelName}: {val >= 1000 ? `${(val / 1000).toFixed(2)}s` : `${Math.round(val)}ms`}
+                                  </span>
+                                  {err && (
+                                    <div style={{ fontSize: 11, color: '#ef4444', marginTop: 2, maxWidth: 350, wordBreak: 'break-all' }}>
+                                      {err.length > 120 ? err.slice(0, 120) + '...' : err}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }}
                     />
                     <Legend />
                     {hcModelNames.map((name, i) => (
@@ -922,19 +953,25 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span className="font-medium">장애 모델</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                   {unhealthyEntries.map(([modelId, s]) => {
                     const ago = Math.round((Date.now() - new Date(s.checkedAt).getTime()) / 60000);
                     return (
-                      <span
+                      <div
                         key={modelId}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100"
-                        title={s.errorMessage || ''}
+                        className="px-3 py-2 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100"
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                        {s.modelName}
-                        <span className="text-red-400 text-[10px]">{ago}분 전</span>
-                      </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                          <span className="font-medium">{s.modelName}</span>
+                          <span className="text-red-400 text-[10px] ml-auto">{ago}분 전</span>
+                        </div>
+                        {s.errorMessage && (
+                          <p className="mt-1 text-[11px] text-red-500 break-all line-clamp-2 ml-3">
+                            {s.errorMessage}
+                          </p>
+                        )}
+                      </div>
                     );
                   })}
                 </div>

@@ -159,13 +159,17 @@ async function checkAsrModel(model: {
     success = response.ok;
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      errorMessage = text.substring(0, 500);
+      errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
     }
   } catch (err) {
     url = model.endpointUrl;
-    errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    if (errorMessage.includes('abort')) {
-      errorMessage = `Timeout after ${ASR_HEALTH_CHECK_TIMEOUT_MS}ms`;
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('abort')) {
+      // Timeout — 장애가 아님, 느린 응답으로 기록
+      success = true;
+      errorMessage = null;
+    } else {
+      errorMessage = msg;
     }
   }
 
@@ -177,7 +181,7 @@ async function checkAsrModel(model: {
         modelId: model.id,
         modelName: model.displayName || model.name,
         endpointUrl: url!,
-        latencyMs: success ? latencyMs : null,
+        latencyMs, // 항상 기록 (timeout 포함)
         statusCode,
         success,
         errorMessage,
@@ -239,12 +243,16 @@ async function checkSingleModel(model: {
     success = response.ok;
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      errorMessage = text.substring(0, 500);
+      errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
     }
   } catch (err) {
-    errorMessage = err instanceof Error ? err.message : 'Unknown error';
-    if (errorMessage.includes('abort')) {
-      errorMessage = `Timeout after ${HEALTH_CHECK_TIMEOUT_MS}ms`;
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('abort')) {
+      // Timeout — 장애가 아님, 느린 응답으로 기록
+      success = true;
+      errorMessage = null;
+    } else {
+      errorMessage = msg;
     }
   }
 
@@ -256,7 +264,7 @@ async function checkSingleModel(model: {
         modelId: model.id,
         modelName: model.displayName || model.name,
         endpointUrl: url,
-        latencyMs: success ? latencyMs : null,
+        latencyMs, // 항상 기록 (timeout 포함)
         statusCode,
         success,
         errorMessage,
