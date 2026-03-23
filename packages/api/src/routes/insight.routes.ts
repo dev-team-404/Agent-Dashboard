@@ -335,7 +335,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       }
     }
 
-    // 그룹명 → 한글 부서명 매핑 (UI 표시용)
+    // 그룹명 → 한글 부서명 매핑 (UI 표시용, swagger 미노출)
     const groupKrMap: Record<string, string[]> = {};
     for (const d of centerDepts) {
       const group = deptGroupMap.get(d.deptname) || d.team;

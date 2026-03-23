@@ -669,7 +669,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate/{centerName}': {
       get: {
         summary: 'AI Usage Rate - Center Detail (센터 상세)',
-        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)\n- teamKrMap: 영문그룹명 → 한글부서명 배열 (UI 표시용)\n\n## Overseas R&D Center\nOverseas R&D Center 상세 조회 시, 개별 팀이 아닌 서브그룹으로 집계됩니다:\n- 팀명에 / 포함 (S/W 등 약어 제외) → 마지막 / 뒤 연구소명 (예: Wi-Fi Firmware/SCSC → SCSC)\n- center1 또는 center2가 SSCR → "SSCR"`,
+        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n\n## Overseas R&D Center\nOverseas R&D Center 상세 조회 시, 개별 팀이 아닌 서브그룹으로 집계됩니다:\n- 팀명에 / 포함 (S/W 등 약어 제외) → 마지막 / 뒤 연구소명 (예: Wi-Fi Firmware/SCSC → SCSC)\n- center1 또는 center2가 SSCR → "SSCR"`,
         tags: ['Insight'],
         parameters: [
           apiKeyParam, yearParam, monthParam,
@@ -689,25 +689,6 @@ export const swaggerSpec = {
                     monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
                     teamTokenChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
                     monthlyTokenTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
-                    teamServices: {
-                      type: 'array' as const,
-                      items: {
-                        type: 'object' as const,
-                        properties: {
-                          team: { type: 'string' as const, description: 'Team/subgroup name (Overseas R&D: 연구소명 or SSCR)' },
-                          serviceDisplayName: { type: 'string' as const },
-                          serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
-                          savedMM: { type: 'number' as const, nullable: true },
-                          mau: { type: 'integer' as const },
-                          llmCallCount: { type: 'integer' as const },
-                        },
-                      },
-                    },
-                    teamKrMap: {
-                      type: 'object' as const,
-                      description: '영문그룹명 → 한글부서명 배열 (UI 표시용)',
-                      additionalProperties: { type: 'array' as const, items: { type: 'string' as const } },
-                    },
                   },
                 },
                 example: {
@@ -739,15 +720,6 @@ export const swaggerSpec = {
                     { month: '2026-02', tokens: 9000000 },
                     { month: '2026-03', tokens: 10200000 },
                   ],
-                  teamServices: [
-                    { team: 'SCSC', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 2.5, mau: 30, llmCallCount: 12500 },
-                    { team: 'SSCR', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.8, mau: 25, llmCallCount: 8900 },
-                  ],
-                  teamKrMap: {
-                    'SCSC': ['반도체연구1팀(S.LSI)', '반도체연구2팀(S.LSI)'],
-                    'SSCR': ['SSCR기획팀(S.LSI)'],
-                    'DSRJ': ['DSRJ설계팀(S.LSI)'],
-                  },
                 },
               },
             },
