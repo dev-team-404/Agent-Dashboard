@@ -215,6 +215,10 @@ export const statsApi = {
   latency: () => api.get('/admin/stats/latency'),
   latencyHistory: (hours = 24, interval = 10) => api.get('/admin/stats/latency/history', { params: { hours, interval } }),
   latencyHealthcheck: (hours = 24) => api.get('/admin/stats/latency/healthcheck', { params: { hours } }),
+  healthStatus: () => api.get<{
+    statuses: Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>;
+    totalEnabledModels: number;
+  }>('/admin/stats/health-status'),
 };
 
 // 개인 사용량 API

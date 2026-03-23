@@ -3381,6 +3381,56 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
   }
 });
 
+/**
+ * GET /admin/stats/health-status
+ * 모델별 최신 헬스체크 결과 (모델 관리 UI + 대시보드용)
+ */
+adminRoutes.get('/stats/health-status', async (req: AuthenticatedRequest, res) => {
+  try {
+    // PostgreSQL DISTINCT ON: 모델별 최신 1건
+    const latestChecks: Array<{
+      model_id: string;
+      model_name: string;
+      latency_ms: number | null;
+      success: boolean;
+      error_message: string | null;
+      checked_at: Date;
+    }> = await prisma.$queryRaw`
+      SELECT DISTINCT ON (model_id)
+        model_id, model_name, latency_ms, success, error_message, checked_at
+      FROM health_check_logs
+      ORDER BY model_id, checked_at DESC
+    `;
+
+    const totalEnabled = await prisma.model.count({
+      where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+    });
+
+    const statuses: Record<string, {
+      modelName: string;
+      success: boolean;
+      latencyMs: number | null;
+      checkedAt: string;
+      errorMessage: string | null;
+    }> = {};
+
+    for (const c of latestChecks) {
+      statuses[c.model_id] = {
+        modelName: c.model_name,
+        success: c.success,
+        latencyMs: c.latency_ms,
+        checkedAt: c.checked_at.toISOString(),
+        errorMessage: c.error_message,
+      };
+    }
+
+    res.json({ statuses, totalEnabledModels: totalEnabled });
+  } catch (error) {
+    console.error('Get health status error:', error);
+    res.status(500).json({ error: 'Failed to get health status' });
+  }
+});
+
 // ==================== Global Statistics (전체 서비스 통합) ====================
 
 /**

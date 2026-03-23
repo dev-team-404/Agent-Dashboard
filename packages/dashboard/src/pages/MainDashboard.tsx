@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Users, Activity, Zap, TrendingUp,
   Clock, BarChart3, Layers, CalendarDays,
+  Cpu, AlertTriangle,
 } from 'lucide-react';
 import { statsApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -225,6 +226,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
   const holidayDates = useHolidayDates();
 
+  // Health status
+  const [healthStatuses, setHealthStatuses] = useState<Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>>({});
+  const [totalEnabledModels, setTotalEnabledModels] = useState(0);
+
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
     byDept: Array<{ dept: string; savedMM: number }>;
@@ -243,7 +248,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         globalRes, serviceDailyRes, deptRes,
         deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
         latencyRes, latencyHistoryRes, healthcheckRes,
-        mauRes,
+        mauRes, healthStatusRes,
       ] = await Promise.all([
         statsApi.globalOverview(),
         statsApi.globalByService(30),
@@ -255,6 +260,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         statsApi.latencyHistory(24, 10),
         statsApi.latencyHealthcheck(24),
         statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
+        statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
       ]);
 
       setGlobalOverview(globalRes.data.services || []);
@@ -284,6 +290,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setLatencyStats(latencyRes.data.stats || []);
       setLatencyHistory(latencyHistoryRes.data.history || {});
       setHealthCheckHistory(healthcheckRes.data.history || {});
+      setHealthStatuses(healthStatusRes.data.statuses || {});
+      setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {
@@ -738,6 +746,72 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <span className="text-xs text-emerald-500 ml-auto">실시간</span>
         </div>
       )}
+
+      {/* Model Health Status */}
+      {(() => {
+        const entries = Object.values(healthStatuses);
+        if (entries.length === 0 && totalEnabledModels === 0) return null;
+        const healthyCount = entries.filter(s => s.success).length;
+        const unhealthyList = entries.filter(s => !s.success);
+        const checkedCount = entries.length;
+        const uncheckedCount = Math.max(0, totalEnabledModels - checkedCount);
+
+        return (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+            <div className="px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-50">
+                  <Cpu className="w-4 h-4 text-blue-600" />
+                </div>
+                <h2 className="text-sm font-semibold text-pastel-800">모델 상태</h2>
+              </div>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="text-pastel-500">전체 <span className="font-bold text-pastel-700">{totalEnabledModels}</span></span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-green-700 font-medium">{healthyCount}</span>
+                </span>
+                {unhealthyList.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-red-600 font-medium">{unhealthyList.length}</span>
+                  </span>
+                )}
+                {uncheckedCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-gray-300" />
+                    <span className="text-pastel-400 font-medium">{uncheckedCount}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+            {unhealthyList.length > 0 && (
+              <div className="px-6 pb-4 pt-0">
+                <div className="flex items-center gap-1.5 text-xs text-red-600 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span className="font-medium">장애 모델</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {unhealthyList.map(s => {
+                    const ago = Math.round((Date.now() - new Date(s.checkedAt).getTime()) / 60000);
+                    return (
+                      <span
+                        key={s.modelName}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 text-xs rounded-lg border border-red-100"
+                        title={s.errorMessage || ''}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+                        {s.modelName}
+                        <span className="text-red-400 text-[10px]">{ago}분 전</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Charts Section with Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">

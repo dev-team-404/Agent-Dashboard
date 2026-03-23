@@ -5,7 +5,7 @@ import {
   Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
   ShieldCheck, Image, MessageSquare, Mic
 } from 'lucide-react';
-import { modelsApi, scopeApi } from '../services/api';
+import { modelsApi, scopeApi, statsApi } from '../services/api';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -228,6 +228,9 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
   // Health check state
   const [healthChecks, setHealthChecks] = useState<Record<string, HealthCheckResult | 'loading'>>({});
 
+  // Cron-based health status (10분 간격 자동 프로빙 결과)
+  const [cronHealth, setCronHealth] = useState<Record<string, { success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>>({});
+
   // Test states (in-form)
   const [testRunning, setTestRunning] = useState(false);
   const [testResult, setTestResult] = useState<TestEndpointResult | null>(null);
@@ -249,10 +252,20 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
   // Auto-refresh every 30s (with jitter)
   useEffect(() => {
     loadModels();
+    loadCronHealth();
     const jitter = Math.floor(Math.random() * 10000);
     const interval = setInterval(loadModels, 30000 + jitter);
     return () => clearInterval(interval);
   }, []);
+
+  const loadCronHealth = async () => {
+    try {
+      const res = await statsApi.healthStatus();
+      setCronHealth(res.data.statuses || {});
+    } catch {
+      // 비관리자 등 접근 불가 시 무시
+    }
+  };
 
   // Load scope options when visibility changes
   useEffect(() => {
@@ -821,7 +834,21 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                     {/* Model Info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className={`font-semibold text-base ${model.enabled ? 'text-pastel-800' : 'text-gray-400'}`}>
+                        <h3 className={`font-semibold text-base ${model.enabled ? 'text-pastel-800' : 'text-gray-400'} flex items-center gap-1.5`}>
+                          {/* Cron health status dot */}
+                          {(() => {
+                            const ch = cronHealth[model.id];
+                            const skipped = model.type === 'IMAGE' || model.type === 'ASR';
+                            if (!model.enabled || skipped || !ch) {
+                              return <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" title={skipped ? '헬스체크 미대상' : '상태 미확인'} />;
+                            }
+                            const ago = Math.round((Date.now() - new Date(ch.checkedAt).getTime()) / 60000);
+                            const stale = ago > 20;
+                            if (ch.success) {
+                              return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stale ? 'bg-yellow-400' : 'bg-green-500'}`} title={`정상 | ${ch.latencyMs}ms | ${ago}분 전`} />;
+                            }
+                            return <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title={`장애 | ${ch.errorMessage || 'Unknown'} | ${ago}분 전`} />;
+                          })()}
                           {model.displayName}
                         </h3>
                         {!model.enabled && (
