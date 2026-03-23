@@ -438,11 +438,10 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
     (async () => {
       setLoading(true);
       try {
-        // admin API에 serviceId를 넘기면 서비스 관리자(OWNER/ADMIN)도 접근 가능
-        // globalOverview/MAU는 admin 전용이므로 실패 시 무시
+        // /admin/stats/* 경로는 인증 사용자 누구나 접근 가능
         const [ovRes, glRes, mauRes] = await Promise.all([
           statsApi.overview(serviceId),
-          statsApi.globalOverview().catch(() => ({ data: { services: [] } })),
+          statsApi.globalOverview(),
           statsApi.globalMauByService(3).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
         ]);
         setOverview(ovRes.data);
