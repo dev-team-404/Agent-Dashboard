@@ -3572,8 +3572,8 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
       WHERE r.status_code != 200
         AND r.timestamp >= $1
-      GROUP BY model_name, error_type, error_cause
-      ORDER BY model_name, cnt DESC`,
+      GROUP BY COALESCE(m."displayName", r.resolved_model, r.model_name), error_type, error_cause
+      ORDER BY COALESCE(m."displayName", r.resolved_model, r.model_name), cnt DESC`,
       startDate
     );
 
