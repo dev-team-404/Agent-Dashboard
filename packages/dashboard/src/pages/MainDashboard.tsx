@@ -1139,11 +1139,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 const ANNUAL_TARGET = 7000;
                 const chartData = [
                   { name: '연간 목표', value: ANNUAL_TARGET, fill: '#e5e7eb' },
-                  { name: '서비스별 목표 합산', value: Math.round(mmTargetData.totalTargetMM * 10) / 10, fill: '#3b82f6' },
                   { name: '실제 Saved M/M', value: Math.round(mmTargetData.totalSavedMM * 10) / 10, fill: '#10b981' },
                   { name: 'AI 추정 합산', value: mmTargetData.totalAiEstimatedMM, fill: '#8b5cf6' },
                 ];
-                const maxVal = Math.max(ANNUAL_TARGET, mmTargetData.totalTargetMM, mmTargetData.totalSavedMM, mmTargetData.totalAiEstimatedMM);
+                const maxVal = Math.max(ANNUAL_TARGET, mmTargetData.totalSavedMM, mmTargetData.totalAiEstimatedMM);
                 return (
                   <div className="space-y-5">
                     <div className="h-56">
@@ -1173,12 +1172,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="p-3 bg-blue-50 rounded-lg text-center">
-                        <p className="text-[10px] text-blue-500 font-medium uppercase">목표 합산</p>
-                        <p className="text-lg font-bold text-blue-700">{mmTargetData.totalTargetMM.toFixed(1)}</p>
-                        <p className="text-[10px] text-blue-400">{((mmTargetData.totalTargetMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
-                      </div>
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 bg-emerald-50 rounded-lg text-center">
                         <p className="text-[10px] text-emerald-500 font-medium uppercase">실제 Saved</p>
                         <p className="text-lg font-bold text-emerald-700">{mmTargetData.totalSavedMM.toFixed(1)}</p>
