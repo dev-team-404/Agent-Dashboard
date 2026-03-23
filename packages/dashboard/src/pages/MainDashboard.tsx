@@ -369,10 +369,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'latency') {
-      loadLatencyTrend(latencyGranularity);
-    }
-  }, [activeTab, latencyGranularity, loadLatencyTrend]);
+    loadLatencyTrend(latencyGranularity);
+  }, [latencyGranularity, loadLatencyTrend]);
 
   const formatNumber = useCallback((num: number): string => {
     if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
@@ -767,98 +765,6 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             {latencyRechartsData.length === 0 && hcRechartsData.length === 0 && (
               <div className="flex items-center justify-center h-72 text-pastel-400">지연 시간 데이터가 없습니다</div>
             )}
-
-            {/* ── 일별/주별/월별 추이 ── */}
-            <div className="border-t border-gray-100 pt-6 mt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-pastel-700">응답 지연 추이</h3>
-                <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
-                  {(['daily', 'weekly', 'monthly'] as const).map(g => (
-                    <button
-                      key={g}
-                      onClick={() => setLatencyGranularity(g)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        latencyGranularity === g ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                      }`}
-                    >
-                      {g === 'daily' ? '일별' : g === 'weekly' ? '주별' : '월별'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {loadingTrend ? (
-                <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">로딩 중...</div>
-              ) : (
-                <>
-                  {/* 헬스체크 프로빙 추이 */}
-                  {Object.keys(latencyTrendHC).length > 0 && (() => {
-                    const allPeriods = [...new Set(Object.values(latencyTrendHC).flatMap(arr => arr.map(d => d.period)))].sort();
-                    const trendData = allPeriods.map(p => {
-                      const row: Record<string, string | number> = { period: p };
-                      Object.entries(latencyTrendHC).forEach(([model, arr]) => {
-                        const found = arr.find(d => d.period === p);
-                        row[model] = found ? found.avgLatency : 0;
-                      });
-                      return row;
-                    });
-                    const trendKeys = Object.keys(latencyTrendHC).slice(0, 10);
-                    return (
-                      <div className="mb-6">
-                        <p className="text-xs text-pastel-400 mb-3">헬스체크 프로빙 평균 응답시간</p>
-                        <ResponsiveContainer width="100%" height={280}>
-                          <LineChart data={trendData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
-                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
-                            <Legend />
-                            {trendKeys.map((key, i) => (
-                              <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                            ))}
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    );
-                  })()}
-
-                  {/* 실사용 추이 */}
-                  {Object.keys(latencyTrendUsage).length > 0 && (() => {
-                    const allPeriods = [...new Set(Object.values(latencyTrendUsage).flatMap(arr => arr.map(d => d.period)))].sort();
-                    const trendData = allPeriods.map(p => {
-                      const row: Record<string, string | number> = { period: p };
-                      Object.entries(latencyTrendUsage).forEach(([model, arr]) => {
-                        const found = arr.find(d => d.period === p);
-                        row[model] = found ? found.avgLatency : 0;
-                      });
-                      return row;
-                    });
-                    const trendKeys = Object.keys(latencyTrendUsage).slice(0, 10);
-                    return (
-                      <div>
-                        <p className="text-xs text-pastel-400 mb-3">실사용 평균 응답시간</p>
-                        <ResponsiveContainer width="100%" height={280}>
-                          <LineChart data={trendData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
-                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
-                            <Legend />
-                            {trendKeys.map((key, i) => (
-                              <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                            ))}
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    );
-                  })()}
-
-                  {Object.keys(latencyTrendHC).length === 0 && Object.keys(latencyTrendUsage).length === 0 && (
-                    <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">추이 데이터가 없습니다</div>
-                  )}
-                </>
-              )}
-            </div>
           </>
         );
 
@@ -980,6 +886,123 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           </div>
         );
       })()}
+
+      {/* 응답 지연 추이 (독립 섹션) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* 헬스체크 프로빙 평균 응답시간 */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+          <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-indigo-50">
+                <Clock className="w-4 h-4 text-indigo-600" />
+              </div>
+              <h2 className="text-sm font-semibold text-pastel-800">헬스체크 프로빙 평균 응답시간</h2>
+            </div>
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+              {(['daily', 'weekly', 'monthly'] as const).map(g => (
+                <button
+                  key={g}
+                  onClick={() => setLatencyGranularity(g)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    latencyGranularity === g ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {g === 'daily' ? '일별' : g === 'weekly' ? '주별' : '월별'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="p-5">
+            {loadingTrend ? (
+              <div className="flex items-center justify-center h-52 text-pastel-400 text-sm">로딩 중...</div>
+            ) : Object.keys(latencyTrendHC).length > 0 ? (() => {
+              const allPeriods = [...new Set(Object.values(latencyTrendHC).flatMap(arr => arr.map(d => d.period)))].sort();
+              const trendData = allPeriods.map(p => {
+                const row: Record<string, string | number> = { period: p };
+                Object.entries(latencyTrendHC).forEach(([model, arr]) => {
+                  const found = arr.find(d => d.period === p);
+                  row[model] = found ? found.avgLatency : 0;
+                });
+                return row;
+              });
+              const trendKeys = Object.keys(latencyTrendHC).slice(0, 10);
+              return (
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={trendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                    <Legend />
+                    {trendKeys.map((key, i) => (
+                      <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              );
+            })() : (
+              <div className="flex items-center justify-center h-52 text-pastel-400 text-sm">추이 데이터가 없습니다</div>
+            )}
+          </div>
+        </div>
+
+        {/* 실사용 평균 응답시간 */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+          <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-emerald-50">
+                <Activity className="w-4 h-4 text-emerald-600" />
+              </div>
+              <h2 className="text-sm font-semibold text-pastel-800">실사용 평균 응답시간</h2>
+            </div>
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+              {(['daily', 'weekly', 'monthly'] as const).map(g => (
+                <button
+                  key={g}
+                  onClick={() => setLatencyGranularity(g)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    latencyGranularity === g ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {g === 'daily' ? '일별' : g === 'weekly' ? '주별' : '월별'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="p-5">
+            {loadingTrend ? (
+              <div className="flex items-center justify-center h-52 text-pastel-400 text-sm">로딩 중...</div>
+            ) : Object.keys(latencyTrendUsage).length > 0 ? (() => {
+              const allPeriods = [...new Set(Object.values(latencyTrendUsage).flatMap(arr => arr.map(d => d.period)))].sort();
+              const trendData = allPeriods.map(p => {
+                const row: Record<string, string | number> = { period: p };
+                Object.entries(latencyTrendUsage).forEach(([model, arr]) => {
+                  const found = arr.find(d => d.period === p);
+                  row[model] = found ? found.avgLatency : 0;
+                });
+                return row;
+              });
+              const trendKeys = Object.keys(latencyTrendUsage).slice(0, 10);
+              return (
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={trendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                    <Legend />
+                    {trendKeys.map((key, i) => (
+                      <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              );
+            })() : (
+              <div className="flex items-center justify-center h-52 text-pastel-400 text-sm">추이 데이터가 없습니다</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Charts Section with Tabs */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
