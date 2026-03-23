@@ -5,9 +5,11 @@
  * 실제 사용 트래픽과 무관한 독립적 모니터링.
  */
 
-import { prisma } from '../index.js';
+import { prisma, redis } from '../index.js';
 
 const HEALTH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10분
+const HC_LOCK_KEY = 'healthcheck:running';
+const HC_LOCK_TTL = 9 * 60; // 9분 (10분 주기보다 짧게, 다음 주기 전 자동 해제)
 const HEALTH_CHECK_TIMEOUT_MS = 9.5 * 60 * 1000; // 9분 30초 (timeout 시 10분으로 기록)
 const ASR_HEALTH_CHECK_TIMEOUT_MS = 9.5 * 60 * 1000; // ASR도 동일
 const TIMEOUT_RECORD_MS = 10 * 60 * 1000; // timeout 시 기록할 latency (10분)
@@ -371,6 +373,17 @@ async function checkSingleModel(model: {
 }
 
 async function runHealthChecks(): Promise<void> {
+  // Redis 분산 락: blue-green 양쪽 중 한쪽만 실행
+  try {
+    const acquired = await redis.set(HC_LOCK_KEY, process.pid.toString(), 'EX', HC_LOCK_TTL, 'NX');
+    if (!acquired) {
+      console.log('[HealthCheck] Skipped — another instance is running');
+      return;
+    }
+  } catch (err) {
+    console.error('[HealthCheck] Redis lock failed, proceeding anyway:', err);
+  }
+
   try {
     const models = await prisma.model.findMany({
       where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
@@ -398,6 +411,9 @@ async function runHealthChecks(): Promise<void> {
     console.log(`[HealthCheck] Done.`);
   } catch (err) {
     console.error('[HealthCheck] Failed:', err);
+  } finally {
+    // 락 해제
+    try { await redis.del(HC_LOCK_KEY); } catch { /* ignore */ }
   }
 }
 
