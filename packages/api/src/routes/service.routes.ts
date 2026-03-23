@@ -1142,6 +1142,9 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
             supportsVision: true,
           },
         },
+        fallbackModel: {
+          select: { id: true, name: true, displayName: true, type: true },
+        },
       },
       orderBy: [{ sortOrder: 'asc' }, { addedAt: 'asc' }],
     });
@@ -1163,6 +1166,8 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
         enabled: sm.enabled,
         addedBy: sm.addedBy,
         addedAt: sm.addedAt,
+        fallbackModelId: sm.fallbackModelId,
+        fallbackModel: sm.fallbackModel,
         model: sm.model,
         accessible, // 현재 사용자가 이 모델에 접근 가능한지
       };
@@ -1228,6 +1233,7 @@ const addServiceModelSchema = z.object({
   weight: z.number().int().min(1).max(10).default(1),
   sortOrder: z.number().int().min(0).default(0),
   enabled: z.boolean().default(true),
+  fallbackModelId: z.string().nullable().optional(),
 });
 
 serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRequest, res) => {
@@ -1238,7 +1244,7 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
       return;
     }
-    const { modelId, aliasName, weight, sortOrder, enabled } = validation.data;
+    const { modelId, aliasName, weight, sortOrder, enabled, fallbackModelId } = validation.data;
 
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
     if (!service) {
@@ -1290,6 +1296,7 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
         weight,
         sortOrder,
         enabled,
+        fallbackModelId: fallbackModelId || null,
         addedBy: req.user?.loginid || '',
       },
       include: {
@@ -1392,6 +1399,60 @@ serviceRoutes.put('/:id/models/reorder', authenticateToken, async (req: Authenti
   } catch (error) {
     console.error('Reorder service models error:', error);
     res.status(500).json({ error: 'Failed to reorder service models' });
+  }
+});
+
+/**
+ * PUT /services/:id/models/fallback
+ * 별칭(alias) 그룹의 폴백 모델 설정/해제
+ * 같은 alias의 모든 ServiceModel에 fallbackModelId를 일괄 적용
+ */
+serviceRoutes.put('/:id/models/fallback', authenticateToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+    const schema = z.object({
+      aliasName: z.string().min(1),
+      fallbackModelId: z.string().nullable(), // null이면 해제
+    });
+    const validation = schema.safeParse(req.body);
+    if (!validation.success) {
+      res.status(400).json({ error: 'Invalid request', details: validation.error.issues });
+      return;
+    }
+    const { aliasName, fallbackModelId } = validation.data;
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    // 폴백 모델 존재 + 권한 확인
+    if (fallbackModelId) {
+      const fbModel = await prisma.model.findUnique({ where: { id: fallbackModelId } });
+      if (!fbModel) {
+        res.status(404).json({ error: 'Fallback model not found' });
+        return;
+      }
+      if (req.adminRole !== 'SUPER_ADMIN') {
+        const userDept = req.adminDept || req.user?.deptname || '';
+        const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+        if (fbModel.visibility === 'SUPER_ADMIN_ONLY' || !isModelVisibleTo(fbModel, userDept, userBU, !!req.adminRole)) {
+          res.status(403).json({ error: 'You do not have access to this model' });
+          return;
+        }
+      }
+    }
+
+    // alias 그룹 전체에 일괄 적용
+    const updated = await prisma.serviceModel.updateMany({
+      where: { serviceId, aliasName },
+      data: { fallbackModelId },
+    });
+
+    res.json({ message: `Fallback ${fallbackModelId ? 'set' : 'cleared'} for alias "${aliasName}"`, updated: updated.count });
+  } catch (error) {
+    console.error('Set fallback model error:', error);
+    res.status(500).json({ error: 'Failed to set fallback model' });
   }
 });
 

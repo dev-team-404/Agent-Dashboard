@@ -18,6 +18,8 @@ interface ServiceModelItem {
   sortOrder: number;
   weight: number;
   enabled: boolean;
+  fallbackModelId?: string | null;
+  fallbackModel?: { id: string; name: string; displayName: string; type: string } | null;
   addedBy?: string;
   addedAt: string;
   accessible: boolean;
@@ -536,8 +538,36 @@ export default function ServiceModelConfig() {
                       <p className="text-[11px] text-gray-400 mt-0.5">
                         {group.items.length}개 모델
                         {enabledCount > 1 && ` · 라운드로빈 ${totalWeight}회/사이클`}
+                        {group.items[0]?.fallbackModel && (
+                          <span className="ml-1.5 text-amber-600">
+                            · 폴백: {group.items[0].fallbackModel.displayName}
+                          </span>
+                        )}
                       </p>
                     </div>
+                    {/* Fallback dropdown */}
+                    <select
+                      value={group.items[0]?.fallbackModelId || ''}
+                      onChange={async (e) => {
+                        const val = e.target.value || null;
+                        try {
+                          await api.put(`/services/${serviceId}/models/fallback`, {
+                            aliasName: group.aliasName,
+                            fallbackModelId: val,
+                          });
+                          loadData();
+                        } catch (err) {
+                          console.error('Failed to set fallback:', err);
+                        }
+                      }}
+                      className="px-2 py-1 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 max-w-[160px] truncate"
+                      title="에러 시 폴백 모델"
+                    >
+                      <option value="">폴백 없음</option>
+                      {availableModels.filter(m => m.enabled).map(m => (
+                        <option key={m.id} value={m.id}>{m.displayName}</option>
+                      ))}
+                    </select>
                     <button
                       onClick={() => setAddingToAlias(addingToAlias === group.aliasName ? null : group.aliasName)}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"

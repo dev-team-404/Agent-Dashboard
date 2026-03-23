@@ -356,12 +356,14 @@ function sleep(ms: number): Promise<void> {
  *
  * 서비스에 등록된 alias 이름으로만 호출 가능. 전역 fallback 없음.
  */
+type ResolvedModel = NonNullable<Awaited<ReturnType<typeof prisma.model.findFirst>>>;
+
 async function resolveModelWithServiceRR(
   serviceId: string,
   modelName: string,
 ): Promise<
-  | { found: true; model: NonNullable<Awaited<ReturnType<typeof prisma.model.findFirst>>> }
-  | { found: false; model: null }
+  | { found: true; model: ResolvedModel; fallbackModelId: string | null }
+  | { found: false; model: null; fallbackModelId: null }
 > {
   // aliasName으로 매칭하는 ServiceModel 조회 (유일한 경로)
   const serviceModels = await prisma.serviceModel.findMany({
@@ -377,12 +379,15 @@ async function resolveModelWithServiceRR(
 
   // alias 매칭 없음 → 모델 없음 (전역 fallback 없음)
   if (serviceModels.length === 0) {
-    return { found: false, model: null };
+    return { found: false, model: null, fallbackModelId: null };
   }
+
+  // 그룹의 fallbackModelId (첫 번째 non-null 사용)
+  const fallbackModelId = serviceModels.find(sm => sm.fallbackModelId)?.fallbackModelId || null;
 
   // 하나만 매칭 → 그대로 사용
   if (serviceModels.length === 1) {
-    return { found: true, model: serviceModels[0]!.model };
+    return { found: true, model: serviceModels[0]!.model, fallbackModelId };
   }
 
   // 여러 개 매칭 → weight 기반 라운드로빈
@@ -398,11 +403,20 @@ async function resolveModelWithServiceRR(
     if (idx === 1) await redis.expire(rrKey, 3600);
     const selected = weightedModels[(idx - 1) % weightedModels.length]!;
     console.log(`[ServiceRR] service=${serviceId} alias="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
-    return { found: true, model: selected };
+    return { found: true, model: selected, fallbackModelId };
   } catch (error) {
     console.error('[ServiceRR] Redis error, falling back to first model:', error);
-    return { found: true, model: serviceModels[0]!.model };
+    return { found: true, model: serviceModels[0]!.model, fallbackModelId };
   }
+}
+
+/**
+ * Fallback 모델 resolve — 에러 시 fallbackModelId로 모델 조회
+ */
+async function resolveFallbackModel(fallbackModelId: string): Promise<ResolvedModel | null> {
+  return prisma.model.findFirst({
+    where: { id: fallbackModelId, enabled: true },
+  });
 }
 
 /**
@@ -896,6 +910,53 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 
     const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
     console.error(`[Failover] ${label} failed for model "${model.name}"`);
+
+    // ── Fallback 모델 시도 ──
+    if (resolved.fallbackModelId && resolved.fallbackModelId !== model.id) {
+      const fbModel = await resolveFallbackModel(resolved.fallbackModelId);
+      if (fbModel) {
+        console.log(`[Fallback] Trying fallback model "${fbModel.displayName}" (${fbModel.id}) for alias "${modelName}"`);
+        const fbEndpoints = await getModelEndpoints(fbModel.id, {
+          endpointUrl: fbModel.endpointUrl,
+          apiKey: fbModel.apiKey,
+          modelName: fbModel.name,
+          extraHeaders: fbModel.extraHeaders as Record<string, string> | null,
+          extraBody: fbModel.extraBody as Record<string, any> | null,
+        });
+        const fbStartIdx = await getRoundRobinIndex(fbModel.id, fbEndpoints.length);
+
+        for (let i = 0; i < fbEndpoints.length; i++) {
+          const ep = fbEndpoints[(fbStartIdx + i) % fbEndpoints.length]!;
+          const fbRequestBody: Record<string, unknown> = {
+            ...(ep.extraBody || {}),
+            model: ep.modelName,
+            messages,
+            stream: stream || false,
+            ...otherParams,
+          };
+          // max_tokens 기본값 주입
+          if (!fbRequestBody.max_tokens && !fbRequestBody.max_completion_tokens && fbModel.maxTokens) {
+            fbRequestBody.max_tokens = Math.min(Math.floor(fbModel.maxTokens * 0.7), 32768);
+          }
+          const fbHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...(ep.extraHeaders || {}) };
+          if (ep.apiKey) fbHeaders['Authorization'] = `Bearer ${ep.apiKey}`;
+          const fbEffective = { ...fbModel, endpointUrl: ep.endpointUrl, apiKey: ep.apiKey };
+
+          let handled: boolean;
+          if (stream) {
+            handled = await handleStreamingRequest(res, fbEffective, fbRequestBody, fbHeaders, user, proxyReq);
+          } else {
+            handled = await handleNonStreamingRequest(res, fbEffective, fbRequestBody, fbHeaders, user, proxyReq);
+          }
+          if (handled) {
+            console.log(`[Fallback] Success with fallback model "${fbModel.displayName}"`);
+            return;
+          }
+        }
+        console.error(`[Fallback] Fallback model "${fbModel.displayName}" also failed`);
+      }
+    }
+
     recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => {});
     res.status(503).json({
       error: 'Service temporarily unavailable',
