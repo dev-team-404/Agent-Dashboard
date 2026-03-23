@@ -433,46 +433,60 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
     isFixed?: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const isAdmin = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [ovRes, glRes, mauRes] = await Promise.all([
-          statsApi.overview(serviceId),
-          statsApi.globalOverview(),
-          statsApi.globalMauByService(3).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
-        ]);
-        setOverview(ovRes.data);
-        const svc = glRes.data.services?.find((s: { serviceId: string }) => s.serviceId === serviceId);
-        if (svc) setServiceStats(svc);
+        if (isAdmin) {
+          // Admin: 기존 admin API 사용 (전체 통계)
+          const [ovRes, glRes, mauRes] = await Promise.all([
+            statsApi.overview(serviceId),
+            statsApi.globalOverview(),
+            statsApi.globalMauByService(3).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
+          ]);
+          setOverview(ovRes.data);
+          const svc = glRes.data.services?.find((s: { serviceId: string }) => s.serviceId === serviceId);
+          if (svc) setServiceStats(svc);
 
-        // Extract MAU for this service
-        const mauMonthly = mauRes.data.monthlyData || [];
-        const mauSvcs = mauRes.data.services || [];
-        const thisSvc = mauSvcs.find((s: { id: string }) => s.id === serviceId);
-        if (thisSvc && mauMonthly.length > 0) {
-          const latestMau = (mauMonthly[mauMonthly.length - 1]?.[serviceId] as number) || 0;
-          const prevMau = mauMonthly.length > 1 ? (mauMonthly[mauMonthly.length - 2]?.[serviceId] as number) || 0 : 0;
-          const meta = mauRes.data.estimationMeta;
-          const latestMonthKey = mauMonthly[mauMonthly.length - 1]?.month as string | undefined;
-          const baseline = latestMonthKey ? meta?.monthlyBaseline?.[latestMonthKey] : null;
-          const bgDetail = latestMonthKey ? meta?.backgroundMonthlyDetail?.[`${serviceId}|${latestMonthKey}`] : null;
-          setServiceMauData({
-            latestMau,
-            prevMau,
-            isEstimated: thisSvc.type === 'BACKGROUND',
-            latestMonth: latestMonthKey,
-            totalCalls: bgDetail?.totalCalls,
-            callsPerPersonPerDay: baseline?.callsPerPersonPerDay,
-            callsPerPersonPerMonth: baseline?.callsPerPersonPerMonth,
-            businessDays: baseline?.businessDays,
-            isFixed: baseline?.isFixed,
+          // Extract MAU for this service
+          const mauMonthly = mauRes.data.monthlyData || [];
+          const mauSvcs = mauRes.data.services || [];
+          const thisSvc = mauSvcs.find((s: { id: string }) => s.id === serviceId);
+          if (thisSvc && mauMonthly.length > 0) {
+            const latestMau = (mauMonthly[mauMonthly.length - 1]?.[serviceId] as number) || 0;
+            const prevMau = mauMonthly.length > 1 ? (mauMonthly[mauMonthly.length - 2]?.[serviceId] as number) || 0 : 0;
+            const meta = mauRes.data.estimationMeta;
+            const latestMonthKey = mauMonthly[mauMonthly.length - 1]?.month as string | undefined;
+            const baseline = latestMonthKey ? meta?.monthlyBaseline?.[latestMonthKey] : null;
+            const bgDetail = latestMonthKey ? meta?.backgroundMonthlyDetail?.[`${serviceId}|${latestMonthKey}`] : null;
+            setServiceMauData({
+              latestMau,
+              prevMau,
+              isEstimated: thisSvc.type === 'BACKGROUND',
+              latestMonth: latestMonthKey,
+              totalCalls: bgDetail?.totalCalls,
+              callsPerPersonPerDay: baseline?.callsPerPersonPerDay,
+              callsPerPersonPerMonth: baseline?.callsPerPersonPerMonth,
+              businessDays: baseline?.businessDays,
+              isFixed: baseline?.isFixed,
+            });
+          }
+        } else {
+          // 비-admin 서비스 멤버: /services/:id/stats 사용
+          const svcStatsRes = await api.get(`/services/${serviceId}/stats`);
+          const s = svcStatsRes.data.stats;
+          setOverview({
+            activeUsers: 0,
+            todayUsage: { inputTokens: 0, outputTokens: 0, requests: s.todayRequests || 0 },
+            totalUsers: s.totalUsers || 0,
+            totalModels: 0,
           });
         }
       } catch { /* */ } finally { setLoading(false); }
     })();
-  }, [serviceId]);
+  }, [serviceId, isAdmin]);
 
   if (loading) return <TabSkeleton />;
 
