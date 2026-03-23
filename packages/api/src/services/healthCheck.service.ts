@@ -7,8 +7,8 @@
 
 import { prisma } from '../index.js';
 
-const HEALTH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10분
-const HEALTH_CHECK_TIMEOUT_MS = 10 * 60 * 1000; // 10분
+const HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30분
+const HEALTH_CHECK_TIMEOUT_MS = 30 * 60 * 1000; // 30분
 const ASR_HEALTH_CHECK_TIMEOUT_MS = 10 * 60 * 1000; // ASR도 10분
 
 // 1초 무음 WAV 생성 (16kHz mono 16-bit PCM) — ASR 헬스체크용
