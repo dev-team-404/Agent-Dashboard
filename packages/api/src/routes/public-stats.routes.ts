@@ -900,164 +900,8 @@ async function getDtgptFixedAndApiServiceIds(): Promise<{ g1Ids: string[]; g3Id:
   return { g1Ids, g3Id: g3?.id || null };
 }
 
-/**
- * G2 서비스 ID 조회 (해당 endpoint 모델을 사용하는 서비스)
- */
-async function getDtgptDynamicServiceIds(): Promise<string[]> {
-  const results = await prisma.$queryRaw<Array<{ service_id: string }>>`
-    SELECT DISTINCT sm.service_id
-    FROM service_models sm
-    INNER JOIN models m ON sm.model_id = m.id
-    WHERE m."endpointUrl" LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
-      AND sm.enabled = true
-      AND m.enabled = true
-  `;
-  return results.map(r => r.service_id);
-}
-
-/**
- * 한글 부서명 → 영문 팀명 변환 (캐시 활용)
- * 해당 부서에 속한 user를 DB에서 찾아 Knox 조회 후 영문 팀명 resolve
- */
-async function resolveTeamName(deptname: string): Promise<string> {
-  if (!deptname) return 'Unknown';
-
-  // 1. department_hierarchies 캐시에서 한글 부서명으로 조회
-  try {
-    const cached = await prisma.departmentHierarchy.findFirst({
-      where: { departmentName: deptname },
-      select: { team: true },
-    });
-    if (cached?.team) return cached.team;
-  } catch (_) { /* ignore */ }
-
-  // 2. 해당 부서에 속한 유저 중 departmentCode가 있는 유저 찾기
-  const user = await prisma.user.findFirst({
-    where: { deptname, departmentCode: { not: null } },
-    select: { departmentCode: true, enDeptName: true },
-  });
-
-  if (user?.departmentCode) {
-    const hierarchy = await getDepartmentHierarchy(
-      user.departmentCode,
-      deptname,
-      user.enDeptName || '',
-    );
-    if (hierarchy?.team) return hierarchy.team;
-  }
-
-  // 3. departmentCode 없는 경우 → Knox Employee API로 조회
-  const anyUser = await prisma.user.findFirst({
-    where: { deptname, loginid: { not: 'anonymous' } },
-    select: { loginid: true },
-  });
-
-  if (anyUser) {
-    const emp = await lookupEmployee(anyUser.loginid);
-    if (emp?.departmentCode) {
-      const hierarchy = await getDepartmentHierarchy(
-        emp.departmentCode,
-        emp.departmentName || deptname,
-        emp.enDepartmentName || '',
-      );
-      if (hierarchy?.team) return hierarchy.team;
-      // fallback: 영문 부서명이라도 반환
-      if (emp.enDepartmentName) return emp.enDepartmentName;
-    }
-  }
-
-  return deptname; // 최종 fallback: 한글 부서명 그대로
-}
-
-// ─── 7. GET /stats/dtgpt/team-usage ─────────────────────────
-// 해당 월 일별 × center1별 × 팀별 토큰 사용량
-
-publicStatsRoutes.get('/dtgpt/team-usage', async (req: Request, res: Response) => {
-  try {
-    const year = parseInt(req.query['year'] as string);
-    const month = parseInt(req.query['month'] as string);
-    if (!year || year < 2000 || year > 2100 || !month || month < 1 || month > 12) {
-      res.status(400).json({ error: 'year(2000~2100)와 month(1~12)는 필수입니다. (예: year=2026&month=3)' });
-      return;
-    }
-
-    const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
-    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
-
-    const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
-    const svcIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
-    if (svcIds.length === 0) { res.json({ year, month, data: [] }); return; }
-
-    // 일별 × 부서별 토큰
-    const rows = await prisma.$queryRaw<Array<{
-      d: string; deptname: string; total_tokens: bigint;
-    }>>`
-      SELECT TO_CHAR((ul.timestamp + INTERVAL '9 hours')::date, 'YYYY-MM-DD') as d,
-             ul.deptname,
-             COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
-      FROM usage_logs ul
-      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-        AND ul.service_id = ANY(${svcIds})
-        AND ul.deptname IS NOT NULL AND ul.deptname != ''
-      GROUP BY 1, ul.deptname
-      ORDER BY 1
-    `;
-
-    // hierarchy → center + team 매핑
-    const hierarchies = await prisma.departmentHierarchy.findMany();
-    const centerMap = buildDtgptCenterMap(hierarchies);
-
-    // deptname → { center, centerLabel, team }
-    const deptInfo = new Map<string, { center: string; centerLabel: string; team: string }>();
-    for (const [cName, cData] of centerMap.entries()) {
-      if (cName === 'Direct') continue;
-      // centerLabel: 사업부 or 연구소
-      const buSet = new Set(cData.deptnames.map(d => extractBusinessUnit(d)).filter(Boolean));
-      let label = '';
-      if (cName.includes('/')) {
-        label = cName.substring(cName.lastIndexOf('/') + 1);
-      } else if (buSet.size > 0) {
-        label = Array.from(buSet).join('/');
-      }
-      const centerLabel = label ? `${cName} (${label})` : cName;
-
-      for (const dept of cData.deptnames) {
-        const team = cData.deptTeamMap.get(dept) || dept;
-        deptInfo.set(dept, { center: cName, centerLabel, team });
-      }
-    }
-
-    // 일별 → center별 → team별 집계
-    const dateMap = new Map<string, Map<string, Map<string, number>>>();
-    for (const r of rows) {
-      const info = deptInfo.get(r.deptname);
-      if (!info) continue;
-      const tokens = Number(r.total_tokens);
-
-      if (!dateMap.has(r.d)) dateMap.set(r.d, new Map());
-      const cMap = dateMap.get(r.d)!;
-      if (!cMap.has(info.centerLabel)) cMap.set(info.centerLabel, new Map());
-      const tMap = cMap.get(info.centerLabel)!;
-      tMap.set(info.team, (tMap.get(info.team) || 0) + tokens);
-    }
-
-    const data = Array.from(dateMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, cMap]) => ({
-      date,
-      centers: Array.from(cMap.entries()).map(([center, tMap]) => ({
-        center,
-        teams: Object.fromEntries(Array.from(tMap.entries()).sort((a, b) => b[1] - a[1])),
-      })),
-    }));
-
-    res.json({ year, month, server: DTGPT_ENDPOINT_PREFIX, fixedServices: DTGPT_FIXED_SERVICES, data });
-  } catch (err) {
-    console.error('DTGPT team-usage error:', err);
-    res.status(500).json({ error: 'DTGPT 팀별 사용량 조회에 실패했습니다.' });
-  }
-});
-
-// ─── 8. GET /stats/dtgpt/service-usage ──────────────────────
-// 해당 월 일별 × 서비스별 토큰 사용량
+// ─── 7. GET /stats/dtgpt/service-usage ──────────────────────
+// 해당 월 일별 × 서비스별 토큰 사용량 (input/output/total)
 
 publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response) => {
   try {
@@ -1082,12 +926,14 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
     });
     const svcNameMap = new Map(svcInfos.map(s => [s.id, s.displayName]));
 
-    // 일별 × 서비스별 토큰
+    // 일별 × 서비스별 토큰 (input/output/total)
     const rows = await prisma.$queryRaw<Array<{
-      d: string; service_id: string; total_tokens: bigint;
+      d: string; service_id: string; input_tokens: bigint; output_tokens: bigint; total_tokens: bigint;
     }>>`
       SELECT TO_CHAR((ul.timestamp + INTERVAL '9 hours')::date, 'YYYY-MM-DD') as d,
              ul.service_id::text as service_id,
+             COALESCE(SUM(ul."inputTokens"), 0) as input_tokens,
+             COALESCE(SUM(ul."outputTokens"), 0) as output_tokens,
              COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
       FROM usage_logs ul
       WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
@@ -1097,13 +943,15 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
     `;
 
     // 일별 → 서비스별 집계
-    const dateMap = new Map<string, Record<string, number>>();
+    const dateMap = new Map<string, Record<string, { inputTokens: number; outputTokens: number; totalTokens: number }>>();
     for (const r of rows) {
       const name = svcNameMap.get(r.service_id) || 'Unknown';
-      const tokens = Number(r.total_tokens);
       if (!dateMap.has(r.d)) dateMap.set(r.d, {});
       const entry = dateMap.get(r.d)!;
-      entry[name] = (entry[name] || 0) + tokens;
+      if (!entry[name]) entry[name] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      entry[name].inputTokens += Number(r.input_tokens);
+      entry[name].outputTokens += Number(r.output_tokens);
+      entry[name].totalTokens += Number(r.total_tokens);
     }
 
     const data = Array.from(dateMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, services]) => ({
@@ -1118,247 +966,47 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
   }
 });
 
-// ─── 9. GET /stats/dtgpt/token-usage ─────────────────────────
-// 센터별 토큰 사용량 시계열 (stacked bar chart 용)
-// center1 dropdown + daily/weekly/monthly + 팀별 & 서비스별
-
-const MAX_DTGPT_CHART_ITEMS = 12;
-
-function getKSTNow(): Date {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000);
-}
-
-function buildDtgptCenterMap(hierarchies: Array<{
-  departmentName: string; team: string; center1Name: string; center2Name: string;
-}>) {
-  const knownCenter1s = new Set<string>();
-  for (const h of hierarchies) {
-    const c1 = (h.center1Name || '').trim();
-    if (c1 && c1 !== 'none' && !isTopLevelDivision(c1)) knownCenter1s.add(c1);
-  }
-
-  const result = new Map<string, { deptnames: string[]; deptTeamMap: Map<string, string> }>();
-  for (const h of hierarchies) {
-    const c1 = (h.center1Name || '').trim();
-    const c2 = (h.center2Name || '').trim();
-    const c1v = !!(c1 && c1 !== 'none' && !isTopLevelDivision(c1));
-    const c2v = !!(c2 && c2 !== 'none' && !isTopLevelDivision(c2));
-
-    let center = 'Direct';
-    if (c1v && knownCenter1s.has(c1)) center = c1;
-    else if (c2v && knownCenter1s.has(c2)) center = c2;
-    else if (c1v) center = c1;
-    else if (c2v) center = c2;
-
-    if (!result.has(center)) result.set(center, { deptnames: [], deptTeamMap: new Map() });
-    const e = result.get(center)!;
-    e.deptnames.push(h.departmentName);
-    e.deptTeamMap.set(h.departmentName, h.team || h.departmentName);
-  }
-  return result;
-}
+// ─── 8. GET /stats/dtgpt/token-usage ─────────────────────────
+// 해당 월 일별 총 토큰 사용량 (input/output/total)
 
 publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) => {
   try {
-    const granularity = (req.query['granularity'] as string) || 'monthly';
-    const empty = { granularity, byTeam: [], byService: [], teams: [], services: [] };
-
-    if (!['daily', 'weekly', 'monthly'].includes(granularity)) {
-      res.status(400).json({ error: 'granularity must be daily, weekly, or monthly' });
+    const year = parseInt(req.query['year'] as string);
+    const month = parseInt(req.query['month'] as string);
+    if (!year || year < 2000 || year > 2100 || !month || month < 1 || month > 12) {
+      res.status(400).json({ error: 'year(2000~2100)와 month(1~12)는 필수입니다. (예: year=2026&month=3)' });
       return;
     }
 
-    // 1. DTGPT 서비스 ID (G1: roocode,dify,openwebui,claudecode + G3: api)
+    const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
     const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
-    const dtgptServiceIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
+    const svcIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
+    if (svcIds.length === 0) { res.json({ year, month, data: [] }); return; }
 
-    if (dtgptServiceIds.length === 0) {
-      res.json(empty);
-      return;
-    }
-
-    // 2. Time range
-    const kst = getKSTNow();
-    const ky = kst.getUTCFullYear();
-    const km = kst.getUTCMonth();
-    const kd = kst.getUTCDate();
-
-    let qStart: Date;
-    let dateExpr: string;
-
-    // allExpectedPeriods: 데이터 없어도 가로축에 표시할 전체 기간 목록
-    let allExpectedPeriods: string[];
-
-    if (granularity === 'daily') {
-      // 최근 30일
-      qStart = new Date(Date.UTC(ky, km, kd - 29) - 9 * 3600000);
-      dateExpr = `TO_CHAR((ul.timestamp + INTERVAL '9 hours')::date, 'YYYY-MM-DD')`;
-      allExpectedPeriods = [];
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(Date.UTC(ky, km, kd - i));
-        allExpectedPeriods.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`);
-      }
-    } else if (granularity === 'weekly') {
-      // 최근 12주
-      qStart = new Date(Date.UTC(ky, km, kd - 83) - 9 * 3600000);
-      dateExpr = `TO_CHAR(DATE_TRUNC('week', ul.timestamp + INTERVAL '9 hours'), 'YYYY-MM-DD')`;
-      allExpectedPeriods = [];
-      // 이번주 월요일 구하기
-      const todayKST = new Date(Date.UTC(ky, km, kd));
-      const dow = todayKST.getUTCDay(); // 0=Sun
-      const mondayOffset = dow === 0 ? -6 : 1 - dow;
-      const thisMonday = new Date(Date.UTC(ky, km, kd + mondayOffset));
-      for (let i = 11; i >= 0; i--) {
-        const mon = new Date(thisMonday.getTime() - i * 7 * 86400000);
-        allExpectedPeriods.push(`${mon.getUTCFullYear()}-${String(mon.getUTCMonth() + 1).padStart(2, '0')}-${String(mon.getUTCDate()).padStart(2, '0')}`);
-      }
-    } else {
-      // 최근 12개월
-      qStart = new Date(Date.UTC(ky, km - 11, 1) - 9 * 3600000);
-      dateExpr = `TO_CHAR(DATE_TRUNC('month', ul.timestamp + INTERVAL '9 hours'), 'YYYY-MM')`;
-      allExpectedPeriods = [];
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date(Date.UTC(ky, km - i, 1));
-        allExpectedPeriods.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
-      }
-    }
-    const qEnd = new Date();
-
-    // 3. DTGPT 사용 실적이 있는 부서만
-    const activeDeptRows = await prisma.$queryRaw<Array<{ deptname: string }>>`
-      SELECT DISTINCT ul.deptname
-      FROM usage_logs ul
-      WHERE ul.timestamp >= ${qStart} AND ul.timestamp < ${qEnd}
-        AND ul.service_id = ANY(${dtgptServiceIds})
-        AND ul.deptname IS NOT NULL AND ul.deptname != ''
-    `;
-    const deptnames = activeDeptRows.map(r => r.deptname);
-
-    if (deptnames.length === 0) {
-      res.json(empty);
-      return;
-    }
-
-    // 4. 부서 → 팀 매핑 (hierarchy 기반)
-    const hierarchies = await prisma.departmentHierarchy.findMany();
-    const deptTeamMap = new Map<string, string>();
-    for (const h of hierarchies) {
-      deptTeamMap.set(h.departmentName, h.team || h.departmentName);
-    }
-
-    // 5. 메인 쿼리: DTGPT 모델 + DTGPT 서비스 + 센터 부서
-    const rawData = await prisma.$queryRaw<Array<{
-      period: string; deptname: string; service_id: string; total_tokens: bigint;
+    const rows = await prisma.$queryRaw<Array<{
+      d: string; input_tokens: bigint; output_tokens: bigint; total_tokens: bigint;
     }>>`
-      SELECT ${Prisma.raw(dateExpr)} as period,
-             ul.deptname,
-             ul.service_id::text as service_id,
+      SELECT TO_CHAR((ul.timestamp + INTERVAL '9 hours')::date, 'YYYY-MM-DD') as d,
+             COALESCE(SUM(ul."inputTokens"), 0) as input_tokens,
+             COALESCE(SUM(ul."outputTokens"), 0) as output_tokens,
              COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
       FROM usage_logs ul
-      WHERE ul.timestamp >= ${qStart} AND ul.timestamp < ${qEnd}
-        AND ul.deptname = ANY(${deptnames})
-        AND ul.service_id = ANY(${dtgptServiceIds})
-      GROUP BY 1, ul.deptname, ul.service_id
+      WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
+        AND ul.service_id = ANY(${svcIds})
+      GROUP BY 1
       ORDER BY 1
     `;
 
-    // 6. Service display names
-    const svcIds = [...new Set(rawData.map(r => r.service_id))];
-    const svcs = svcIds.length > 0
-      ? await prisma.service.findMany({ where: { id: { in: svcIds } }, select: { id: true, displayName: true } })
-      : [];
-    const svcNameMap = new Map(svcs.map(s => [s.id, s.displayName]));
+    const data = rows.map(r => ({
+      date: r.d,
+      inputTokens: Number(r.input_tokens),
+      outputTokens: Number(r.output_tokens),
+      totalTokens: Number(r.total_tokens),
+    }));
 
-    // 7. Aggregate by team + teamInfo (한글 부서명, 사업부)
-    const teamTotals = new Map<string, number>();
-    const teamPeriods = new Map<string, Map<string, number>>();
-    const teamDepts = new Map<string, Set<string>>(); // team → deptnames
-    for (const r of rawData) {
-      const team = deptTeamMap.get(r.deptname) || r.deptname;
-      const tokens = Number(r.total_tokens);
-      teamTotals.set(team, (teamTotals.get(team) || 0) + tokens);
-      if (!teamPeriods.has(r.period)) teamPeriods.set(r.period, new Map());
-      const pm = teamPeriods.get(r.period)!;
-      pm.set(team, (pm.get(team) || 0) + tokens);
-      if (!teamDepts.has(team)) teamDepts.set(team, new Set());
-      teamDepts.get(team)!.add(r.deptname);
-    }
-
-    // 8. Aggregate by service
-    const svcTotals = new Map<string, number>();
-    const svcPeriods = new Map<string, Map<string, number>>();
-    for (const r of rawData) {
-      const sn = svcNameMap.get(r.service_id) || 'Unknown';
-      const tokens = Number(r.total_tokens);
-      svcTotals.set(sn, (svcTotals.get(sn) || 0) + tokens);
-      if (!svcPeriods.has(r.period)) svcPeriods.set(r.period, new Map());
-      const pm = svcPeriods.get(r.period)!;
-      pm.set(sn, (pm.get(sn) || 0) + tokens);
-    }
-
-    // 9. Top N + '기타' (데이터 없는 기간도 가로축 포함)
-    function topNWithOther(totals: Map<string, number>, periods: Map<string, Map<string, number>>) {
-      const sorted = Array.from(totals.entries()).sort((a, b) => b[1] - a[1]);
-      const topKeys = sorted.slice(0, MAX_DTGPT_CHART_ITEMS).map(([k]) => k);
-      const otherKeys = new Set(sorted.slice(MAX_DTGPT_CHART_ITEMS).map(([k]) => k));
-      const hasOther = otherKeys.size > 0;
-      const keys = hasOther ? [...topKeys, '기타'] : topKeys;
-
-      const chartData = allExpectedPeriods.map(p => {
-        const m = periods.get(p) || new Map();
-        const entry: Record<string, any> = { period: p };
-        let otherTotal = 0;
-        for (const [k, v] of m.entries()) {
-          if (otherKeys.has(k)) otherTotal += v;
-          else if (topKeys.includes(k)) entry[k] = v;
-        }
-        for (const k of topKeys) { if (!(k in entry)) entry[k] = 0; }
-        if (hasOther) entry['기타'] = otherTotal;
-        return entry;
-      });
-      return { keys, chartData };
-    }
-
-    const teamResult = topNWithOther(teamTotals, teamPeriods);
-    const svcResult = topNWithOther(svcTotals, svcPeriods);
-
-    // teamInfo: 영문 팀명 → { deptnames(한글), businessUnits, institute(외국 자사) }
-    const teamInfo: Record<string, {
-      deptnames: string[];
-      businessUnits: string[];
-      teamShort: string | null;   // 외국 자사: 팀 약칭 (예: ASP/DI)
-      institute: string | null;   // 외국 자사: 연구소명 (예: SSCR)
-    }> = {};
-    for (const team of teamResult.keys) {
-      if (team === '기타') continue;
-      const deps = teamDepts.get(team);
-      const deptArr = deps ? Array.from(deps) : [];
-      const buSet = new Set(deptArr.map(d => extractBusinessUnit(d)).filter(Boolean));
-
-      // 팀/연구소 파싱: /가 있으면 마지막 / 기준 분리
-      // Wi-Fi Firmware/SCSC → 팀:Wi-Fi Firmware, 연구소:SCSC
-      // PI/PD/DSRJ(DS) → 팀:PI/PD, 연구소:DSRJ(DS)
-      let teamShort: string | null = null;
-      let institute: string | null = null;
-      if (team.includes('/')) {
-        const lastSlash = team.lastIndexOf('/');
-        teamShort = team.substring(0, lastSlash);
-        institute = team.substring(lastSlash + 1);
-      }
-
-      teamInfo[team] = { deptnames: deptArr, businessUnits: Array.from(buSet), teamShort, institute };
-    }
-
-    res.json({
-      granularity,
-      server: DTGPT_ENDPOINT_PREFIX,
-      fixedServices: DTGPT_FIXED_SERVICES,
-      byTeam: teamResult.chartData,
-      byService: svcResult.chartData,
-      teams: teamResult.keys,
-      services: svcResult.keys,
-      teamInfo,
-    });
+    res.json({ year, month, server: DTGPT_ENDPOINT_PREFIX, fixedServices: DTGPT_FIXED_SERVICES, data });
   } catch (err) {
     console.error('DTGPT token-usage error:', err);
     res.status(500).json({ error: 'DTGPT 토큰 사용량 조회에 실패했습니다.' });
