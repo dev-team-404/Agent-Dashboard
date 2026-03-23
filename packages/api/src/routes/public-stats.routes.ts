@@ -900,6 +900,21 @@ async function getDtgptFixedAndApiServiceIds(): Promise<{ g1Ids: string[]; g3Id:
   return { g1Ids, g3Id: g3?.id || null };
 }
 
+/**
+ * G2 서비스 ID 조회 (DTGPT endpoint 모델을 사용하는 등록 서비스)
+ */
+async function getDtgptDynamicServiceIds(): Promise<string[]> {
+  const results = await prisma.$queryRaw<Array<{ service_id: string }>>`
+    SELECT DISTINCT sm.service_id
+    FROM service_models sm
+    INNER JOIN models m ON sm.model_id = m.id
+    WHERE m."endpointUrl" LIKE ${DTGPT_ENDPOINT_PREFIX + '%'}
+      AND sm.enabled = true
+      AND m.enabled = true
+  `;
+  return results.map(r => r.service_id);
+}
+
 // ─── 7. GET /stats/dtgpt/service-usage ──────────────────────
 // 해당 월 일별 × 서비스별 토큰 사용량 (input/output/total)
 
@@ -915,13 +930,17 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
     const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
 
-    const { g1Ids, g3Id } = await getDtgptFixedAndApiServiceIds();
-    const svcIds = [...g1Ids, ...(g3Id ? [g3Id] : [])];
-    if (svcIds.length === 0) { res.json({ year, month, data: [] }); return; }
+    // G1(고정) + G2(동적) + G3(api)
+    const [{ g1Ids, g3Id }, g2Ids] = await Promise.all([
+      getDtgptFixedAndApiServiceIds(),
+      getDtgptDynamicServiceIds(),
+    ]);
+    const allSvcIds = [...new Set([...g1Ids, ...g2Ids, ...(g3Id ? [g3Id] : [])])];
+    if (allSvcIds.length === 0) { res.json({ year, month, data: [] }); return; }
 
     // 서비스 displayName 조회
     const svcInfos = await prisma.service.findMany({
-      where: { id: { in: svcIds } },
+      where: { id: { in: allSvcIds } },
       select: { id: true, displayName: true },
     });
     const svcNameMap = new Map(svcInfos.map(s => [s.id, s.displayName]));
@@ -937,21 +956,46 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
              COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
       FROM usage_logs ul
       WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-        AND ul.service_id = ANY(${svcIds})
+        AND ul.service_id = ANY(${allSvcIds})
       GROUP BY 1, ul.service_id
       ORDER BY 1
     `;
 
     // 일별 → 서비스별 집계
+    // G1: 개별 표시, G2: 개별 표시, 기타 = G3 total - G2 합산
+    const g2Set = new Set(g2Ids);
     const dateMap = new Map<string, Record<string, { inputTokens: number; outputTokens: number; totalTokens: number }>>();
     for (const r of rows) {
-      const name = svcNameMap.get(r.service_id) || 'Unknown';
       if (!dateMap.has(r.d)) dateMap.set(r.d, {});
       const entry = dateMap.get(r.d)!;
-      if (!entry[name]) entry[name] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-      entry[name].inputTokens += Number(r.input_tokens);
-      entry[name].outputTokens += Number(r.output_tokens);
-      entry[name].totalTokens += Number(r.total_tokens);
+
+      if (g3Id && r.service_id === g3Id) {
+        // G3(api): 일단 "기타"에 전체 적립
+        if (!entry['기타']) entry['기타'] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        entry['기타'].inputTokens += Number(r.input_tokens);
+        entry['기타'].outputTokens += Number(r.output_tokens);
+        entry['기타'].totalTokens += Number(r.total_tokens);
+      } else {
+        // G1 또는 G2: 개별 서비스명으로 표시
+        const name = svcNameMap.get(r.service_id) || 'Unknown';
+        if (!entry[name]) entry[name] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        entry[name].inputTokens += Number(r.input_tokens);
+        entry[name].outputTokens += Number(r.output_tokens);
+        entry[name].totalTokens += Number(r.total_tokens);
+
+        // G2면 "기타"에서 차감
+        if (g2Set.has(r.service_id)) {
+          if (!entry['기타']) entry['기타'] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+          entry['기타'].inputTokens -= Number(r.input_tokens);
+          entry['기타'].outputTokens -= Number(r.output_tokens);
+          entry['기타'].totalTokens -= Number(r.total_tokens);
+        }
+      }
+    }
+
+    // 기타가 0 이하면 제거
+    for (const [, entry] of dateMap) {
+      if (entry['기타'] && entry['기타'].totalTokens <= 0) delete entry['기타'];
     }
 
     const data = Array.from(dateMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, services]) => ({
