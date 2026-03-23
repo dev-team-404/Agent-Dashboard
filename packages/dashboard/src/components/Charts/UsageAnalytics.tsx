@@ -172,7 +172,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
     return exclude ? filterBusinessDays(mapped, (d) => d.date, holidayDates) : mapped;
   }, [dailyData, holidayDates, exclude]);
 
-  // Business day averages (dailyChartData는 이미 주말/휴일 제외 상태)
+  // Business day averages (토글 상태에 따라 영업일만 또는 전체)
   const businessDayStats = useMemo(() => {
     if (dailyChartData.length === 0) return null;
     const totalReq = dailyChartData.reduce((s, d) => s + d.requests, 0);

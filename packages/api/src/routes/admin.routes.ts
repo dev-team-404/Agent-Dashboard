@@ -3416,7 +3416,6 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
         COUNT(*) as total_count
       FROM health_check_logs
       WHERE checked_at >= $2
-        AND latency_ms IS NOT NULL
       GROUP BY period, model_name
       ORDER BY period, model_name`,
       trunc, startDate
