@@ -685,17 +685,37 @@ export const swaggerSpec = {
                   properties: {
                     centerName: { type: 'string' as const },
                     period: { type: 'string' as const },
-                    teamMauChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
-                    monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
-                    teamTokenChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
-                    monthlyTokenTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
+                    data: {
+                      type: 'array' as const,
+                      description: '팀별 MAU + 토큰 사용량 (합산)',
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          teamName: { type: 'string' as const },
+                          mau: { type: 'integer' as const },
+                          tokens: { type: 'integer' as const },
+                        },
+                      },
+                    },
+                    monthlyTrend: {
+                      type: 'array' as const,
+                      description: '월별 MAU + 토큰 추이 (6개월)',
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          month: { type: 'string' as const },
+                          mau: { type: 'integer' as const },
+                          tokens: { type: 'integer' as const },
+                        },
+                      },
+                    },
                     teamServices: {
                       type: 'array' as const,
                       description: '팀×서비스 상세 (서비스별 Saved M/M, MAU, LLM Calls)',
                       items: {
                         type: 'object' as const,
                         properties: {
-                          team: { type: 'string' as const, description: 'Team/subgroup name' },
+                          team: { type: 'string' as const },
                           serviceDisplayName: { type: 'string' as const },
                           serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
                           savedMM: { type: 'number' as const, nullable: true },
@@ -709,40 +729,24 @@ export const swaggerSpec = {
                 example: {
                   centerName: 'SOC Business Team',
                   period: '2026-03',
-                  teamMauChart: [
-                    { team: 'SOC IP Development Team(S.LSI)', mau: 180 },
-                    { team: 'AP S/W Development Team(S.LSI)', mau: 147 },
-                    { team: 'CP S/W Development Team(S.LSI)', mau: 113 },
-                    { team: 'SOC Platform Development Team(S.LSI)', mau: 83 },
-                    { team: 'Connectivity Development Team', mau: 58 },
+                  data: [
+                    { teamName: 'SOC IP Development Team(S.LSI)', mau: 180, tokens: 2518671596 },
+                    { teamName: 'AP S/W Development Team(S.LSI)', mau: 147, tokens: 2850520335 },
+                    { teamName: 'CP S/W Development Team(S.LSI)', mau: 113, tokens: 1852541211 },
+                    { teamName: 'SOC Platform Development Team(S.LSI)', mau: 83, tokens: 758817865 },
+                    { teamName: 'Connectivity Development Team', mau: 58, tokens: 1276602303 },
                   ],
                   monthlyTrend: [
-                    { month: '2025-09', mau: 1 },
-                    { month: '2025-10', mau: 0 },
-                    { month: '2025-11', mau: 1 },
-                    { month: '2025-12', mau: 5 },
-                    { month: '2026-01', mau: 3 },
-                    { month: '2026-02', mau: 284 },
-                  ],
-                  teamTokenChart: [
-                    { team: 'AP S/W Development Team(S.LSI)', tokens: 2850520335 },
-                    { team: 'SOC IP Development Team(S.LSI)', tokens: 2518671596 },
-                    { team: 'CP S/W Development Team(S.LSI)', tokens: 1852541211 },
-                    { team: 'Connectivity Development Team', tokens: 1276602303 },
-                    { team: 'Custom SOC Development Team(S.LSI)', tokens: 1180073393 },
-                  ],
-                  monthlyTokenTrend: [
-                    { month: '2025-09', tokens: 147011 },
-                    { month: '2025-10', tokens: 0 },
-                    { month: '2025-11', tokens: 49261358 },
-                    { month: '2025-12', tokens: 5853666 },
-                    { month: '2026-01', tokens: 6512 },
-                    { month: '2026-02', tokens: 5361651229 },
+                    { month: '2025-09', mau: 1, tokens: 147011 },
+                    { month: '2025-10', mau: 0, tokens: 0 },
+                    { month: '2025-11', mau: 1, tokens: 49261358 },
+                    { month: '2025-12', mau: 5, tokens: 5853666 },
+                    { month: '2026-01', mau: 3, tokens: 6512 },
+                    { month: '2026-02', mau: 284, tokens: 5361651229 },
                   ],
                   teamServices: [
                     { team: 'SOC IP Development Team(S.LSI)', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 3.5, mau: 120, llmCallCount: 45000 },
-                    { team: 'SOC IP Development Team(S.LSI)', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.2, mau: 60, llmCallCount: 18000 },
-                    { team: 'AP S/W Development Team(S.LSI)', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 2.8, mau: 95, llmCallCount: 38000 },
+                    { team: 'AP S/W Development Team(S.LSI)', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.2, mau: 60, llmCallCount: 18000 },
                   ],
                 },
               },

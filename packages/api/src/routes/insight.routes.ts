@@ -676,11 +676,36 @@ insightRoutes.get('/insight/service-usage/:serviceName', handleServiceUsageDetai
 // ── Register public routes (no auth, UI 전용 필드 제거) ──
 publicInsightRoutes.get('/insight_ai_usage_rate', handleUsageRate as RequestHandler);
 publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', (async (req: Request, res: Response) => {
-  // 원본 res.json을 가로채서 teamServices, teamKrMap 제거
   const origJson = res.json.bind(res);
   res.json = (body: Record<string, unknown>) => {
     if (body && typeof body === 'object') {
+      // teamMauChart + teamTokenChart → data 배열로 합침
+      const mauChart = (body.teamMauChart || []) as Array<{ team: string; mau: number }>;
+      const tokenChart = (body.teamTokenChart || []) as Array<{ team: string; tokens: number }>;
+      const tokenMap = new Map(tokenChart.map(t => [t.team, t.tokens]));
+      const data = mauChart.map(t => ({
+        teamName: t.team,
+        mau: t.mau,
+        tokens: tokenMap.get(t.team) || 0,
+      }));
+
+      // monthlyTrend + monthlyTokenTrend → monthlyTrend에 tokens 합침
+      const mauTrend = (body.monthlyTrend || []) as Array<{ month: string; mau: number }>;
+      const tokenTrend = (body.monthlyTokenTrend || []) as Array<{ month: string; tokens: number }>;
+      const tokenTrendMap = new Map(tokenTrend.map(t => [t.month, t.tokens]));
+      const monthlyTrend = mauTrend.map(t => ({
+        month: t.month,
+        mau: t.mau,
+        tokens: tokenTrendMap.get(t.month) || 0,
+      }));
+
+      // 기존 분리 필드 제거, 합친 필드로 교체
+      delete body.teamMauChart;
+      delete body.teamTokenChart;
+      delete body.monthlyTokenTrend;
       delete body.teamKrMap;
+      body.data = data;
+      body.monthlyTrend = monthlyTrend;
     }
     return origJson(body);
   };
