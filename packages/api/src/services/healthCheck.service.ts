@@ -85,7 +85,7 @@ async function checkComfyUI(model: {
   endpointUrl: string;
   apiKey: string | null;
   extraHeaders: unknown;
-}): Promise<void> {
+}, checkedAt: Date): Promise<void> {
   const baseUrl = model.endpointUrl.replace(/\/+$/, '');
   const url = `${baseUrl}/system_stats`;
   const headers: Record<string, string> = {};
@@ -147,6 +147,7 @@ async function checkComfyUI(model: {
         statusCode,
         success,
         errorMessage,
+        checkedAt,
       },
     });
   } catch (err) {
@@ -176,7 +177,7 @@ async function checkAsrModel(model: {
   apiKey: string | null;
   extraHeaders: unknown;
   asrMethod: string | null;
-}): Promise<void> {
+}, checkedAt: Date): Promise<void> {
   const method = model.asrMethod || 'AUDIO_URL';
   const headers: Record<string, string> = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
@@ -257,6 +258,7 @@ async function checkAsrModel(model: {
         statusCode,
         success,
         errorMessage,
+        checkedAt,
       },
     });
   } catch (err) {
@@ -274,16 +276,16 @@ async function checkSingleModel(model: {
   type: string;
   asrMethod: string | null;
   imageProvider: string | null;
-}): Promise<void> {
+}, checkedAt: Date): Promise<void> {
   // ASR은 별도 처리
   if (model.type === 'ASR') {
-    return checkAsrModel(model);
+    return checkAsrModel(model, checkedAt);
   }
 
   // IMAGE: ComfyUI만 헬스체크, 나머지 스킵
   if (model.type === 'IMAGE') {
     if ((model.imageProvider || '').toUpperCase() === 'COMFYUI') {
-      return checkComfyUI(model);
+      return checkComfyUI(model, checkedAt);
     }
     return; // OPENAI, GEMINI, PIXABAY, PEXELS 등 스킵
   }
@@ -360,6 +362,7 @@ async function checkSingleModel(model: {
         statusCode,
         success,
         errorMessage,
+        checkedAt,
       },
     });
   } catch (err) {
@@ -386,11 +389,14 @@ async function runHealthChecks(): Promise<void> {
 
     console.log(`[HealthCheck] Checking ${models.length} models...`);
 
+    // 배치 시작 시점을 checkedAt으로 통일 (응답 속도와 무관하게 같은 X축)
+    const batchCheckedAt = new Date();
+
     // 동시 실행 (너무 많으면 5개씩 배치)
     const BATCH_SIZE = 5;
     for (let i = 0; i < models.length; i += BATCH_SIZE) {
       const batch = models.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(batch.map(m => checkSingleModel(m)));
+      await Promise.allSettled(batch.map(m => checkSingleModel(m, batchCheckedAt)));
     }
 
     console.log(`[HealthCheck] Done.`);
