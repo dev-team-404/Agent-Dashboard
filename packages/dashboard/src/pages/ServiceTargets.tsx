@@ -55,7 +55,7 @@ interface AiEstimation {
 type TabKey = 'targets' | 'dept-saved';
 
 export default function ServiceTargets() {
-  const [activeTab, setActiveTab] = useState<TabKey>('targets');
+  const [activeTab, setActiveTab] = useState<TabKey>('dept-saved');
   const [services, setServices] = useState<ServiceTarget[]>([]);
   const [aiMap, setAiMap] = useState<Map<string, AiEstimation>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -111,8 +111,8 @@ export default function ServiceTargets() {
   const totalSaved = services.reduce((sum, s) => sum + (s.aggregatedSavedMM || 0), 0);
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'targets', label: '서비스 목표 관리' },
     { key: 'dept-saved', label: 'Saved M/M 관리' },
+    { key: 'targets', label: '서비스 현황' },
   ];
 
   return (
@@ -124,9 +124,9 @@ export default function ServiceTargets() {
             <Target className="w-6 h-6 text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">서비스 목표 관리</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              서비스별 목표 M/M과 절감 실적(Saved M/M)을 관리합니다
+              서비스별 절감 실적(Saved M/M)을 관리합니다
             </p>
           </div>
         </div>
