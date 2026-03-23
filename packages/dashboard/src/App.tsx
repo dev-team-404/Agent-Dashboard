@@ -23,7 +23,6 @@ const SystemLlmSettings = lazy(() => import('./pages/SystemLlmSettings'));
 const ApiKeySettings = lazy(() => import('./pages/ApiKeySettings'));
 const AdminRequestPage = lazy(() => import('./pages/AdminRequestPage'));
 const AdminRequestsManage = lazy(() => import('./pages/AdminRequestsManage'));
-const ServiceModelConfig = lazy(() => import('./pages/ServiceModelConfig'));
 const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
 const InsightUsageRate = lazy(() => import('./pages/InsightUsageRate'));
@@ -127,7 +126,7 @@ function App() {
           <Route path="/services" element={<ServiceMarket />} />
           <Route path="/my-services" element={<MyServices user={user} adminRole={adminRole} />} />
           <Route path="/my-services/:serviceId" element={<ServiceDetail user={user} adminRole={adminRole} />} />
-          <Route path="/my-services/:serviceId/models" element={<ServiceModelConfig />} />
+
           <Route path="/my-usage" element={<MyUsage />} />
           <Route path="/admin-request" element={<AdminRequestPage isAdmin={isAdmin} />} />
 
