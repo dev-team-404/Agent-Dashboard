@@ -623,7 +623,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate': {
       get: {
         summary: 'AI Usage Rate by Center (센터별 AI 활용율)',
-        description: `센터별 AI 활용율 대시보드 데이터.\n\n## 센터 그룹핑 규칙\n- center1 또는 center2에 SOC/LSI/Sensor Business Team → 해당 Business Team 하위로 그룹\n- center1 또는 center2가 SSCR, 또는 팀명에 / 포함 → "Overseas R&D Center"\n- center1 또는 center2에 System LSI Business → "Direct"\n- 그 외 → 집계 제외\n\nSaved M/M 기준 내림차순 정렬.\nS.LSI 사업부 소속 부서만 집계됩니다.`,
+        description: `센터별 AI 활용율 대시보드 데이터.\n\n## 센터 그룹핑 규칙\n- center1 또는 center2에 SOC/LSI/Sensor Business Team → 해당 Business Team 하위로 그룹\n- center1 또는 center2가 SSCR, 또는 팀명에 / 포함 (단 S/W, H/W 등 약어 제외) → "Overseas R&D Center"\n- center1 또는 center2에 System LSI Business → "Direct"\n- 그 외 → 집계 제외\n\nSaved M/M 기준 내림차순 정렬.\nS.LSI 사업부 소속 부서만 집계됩니다.`,
         tags: ['Insight'],
         parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
@@ -669,7 +669,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate/{centerName}': {
       get: {
         summary: 'AI Usage Rate - Center Detail (센터 상세)',
-        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)\n\n## Overseas R&D Center\nOverseas R&D Center 상세 조회 시, 개별 팀이 아닌 서브그룹으로 집계됩니다:\n- 팀명에 / 포함 → 마지막 / 뒤 연구소명 (예: Wi-Fi Firmware/SCSC → SCSC)\n- center1 = SSCR → "SSCR"`,
+        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)\n- teamKrMap: 영문그룹명 → 한글부서명 배열 (UI 표시용)\n\n## Overseas R&D Center\nOverseas R&D Center 상세 조회 시, 개별 팀이 아닌 서브그룹으로 집계됩니다:\n- 팀명에 / 포함 (S/W 등 약어 제외) → 마지막 / 뒤 연구소명 (예: Wi-Fi Firmware/SCSC → SCSC)\n- center1 또는 center2가 SSCR → "SSCR"`,
         tags: ['Insight'],
         parameters: [
           apiKeyParam, yearParam, monthParam,
@@ -702,6 +702,11 @@ export const swaggerSpec = {
                           llmCallCount: { type: 'integer' as const },
                         },
                       },
+                    },
+                    teamKrMap: {
+                      type: 'object' as const,
+                      description: '영문그룹명 → 한글부서명 배열 (UI 표시용)',
+                      additionalProperties: { type: 'array' as const, items: { type: 'string' as const } },
                     },
                   },
                 },
@@ -738,6 +743,11 @@ export const swaggerSpec = {
                     { team: 'SCSC', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 2.5, mau: 30, llmCallCount: 12500 },
                     { team: 'SSCR', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.8, mau: 25, llmCallCount: 8900 },
                   ],
+                  teamKrMap: {
+                    'SCSC': ['반도체연구1팀(S.LSI)', '반도체연구2팀(S.LSI)'],
+                    'SSCR': ['SSCR기획팀(S.LSI)'],
+                    'DSRJ': ['DSRJ설계팀(S.LSI)'],
+                  },
                 },
               },
             },
