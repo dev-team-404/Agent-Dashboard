@@ -215,6 +215,8 @@ export const statsApi = {
   latency: () => api.get('/admin/stats/latency'),
   latencyHistory: (hours = 24, interval = 10) => api.get('/admin/stats/latency/history', { params: { hours, interval } }),
   latencyHealthcheck: (hours = 24) => api.get('/admin/stats/latency/healthcheck', { params: { hours } }),
+  latencyTrend: (granularity: 'daily' | 'weekly' | 'monthly' = 'daily', days?: number) =>
+    api.get('/admin/stats/latency/trend', { params: { granularity, ...(days ? { days } : {}) } }),
   healthStatus: () => api.get<{
     statuses: Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>;
     totalEnabledModels: number;

@@ -233,6 +233,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [healthStatuses, setHealthStatuses] = useState<Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>>({});
   const [totalEnabledModels, setTotalEnabledModels] = useState(0);
 
+  // Latency trend (일별/주별/월별)
+  type LatencyGranularity = 'daily' | 'weekly' | 'monthly';
+  const [latencyGranularity, setLatencyGranularity] = useState<LatencyGranularity>('daily');
+  const [latencyTrendHC, setLatencyTrendHC] = useState<Record<string, Array<{ period: string; avgLatency: number; successRate: number; count: number }>>>({});
+  const [latencyTrendUsage, setLatencyTrendUsage] = useState<Record<string, Array<{ period: string; avgLatency: number; count: number }>>>({});
+  const [loadingTrend, setLoadingTrend] = useState(false);
+
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
     byDept: Array<{ dept: string; savedMM: number }>;
@@ -346,6 +353,26 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setLoading(false);
     }
   };
+
+  // Latency trend 로드 (granularity 변경 시)
+  const loadLatencyTrend = useCallback(async (g: LatencyGranularity) => {
+    setLoadingTrend(true);
+    try {
+      const res = await statsApi.latencyTrend(g);
+      setLatencyTrendHC(res.data.healthcheck || {});
+      setLatencyTrendUsage(res.data.usage || {});
+    } catch {
+      // ignore
+    } finally {
+      setLoadingTrend(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'latency') {
+      loadLatencyTrend(latencyGranularity);
+    }
+  }, [activeTab, latencyGranularity, loadLatencyTrend]);
 
   const formatNumber = useCallback((num: number): string => {
     if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
@@ -709,6 +736,98 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             {latencyRechartsData.length === 0 && hcRechartsData.length === 0 && (
               <div className="flex items-center justify-center h-72 text-pastel-400">지연 시간 데이터가 없습니다</div>
             )}
+
+            {/* ── 일별/주별/월별 추이 ── */}
+            <div className="border-t border-gray-100 pt-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-pastel-700">응답 지연 추이</h3>
+                <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                  {(['daily', 'weekly', 'monthly'] as const).map(g => (
+                    <button
+                      key={g}
+                      onClick={() => setLatencyGranularity(g)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                        latencyGranularity === g ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      {g === 'daily' ? '일별' : g === 'weekly' ? '주별' : '월별'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {loadingTrend ? (
+                <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">로딩 중...</div>
+              ) : (
+                <>
+                  {/* 헬스체크 프로빙 추이 */}
+                  {Object.keys(latencyTrendHC).length > 0 && (() => {
+                    const allPeriods = [...new Set(Object.values(latencyTrendHC).flatMap(arr => arr.map(d => d.period)))].sort();
+                    const trendData = allPeriods.map(p => {
+                      const row: Record<string, string | number> = { period: p };
+                      Object.entries(latencyTrendHC).forEach(([model, arr]) => {
+                        const found = arr.find(d => d.period === p);
+                        row[model] = found ? found.avgLatency : 0;
+                      });
+                      return row;
+                    });
+                    const trendKeys = Object.keys(latencyTrendHC).slice(0, 10);
+                    return (
+                      <div className="mb-6">
+                        <p className="text-xs text-pastel-400 mb-3">헬스체크 프로빙 평균 응답시간</p>
+                        <ResponsiveContainer width="100%" height={280}>
+                          <LineChart data={trendData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
+                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                            <Legend />
+                            {trendKeys.map((key, i) => (
+                              <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 실사용 추이 */}
+                  {Object.keys(latencyTrendUsage).length > 0 && (() => {
+                    const allPeriods = [...new Set(Object.values(latencyTrendUsage).flatMap(arr => arr.map(d => d.period)))].sort();
+                    const trendData = allPeriods.map(p => {
+                      const row: Record<string, string | number> = { period: p };
+                      Object.entries(latencyTrendUsage).forEach(([model, arr]) => {
+                        const found = arr.find(d => d.period === p);
+                        row[model] = found ? found.avgLatency : 0;
+                      });
+                      return row;
+                    });
+                    const trendKeys = Object.keys(latencyTrendUsage).slice(0, 10);
+                    return (
+                      <div>
+                        <p className="text-xs text-pastel-400 mb-3">실사용 평균 응답시간</p>
+                        <ResponsiveContainer width="100%" height={280}>
+                          <LineChart data={trendData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
+                            <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
+                            <Legend />
+                            {trendKeys.map((key, i) => (
+                              <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    );
+                  })()}
+
+                  {Object.keys(latencyTrendHC).length === 0 && Object.keys(latencyTrendUsage).length === 0 && (
+                    <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">추이 데이터가 없습니다</div>
+                  )}
+                </>
+              )}
+            </div>
           </>
         );
 

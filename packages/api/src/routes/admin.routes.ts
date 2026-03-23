@@ -3382,6 +3382,104 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
 });
 
 /**
+ * GET /admin/stats/latency/trend
+ * 응답 지연 추이 (일별/주별/월별)
+ * Query: ?granularity=daily|weekly|monthly (기본 daily)
+ *        &days=30 (기본 30, 주별 시 84, 월별 시 180)
+ * 헬스체크(프로빙) + 실사용 데이터 모두 반환
+ */
+adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) => {
+  try {
+    const granularity = (req.query['granularity'] as string) || 'daily';
+    const defaultDays = granularity === 'monthly' ? 180 : granularity === 'weekly' ? 84 : 30;
+    const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || defaultDays));
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
+    const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
+
+    // 1. 헬스체크 프로빙 추이
+    const hcTrend = await prisma.$queryRawUnsafe<Array<{
+      period: Date;
+      model_name: string;
+      avg_latency: number;
+      success_count: bigint;
+      total_count: bigint;
+    }>>(
+      `SELECT
+        date_trunc($1, checked_at) as period,
+        model_name,
+        AVG(latency_ms) as avg_latency,
+        COUNT(*) FILTER (WHERE success = true) as success_count,
+        COUNT(*) as total_count
+      FROM health_check_logs
+      WHERE checked_at >= $2
+        AND latency_ms IS NOT NULL
+      GROUP BY period, model_name
+      ORDER BY period, model_name`,
+      trunc, startDate
+    );
+
+    // 2. 실사용 기반 추이
+    const usageTrend = await prisma.$queryRawUnsafe<Array<{
+      period: Date;
+      model_name: string;
+      avg_latency: number;
+      request_count: bigint;
+    }>>(
+      `SELECT
+        date_trunc($1, ul.timestamp) as period,
+        m."displayName" as model_name,
+        AVG(ul.latency_ms) as avg_latency,
+        COUNT(*) as request_count
+      FROM usage_logs ul
+      INNER JOIN models m ON ul.model_id = m.id
+      WHERE ul.latency_ms IS NOT NULL
+        AND ul.timestamp >= $2
+      GROUP BY period, m."displayName"
+      ORDER BY period, m."displayName"`,
+      trunc, startDate
+    );
+
+    // 그룹핑
+    const formatPeriod = (d: Date) => {
+      if (granularity === 'monthly') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return d.toISOString().split('T')[0];
+    };
+
+    const healthcheck: Record<string, Array<{ period: string; avgLatency: number; successRate: number; count: number }>> = {};
+    for (const row of hcTrend) {
+      const key = row.model_name;
+      if (!healthcheck[key]) healthcheck[key] = [];
+      healthcheck[key].push({
+        period: formatPeriod(row.period),
+        avgLatency: Math.round(row.avg_latency),
+        successRate: Number(row.total_count) > 0 ? Math.round(Number(row.success_count) / Number(row.total_count) * 100) : 0,
+        count: Number(row.total_count),
+      });
+    }
+
+    const usage: Record<string, Array<{ period: string; avgLatency: number; count: number }>> = {};
+    for (const row of usageTrend) {
+      const key = row.model_name;
+      if (!usage[key]) usage[key] = [];
+      usage[key].push({
+        period: formatPeriod(row.period),
+        avgLatency: Math.round(row.avg_latency),
+        count: Number(row.request_count),
+      });
+    }
+
+    res.json({ healthcheck, usage, granularity, days });
+  } catch (error) {
+    console.error('Get latency trend error:', error);
+    res.status(500).json({ error: 'Failed to get latency trend' });
+  }
+});
+
+/**
  * GET /admin/stats/health-status
  * 모델별 최신 헬스체크 결과 (모델 관리 UI + 대시보드용)
  */
