@@ -249,6 +249,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyTrendUsage, setLatencyTrendUsage] = useState<Record<string, Array<{ period: string; avgLatency: number; count: number }>>>({});
   const [loadingTrend, setLoadingTrend] = useState(false);
 
+  // 에러 빈도 (모델별 시간당)
+  const [errorRateData, setErrorRateData] = useState<Record<string, Array<{ hour: string; timeout: number; serverError: number; clientError: number; total: number }>>>({});
+  const [errorRateSummary, setErrorRateSummary] = useState<Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number }>>([]);
+
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
     byDept: Array<{ dept: string; savedMM: number }>;
@@ -267,7 +271,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         globalRes, serviceDailyRes, deptRes,
         deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
         latencyRes, latencyHistoryRes, healthcheckRes,
-        mauRes, healthStatusRes,
+        mauRes, healthStatusRes, errorRateRes,
       ] = await Promise.all([
         statsApi.globalOverview(),
         statsApi.globalByService(30),
@@ -280,6 +284,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         statsApi.latencyHealthcheck(24),
         statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
         statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
+        statsApi.errorRate(24).catch(() => ({ data: { byModel: {}, summary: [], hours: 24 } })),
       ]);
 
       setGlobalOverview(globalRes.data.services || []);
@@ -311,6 +316,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setHealthCheckHistory(healthcheckRes.data.history || {});
       setHealthStatuses(healthStatusRes.data.statuses || {});
       setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
+      setErrorRateData(errorRateRes.data.byModel || {});
+      setErrorRateSummary(errorRateRes.data.summary || []);
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {
@@ -789,6 +796,100 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 </div>
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ── 서비스 에러 현황 ── */}
+      {errorRateSummary.length > 0 && (() => {
+        // Recharts용 시간별 데이터 변환
+        const allHours = [...new Set(
+          Object.values(errorRateData).flatMap(arr => arr.map(d => d.hour))
+        )].sort();
+        const errorChartData = allHours.map(h => {
+          const row: Record<string, string | number> = {
+            hour: new Date(h).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          };
+          // 에러 많은 상위 8개 모델만 표시
+          const topModels = errorRateSummary.slice(0, 8).map(s => s.model);
+          for (const model of topModels) {
+            const found = errorRateData[model]?.find(d => d.hour === h);
+            row[model] = found ? found.total : 0;
+          }
+          return row;
+        });
+        const topModels = errorRateSummary.slice(0, 8).map(s => s.model);
+        const totalErrors = errorRateSummary.reduce((s, m) => s + m.totalErrors, 0);
+        const totalTimeouts = errorRateSummary.reduce((s, m) => s + m.totalTimeouts, 0);
+        const totalServerErrors = errorRateSummary.reduce((s, m) => s + m.totalServerErrors, 0);
+
+        return (
+          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+            <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-red-50">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                </div>
+                <h2 className="text-sm font-semibold text-pastel-800">서비스 에러 현황</h2>
+                <span className="text-xs text-pastel-400">최근 24시간</span>
+              </div>
+              <div className="flex items-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-pastel-500">전체 <span className="font-bold text-red-600">{totalErrors}</span></span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-orange-400" />
+                  <span className="text-pastel-500">Timeout <span className="font-bold text-orange-600">{totalTimeouts}</span></span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span className="text-pastel-500">5xx <span className="font-bold text-purple-600">{totalServerErrors}</span></span>
+                </span>
+              </div>
+            </div>
+            <div className="p-6">
+              {/* 모델별 시간당 에러 빈도 그래프 */}
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={errorChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="hour" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                  <Legend />
+                  {topModels.map((model) => (
+                    <Bar key={model} dataKey={model} stackId="errors" fill={CHART_COLORS[stableColorIndex(model)]} radius={[0, 0, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+
+              {/* 모델별 요약 테이블 */}
+              <div className="mt-4 overflow-x-auto rounded-lg border border-pastel-100">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-pastel-50/80">
+                      <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">모델</th>
+                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">총 에러</th>
+                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">Timeout</th>
+                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">5xx</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorRateSummary.slice(0, 10).map((m, i) => (
+                      <tr key={m.model} className={`border-t border-pastel-50 ${i % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
+                        <td className="py-2 px-4 font-medium text-pastel-800 flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(m.model)] }} />
+                          {m.model}
+                        </td>
+                        <td className="text-right py-2 px-4 text-red-600 font-medium">{m.totalErrors}</td>
+                        <td className="text-right py-2 px-4 text-orange-600">{m.totalTimeouts}</td>
+                        <td className="text-right py-2 px-4 text-purple-600">{m.totalServerErrors}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         );
       })()}

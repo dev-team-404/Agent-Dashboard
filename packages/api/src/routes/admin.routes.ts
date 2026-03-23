@@ -3479,6 +3479,75 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
 });
 
 /**
+ * GET /admin/stats/error-rate
+ * 모델별 시간당 에러 빈도 (timeout, 5xx, 기타)
+ * Query: ?hours=24 (기본 24)
+ */
+adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
+  try {
+    const hours = Math.min(168, Math.max(1, parseInt(req.query['hours'] as string) || 24));
+    const startDate = new Date(Date.now() - hours * 3600_000);
+
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      hour: Date;
+      model_name: string;
+      timeout_count: bigint;
+      server_error_count: bigint;
+      client_error_count: bigint;
+      total_error_count: bigint;
+    }>>(
+      `SELECT
+        date_trunc('hour', timestamp) as hour,
+        COALESCE(resolved_model, model_name) as model_name,
+        COUNT(*) FILTER (WHERE error_message ILIKE '%timed out%' OR error_message ILIKE '%timeout%' OR error_message ILIKE '%aborted%') as timeout_count,
+        COUNT(*) FILTER (WHERE status_code >= 500 AND error_message NOT ILIKE '%timed out%' AND error_message NOT ILIKE '%timeout%' AND error_message NOT ILIKE '%aborted%') as server_error_count,
+        COUNT(*) FILTER (WHERE status_code >= 400 AND status_code < 500) as client_error_count,
+        COUNT(*) as total_error_count
+      FROM request_logs
+      WHERE status_code != 200
+        AND timestamp >= $1
+      GROUP BY hour, COALESCE(resolved_model, model_name)
+      ORDER BY hour, model_name`,
+      startDate
+    );
+
+    // 모델별 그룹핑
+    const byModel: Record<string, Array<{
+      hour: string;
+      timeout: number;
+      serverError: number;
+      clientError: number;
+      total: number;
+    }>> = {};
+
+    for (const row of rows) {
+      const key = row.model_name;
+      if (!byModel[key]) byModel[key] = [];
+      byModel[key].push({
+        hour: row.hour.toISOString(),
+        timeout: Number(row.timeout_count),
+        serverError: Number(row.server_error_count),
+        clientError: Number(row.client_error_count),
+        total: Number(row.total_error_count),
+      });
+    }
+
+    // 모델별 요약 (정렬용)
+    const summary = Object.entries(byModel).map(([model, data]) => ({
+      model,
+      totalErrors: data.reduce((s, d) => s + d.total, 0),
+      totalTimeouts: data.reduce((s, d) => s + d.timeout, 0),
+      totalServerErrors: data.reduce((s, d) => s + d.serverError, 0),
+    })).sort((a, b) => b.totalErrors - a.totalErrors);
+
+    res.json({ byModel, summary, hours });
+  } catch (error) {
+    console.error('Get error rate error:', error);
+    res.status(500).json({ error: 'Failed to get error rate' });
+  }
+});
+
+/**
  * GET /admin/stats/health-status
  * 모델별 최신 헬스체크 결과 (모델 관리 UI + 대시보드용)
  */

@@ -221,6 +221,11 @@ export const statsApi = {
     statuses: Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>;
     totalEnabledModels: number;
   }>('/admin/stats/health-status'),
+  errorRate: (hours = 24) => api.get<{
+    byModel: Record<string, Array<{ hour: string; timeout: number; serverError: number; clientError: number; total: number }>>;
+    summary: Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number }>;
+    hours: number;
+  }>('/admin/stats/error-rate', { params: { hours } }),
 };
 
 // 개인 사용량 API
