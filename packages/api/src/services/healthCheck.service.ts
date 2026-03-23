@@ -8,8 +8,8 @@
 import { prisma } from '../index.js';
 
 const HEALTH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10분
-const HEALTH_CHECK_TIMEOUT_MS = 30000; // 30초
-const ASR_HEALTH_CHECK_TIMEOUT_MS = 60000; // ASR은 60초
+const HEALTH_CHECK_TIMEOUT_MS = 10 * 60 * 1000; // 10분
+const ASR_HEALTH_CHECK_TIMEOUT_MS = 10 * 60 * 1000; // ASR도 10분
 
 // 1초 무음 WAV 생성 (16kHz mono 16-bit PCM) — ASR 헬스체크용
 function generateSilentWavBuffer(): Buffer {
@@ -42,8 +42,8 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
         url: '/chat/completions',
         body: {
           model: modelName,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
+          messages: [{ role: 'user', content: '양자역학의 핵심 원리와 실생활 응용 사례를 자세히 설명해줘.' }],
+          // max_tokens 제한 없음 — 모델 기본값 사용
           stream: false,
         },
       };
@@ -76,8 +76,8 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
         url: '/chat/completions',
         body: {
           model: modelName,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
+          messages: [{ role: 'user', content: '양자역학의 핵심 원리와 실생활 응용 사례를 자세히 설명해줘.' }],
+          // max_tokens 제한 없음 — 모델 기본값 사용
           stream: false,
         },
       };
