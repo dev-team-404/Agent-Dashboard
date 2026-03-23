@@ -1,15 +1,16 @@
 /**
  * LLM Health Check Service
  *
- * 10분마다 등록된 모든 활성 LLM 엔드포인트에 경량 요청을 보내 응답시간 기록.
+ * 10분마다 등록된 모든 활성 LLM 엔드포인트에 요청을 보내 응답시간 기록.
  * 실제 사용 트래픽과 무관한 독립적 모니터링.
  */
 
 import { prisma } from '../index.js';
 
-const HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30분
-const HEALTH_CHECK_TIMEOUT_MS = 30 * 60 * 1000; // 30분
-const ASR_HEALTH_CHECK_TIMEOUT_MS = 10 * 60 * 1000; // ASR도 10분
+const HEALTH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10분
+const HEALTH_CHECK_TIMEOUT_MS = 9.5 * 60 * 1000; // 9분 30초 (timeout 시 10분으로 기록)
+const ASR_HEALTH_CHECK_TIMEOUT_MS = 9.5 * 60 * 1000; // ASR도 동일
+const TIMEOUT_RECORD_MS = 10 * 60 * 1000; // timeout 시 기록할 latency (10분)
 
 // 1초 무음 WAV 생성 (16kHz mono 16-bit PCM) — ASR 헬스체크용
 function generateSilentWavBuffer(): Buffer {
@@ -99,6 +100,7 @@ async function checkComfyUI(model: {
   let statusCode: number | null = null;
   let success = false;
   let errorMessage: string | null = null;
+  let isTimeout = false;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -122,6 +124,7 @@ async function checkComfyUI(model: {
       if (msg.includes('abort')) {
         success = true;
         errorMessage = null;
+        isTimeout = true;
         break;
       }
       errorMessage = msg;
@@ -132,7 +135,7 @@ async function checkComfyUI(model: {
     }
   }
 
-  const latencyMs = Date.now() - startTime;
+  const latencyMs = isTimeout ? TIMEOUT_RECORD_MS : Date.now() - startTime;
 
   try {
     await prisma.healthCheckLog.create({
@@ -189,6 +192,7 @@ async function checkAsrModel(model: {
   let statusCode: number | null = null;
   let success = false;
   let errorMessage: string | null = null;
+  let isTimeout = false;
   let url: string;
 
   try {
@@ -232,15 +236,16 @@ async function checkAsrModel(model: {
     url = model.endpointUrl;
     const msg = err instanceof Error ? err.message : 'Unknown error';
     if (msg.includes('abort')) {
-      // Timeout — 장애가 아님, 느린 응답으로 기록
+      // Timeout — 장애가 아님, 10분으로 기록
       success = true;
       errorMessage = null;
+      isTimeout = true;
     } else {
       errorMessage = msg;
     }
   }
 
-  const latencyMs = Date.now() - startTime;
+  const latencyMs = isTimeout ? TIMEOUT_RECORD_MS : Date.now() - startTime;
 
   try {
     await prisma.healthCheckLog.create({
@@ -248,7 +253,7 @@ async function checkAsrModel(model: {
         modelId: model.id,
         modelName: model.displayName || model.name,
         endpointUrl: url!,
-        latencyMs, // 항상 기록 (timeout 포함)
+        latencyMs,
         statusCode,
         success,
         errorMessage,
@@ -302,6 +307,7 @@ async function checkSingleModel(model: {
   let statusCode: number | null = null;
   let success = false;
   let errorMessage: string | null = null;
+  let isTimeout = false;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -328,9 +334,10 @@ async function checkSingleModel(model: {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       if (msg.includes('abort')) {
-        // Timeout — 장애가 아님, 느린 응답으로 기록
+        // Timeout — 장애가 아님, 10분으로 기록
         success = true;
         errorMessage = null;
+        isTimeout = true;
         break;
       }
       errorMessage = msg;
@@ -341,7 +348,7 @@ async function checkSingleModel(model: {
     }
   }
 
-  const latencyMs = Date.now() - startTime;
+  const latencyMs = isTimeout ? TIMEOUT_RECORD_MS : Date.now() - startTime;
 
   try {
     await prisma.healthCheckLog.create({
@@ -349,7 +356,7 @@ async function checkSingleModel(model: {
         modelId: model.id,
         modelName: model.displayName || model.name,
         endpointUrl: url,
-        latencyMs, // 항상 기록 (timeout 포함)
+        latencyMs,
         statusCode,
         success,
         errorMessage,
