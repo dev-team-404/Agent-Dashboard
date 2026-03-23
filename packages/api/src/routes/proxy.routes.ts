@@ -709,7 +709,7 @@ async function recordRequestLog(params: {
         outputTokens: params.outputTokens || null,
         latencyMs: params.latencyMs || null,
         errorMessage: params.errorMessage ? params.errorMessage.substring(0, 2000) : null,
-        errorDetails: params.errorDetails || undefined,
+        errorDetails: params.errorDetails ? JSON.parse(JSON.stringify(params.errorDetails)) : undefined,
         userAgent: params.userAgent || null,
         ipAddress: params.ipAddress || null,
         stream: params.stream || false,
@@ -1013,7 +1013,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
     res.status(503).json({
       error: 'Service temporarily unavailable',
       message: `Failed ${label}. Please try again later.`,
-      details: lastFailoverError,
+      details: primaryError?.errorMessage || 'All endpoints failed',
     });
   } catch (error) {
     console.error('Chat completion proxy error:', error);
