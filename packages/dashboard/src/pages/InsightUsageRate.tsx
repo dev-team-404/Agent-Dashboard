@@ -49,6 +49,8 @@ interface CenterDetail {
   center: string;
   teamMauChart: Array<{ team: string; mau: number }>;
   monthlyTrend: Array<{ month: string; mau: number }>;
+  teamTokenChart: Array<{ team: string; tokens: number }>;
+  monthlyTokenTrend: Array<{ month: string; tokens: number }>;
   teamServices: TeamService[];
 }
 
@@ -300,6 +302,55 @@ export default function InsightUsageRate() {
                           formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
                         />
                         <Line type="monotone" dataKey="mau" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 5, strokeWidth: 2 }} activeDot={{ r: 7 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Token Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Team Token Bar Chart */}
+                <div>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 토큰 사용량</h3>
+                  {detail.teamTokenChart && detail.teamTokenChart.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={detail.teamTokenChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={(v: number) => formatNumber(v)} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          formatter={(value: number) => [formatNumber(value) + ' tokens', 'Total Tokens']}
+                        />
+                        <Bar dataKey="tokens" radius={[6, 6, 0, 0]} barSize={32}>
+                          {detail.teamTokenChart.map((_, i) => (
+                            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                  )}
+                </div>
+
+                {/* Monthly Token Trend */}
+                <div>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">월별 토큰 추이</h3>
+                  {detail.monthlyTokenTrend && detail.monthlyTokenTrend.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={detail.monthlyTokenTrend} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
+                        <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={(v: number) => formatNumber(v)} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          formatter={(value: number) => [formatNumber(value) + ' tokens', 'Total Tokens']}
+                        />
+                        <Line type="monotone" dataKey="tokens" stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 5, strokeWidth: 2 }} activeDot={{ r: 7 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (

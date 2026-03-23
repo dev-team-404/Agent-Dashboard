@@ -13,10 +13,26 @@
 import { Router, Request, Response, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
-import { isTopLevelDivision } from '../services/knoxEmployee.service.js';
-
 // ── 사업부 필터 (S.LSI만 집계) ──
 const INSIGHT_BUSINESS_UNIT = 'S.LSI';
+
+// ── 센터 그룹핑 규칙 ──
+const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team', 'Sensor Business Team']);
+
+function resolveCenter(h: { team: string; center1Name: string; center2Name: string }): string {
+  const c1 = (h.center1Name || '').trim();
+
+  // 1) Business Team 센터 → 그대로 유지
+  if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
+
+  // 2) SSCR 또는 팀명에 / 포함 (해외 R&D) → Overseas R&D Center
+  if (c1 === 'SSCR') return 'Overseas R&D Center';
+  const team = (h.team || '').trim();
+  if (team.includes('/')) return 'Overseas R&D Center';
+
+  // 3) 나머지 → Direct
+  return 'Direct';
+}
 
 // ── Admin router (auth required) ──
 export const insightRoutes = Router();
@@ -156,17 +172,7 @@ async function handleUsageRate(req: Request, res: Response) {
     const prevMauMap = new Map(prevMonthMauRows.map(r => [r.deptname, Number(r.mau)]));
     const savedMMMap = new Map(savedMMRows.map(r => [r.deptname, r.total_saved || 0]));
 
-    // 5. Build knownCenter1s: 제외 목록 빼고 한번이라도 center1으로 등장한 값들
-    // → 이 값이 누군가의 center2에 나와도 동일 그룹(center1급)으로 취급
-    const knownCenter1s = new Set<string>();
-    for (const h of hierarchies) {
-      const c1 = (h.center1Name || '').trim();
-      if (c1 && c1 !== 'none' && !isTopLevelDivision(c1)) {
-        knownCenter1s.add(c1);
-      }
-    }
-
-    // 6. Determine center group for each deptname
+    // 5. Determine center group for each deptname
     const allDeptnames = new Set<string>();
     for (const r of targetMauRows) allDeptnames.add(r.deptname);
     for (const r of savedMMRows) allDeptnames.add(r.deptname);
@@ -189,28 +195,7 @@ async function handleUsageRate(req: Request, res: Response) {
 
       if (h) {
         teamName = h.team || deptname;
-
-        const c1 = (h.center1Name || '').trim();
-        const c2 = (h.center2Name || '').trim();
-        const c1Valid = c1 && c1 !== 'none' && !isTopLevelDivision(c1);
-        const c2Valid = c2 && c2 !== 'none' && !isTopLevelDivision(c2);
-
-        // center1이 유효하고 knownCenter1s에 있으면 → center1로 그루핑
-        if (c1Valid && knownCenter1s.has(c1)) {
-          centerName = c1;
-        }
-        // center2가 knownCenter1s에 있으면 → center2이지만 center1급으로 그루핑
-        else if (c2Valid && knownCenter1s.has(c2)) {
-          centerName = c2;
-        }
-        // 그 외 유효한 center1
-        else if (c1Valid) {
-          centerName = c1;
-        }
-        // 그 외 유효한 center2
-        else if (c2Valid) {
-          centerName = c2;
-        }
+        centerName = resolveCenter(h);
       }
 
       if (!centerGroups.has(centerName)) {
@@ -271,31 +256,12 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const currentYear = targetYear;
     const currentMonth = targetMonth;
 
-    // 1. Build knownCenter1s + find depts belonging to this center
+    // 1. Find depts belonging to this center
     const hierarchies = await prisma.departmentHierarchy.findMany();
-
-    const knownCenter1s = new Set<string>();
-    for (const h of hierarchies) {
-      const c1 = (h.center1Name || '').trim();
-      if (c1 && c1 !== 'none' && !isTopLevelDivision(c1)) {
-        knownCenter1s.add(c1);
-      }
-    }
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
     for (const h of hierarchies) {
-      const c1 = (h.center1Name || '').trim();
-      const c2 = (h.center2Name || '').trim();
-      const c1Valid = c1 && c1 !== 'none' && !isTopLevelDivision(c1);
-      const c2Valid = c2 && c2 !== 'none' && !isTopLevelDivision(c2);
-
-      let resolvedCenter = 'Direct';
-      if (c1Valid && knownCenter1s.has(c1)) resolvedCenter = c1;
-      else if (c2Valid && knownCenter1s.has(c2)) resolvedCenter = c2;
-      else if (c1Valid) resolvedCenter = c1;
-      else if (c2Valid) resolvedCenter = c2;
-
-      if (resolvedCenter === centerName) {
+      if (resolveCenter(h) === centerName) {
         centerDepts.push({ deptname: h.departmentName, team: h.team || h.departmentName });
       }
     }
@@ -349,7 +315,51 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       });
     }
 
-    // 4. teamServices: team x service matrix (last month)
+    // 4. teamTokenChart: 팀별 토큰 사용량
+    const teamTokenRows = await prisma.$queryRaw<Array<{
+      deptname: string; total_tokens: bigint;
+    }>>`
+      SELECT u.deptname,
+             COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+        AND u.loginid != 'anonymous'
+        AND ul.service_id IS NOT NULL
+        AND u.deptname = ANY(${deptnames})
+      GROUP BY u.deptname
+    `;
+
+    const teamTokenChart = teamTokenRows.map(r => ({
+      team: deptTeamMap.get(r.deptname) || r.deptname,
+      tokens: Number(r.total_tokens),
+    })).sort((a, b) => b.tokens - a.tokens);
+
+    // 5. monthlyTokenTrend: 최근 6개월 센터 토큰 추이
+    const monthlyTokenTrend: Array<{ month: string; tokens: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const trendDate = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
+      const trendYear = trendDate.getUTCFullYear();
+      const trendMonth = trendDate.getUTCMonth() + 1;
+      const [trendStart, trendEnd] = getMonthBoundariesKST(trendYear, trendMonth);
+
+      const tokenResult = await prisma.$queryRaw<[{ total_tokens: bigint }]>`
+        SELECT COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${trendStart} AND ul.timestamp < ${trendEnd}
+          AND u.loginid != 'anonymous'
+          AND ul.service_id IS NOT NULL
+          AND u.deptname = ANY(${deptnames})
+      `;
+
+      monthlyTokenTrend.push({
+        month: `${trendYear}-${String(trendMonth).padStart(2, '0')}`,
+        tokens: Number(tokenResult[0]?.total_tokens || 0),
+      });
+    }
+
+    // 6. teamServices: team x service matrix (last month)
     const teamServiceRows = await prisma.$queryRaw<Array<{
       deptname: string;
       service_id: string;
@@ -409,6 +419,8 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       period: monthLabel,
       teamMauChart,
       monthlyTrend,
+      teamTokenChart,
+      monthlyTokenTrend,
       teamServices,
     });
   } catch (error) {

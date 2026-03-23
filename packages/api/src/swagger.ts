@@ -623,7 +623,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate': {
       get: {
         summary: 'AI Usage Rate by Center (센터별 AI 활용율)',
-        description: `센터별 AI 활용율 대시보드 데이터.\nCenter1(상위) 기준 그룹핑 (없으면 Center2, 둘 다 없으면 "Direct").\nSaved M/M 기준 내림차순 정렬.\n\nGroups departments by center hierarchy:\n- If center1 exists → group by center1 (larger org unit)\n- Else if center2 exists → group by center2\n- Else → "Direct"\n\nSorted by total Saved M/M descending.\n\nS.LSI 사업부 소속 부서만 집계됩니다.`,
+        description: `센터별 AI 활용율 대시보드 데이터.\n\n## 센터 그룹핑 규칙\n- center1 = SOC/LSI/Sensor Business Team → 해당 Business Team 하위 팀으로 그룹\n- center1 = SSCR 또는 팀명에 / 포함 (해외 R&D) → "Overseas R&D Center"\n- 나머지 → "Direct"\n\nSaved M/M 기준 내림차순 정렬.\nS.LSI 사업부 소속 부서만 집계됩니다.`,
         tags: ['Insight'],
         parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
@@ -653,13 +653,10 @@ export const swaggerSpec = {
                 example: {
                   month: '2026-02',
                   centers: [
-                    {
-                      name: 'SW Innovation Center',
-                      totalMau: 150,
-                      mauChangePercent: 12.5,
-                      totalSavedMM: 8.5,
-                      teamCount: 3,
-                    },
+                    { name: 'SOC Business Team', totalMau: 320, mauChangePercent: 8.3, totalSavedMM: 15.2, teamCount: 5 },
+                    { name: 'LSI Business Team', totalMau: 210, mauChangePercent: -2.1, totalSavedMM: 10.8, teamCount: 4 },
+                    { name: 'Overseas R&D Center', totalMau: 95, mauChangePercent: 15.0, totalSavedMM: 3.5, teamCount: 8 },
+                    { name: 'Direct', totalMau: 45, mauChangePercent: 0, totalSavedMM: 1.2, teamCount: 3 },
                   ],
                 },
               },
@@ -672,11 +669,11 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate/{centerName}': {
       get: {
         summary: 'AI Usage Rate - Center Detail (센터 상세)',
-        description: `특정 센터의 상세 데이터: 팀별 MAU 차트, 월별 MAU 트렌드, 팀-서비스 매트릭스.\n\nReturns:\n- teamMauChart: Team MAU comparison (X: team name English, Y: MAU)\n- monthlyTrend: 6-month MAU trend\n- teamServices: Team × Service matrix with Saved M/M, MAU, LLM call count`,
+        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)`,
         tags: ['Insight'],
         parameters: [
           apiKeyParam, yearParam, monthParam,
-          { name: 'centerName', in: 'path' as const, required: true, description: 'Center name (URL-encoded)', schema: { type: 'string' as const, example: 'SW Innovation Center' } },
+          { name: 'centerName', in: 'path' as const, required: true, description: 'Center name (URL-encoded)', schema: { type: 'string' as const, example: 'SOC Business Team' } },
         ],
         responses: {
           '200': {
@@ -690,6 +687,8 @@ export const swaggerSpec = {
                     period: { type: 'string' as const },
                     teamMauChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
                     monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
+                    teamTokenChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
+                    monthlyTokenTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
                     teamServices: {
                       type: 'array' as const,
                       items: {
@@ -815,58 +814,6 @@ export const swaggerSpec = {
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 9. DTGPT Server — Daily Team Usage (일별 센터×팀 사용량)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    '/stats/dtgpt/team-usage': {
-      get: {
-        summary: 'DTGPT Server — Daily Team Usage by Center (일별 센터×팀 토큰 사용량)',
-        description:
-          'Returns **daily token usage** for each center → team for the given month.\n' +
-          '해당 월의 **일별** center1 × 팀 토큰 사용량을 반환합니다.\n\n' +
-          '## Scope\n' +
-          '- Services: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
-          '- Center: center1 기준 그룹핑 (라벨에 사업부/연구소 포함)\n' +
-          '- Teams: 영문 팀명, center 내 totalTokens 내림차순\n',
-        tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
-        parameters: [
-          apiKeyParam,
-          { name: 'year', in: 'query' as const, required: true, description: 'Year (2000-2100)', schema: { type: 'integer' as const, example: 2026 } },
-          { name: 'month', in: 'query' as const, required: true, description: 'Month (1-12)', schema: { type: 'integer' as const, minimum: 1, maximum: 12, example: 3 } },
-        ],
-        responses: {
-          '200': {
-            description: 'Daily team usage by center / 일별 센터×팀 사용량',
-            content: {
-              'application/json': {
-                example: {
-                  year: 2026, month: 3,
-                  server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
-                  fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
-                  data: [
-                    {
-                      date: '2026-03-01',
-                      centers: [
-                        { center: 'SOC Business Team (S.LSI)', teams: { 'SOC Platform Team': 130000, 'Security Power Team': 284500 } },
-                        { center: 'ACE Center (SSCR)', teams: { 'ACE Design Team': 50000 } },
-                      ],
-                    },
-                    {
-                      date: '2026-03-02',
-                      centers: [
-                        { center: 'SOC Business Team (S.LSI)', teams: { 'SOC Platform Team': 145000, 'Security Power Team': 310200 } },
-                      ],
-                    },
-                  ],
-                },
-              },
-            },
-          },
-          '400': errorResponse('Invalid year/month', 'year(2000~2100)와 month(1~12)는 필수입니다.'),
-          '500': errorResponse('Internal server error'),
-        },
-      },
-    },
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 10. DTGPT Server — Daily Service Usage (일별 서비스 사용량)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/stats/dtgpt/service-usage': {
@@ -876,8 +823,8 @@ export const swaggerSpec = {
           'Returns **daily token usage** per service for the given month.\n' +
           '해당 월의 **일별** 서비스별 토큰 사용량을 반환합니다.\n\n' +
           '## Scope\n' +
-          '- Services: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
-          '- Each day lists service displayName → totalTokens\n',
+          '- G1+G2 개별 서비스별 집계, G3−G2에 해당하는 나머지는 "기타"로 합산\n' +
+          '- Each day lists service displayName → { inputTokens, outputTokens, totalTokens }\n',
         tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
         parameters: [
           apiKeyParam,
@@ -894,8 +841,7 @@ export const swaggerSpec = {
                   server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
                   fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
                   data: [
-                    { date: '2026-03-01', services: { 'Roo Code': 350000, 'Claude Code': 120000, 'Dify': 85000, 'Open WebUI': 42000 } },
-                    { date: '2026-03-02', services: { 'Roo Code': 410000, 'Claude Code': 135000, 'Dify': 91000, 'Open WebUI': 38000 } },
+                    { date: '2026-03-01', services: { 'Roo Code': { inputTokens: 200000, outputTokens: 150000, totalTokens: 350000 }, 'Claude Code': { inputTokens: 80000, outputTokens: 40000, totalTokens: 120000 }, '기타': { inputTokens: 30000, outputTokens: 12000, totalTokens: 42000 } } },
                   ],
                 },
               },
@@ -907,75 +853,41 @@ export const swaggerSpec = {
       },
     },
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 10. DTGPT Server — Token Usage Time Series (센터별 토큰 사용량 시계열)
+    // 10. DTGPT Server — Daily Total Token Usage (해당월 일별 총 토큰 사용량)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     '/stats/dtgpt/token-usage': {
       get: {
-        summary: 'DTGPT Server — Token Usage Time Series (센터별 토큰 사용량 시계열)',
+        summary: 'DTGPT Server — Daily Total Token Usage (해당월 일별 총 토큰 사용량)',
         description:
-          'Returns time-series token usage for the DTGPT server, broken down by **team** and **service** within a center.\n' +
-          'DTGPT 서버의 시계열 토큰 사용량을 센터 내 **팀별** 및 **서비스별**로 반환합니다.\n\n' +
+          'Returns **daily total input/output/total tokens** for the given month.\n' +
+          '해당 월의 **일별** 총 input/output/total 토큰 사용량을 반환합니다.\n\n' +
           '## Scope (집계 범위)\n' +
           '- **Services**: roocode, dify, openwebui, claudecode, api (G1+G3)\n' +
-          '- **Models**: `cloud.dtgpt.samsunds.net` endpoint models only\n' +
-          '- Both conditions applied (AND)\n\n' +
-          '## Granularity (시간 단위)\n' +
-          '| Value | Period |\n' +
-          '|-------|--------|\n' +
-          '| `daily` | Last 30 days / 최근 30일 |\n' +
-          '| `weekly` | Last 6 months / 최근 6개월 |\n' +
-          '| `monthly` | Last 12 months / 최근 12개월 |\n\n' +
-          '## Center (센터)\n' +
-          '- center1 (priority) → center2 (fallback)\n' +
-          '- Only centers with DTGPT usage data are returned\n' +
-          '- `centerName` 미입력 시 첫 번째 센터\n\n' +
-          '## Response\n' +
-          '- `byTeam`: Stacked bar chart data per team (top 12 + 기타)\n' +
-          '- `byService`: Stacked bar chart data per service (top 12 + 기타)\n',
+          '- **Models**: `cloud.dtgpt.samsunds.net` endpoint models only\n',
         tags: ['DTGPT Server Usage (DTGPT 서버 사용량)'],
         parameters: [
           apiKeyParam,
-          {
-            name: 'centerName',
-            in: 'query' as const,
-            required: false,
-            description: 'Center name. Defaults to first center with data / 센터명. 미입력 시 데이터 있는 첫 번째 센터',
-            schema: { type: 'string' as const, example: 'Platform Technology Center' },
-          },
-          {
-            name: 'granularity',
-            in: 'query' as const,
-            required: false,
-            description: 'Time granularity: daily|weekly|monthly. Default: monthly',
-            schema: { type: 'string' as const, enum: ['daily', 'weekly', 'monthly'], default: 'monthly' },
-          },
+          { name: 'year', in: 'query' as const, required: true, description: 'Year (2000-2100)', schema: { type: 'integer' as const, example: 2026 } },
+          { name: 'month', in: 'query' as const, required: true, description: 'Month (1-12)', schema: { type: 'integer' as const, minimum: 1, maximum: 12, example: 3 } },
         ],
         responses: {
           '200': {
-            description: 'Token usage time series / 토큰 사용량 시계열',
+            description: 'Daily total token usage / 일별 총 토큰 사용량',
             content: {
               'application/json': {
                 example: {
-                  centers: ['AI Development Center', 'Platform Technology Center'],
-                  centerName: 'Platform Technology Center',
-                  granularity: 'monthly',
+                  year: 2026, month: 3,
                   server: 'http://cloud.dtgpt.samsunds.net/llm/v1',
                   fixedServices: ['roocode', 'dify', 'openwebui', 'claudecode'],
-                  teams: ['SW Innovation Team', 'DevOps Team', '기타'],
-                  services: ['Roo Code', 'Claude Code', 'Dify'],
-                  byTeam: [
-                    { period: '2025-04', 'SW Innovation Team': 2500000, 'DevOps Team': 1200000, '기타': 300000 },
-                    { period: '2025-05', 'SW Innovation Team': 3100000, 'DevOps Team': 1500000, '기타': 420000 },
-                  ],
-                  byService: [
-                    { period: '2025-04', 'Roo Code': 3200000, 'Claude Code': 500000, 'Dify': 300000 },
-                    { period: '2025-05', 'Roo Code': 4100000, 'Claude Code': 600000, 'Dify': 320000 },
+                  data: [
+                    { date: '2026-03-01', inputTokens: 500000, outputTokens: 350000, totalTokens: 850000 },
+                    { date: '2026-03-02', inputTokens: 620000, outputTokens: 410000, totalTokens: 1030000 },
                   ],
                 },
               },
             },
           },
-          '400': errorResponse('Invalid granularity', 'granularity must be daily, weekly, or monthly'),
+          '400': errorResponse('Invalid year/month', 'year(2000~2100)와 month(1~12)는 필수입니다.'),
           '500': errorResponse('Internal server error / 서버 내부 오류'),
         },
       },
