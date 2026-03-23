@@ -699,13 +699,15 @@ publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', (async (req: Reque
         tokens: tokenTrendMap.get(t.month) || 0,
       }));
 
-      // 기존 분리 필드 제거, 합친 필드로 교체
-      delete body.teamMauChart;
-      delete body.teamTokenChart;
-      delete body.monthlyTokenTrend;
-      delete body.teamKrMap;
-      body.data = data;
-      body.monthlyTrend = monthlyTrend;
+      // 순서 보장: data → monthlyTrend → teamServices 순으로 새 객체 구성
+      const result = {
+        centerName: body.centerName,
+        period: body.period,
+        data,
+        monthlyTrend,
+        teamServices: body.teamServices,
+      };
+      return origJson(result);
     }
     return origJson(body);
   };
