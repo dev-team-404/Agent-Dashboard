@@ -21,6 +21,7 @@ const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team',
 
 function resolveCenter(h: { team: string; center1Name: string; center2Name: string }): string {
   const c1 = (h.center1Name || '').trim();
+  const c2 = (h.center2Name || '').trim();
 
   // 1) Business Team 센터 → 그대로 유지
   if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
@@ -30,8 +31,11 @@ function resolveCenter(h: { team: string; center1Name: string; center2Name: stri
   const team = (h.team || '').trim();
   if (team.includes('/')) return 'Overseas R&D Center';
 
-  // 3) 나머지 → Direct
-  return 'Direct';
+  // 3) center1 또는 center2에 System LSI Business가 있으면 → Direct
+  if (c1 === 'System LSI Business' || c2 === 'System LSI Business') return 'Direct';
+
+  // 4) 그 외 → 집계 제외
+  return '';
 }
 
 // ── Admin router (auth required) ──
@@ -190,13 +194,15 @@ async function handleUsageRate(req: Request, res: Response) {
       if (!deptname) continue;
 
       const h = deptHierarchyMap.get(deptname);
-      let centerName = 'Direct';
       let teamName = deptname;
+      let centerName = '';
 
       if (h) {
         teamName = h.team || deptname;
         centerName = resolveCenter(h);
       }
+
+      if (!centerName) continue;
 
       if (!centerGroups.has(centerName)) {
         centerGroups.set(centerName, { teams: [] });
