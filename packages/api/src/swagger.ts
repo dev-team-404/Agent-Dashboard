@@ -669,7 +669,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate/{centerName}': {
       get: {
         summary: 'AI Usage Rate - Center Detail (센터 상세)',
-        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)`,
+        description: `특정 센터의 상세 데이터.\n\n## Returns\n- teamMauChart: 팀별 MAU 비교\n- monthlyTrend: 6개월 MAU 추이\n- teamTokenChart: 팀별 토큰 사용량\n- monthlyTokenTrend: 6개월 토큰 추이\n- teamServices: 팀×서비스 매트릭스 (Saved M/M, MAU, LLM Calls)\n\n## Overseas R&D Center\nOverseas R&D Center 상세 조회 시, 개별 팀이 아닌 서브그룹으로 집계됩니다:\n- 팀명에 / 포함 → 마지막 / 뒤 연구소명 (예: Wi-Fi Firmware/SCSC → SCSC)\n- center1 = SSCR → "SSCR"`,
         tags: ['Insight'],
         parameters: [
           apiKeyParam, yearParam, monthParam,
@@ -694,8 +694,7 @@ export const swaggerSpec = {
                       items: {
                         type: 'object' as const,
                         properties: {
-                          team: { type: 'string' as const, description: 'English team name' },
-                          serviceName: { type: 'string' as const },
+                          team: { type: 'string' as const, description: 'Team/subgroup name (Overseas R&D: 연구소명 or SSCR)' },
                           serviceDisplayName: { type: 'string' as const },
                           serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
                           savedMM: { type: 'number' as const, nullable: true },
@@ -705,6 +704,40 @@ export const swaggerSpec = {
                       },
                     },
                   },
+                },
+                example: {
+                  centerName: 'Overseas R&D Center',
+                  period: '2026-03',
+                  teamMauChart: [
+                    { team: 'SCSC', mau: 45 },
+                    { team: 'SSCR', mau: 38 },
+                    { team: 'DSRJ', mau: 12 },
+                  ],
+                  monthlyTrend: [
+                    { month: '2025-10', mau: 60 },
+                    { month: '2025-11', mau: 72 },
+                    { month: '2025-12', mau: 85 },
+                    { month: '2026-01', mau: 78 },
+                    { month: '2026-02', mau: 90 },
+                    { month: '2026-03', mau: 95 },
+                  ],
+                  teamTokenChart: [
+                    { team: 'SCSC', tokens: 5200000 },
+                    { team: 'SSCR', tokens: 3800000 },
+                    { team: 'DSRJ', tokens: 1200000 },
+                  ],
+                  monthlyTokenTrend: [
+                    { month: '2025-10', tokens: 6000000 },
+                    { month: '2025-11', tokens: 7200000 },
+                    { month: '2025-12', tokens: 8500000 },
+                    { month: '2026-01', tokens: 7800000 },
+                    { month: '2026-02', tokens: 9000000 },
+                    { month: '2026-03', tokens: 10200000 },
+                  ],
+                  teamServices: [
+                    { team: 'SCSC', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 2.5, mau: 30, llmCallCount: 12500 },
+                    { team: 'SSCR', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.8, mau: 25, llmCallCount: 8900 },
+                  ],
                 },
               },
             },
