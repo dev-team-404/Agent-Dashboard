@@ -88,6 +88,8 @@ interface ServiceModelItem {
   sortOrder: number;
   weight: number;
   enabled: boolean;
+  fallbackModelId?: string | null;
+  fallbackModel?: { id: string; name: string; displayName: string; type: string } | null;
   addedBy?: string;
   addedAt: string;
   accessible: boolean;
@@ -1351,8 +1353,37 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                       <button onClick={() => { setEditingAlias(group.aliasName); setEditAliasValue(group.aliasName); }}
                         className="p-0.5 text-gray-300 hover:text-gray-500"><Edit2 className="w-3 h-3" /></button>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-0.5">{group.items.length}개 모델{enabledN > 1 ? ` · 라운드로빈 ${totalW}회/사이클` : ''}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {group.items.length}개 모델{enabledN > 1 ? ` · 라운드로빈 ${totalW}회/사이클` : ''}
+                      {group.items[0]?.fallbackModel && (
+                        <span className="ml-1.5 text-amber-600">· 폴백: {group.items[0].fallbackModel.displayName}</span>
+                      )}
+                    </p>
                   </div>
+                  {/* Fallback model dropdown */}
+                  <select
+                    value={group.items[0]?.fallbackModelId || ''}
+                    onChange={async (e) => {
+                      const val = e.target.value || null;
+                      try {
+                        setSaving(true);
+                        await api.put(`/services/${serviceId}/models/fallback`, { aliasName: group.aliasName, fallbackModelId: val });
+                        await loadData();
+                      } catch (err) {
+                        console.error('Failed to set fallback:', err);
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    disabled={saving}
+                    className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 max-w-[150px] truncate focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400"
+                    title="에러 시 폴백 모델"
+                  >
+                    <option value="">폴백 없음</option>
+                    {availableModels.filter(m => m.enabled).map(m => (
+                      <option key={m.id} value={m.id}>{m.displayName}</option>
+                    ))}
+                  </select>
                   <button onClick={() => setAddingToAlias(addingToAlias === group.aliasName ? null : group.aliasName)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100">
                     <Plus className="w-3 h-3" />모델 추가
