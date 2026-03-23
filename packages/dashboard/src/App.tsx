@@ -4,30 +4,45 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import { authApi } from './services/api';
 
+// 배포 후 구버전 chunk 404 방지: 실패 시 페이지 자동 새로고침
+function lazyWithRetry(importFn: () => Promise<{ default: React.ComponentType<any> }>) {
+  return lazy(() =>
+    importFn().catch(() => {
+      const reloadedKey = 'chunk_reload_' + window.location.pathname;
+      if (!sessionStorage.getItem(reloadedKey)) {
+        sessionStorage.setItem(reloadedKey, '1');
+        window.location.reload();
+      }
+      // 무한 새로고침 방지: 이미 한번 reload 했으면 에러 전파
+      return importFn();
+    })
+  );
+}
+
 // Lazy-loaded pages (code splitting)
-const MainDashboard = lazy(() => import('./pages/MainDashboard'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Models = lazy(() => import('./pages/Models'));
-const Users = lazy(() => import('./pages/Users'));
-const UnifiedUsers = lazy(() => import('./pages/UnifiedUsers'));
-const MyUsage = lazy(() => import('./pages/MyUsage'));
-const Holidays = lazy(() => import('./pages/Holidays'));
-const ServiceMarket = lazy(() => import('./pages/ServiceMarket'));
-const MyServices = lazy(() => import('./pages/MyServices'));
-const RequestLogs = lazy(() => import('./pages/RequestLogs'));
-const AuditLogs = lazy(() => import('./pages/AuditLogs'));
-const ErrorManagement = lazy(() => import('./pages/ErrorManagement'));
-const KnoxVerifications = lazy(() => import('./pages/KnoxVerifications'));
-const ServiceTargets = lazy(() => import('./pages/ServiceTargets'));
-const SystemLlmSettings = lazy(() => import('./pages/SystemLlmSettings'));
-const ApiKeySettings = lazy(() => import('./pages/ApiKeySettings'));
-const AdminRequestPage = lazy(() => import('./pages/AdminRequestPage'));
-const AdminRequestsManage = lazy(() => import('./pages/AdminRequestsManage'));
-const ServiceDetail = lazy(() => import('./pages/ServiceDetail'));
-const PublicDashboard = lazy(() => import('./pages/PublicDashboard'));
-const InsightUsageRate = lazy(() => import('./pages/InsightUsageRate'));
-const InsightServiceUsage = lazy(() => import('./pages/InsightServiceUsage'));
-const DeptMapping = lazy(() => import('./pages/DeptMapping'));
+const MainDashboard = lazyWithRetry(() => import('./pages/MainDashboard'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const Models = lazyWithRetry(() => import('./pages/Models'));
+const Users = lazyWithRetry(() => import('./pages/Users'));
+const UnifiedUsers = lazyWithRetry(() => import('./pages/UnifiedUsers'));
+const MyUsage = lazyWithRetry(() => import('./pages/MyUsage'));
+const Holidays = lazyWithRetry(() => import('./pages/Holidays'));
+const ServiceMarket = lazyWithRetry(() => import('./pages/ServiceMarket'));
+const MyServices = lazyWithRetry(() => import('./pages/MyServices'));
+const RequestLogs = lazyWithRetry(() => import('./pages/RequestLogs'));
+const AuditLogs = lazyWithRetry(() => import('./pages/AuditLogs'));
+const ErrorManagement = lazyWithRetry(() => import('./pages/ErrorManagement'));
+const KnoxVerifications = lazyWithRetry(() => import('./pages/KnoxVerifications'));
+const ServiceTargets = lazyWithRetry(() => import('./pages/ServiceTargets'));
+const SystemLlmSettings = lazyWithRetry(() => import('./pages/SystemLlmSettings'));
+const ApiKeySettings = lazyWithRetry(() => import('./pages/ApiKeySettings'));
+const AdminRequestPage = lazyWithRetry(() => import('./pages/AdminRequestPage'));
+const AdminRequestsManage = lazyWithRetry(() => import('./pages/AdminRequestsManage'));
+const ServiceDetail = lazyWithRetry(() => import('./pages/ServiceDetail'));
+const PublicDashboard = lazyWithRetry(() => import('./pages/PublicDashboard'));
+const InsightUsageRate = lazyWithRetry(() => import('./pages/InsightUsageRate'));
+const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUsage'));
+const DeptMapping = lazyWithRetry(() => import('./pages/DeptMapping'));
 
 interface User {
   id: string;
