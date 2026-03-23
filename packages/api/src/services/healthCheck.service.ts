@@ -89,9 +89,11 @@ function buildEndpointUrl(baseUrl: string, path: string): string {
   // 이미 full path인 경우
   if (url.endsWith(path)) return url;
   if (url.endsWith('/')) url = url.slice(0, -1);
+  // 기존 API 경로 제거 (사용자가 full path를 입력한 경우 대비)
+  url = url.replace(/\/(chat\/completions|embeddings|rerank|images\/generations|audio\/transcriptions)$/, '');
   // /v1 으로 끝나면 path만 추가
   if (url.endsWith('/v1')) return `${url}${path}`;
-  // 그 외 /v1/path 추가
+  // 그 외 path 추가
   return `${url}${path}`;
 }
 
