@@ -195,6 +195,15 @@ const CHART_COLORS = [
   '#a855f7', '#0ea5e9', '#fb923c', '#84cc16', '#f43f5e',
 ];
 
+/** 모델명 → 고정 색상 인덱스 (granularity 변경 시에도 동일 모델은 같은 색 유지) */
+function stableColorIndex(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  return ((hash % CHART_COLORS.length) + CHART_COLORS.length) % CHART_COLORS.length;
+}
+
 export default function MainDashboard({ adminRole: _adminRole }: MainDashboardProps) {
   const [globalOverview, setGlobalOverview] = useState<GlobalOverviewService[]>([]);
   const [globalTotals, setGlobalTotals] = useState<GlobalTotals | null>(null);
@@ -932,8 +941,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                           <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
                           <Legend />
-                          {trendKeys.map((key, i) => (
-                            <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                          {trendKeys.map((key) => (
+                            <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}
                         </LineChart>
                       </ResponsiveContainer>
@@ -963,8 +972,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                           <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, undefined]} />
                           <Legend />
-                          {trendKeys.map((key, i) => (
-                            <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                          {trendKeys.map((key) => (
+                            <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}
                         </LineChart>
                       </ResponsiveContainer>
