@@ -262,7 +262,6 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   // 에러 빈도 (모델별 일별)
   const [errorRateDaily, setErrorRateDaily] = useState<Array<{ day: string; byModel: Record<string, Record<string, number>> }>>([]);
-  const [errorRateSummary, setErrorRateSummary] = useState<Array<{ model: string; totalErrors: number; errorTypes: Array<{ type: string; cause: string; count: number }>; byType: Record<string, number> }>>([]);
 
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
@@ -328,7 +327,6 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setHealthStatuses(healthStatusRes.data.statuses || {});
       setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
       setErrorRateDaily(errorRateRes.data.daily || []);
-      setErrorRateSummary(errorRateRes.data.summary || []);
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {
@@ -809,146 +807,6 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         );
       })()}
 
-      {/* ── 서비스 에러 현황 ── */}
-      {errorRateSummary.length > 0 && (() => {
-        const ERROR_TYPE_COLORS: Record<string, string> = {
-          'Timeout': '#f97316', '500': '#ef4444', '502': '#ec4899',
-          '503': '#a855f7', '504': '#f59e0b', '4xx': '#eab308', 'Other': '#9ca3af',
-        };
-        const ERROR_TYPE_LABELS: Record<string, string> = {
-          'Timeout': 'Timeout', '500': '500 ISE', '502': '502 Bad GW',
-          '503': '503 Unavail', '504': '504 GW Timeout', '4xx': '4xx', 'Other': '기타',
-        };
-        // 모든 에러 유형 수집
-        const allErrorTypes = [...new Set(errorRateSummary.flatMap(m => Object.keys(m.byType || {})))].sort();
-        // 모든 모델
-        const allModels = errorRateSummary.map(m => m.model);
-        const totalErrors = errorRateSummary.reduce((s, m) => s + m.totalErrors, 0);
-
-        // 일별 차트 데이터: 모델별 총 에러 합계
-        const dailyChartData = errorRateDaily.map(d => {
-          const row: Record<string, string | number> = { day: d.day.slice(5) }; // "MM-DD"
-          for (const model of allModels) {
-            const types = d.byModel[model] || {};
-            row[model] = Object.values(types).reduce((s, c) => s + c, 0);
-          }
-          return row;
-        });
-
-        // 모델별 에러유형 바 차트 데이터
-        const modelBarData = allModels.map(model => {
-          const row: Record<string, string | number> = { model };
-          for (const type of allErrorTypes) {
-            row[type] = errorRateSummary.find(m => m.model === model)?.byType[type] || 0;
-          }
-          return row;
-        });
-
-        return (
-          <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
-            <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-red-50">
-                  <AlertTriangle className="w-4 h-4 text-red-500" />
-                </div>
-                <h2 className="text-sm font-semibold text-pastel-800">서비스 에러 현황</h2>
-                <span className="text-xs text-pastel-400">최근 10 영업일</span>
-              </div>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-pastel-500">총 <span className="font-bold text-red-600">{totalErrors}</span>건</span>
-                {allErrorTypes.map(t => (
-                  <span key={t} className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: ERROR_TYPE_COLORS[t] || '#9ca3af' }} />
-                    <span className="text-pastel-500">{ERROR_TYPE_LABELS[t] || t}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="p-6 space-y-6">
-              {/* 1) 일별 에러 추이 — 모델별 총 에러 Stacked Bar */}
-              <div>
-                <p className="text-xs text-pastel-400 mb-3">일별 에러 추이 (모델별)</p>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={dailyChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#9ca3af" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
-                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-                    <Legend />
-                    {allModels.map(model => (
-                      <Bar key={model} dataKey={model} stackId="daily" fill={CHART_COLORS[stableColorIndex(model)]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* 2) 모델별 에러 유형 분포 — Horizontal Stacked Bar */}
-              <div>
-                <p className="text-xs text-pastel-400 mb-3">모델별 에러 유형 분포</p>
-                <ResponsiveContainer width="100%" height={Math.max(200, allModels.length * 36)}>
-                  <BarChart data={modelBarData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
-                    <YAxis type="category" dataKey="model" tick={{ fontSize: 11 }} stroke="#9ca3af" width={140} />
-                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-                    <Legend />
-                    {allErrorTypes.map(type => (
-                      <Bar key={type} dataKey={type} name={ERROR_TYPE_LABELS[type] || type} stackId="model" fill={ERROR_TYPE_COLORS[type] || '#9ca3af'} radius={[0, 0, 0, 0]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* 3) 모델별 요약 테이블 */}
-              <div className="overflow-x-auto rounded-lg border border-pastel-100">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-pastel-50/80">
-                      <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">모델</th>
-                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">총 에러</th>
-                      <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">주요 에러</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {errorRateSummary.slice(0, 10).map((m, i) => (
-                      <tr key={m.model} className={`border-t border-pastel-50 ${i % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
-                        <td className="py-2.5 px-4 font-medium text-pastel-800">
-                          <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(m.model)] }} />
-                            {m.model}
-                          </div>
-                        </td>
-                        <td className="text-right py-2.5 px-4 text-red-600 font-bold">{m.totalErrors}</td>
-                        <td className="py-2.5 px-4">
-                          <div className="flex flex-wrap gap-1.5">
-                            {(m.errorTypes || []).slice(0, 4).map((et, j) => {
-                              const typeColor = et.type === 'timeout' || et.type === 'Timeout' ? 'bg-orange-100 text-orange-700'
-                                : et.type === '500' ? 'bg-red-100 text-red-700'
-                                : et.type === '502' ? 'bg-pink-100 text-pink-700'
-                                : et.type === '503' ? 'bg-purple-100 text-purple-700'
-                                : et.type === '504' ? 'bg-amber-100 text-amber-700'
-                                : et.type === '4xx' ? 'bg-yellow-100 text-yellow-700'
-                                : 'bg-gray-100 text-gray-600';
-                              return (
-                                <span key={j} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${typeColor}`}>
-                                  {et.type.toUpperCase()}
-                                  <span className="font-bold">{et.count}</span>
-                                  <span className="font-normal opacity-70">· {et.cause}</span>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* ── 응답 지연 (독립 섹션) ── */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
@@ -1175,6 +1033,51 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               </div>
             </div>
           )}
+
+          {/* 5) 일별 모델별 Timeout 횟수 */}
+          {errorRateDaily.length > 0 && (() => {
+            // Timeout만 추출
+            const timeoutModels = new Set<string>();
+            const timeoutChartData = errorRateDaily.map(d => {
+              const row: Record<string, string | number> = { day: d.day.slice(5) };
+              for (const [model, types] of Object.entries(d.byModel)) {
+                const tc = types['Timeout'] || 0;
+                if (tc > 0) {
+                  timeoutModels.add(model);
+                  row[model] = tc;
+                }
+              }
+              return row;
+            });
+            const sortedModels = [...timeoutModels].sort();
+            const totalTimeouts = errorRateDaily.reduce((s, d) =>
+              s + Object.values(d.byModel).reduce((s2, types) => s2 + (types['Timeout'] || 0), 0), 0);
+
+            if (sortedModels.length === 0) return null;
+            return (
+              <div className="border-t border-gray-100 pt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-pastel-700">Timeout 발생 현황</h3>
+                    <span className="text-xs text-pastel-400">최근 10 영업일 · 요청 timeout 2분</span>
+                  </div>
+                  <span className="text-xs text-orange-600 font-bold">총 {totalTimeouts}건</span>
+                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={timeoutChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#9ca3af" />
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                    <Legend />
+                    {sortedModels.map(model => (
+                      <Bar key={model} dataKey={model} stackId="timeout" fill={CHART_COLORS[stableColorIndex(model)]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            );
+          })()}
 
           {latencyRechartsData.length === 0 && hcRechartsData.length === 0 && Object.keys(latencyTrendHC).length === 0 && Object.keys(latencyTrendUsage).length === 0 && latencyStats.length === 0 && (
             <div className="flex items-center justify-center h-40 text-pastel-400">지연 시간 데이터가 없습니다</div>

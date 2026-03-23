@@ -436,17 +436,23 @@ async function cleanupOldHealthChecks(): Promise<void> {
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startHealthCheckCron(): void {
-  // 시작 시 1분 후 첫 실행 (서버 부팅 직후 부하 방지)
+  // 다음 정각 10분 단위(xx:00, xx:10, xx:20...)까지 대기 후 시작
+  const now = Date.now();
+  const msIntoSlot = now % HEALTH_CHECK_INTERVAL_MS;
+  const delayToNextSlot = HEALTH_CHECK_INTERVAL_MS - msIntoSlot;
+
+  console.log(`[HealthCheck] Next run in ${Math.round(delayToNextSlot / 1000)}s (aligned to :${String(new Date(now + delayToNextSlot).getMinutes()).padStart(2, '0')})`);
+
   setTimeout(() => {
     runHealthChecks();
     cleanupOldHealthChecks();
-  }, 60 * 1000);
 
-  // 이후 10분마다 반복
-  healthCheckInterval = setInterval(() => {
-    runHealthChecks();
-    cleanupOldHealthChecks();
-  }, HEALTH_CHECK_INTERVAL_MS);
+    // 이후 정확히 10분마다 반복
+    healthCheckInterval = setInterval(() => {
+      runHealthChecks();
+      cleanupOldHealthChecks();
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }, delayToNextSlot);
 
   console.log('[HealthCheck] Cron started (every 10 minutes)');
 }
