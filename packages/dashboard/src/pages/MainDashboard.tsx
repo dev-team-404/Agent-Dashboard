@@ -262,7 +262,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   // 에러 빈도 (모델별 시간당)
   const [errorRateData, setErrorRateData] = useState<Record<string, Array<{ hour: string; timeout: number; serverError: number; clientError: number; total: number }>>>({});
-  const [errorRateSummary, setErrorRateSummary] = useState<Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number }>>([]);
+  const [errorRateSummary, setErrorRateSummary] = useState<Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number; errorTypes: Array<{ type: string; cause: string; count: number }> }>>([]);
 
   // M/M 목표 관리 데이터
   const [mmTargetData, setMmTargetData] = useState<{
@@ -322,7 +322,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         const avg = monthTotals.reduce((a: number, b: number) => a + b, 0) / monthTotals.length;
         setAvgMau(Math.round(avg));
       }
-      setLatencyStats(latencyRes.data.stats || []);
+      setLatencyStats((latencyRes.data.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
       setLatencyHistory(latencyHistoryRes.data.history || {});
       setHealthCheckHistory(healthcheckRes.data.history || {});
       setHealthStatuses(healthStatusRes.data.statuses || {});
@@ -456,7 +456,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const topCombos = rankedCombos.slice(0, 10);
   const restCombos = rankedCombos.slice(10);
 
-  const latencyKeys = Object.keys(latencyHistory);
+  const latencyKeys = Object.keys(latencyHistory).sort();
   const latencyRechartsData = latencyKeys.length > 0
     ? (latencyHistory[latencyKeys[0]] || []).map((point, idx) => {
         const row: Record<string, string | number> = {
@@ -472,7 +472,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   // ── Healthcheck chart data ──
   // 같은 헬스체크 사이클의 모델들은 타임스탬프가 밀리초 단위로 다르므로
   // 분 단위로 버킷팅하여 하나의 행으로 합침
-  const hcModelNames = Object.keys(healthCheckHistory);
+  const hcModelNames = Object.keys(healthCheckHistory).sort();
   // 버킷별 에러 정보 (tooltip 표시용)
   const hcErrorMap = new Map<string, Record<string, string>>();
   const hcRechartsData: Record<string, string | number>[] = (() => {
@@ -879,20 +879,39 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <tr className="bg-pastel-50/80">
                       <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">모델</th>
                       <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">총 에러</th>
-                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">Timeout</th>
-                      <th className="text-right py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">5xx</th>
+                      <th className="text-left py-2.5 px-4 font-semibold text-pastel-600 uppercase tracking-wide">주요 에러</th>
                     </tr>
                   </thead>
                   <tbody>
                     {errorRateSummary.slice(0, 10).map((m, i) => (
                       <tr key={m.model} className={`border-t border-pastel-50 ${i % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
-                        <td className="py-2 px-4 font-medium text-pastel-800 flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(m.model)] }} />
-                          {m.model}
+                        <td className="py-2.5 px-4 font-medium text-pastel-800">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(m.model)] }} />
+                            {m.model}
+                          </div>
                         </td>
-                        <td className="text-right py-2 px-4 text-red-600 font-medium">{m.totalErrors}</td>
-                        <td className="text-right py-2 px-4 text-orange-600">{m.totalTimeouts}</td>
-                        <td className="text-right py-2 px-4 text-purple-600">{m.totalServerErrors}</td>
+                        <td className="text-right py-2.5 px-4 text-red-600 font-bold">{m.totalErrors}</td>
+                        <td className="py-2.5 px-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {(m.errorTypes || []).slice(0, 4).map((et, j) => {
+                              const typeColor = et.type === 'timeout' ? 'bg-orange-100 text-orange-700'
+                                : et.type === '500' ? 'bg-red-100 text-red-700'
+                                : et.type === '502' ? 'bg-pink-100 text-pink-700'
+                                : et.type === '503' ? 'bg-purple-100 text-purple-700'
+                                : et.type === '504' ? 'bg-amber-100 text-amber-700'
+                                : et.type === '4xx' ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-gray-100 text-gray-600';
+                              return (
+                                <span key={j} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${typeColor}`}>
+                                  {et.type === 'timeout' ? 'TIMEOUT' : et.type.toUpperCase()}
+                                  <span className="font-bold">{et.count}</span>
+                                  <span className="font-normal opacity-70">· {et.cause}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1040,7 +1059,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     });
                     return row;
                   });
-                  const trendKeys = Object.keys(latencyTrendHC).slice(0, 10);
+                  const trendKeys = Object.keys(latencyTrendHC).sort();
                   return (
                     <div>
                       <p className="text-xs text-pastel-400 mb-3">헬스체크 프로빙 평균 응답시간</p>
@@ -1071,7 +1090,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     });
                     return row;
                   });
-                  const trendKeys = Object.keys(latencyTrendUsage).slice(0, 10);
+                  const trendKeys = Object.keys(latencyTrendUsage).sort();
                   return (
                     <div>
                       <p className="text-xs text-pastel-400 mb-3">실사용 평균 응답시간</p>

@@ -3497,16 +3497,17 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       total_error_count: bigint;
     }>>(
       `SELECT
-        date_trunc('hour', timestamp) as hour,
-        COALESCE(resolved_model, model_name) as model_name,
-        COUNT(*) FILTER (WHERE error_message ILIKE '%timed out%' OR error_message ILIKE '%timeout%' OR error_message ILIKE '%aborted%') as timeout_count,
-        COUNT(*) FILTER (WHERE status_code >= 500 AND error_message NOT ILIKE '%timed out%' AND error_message NOT ILIKE '%timeout%' AND error_message NOT ILIKE '%aborted%') as server_error_count,
-        COUNT(*) FILTER (WHERE status_code >= 400 AND status_code < 500) as client_error_count,
+        date_trunc('hour', r.timestamp) as hour,
+        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+        COUNT(*) FILTER (WHERE r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%') as timeout_count,
+        COUNT(*) FILTER (WHERE r.status_code >= 500 AND r.error_message NOT ILIKE '%timed out%' AND r.error_message NOT ILIKE '%timeout%' AND r.error_message NOT ILIKE '%aborted%') as server_error_count,
+        COUNT(*) FILTER (WHERE r.status_code >= 400 AND r.status_code < 500) as client_error_count,
         COUNT(*) as total_error_count
-      FROM request_logs
-      WHERE status_code != 200
-        AND timestamp >= $1
-      GROUP BY hour, COALESCE(resolved_model, model_name)
+      FROM request_logs r
+      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+      WHERE r.status_code != 200
+        AND r.timestamp >= $1
+      GROUP BY hour, COALESCE(m."displayName", r.resolved_model, r.model_name)
       ORDER BY hour, model_name`,
       startDate
     );
@@ -3532,12 +3533,69 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       });
     }
 
+    // 모델별 대표 에러 원인 조회
+    const topErrors = await prisma.$queryRawUnsafe<Array<{
+      model_name: string;
+      error_type: string;
+      error_cause: string;
+      cnt: bigint;
+    }>>(
+      `SELECT
+        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'timeout'
+          WHEN r.status_code = 500 THEN '500'
+          WHEN r.status_code = 502 THEN '502'
+          WHEN r.status_code = 503 THEN '503'
+          WHEN r.status_code = 504 THEN '504'
+          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+          ELSE 'other'
+        END as error_type,
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'LLM 응답 시간 초과'
+          WHEN r.error_message ILIKE '%ECONNREFUSED%' THEN '엔드포인트 연결 거부'
+          WHEN r.error_message ILIKE '%ECONNRESET%' THEN '연결 초기화됨'
+          WHEN r.error_message ILIKE '%ENOTFOUND%' THEN 'DNS 조회 실패'
+          WHEN r.error_message ILIKE '%fetch failed%' THEN '네트워크 연결 실패'
+          WHEN r.error_message ILIKE '%rate limit%' THEN 'Rate Limit 초과'
+          WHEN r.error_message ILIKE '%unauthorized%' OR r.status_code = 401 THEN '인증 실패'
+          WHEN r.error_message ILIKE '%forbidden%' OR r.status_code = 403 THEN '접근 거부'
+          WHEN r.error_message ILIKE '%not found%' OR r.status_code = 404 THEN '리소스 없음'
+          WHEN r.error_message ILIKE '%bad gateway%' OR r.status_code = 502 THEN 'Bad Gateway'
+          WHEN r.error_message ILIKE '%service unavailable%' OR r.status_code = 503 THEN '서비스 일시 중단'
+          WHEN r.error_message ILIKE '%gateway timeout%' OR r.status_code = 504 THEN 'Gateway Timeout'
+          WHEN r.status_code = 500 THEN 'Internal Server Error'
+          ELSE '기타 에러'
+        END as error_cause,
+        COUNT(*) as cnt
+      FROM request_logs r
+      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+      WHERE r.status_code != 200
+        AND r.timestamp >= $1
+      GROUP BY model_name, error_type, error_cause
+      ORDER BY model_name, cnt DESC`,
+      startDate
+    );
+
+    // 모델별 에러 유형 분류
+    const modelErrorTypes: Record<string, Array<{ type: string; cause: string; count: number }>> = {};
+    for (const row of topErrors) {
+      const key = row.model_name;
+      if (!modelErrorTypes[key]) modelErrorTypes[key] = [];
+      modelErrorTypes[key].push({
+        type: row.error_type,
+        cause: row.error_cause,
+        count: Number(row.cnt),
+      });
+    }
+
     // 모델별 요약 (정렬용)
     const summary = Object.entries(byModel).map(([model, data]) => ({
       model,
       totalErrors: data.reduce((s, d) => s + d.total, 0),
       totalTimeouts: data.reduce((s, d) => s + d.timeout, 0),
       totalServerErrors: data.reduce((s, d) => s + d.serverError, 0),
+      errorTypes: modelErrorTypes[model] || [],
     })).sort((a, b) => b.totalErrors - a.totalErrors);
 
     res.json({ byModel, summary, hours });

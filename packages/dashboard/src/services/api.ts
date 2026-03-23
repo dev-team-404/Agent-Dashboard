@@ -223,7 +223,7 @@ export const statsApi = {
   }>('/admin/stats/health-status'),
   errorRate: (hours = 24) => api.get<{
     byModel: Record<string, Array<{ hour: string; timeout: number; serverError: number; clientError: number; total: number }>>;
-    summary: Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number }>;
+    summary: Array<{ model: string; totalErrors: number; totalTimeouts: number; totalServerErrors: number; errorTypes: Array<{ type: string; cause: string; count: number }> }>;
     hours: number;
   }>('/admin/stats/error-rate', { params: { hours } }),
 };
