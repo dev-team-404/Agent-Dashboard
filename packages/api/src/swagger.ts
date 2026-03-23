@@ -623,7 +623,7 @@ export const swaggerSpec = {
     '/stats/insight_ai_usage_rate': {
       get: {
         summary: 'AI Usage Rate by Center (센터별 AI 활용율)',
-        description: `센터별 AI 활용율 대시보드 데이터.\n\n## 센터 그룹핑 규칙\n- center1 = SOC/LSI/Sensor Business Team → 해당 Business Team 하위 팀으로 그룹\n- center1 = SSCR 또는 팀명에 / 포함 (해외 R&D) → "Overseas R&D Center"\n- 나머지 → "Direct"\n\nSaved M/M 기준 내림차순 정렬.\nS.LSI 사업부 소속 부서만 집계됩니다.`,
+        description: `센터별 AI 활용율 대시보드 데이터.\n\n## 센터 그룹핑 규칙\n- center1 또는 center2에 SOC/LSI/Sensor Business Team → 해당 Business Team 하위로 그룹\n- center1 또는 center2가 SSCR, 또는 팀명에 / 포함 → "Overseas R&D Center"\n- center1 또는 center2에 System LSI Business → "Direct"\n- 그 외 → 집계 제외\n\nSaved M/M 기준 내림차순 정렬.\nS.LSI 사업부 소속 부서만 집계됩니다.`,
         tags: ['Insight'],
         parameters: [apiKeyParam, yearParam, monthParam],
         responses: {
