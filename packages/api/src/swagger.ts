@@ -689,6 +689,21 @@ export const swaggerSpec = {
                     monthlyTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, mau: { type: 'integer' as const } } } },
                     teamTokenChart: { type: 'array' as const, items: { type: 'object' as const, properties: { team: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
                     monthlyTokenTrend: { type: 'array' as const, items: { type: 'object' as const, properties: { month: { type: 'string' as const }, tokens: { type: 'integer' as const } } } },
+                    teamServices: {
+                      type: 'array' as const,
+                      description: '팀×서비스 상세 (서비스별 Saved M/M, MAU, LLM Calls)',
+                      items: {
+                        type: 'object' as const,
+                        properties: {
+                          team: { type: 'string' as const, description: 'Team/subgroup name' },
+                          serviceDisplayName: { type: 'string' as const },
+                          serviceType: { type: 'string' as const, enum: ['STANDARD', 'BACKGROUND'] },
+                          savedMM: { type: 'number' as const, nullable: true },
+                          mau: { type: 'integer' as const },
+                          llmCallCount: { type: 'integer' as const },
+                        },
+                      },
+                    },
                   },
                 },
                 example: {
@@ -723,6 +738,11 @@ export const swaggerSpec = {
                     { month: '2025-12', tokens: 5853666 },
                     { month: '2026-01', tokens: 6512 },
                     { month: '2026-02', tokens: 5361651229 },
+                  ],
+                  teamServices: [
+                    { team: 'SOC IP Development Team(S.LSI)', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 3.5, mau: 120, llmCallCount: 45000 },
+                    { team: 'SOC IP Development Team(S.LSI)', serviceDisplayName: 'Claude Code', serviceType: 'STANDARD', savedMM: 1.2, mau: 60, llmCallCount: 18000 },
+                    { team: 'AP S/W Development Team(S.LSI)', serviceDisplayName: 'Roo Code', serviceType: 'STANDARD', savedMM: 2.8, mau: 95, llmCallCount: 38000 },
                   ],
                 },
               },

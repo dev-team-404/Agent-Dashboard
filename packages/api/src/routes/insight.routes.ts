@@ -680,7 +680,6 @@ publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', (async (req: Reque
   const origJson = res.json.bind(res);
   res.json = (body: Record<string, unknown>) => {
     if (body && typeof body === 'object') {
-      delete body.teamServices;
       delete body.teamKrMap;
     }
     return origJson(body);
