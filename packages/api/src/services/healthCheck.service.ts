@@ -34,8 +34,10 @@ function generateSilentWavBuffer(): Buffer {
   return buffer;
 }
 
-// 모델 타입별 테스트 요청 생성 (ASR은 별도 처리)
-function buildTestRequest(type: string, modelName: string): { url: string; body: Record<string, unknown> } | null {
+const MAX_RETRIES = 2; // fetch 실패 시 최대 재시도 횟수
+
+// 모델 타입별 테스트 요청 생성 (ASR·IMAGE는 별도 처리)
+function buildTestRequest(type: string, modelName: string): { url: string; body: Record<string, unknown>; method?: string } | null {
   switch (type) {
     case 'CHAT':
       return {
@@ -58,18 +60,8 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
         body: { model: modelName, query: 'test', documents: ['doc'], top_n: 1 },
       };
     case 'IMAGE':
-      // 최소 크기 이미지 1장 생성으로 엔드포인트 확인
-      return {
-        url: '/images/generations',
-        body: {
-          model: modelName,
-          prompt: 'health check: white square',
-          n: 1,
-          size: '256x256',
-        },
-      };
     case 'ASR':
-      // ASR은 checkAsrModel()에서 별도 처리
+      // IMAGE·ASR은 별도 처리 (checkComfyUI / checkAsrModel)
       return null;
     default:
       return {
@@ -81,6 +73,81 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
           stream: false,
         },
       };
+  }
+}
+
+// ComfyUI 헬스체크: GET /system_stats 로 서버 상태 확인
+async function checkComfyUI(model: {
+  id: string;
+  name: string;
+  displayName: string;
+  endpointUrl: string;
+  apiKey: string | null;
+  extraHeaders: unknown;
+}): Promise<void> {
+  const baseUrl = model.endpointUrl.replace(/\/+$/, '');
+  const url = `${baseUrl}/system_stats`;
+  const headers: Record<string, string> = {};
+  if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+  if (model.extraHeaders && typeof model.extraHeaders === 'object') {
+    for (const [k, v] of Object.entries(model.extraHeaders as Record<string, string>)) {
+      headers[k] = v;
+    }
+  }
+
+  const startTime = Date.now();
+  let statusCode: number | null = null;
+  let success = false;
+  let errorMessage: string | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+
+      const response = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      statusCode = response.status;
+      success = response.ok;
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
+      } else {
+        errorMessage = null;
+      }
+      break; // 성공 또는 HTTP 에러 → 재시도 불필요
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      if (msg.includes('abort')) {
+        success = true;
+        errorMessage = null;
+        break;
+      }
+      errorMessage = msg;
+      if (attempt < MAX_RETRIES) {
+        console.log(`[HealthCheck] ComfyUI ${model.name} fetch failed, retry ${attempt + 1}/${MAX_RETRIES}`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+  }
+
+  const latencyMs = Date.now() - startTime;
+
+  try {
+    await prisma.healthCheckLog.create({
+      data: {
+        modelId: model.id,
+        modelName: model.displayName || model.name,
+        endpointUrl: url,
+        latencyMs,
+        statusCode,
+        success,
+        errorMessage,
+      },
+    });
+  } catch (err) {
+    console.error(`[HealthCheck] Failed to save ComfyUI log for ${model.name}:`, err);
   }
 }
 
@@ -201,14 +268,23 @@ async function checkSingleModel(model: {
   extraHeaders: unknown;
   type: string;
   asrMethod: string | null;
+  imageProvider: string | null;
 }): Promise<void> {
   // ASR은 별도 처리
   if (model.type === 'ASR') {
     return checkAsrModel(model);
   }
 
+  // IMAGE: ComfyUI만 헬스체크, 나머지 스킵
+  if (model.type === 'IMAGE') {
+    if ((model.imageProvider || '').toUpperCase() === 'COMFYUI') {
+      return checkComfyUI(model);
+    }
+    return; // OPENAI, GEMINI, PIXABAY, PEXELS 등 스킵
+  }
+
   const testReq = buildTestRequest(model.type, model.name);
-  if (!testReq) return; // IMAGE 등 스킵
+  if (!testReq) return;
 
   const url = buildEndpointUrl(model.endpointUrl, testReq.url);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -227,32 +303,41 @@ async function checkSingleModel(model: {
   let success = false;
   let errorMessage: string | null = null;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(testReq.body),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(testReq.body),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-    statusCode = response.status;
-    success = response.ok;
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    if (msg.includes('abort')) {
-      // Timeout — 장애가 아님, 느린 응답으로 기록
-      success = true;
-      errorMessage = null;
-    } else {
+      statusCode = response.status;
+      success = response.ok;
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
+      } else {
+        errorMessage = null;
+      }
+      break; // 성공 또는 HTTP 에러 → 재시도 불필요
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      if (msg.includes('abort')) {
+        // Timeout — 장애가 아님, 느린 응답으로 기록
+        success = true;
+        errorMessage = null;
+        break;
+      }
       errorMessage = msg;
+      if (attempt < MAX_RETRIES) {
+        console.log(`[HealthCheck] ${model.name} fetch failed, retry ${attempt + 1}/${MAX_RETRIES}`);
+        await new Promise(r => setTimeout(r, 3000));
+      }
     }
   }
 
@@ -288,6 +373,7 @@ async function runHealthChecks(): Promise<void> {
         extraHeaders: true,
         type: true,
         asrMethod: true,
+        imageProvider: true,
       },
     });
 
