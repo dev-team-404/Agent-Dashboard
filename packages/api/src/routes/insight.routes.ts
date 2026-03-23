@@ -23,11 +23,12 @@ function resolveCenter(h: { team: string; center1Name: string; center2Name: stri
   const c1 = (h.center1Name || '').trim();
   const c2 = (h.center2Name || '').trim();
 
-  // 1) Business Team 센터 → 그대로 유지
+  // 1) Business Team 센터 → c1 또는 c2에 있으면 해당 센터 하위
   if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
+  if (BUSINESS_TEAM_CENTERS.has(c2)) return c2;
 
   // 2) SSCR 또는 팀명에 / 포함 (해외 R&D) → Overseas R&D Center
-  if (c1 === 'SSCR') return 'Overseas R&D Center';
+  if (c1 === 'SSCR' || c2 === 'SSCR') return 'Overseas R&D Center';
   const team = (h.team || '').trim();
   if (team.includes('/')) return 'Overseas R&D Center';
 
@@ -43,9 +44,10 @@ function resolveCenter(h: { team: string; center1Name: string; center2Name: stri
  * - center1 = SSCR → "SSCR"
  * - 팀명에 / → 마지막 / 뒤 (연구소명)  예: "Wi-Fi Firmware/SCSC" → "SCSC"
  */
-function resolveOverseasSubgroup(h: { team: string; center1Name: string }): string {
+function resolveOverseasSubgroup(h: { team: string; center1Name: string; center2Name: string }): string {
   const c1 = (h.center1Name || '').trim();
-  if (c1 === 'SSCR') return 'SSCR';
+  const c2 = (h.center2Name || '').trim();
+  if (c1 === 'SSCR' || c2 === 'SSCR') return 'SSCR';
   const team = (h.team || '').trim();
   if (team.includes('/')) return team.substring(team.lastIndexOf('/') + 1);
   return 'Other';
