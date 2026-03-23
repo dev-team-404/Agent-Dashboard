@@ -166,14 +166,13 @@ async function handleUsageRate(req: Request, res: Response) {
       deptHierarchyMap.set(h.departmentName, h as DeptHierarchyRow);
     }
 
-    // 2. Target month MAU per deptname
+    // 2. Target month MAU per deptname (business_unit 필터 없음 — deptname suffix로 분류)
     const targetMauRows = await prisma.$queryRaw<MauRow[]>`
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND u.loginid != 'anonymous'
-        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
@@ -185,18 +184,14 @@ async function handleUsageRate(req: Request, res: Response) {
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${prevMonthStart} AND ul.timestamp < ${prevMonthEnd}
         AND u.loginid != 'anonymous'
-        AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
 
-    // 4. DeptServiceSavedMM grouped by deptname (S.LSI 소속 부서만)
+    // 4. DeptServiceSavedMM grouped by deptname
     const savedMMRows = await prisma.$queryRaw<Array<{ deptname: string; total_saved: number | null }>>`
       SELECT dsm.deptname, COALESCE(SUM(dsm.saved_mm), 0)::float as total_saved
       FROM dept_service_saved_mm dsm
-      WHERE EXISTS (
-        SELECT 1 FROM users u WHERE u.deptname = dsm.deptname AND u.business_unit = ${INSIGHT_BUSINESS_UNIT} LIMIT 1
-      )
       GROUP BY dsm.deptname
     `;
 
@@ -322,8 +317,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     if (centerName === 'Overseas R&D Center') {
       const activeDepts = await prisma.$queryRaw<Array<{ deptname: string }>>`
         SELECT DISTINCT u.deptname FROM users u
-        WHERE u.business_unit = ${INSIGHT_BUSINESS_UNIT}
-          AND u.deptname IS NOT NULL AND u.deptname != ''
+        WHERE u.deptname IS NOT NULL AND u.deptname != ''
       `;
       const existing = new Set(centerDepts.map(d => d.deptname));
       for (const r of activeDepts) {
