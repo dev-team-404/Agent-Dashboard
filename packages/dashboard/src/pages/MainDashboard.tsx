@@ -261,6 +261,25 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [loadingTrend, setLoadingTrend] = useState(false);
   const [latencyTableOpen, setLatencyTableOpen] = useState(false);
 
+  // 서버 시간 (1분마다 갱신)
+  const [serverTimeOffset, setServerTimeOffset] = useState(0);
+  const [serverNow, setServerNow] = useState('');
+  useEffect(() => {
+    api.get('/health').then(res => {
+      const serverDate = res.headers?.['date'];
+      if (serverDate) setServerTimeOffset(new Date(serverDate).getTime() - Date.now());
+    }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date(Date.now() + serverTimeOffset);
+      setServerNow(now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }));
+    };
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [serverTimeOffset]);
+
   // 에러 빈도 (모델별 일별)
   const [errorRateDaily, setErrorRateDaily] = useState<Array<{ day: string; byModel: Record<string, Record<string, number>> }>>([]);
 
@@ -817,6 +836,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             </div>
             <h2 className="text-sm font-semibold text-pastel-800">응답 지연</h2>
           </div>
+          {serverNow && (
+            <span className="text-xs text-pastel-400 font-mono">서버 {serverNow}</span>
+          )}
         </div>
         <div className="p-6 space-y-8">
           {/* 1) 헬스체크 모니터링 (10분 간격 프로빙) */}
