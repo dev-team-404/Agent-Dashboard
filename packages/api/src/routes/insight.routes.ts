@@ -19,6 +19,20 @@ const INSIGHT_BUSINESS_UNIT = 'S.LSI';
 // ── 센터 그룹핑 규칙 ──
 const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team', 'Sensor Business Team']);
 
+/**
+ * 팀명이 해외 R&D 패턴인지 판별 (/ 포함하되 S/W 같은 약어는 제외)
+ * 해외 R&D 패턴: "TeamName/InstituteName" (/ 뒤에 대문자 약어가 오는 형태)
+ * 제외: "S/W", "H/W", "A/S" 등 일반 약어
+ */
+function isOverseasTeamName(team: string): boolean {
+  if (!team.includes('/')) return false;
+  // S/W, H/W, A/S 등 짧은 약어 패턴 제외
+  const parts = team.split('/');
+  // 첫 번째 / 기준으로 왼쪽이 1~2글자면 약어로 간주 (S/W, H/W 등)
+  if (parts[0].length <= 2) return false;
+  return true;
+}
+
 function resolveCenter(h: { team: string; center1Name: string; center2Name: string }): string {
   const c1 = (h.center1Name || '').trim();
   const c2 = (h.center2Name || '').trim();
@@ -27,10 +41,10 @@ function resolveCenter(h: { team: string; center1Name: string; center2Name: stri
   if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
   if (BUSINESS_TEAM_CENTERS.has(c2)) return c2;
 
-  // 2) SSCR 또는 팀명에 / 포함 (해외 R&D) → Overseas R&D Center
+  // 2) SSCR 또는 해외 R&D 팀명 패턴 → Overseas R&D Center
   if (c1 === 'SSCR' || c2 === 'SSCR') return 'Overseas R&D Center';
   const team = (h.team || '').trim();
-  if (team.includes('/')) return 'Overseas R&D Center';
+  if (isOverseasTeamName(team)) return 'Overseas R&D Center';
 
   // 3) center1 또는 center2에 System LSI Business가 있으면 → Direct
   if (c1 === 'System LSI Business' || c2 === 'System LSI Business') return 'Direct';
@@ -49,7 +63,7 @@ function resolveOverseasSubgroup(h: { team: string; center1Name: string; center2
   const c2 = (h.center2Name || '').trim();
   if (c1 === 'SSCR' || c2 === 'SSCR') return 'SSCR';
   const team = (h.team || '').trim();
-  if (team.includes('/')) return team.substring(team.lastIndexOf('/') + 1);
+  if (isOverseasTeamName(team)) return team.substring(team.lastIndexOf('/') + 1);
   return 'Other';
 }
 
@@ -321,6 +335,14 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       }
     }
 
+    // 그룹명 → 한글 부서명 매핑 (UI 표시용)
+    const groupKrMap: Record<string, string[]> = {};
+    for (const d of centerDepts) {
+      const group = deptGroupMap.get(d.deptname) || d.team;
+      if (!groupKrMap[group]) groupKrMap[group] = [];
+      if (!groupKrMap[group].includes(d.deptname)) groupKrMap[group].push(d.deptname);
+    }
+
     // 2. teamMauChart: MAU per group
     const teamMauRows = await prisma.$queryRaw<MauRow[]>`
       SELECT u.deptname, COUNT(DISTINCT ul.user_id) as mau
@@ -478,6 +500,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       teamTokenChart,
       monthlyTokenTrend,
       teamServices,
+      teamKrMap: groupKrMap,
     });
   } catch (error) {
     console.error('Insight usage-rate detail error:', error);

@@ -52,6 +52,7 @@ interface CenterDetail {
   teamTokenChart: Array<{ team: string; tokens: number }>;
   monthlyTokenTrend: Array<{ month: string; tokens: number }>;
   teamServices: TeamService[];
+  teamKrMap?: Record<string, string[]>;
 }
 
 type PeriodTab = 'current' | 'last';
@@ -108,6 +109,15 @@ export default function InsightUsageRate() {
   const handleCloseDetail = () => {
     setSelectedCenter(null);
     setDetail(null);
+  };
+
+  // 영문 팀명 → "English (한글)" 변환
+  const teamLabel = (team: string): string => {
+    const krNames = detail?.teamKrMap?.[team];
+    if (!krNames || krNames.length === 0) return team;
+    // 한글 부서명이 1개면 그대로, 여러개면 첫번째 + 외 N개
+    const krLabel = krNames.length === 1 ? krNames[0] : `${krNames[0]} 외 ${krNames.length - 1}`;
+    return `${team} (${krLabel})`;
   };
 
   const formatNumber = (num: number): string => {
@@ -270,10 +280,11 @@ export default function InsightUsageRate() {
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={detail.teamMauChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
+                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} tickFormatter={teamLabel} />
                         <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          labelFormatter={teamLabel}
                           formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
                         />
                         <Bar dataKey="mau" radius={[6, 6, 0, 0]} barSize={32}>
@@ -319,10 +330,11 @@ export default function InsightUsageRate() {
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={detail.teamTokenChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} />
+                        <XAxis dataKey="team" tick={{ fill: '#374151', fontSize: 10 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} angle={-35} textAnchor="end" interval={0} height={80} tickFormatter={teamLabel} />
                         <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} tickFormatter={(v: number) => formatNumber(v)} />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                          labelFormatter={teamLabel}
                           formatter={(value: number) => [formatNumber(value) + ' tokens', 'Total Tokens']}
                         />
                         <Bar dataKey="tokens" radius={[6, 6, 0, 0]} barSize={32}>
@@ -382,7 +394,7 @@ export default function InsightUsageRate() {
                       ) : (
                         detail.teamServices.map((ts, idx) => (
                           <tr key={`${ts.team}-${ts.serviceDisplayName}-${idx}`} className={`border-t border-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                            <td className="py-3 px-4 font-medium text-pastel-800">{ts.team}</td>
+                            <td className="py-3 px-4 font-medium text-pastel-800">{teamLabel(ts.team)}</td>
                             <td className="py-3 px-4">
                               <span className="text-pastel-700">{ts.serviceDisplayName}</span>
                             </td>
