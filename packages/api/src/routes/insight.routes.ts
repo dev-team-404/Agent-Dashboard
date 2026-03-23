@@ -21,15 +21,30 @@ const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team',
 
 /**
  * 팀명이 해외 R&D 패턴인지 판별 (/ 포함하되 S/W 같은 약어는 제외)
- * 해외 R&D 패턴: "TeamName/InstituteName" (/ 뒤에 대문자 약어가 오는 형태)
- * 제외: "S/W", "H/W", "A/S" 등 일반 약어
+ * 해외 R&D: "TeamName/InstituteName" (마지막 / 뒤가 연구소)
+ * 제외: S/W, H/W, A/S 등 (/ 앞뒤가 모두 1~2글자인 약어)
  */
+const KNOWN_SLASH_ABBR = new Set(['S/W', 'H/W', 'A/S', 'R/D', 'I/O', 'D/A', 'A/D']);
+
 function isOverseasTeamName(team: string): boolean {
   if (!team.includes('/')) return false;
-  // S/W, H/W, A/S 등 짧은 약어 패턴 제외
-  const parts = team.split('/');
-  // 첫 번째 / 기준으로 왼쪽이 1~2글자면 약어로 간주 (S/W, H/W 등)
-  if (parts[0].length <= 2) return false;
+  // 팀명 자체가 약어 패턴인지 확인 (팀명에 포함된 모든 X/Y 패턴)
+  // "S/W Innovation Team" → S/W는 약어지만 팀명 전체는 아님
+  // 마지막 / 기준으로 연구소명이 붙는 패턴인지 판별
+  const lastSlash = team.lastIndexOf('/');
+  const before = team.substring(0, lastSlash);
+  const after = team.substring(lastSlash + 1);
+  // / 뒤가 비어있으면 패턴 아님
+  if (!after.trim()) return false;
+  // 알려진 약어 패턴이 팀명에 포함된 경우: 약어를 제거하고 다시 / 유무 확인
+  let cleaned = team;
+  for (const abbr of KNOWN_SLASH_ABBR) {
+    cleaned = cleaned.replace(abbr, '');
+  }
+  // 약어 제거 후에도 /가 남아있으면 해외 R&D 패턴
+  if (!cleaned.includes('/')) return false;
+  // / 앞뒤 모두 1글자면 약어 (추가 안전장치)
+  if (before.length <= 1 && after.length <= 1) return false;
   return true;
 }
 
