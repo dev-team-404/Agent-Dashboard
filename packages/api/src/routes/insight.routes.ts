@@ -40,10 +40,13 @@ function resolveCenter(deptname: string, h: { team: string; center1Name: string;
   // (S.LSI)가 아니면 → Overseas R&D Center
   if (suffix !== 'S.LSI') return 'Overseas R&D Center';
 
-  // (S.LSI)인 경우 → c1/c2로 Business Team 분류
+  // (S.LSI)인 경우 → c1/c2/team으로 Business Team 분류
   const c1 = (h.center1Name || '').trim();
   const c2 = (h.center2Name || '').trim();
+  const team = (h.team || '').trim();
 
+  // 팀 자체가 BT이거나, c1/c2에 BT가 있으면 해당 BT
+  if (BUSINESS_TEAM_CENTERS.has(team)) return team;
   if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
   if (BUSINESS_TEAM_CENTERS.has(c2)) return c2;
 
@@ -219,12 +222,16 @@ async function handleUsageRate(req: Request, res: Response) {
     for (const deptname of allDeptnames) {
       if (!deptname) continue;
 
+      const suffix = extractSuffix(deptname);
       const h = deptHierarchyMap.get(deptname);
-      let teamName = deptname;
+      let teamName = h?.team || deptname;
       let centerName = '';
 
-      if (h) {
-        teamName = h.team || deptname;
+      if (suffix !== 'S.LSI') {
+        // (S.LSI)가 아니면 → Overseas (hierarchy 불필요)
+        centerName = 'Overseas R&D Center';
+      } else if (h) {
+        // (S.LSI) → hierarchy 기반 BT/Direct 분류
         centerName = resolveCenter(deptname, h);
       }
 
@@ -300,11 +307,31 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 
     // 1. Find depts belonging to this center
     const hierarchies = await prisma.departmentHierarchy.findMany();
+    const hierMap = new Map(hierarchies.map(h => [h.departmentName, h]));
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
+
+    // hierarchy가 있는 부서
     for (const h of hierarchies) {
       if (resolveCenter(h.departmentName, h) === centerName) {
         centerDepts.push({ deptname: h.departmentName, team: h.team || h.departmentName });
+      }
+    }
+
+    // Overseas: hierarchy 없지만 (S.LSI)가 아닌 부서도 포함
+    if (centerName === 'Overseas R&D Center') {
+      const activeDepts = await prisma.$queryRaw<Array<{ deptname: string }>>`
+        SELECT DISTINCT u.deptname FROM users u
+        WHERE u.business_unit = ${INSIGHT_BUSINESS_UNIT}
+          AND u.deptname IS NOT NULL AND u.deptname != ''
+      `;
+      const existing = new Set(centerDepts.map(d => d.deptname));
+      for (const r of activeDepts) {
+        if (existing.has(r.deptname)) continue;
+        const suffix = extractSuffix(r.deptname);
+        if (suffix !== 'S.LSI') {
+          centerDepts.push({ deptname: r.deptname, team: r.deptname });
+        }
       }
     }
 
