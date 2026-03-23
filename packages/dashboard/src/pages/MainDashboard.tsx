@@ -975,7 +975,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <LineChart data={hcRechartsData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#9ca3af" />
-                  <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" domain={[0, 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', maxWidth: 400 }}
                     content={({ active, payload, label }) => {

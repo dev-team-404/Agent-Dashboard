@@ -3365,6 +3365,8 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
     // 모델별로 그룹핑
     const grouped: Record<string, Array<{ time: string; latency: number | null; success: boolean; error?: string }>> = {};
     for (const c of checks) {
+      // 시계 변경 등으로 음수/비정상 latency 필터링
+      if (c.latencyMs != null && c.latencyMs < 0) continue;
       if (!grouped[c.modelName]) grouped[c.modelName] = [];
       grouped[c.modelName].push({
         time: c.checkedAt.toISOString(),
