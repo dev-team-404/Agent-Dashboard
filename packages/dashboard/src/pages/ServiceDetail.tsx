@@ -17,6 +17,8 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 
+import BusinessDayToggle from '../components/BusinessDayToggle';
+
 // ── Reusable chart components ──
 import UserStatsChart from '../components/Charts/UserStatsChart';
 import ModelUsageChart from '../components/Charts/ModelUsageChart';
@@ -567,6 +569,11 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
             output={overview?.todayUsage?.outputTokens || 0}
           />
         </div>
+      </div>
+
+      {/* ── Toggle ── */}
+      <div className="flex justify-end">
+        <BusinessDayToggle />
       </div>
 
       {/* ── Charts Grid ── */}
