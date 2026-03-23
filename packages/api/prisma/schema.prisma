@@ -456,6 +456,7 @@ model RequestLog {
   outputTokens  Int?     @map("output_tokens")
   latencyMs     Int?     @map("latency_ms")
   errorMessage  String?  @map("error_message")
+  errorDetails  Json?    @map("error_details")   // 엔드포인트별 실패 상세 (failover 시도 이력)
   userAgent     String?  @map("user_agent")
   ipAddress     String?  @map("ip_address")
   stream        Boolean  @default(false)

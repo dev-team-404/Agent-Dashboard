@@ -1,6 +1,22 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import { AlertTriangle, Filter, ChevronDown, ChevronRight, X, Clock, Sparkles, Loader2, Tag, User } from 'lucide-react';
+import { AlertTriangle, Filter, ChevronDown, ChevronRight, X, Clock, Sparkles, Loader2, Tag, User, Zap, Wifi, WifiOff, Server, Timer } from 'lucide-react';
 import { api } from '../services/api';
+
+interface FailoverAttempt {
+  endpoint: string;
+  attempt: number;
+  statusCode: number | null;
+  errorType: 'timeout' | 'connection' | 'http_5xx' | 'http_4xx' | 'stream_error' | 'unknown';
+  errorMessage: string;
+  latencyMs: number;
+  modelName: string;
+}
+
+interface ErrorDetails {
+  totalAttempts: number;
+  attempts: FailoverAttempt[];
+  timeoutMs: number;
+}
 
 interface ErrorLog {
   id: string;
@@ -13,6 +29,7 @@ interface ErrorLog {
   path: string;
   statusCode: number;
   errorMessage: string | null;
+  errorDetails: ErrorDetails | null;
   inputTokens: number | null;
   outputTokens: number | null;
   latencyMs: number | null;
@@ -39,6 +56,7 @@ interface Analysis {
   detail: string;
   suggestion: string;
   category: string;
+  errorPattern?: string;
 }
 
 interface Pagination {
@@ -397,6 +415,46 @@ export default function ErrorManagement() {
                                 <pre className="p-2.5 bg-gray-900 text-gray-200 rounded-lg text-xs font-mono overflow-auto max-h-[80px] leading-relaxed">{log.errorMessage}</pre>
                               </div>
                             )}
+                            {/* Failover 시도 이력 (errorDetails) */}
+                            {log.errorDetails && log.errorDetails.attempts && log.errorDetails.attempts.length > 0 && (
+                              <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                                <div className="flex items-center gap-2 mb-2.5">
+                                  <Zap className="w-3.5 h-3.5 text-slate-600" />
+                                  <span className="text-xs font-semibold text-slate-700">엔드포인트 시도 이력</span>
+                                  <span className="text-[10px] text-slate-400 ml-auto">
+                                    총 {log.errorDetails.totalAttempts}회 시도 | Timeout 설정: {(log.errorDetails.timeoutMs / 1000).toFixed(0)}초
+                                  </span>
+                                </div>
+                                <div className="space-y-2">
+                                  {log.errorDetails.attempts.map((attempt, i) => {
+                                    const typeConfig: Record<string, { icon: React.ReactNode; label: string; color: string; bg: string }> = {
+                                      timeout: { icon: <Timer className="w-3 h-3" />, label: 'TIMEOUT', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
+                                      connection: { icon: <WifiOff className="w-3 h-3" />, label: 'CONNECTION', color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
+                                      http_5xx: { icon: <Server className="w-3 h-3" />, label: `HTTP ${attempt.statusCode}`, color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
+                                      http_4xx: { icon: <AlertTriangle className="w-3 h-3" />, label: `HTTP ${attempt.statusCode}`, color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
+                                      stream_error: { icon: <Wifi className="w-3 h-3" />, label: 'STREAM', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+                                      unknown: { icon: <AlertTriangle className="w-3 h-3" />, label: 'UNKNOWN', color: 'text-gray-700', bg: 'bg-gray-50 border-gray-200' },
+                                    };
+                                    const cfg = typeConfig[attempt.errorType] || typeConfig.unknown;
+                                    return (
+                                      <div key={i} className={`p-2 rounded border ${cfg.bg}`}>
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-[10px] font-bold text-slate-400 w-4">#{attempt.attempt}</span>
+                                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold rounded ${cfg.color} ${cfg.bg}`}>
+                                            {cfg.icon} {cfg.label}
+                                          </span>
+                                          <span className="text-[10px] text-slate-500 font-mono">{(attempt.latencyMs / 1000).toFixed(1)}s</span>
+                                          <span className="text-[10px] text-slate-400 truncate ml-auto max-w-[300px]" title={attempt.endpoint}>
+                                            {attempt.endpoint}
+                                          </span>
+                                        </div>
+                                        <pre className="text-[10px] font-mono text-slate-600 overflow-auto max-h-[40px] leading-relaxed whitespace-pre-wrap break-all">{attempt.errorMessage}</pre>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                             {/* AI 분석 결과 (인라인) */}
                             {analysis ? (
                               <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg">
@@ -404,6 +462,15 @@ export default function ErrorManagement() {
                                   <Sparkles className="w-3.5 h-3.5 text-violet-600" />
                                   <span className="text-xs font-semibold text-violet-800">AI 원인 분석</span>
                                   <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || ''}`}>{analysis.severity}</span>
+                                  {analysis.errorPattern && (
+                                    <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                                      analysis.errorPattern === 'outage' ? 'bg-red-100 text-red-700' :
+                                      analysis.errorPattern === 'recurring' ? 'bg-amber-100 text-amber-700' :
+                                      'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {analysis.errorPattern === 'outage' ? '서비스 장애' : analysis.errorPattern === 'recurring' ? '반복 발생' : '일회성'}
+                                    </span>
+                                  )}
                                   <span className="text-[10px] text-violet-500 ml-auto">{analysis.category}</span>
                                 </div>
                                 <div className="space-y-1.5 text-xs text-pastel-700">
