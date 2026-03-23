@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Users, Activity, Zap, TrendingUp,
   Clock, BarChart3, Layers, CalendarDays,
-  Cpu, AlertTriangle,
+  Cpu, AlertTriangle, ChevronDown,
 } from 'lucide-react';
 import { statsApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
@@ -259,6 +259,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyTrendHC, setLatencyTrendHC] = useState<Record<string, Array<{ period: string; avgLatency: number; successRate: number; count: number }>>>({});
   const [latencyTrendUsage, setLatencyTrendUsage] = useState<Record<string, Array<{ period: string; avgLatency: number; count: number }>>>({});
   const [loadingTrend, setLoadingTrend] = useState(false);
+  const [latencyTableOpen, setLatencyTableOpen] = useState(false);
 
   // 에러 빈도 (모델별 일별)
   const [errorRateDaily, setErrorRateDaily] = useState<Array<{ day: string; byModel: Record<string, Record<string, number>> }>>([]);
@@ -1002,35 +1003,44 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             )}
           </div>
 
-          {/* 4) 데이터 테이블 */}
+          {/* 4) 데이터 테이블 (접기/펼치기) */}
           {latencyStats.length > 0 && (
             <div className="border-t border-gray-100 pt-6">
-              <div className="overflow-x-auto rounded-lg border border-pastel-100">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-pastel-50/80">
-                      <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
-                      <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">10분</th>
-                      <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">30분</th>
-                      <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">1시간</th>
-                      <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">24시간</th>
-                      <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">요청수</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {latencyStats.map((stat, index) => (
-                      <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-pastel-50 ${index % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
-                        <td className="py-3 px-4 font-medium text-pastel-800">{stat.serviceName} / {stat.modelName}</td>
-                        <td className="text-right py-3 px-4 text-pastel-700">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}</td>
-                        <td className="text-right py-3 px-4 text-pastel-700">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}</td>
-                        <td className="text-right py-3 px-4 text-pastel-700">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}</td>
-                        <td className="text-right py-3 px-4 text-pastel-700">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}</td>
-                        <td className="text-right py-3 px-4 text-pastel-700">{formatNumber(stat.count24h)}</td>
+              <button
+                onClick={() => setLatencyTableOpen(v => !v)}
+                className="flex items-center gap-2 text-sm font-semibold text-pastel-700 hover:text-pastel-900 transition-colors mb-3"
+              >
+                <ChevronDown className={`w-4 h-4 transition-transform ${latencyTableOpen ? 'rotate-180' : ''}`} />
+                서비스 / 모델 상세 ({latencyStats.length})
+              </button>
+              {latencyTableOpen && (
+                <div className="overflow-x-auto rounded-lg border border-pastel-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-pastel-50/80">
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">10분</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">30분</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">1시간</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">24시간</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">요청수</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {latencyStats.map((stat, index) => (
+                        <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-pastel-50 ${index % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
+                          <td className="py-3 px-4 font-medium text-pastel-800">{stat.serviceName} / {stat.modelName}</td>
+                          <td className="text-right py-3 px-4 text-pastel-700">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-pastel-700">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-pastel-700">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-pastel-700">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(2)}s` : '-'}</td>
+                          <td className="text-right py-3 px-4 text-pastel-700">{formatNumber(stat.count24h)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
