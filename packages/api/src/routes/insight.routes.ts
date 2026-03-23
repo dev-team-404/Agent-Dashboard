@@ -20,66 +20,48 @@ const INSIGHT_BUSINESS_UNIT = 'S.LSI';
 const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team', 'Sensor Business Team']);
 
 /**
- * 팀명이 해외 R&D 패턴인지 판별 (/ 포함하되 S/W 같은 약어는 제외)
- * 해외 R&D: "TeamName/InstituteName" (마지막 / 뒤가 연구소)
- * 제외: S/W, H/W, A/S 등 (/ 앞뒤가 모두 1~2글자인 약어)
+ * 한글 부서명(deptname) 끝의 괄호 내용 추출
+ * 예: "SOC플랫폼팀(S.LSI)" → "S.LSI"
+ *     "반도체연구팀(SCSC)" → "SCSC"
  */
-const KNOWN_SLASH_ABBR = new Set(['S/W', 'H/W', 'A/S', 'R/D', 'I/O', 'D/A', 'A/D']);
-
-function isOverseasTeamName(team: string): boolean {
-  if (!team.includes('/')) return false;
-  // 팀명 자체가 약어 패턴인지 확인 (팀명에 포함된 모든 X/Y 패턴)
-  // "S/W Innovation Team" → S/W는 약어지만 팀명 전체는 아님
-  // 마지막 / 기준으로 연구소명이 붙는 패턴인지 판별
-  const lastSlash = team.lastIndexOf('/');
-  const before = team.substring(0, lastSlash);
-  const after = team.substring(lastSlash + 1);
-  // / 뒤가 비어있으면 패턴 아님
-  if (!after.trim()) return false;
-  // 알려진 약어 패턴이 팀명에 포함된 경우: 약어를 제거하고 다시 / 유무 확인
-  let cleaned = team;
-  for (const abbr of KNOWN_SLASH_ABBR) {
-    cleaned = cleaned.replace(abbr, '');
-  }
-  // 약어 제거 후에도 /가 남아있으면 해외 R&D 패턴
-  if (!cleaned.includes('/')) return false;
-  // / 앞뒤 모두 1글자면 약어 (추가 안전장치)
-  if (before.length <= 1 && after.length <= 1) return false;
-  return true;
+function extractSuffix(deptname: string): string {
+  const match = deptname.match(/\(([^)]+)\)\s*$/);
+  return match ? match[1] : '';
 }
 
-function resolveCenter(h: { team: string; center1Name: string; center2Name: string }): string {
+/**
+ * 센터 그룹 결정 (한글 부서명 기준)
+ * - (S.LSI)로 끝남 → 국내: SOC/LSI/Sensor BT 또는 Direct
+ * - (S.LSI)가 아님 → Overseas R&D Center
+ */
+function resolveCenter(deptname: string, h: { team: string; center1Name: string; center2Name: string }): string {
+  const suffix = extractSuffix(deptname);
+
+  // (S.LSI)가 아니면 → Overseas R&D Center
+  if (suffix !== 'S.LSI') return 'Overseas R&D Center';
+
+  // (S.LSI)인 경우 → c1/c2로 Business Team 분류
   const c1 = (h.center1Name || '').trim();
   const c2 = (h.center2Name || '').trim();
 
-  // 1) Business Team 센터 → c1 또는 c2에 있으면 해당 센터 하위
   if (BUSINESS_TEAM_CENTERS.has(c1)) return c1;
   if (BUSINESS_TEAM_CENTERS.has(c2)) return c2;
 
-  // 2) SSCR 또는 해외 R&D 팀명 패턴 → Overseas R&D Center
-  if (c1 === 'SSCR' || c2 === 'SSCR') return 'Overseas R&D Center';
-  const team = (h.team || '').trim();
-  if (isOverseasTeamName(team)) return 'Overseas R&D Center';
-
-  // 3) center1 또는 center2에 System LSI Business가 있으면 → Direct
+  // System LSI Business 소속 → Direct
   if (c1 === 'System LSI Business' || c2 === 'System LSI Business') return 'Direct';
 
-  // 4) 그 외 → 집계 제외
+  // 그 외 → 집계 제외
   return '';
 }
 
 /**
- * Overseas R&D Center 내부 서브그룹 결정
- * - center1 = SSCR → "SSCR"
- * - 팀명에 / → 마지막 / 뒤 (연구소명)  예: "Wi-Fi Firmware/SCSC" → "SCSC"
+ * Overseas R&D Center 서브그룹 = 부서명 맨 뒤 괄호 (연구소명)
+ * 예: "반도체연구팀(SCSC)" → "SCSC"
+ *     "설계팀" (괄호 없음) → "Other"
  */
-function resolveOverseasSubgroup(h: { team: string; center1Name: string; center2Name: string }): string {
-  const c1 = (h.center1Name || '').trim();
-  const c2 = (h.center2Name || '').trim();
-  if (c1 === 'SSCR' || c2 === 'SSCR') return 'SSCR';
-  const team = (h.team || '').trim();
-  if (isOverseasTeamName(team)) return team.substring(team.lastIndexOf('/') + 1);
-  return 'Other';
+function resolveOverseasSubgroup(deptname: string): string {
+  const suffix = extractSuffix(deptname);
+  return suffix || 'Other';
 }
 
 // ── Admin router (auth required) ──
@@ -243,7 +225,7 @@ async function handleUsageRate(req: Request, res: Response) {
 
       if (h) {
         teamName = h.team || deptname;
-        centerName = resolveCenter(h);
+        centerName = resolveCenter(deptname, h);
       }
 
       if (!centerName) continue;
@@ -276,8 +258,7 @@ async function handleUsageRate(req: Request, res: Response) {
       if (name === 'Overseas R&D Center') {
         const subgroups = new Set<string>();
         for (const t of group.teams) {
-          const h = deptHierarchyMap.get(t.deptname);
-          if (h) subgroups.add(resolveOverseasSubgroup(h));
+          subgroups.add(resolveOverseasSubgroup(t.deptname));
         }
         teamCount = subgroups.size;
       }
@@ -322,7 +303,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
     for (const h of hierarchies) {
-      if (resolveCenter(h) === centerName) {
+      if (resolveCenter(h.departmentName, h) === centerName) {
         centerDepts.push({ deptname: h.departmentName, team: h.team || h.departmentName });
       }
     }
@@ -335,14 +316,12 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const deptnames = centerDepts.map(d => d.deptname);
     const deptTeamMap = new Map(centerDepts.map(d => [d.deptname, d.team]));
 
-    // Overseas R&D Center → deptname을 서브그룹(연구소/SSCR)으로 매핑
+    // Overseas → 부서명 맨 뒤 괄호로 서브그룹, 그 외 → 영문 팀명
     const isOverseas = centerName === 'Overseas R&D Center';
-    const deptHierarchyMap2 = new Map(hierarchies.map(h => [h.departmentName, h]));
-    const deptGroupMap = new Map<string, string>(); // deptname → display group
+    const deptGroupMap = new Map<string, string>();
     if (isOverseas) {
       for (const d of centerDepts) {
-        const h = deptHierarchyMap2.get(d.deptname);
-        deptGroupMap.set(d.deptname, h ? resolveOverseasSubgroup(h) : d.team);
+        deptGroupMap.set(d.deptname, resolveOverseasSubgroup(d.deptname));
       }
     } else {
       for (const d of centerDepts) {
