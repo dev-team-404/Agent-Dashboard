@@ -15,6 +15,7 @@ import { Users, TrendingUp } from 'lucide-react';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
 
 interface DailyActiveData {
   date: string;
@@ -50,6 +51,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
   const [days, setDays] = useState(30);
   const [chartType, setChartType] = useState<ChartType>('cumulative');
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
 
   useEffect(() => {
     loadData();
@@ -73,14 +75,14 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
     }
   };
 
-  // 주말/휴일 제외 필터링
+  // 주말/휴일 제외 필터링 (토글 연동)
   const filteredDailyData = useMemo(() =>
-    filterBusinessDays(dailyData, (d) => d.date, holidayDates),
-    [dailyData, holidayDates]);
+    exclude ? filterBusinessDays(dailyData, (d) => d.date, holidayDates) : dailyData,
+    [dailyData, holidayDates, exclude]);
 
   const filteredCumulativeData = useMemo(() =>
-    filterBusinessDays(cumulativeData, (d) => d.date, holidayDates),
-    [cumulativeData, holidayDates]);
+    exclude ? filterBusinessDays(cumulativeData, (d) => d.date, holidayDates) : cumulativeData,
+    [cumulativeData, holidayDates, exclude]);
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);

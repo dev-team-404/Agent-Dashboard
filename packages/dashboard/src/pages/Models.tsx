@@ -838,9 +838,8 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                           {/* Cron health status dot */}
                           {(() => {
                             const ch = cronHealth[model.id];
-                            const skipped = model.type === 'IMAGE';
-                            if (!model.enabled || skipped || !ch) {
-                              return <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" title={skipped ? '헬스체크 미대상' : '상태 미확인'} />;
+                            if (!model.enabled || !ch) {
+                              return <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" title="상태 미확인" />;
                             }
                             const ago = Math.round((Date.now() - new Date(ch.checkedAt).getTime()) / 60000);
                             const stale = ago > 20;

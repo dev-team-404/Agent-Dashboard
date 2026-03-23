@@ -4,6 +4,8 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { publicStatsApi } from '../services/api';
 import { useHolidayDates } from '../hooks/useHolidayDates';
 import { filterBusinessDays } from '../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../hooks/useBusinessDayToggle';
+import BusinessDayToggle from '../components/BusinessDayToggle';
 
 // ── Types ──
 
@@ -451,12 +453,13 @@ export default function PublicDashboard() {
   const [dailyDauChart, setDailyDauChart] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
   const [error, setError] = useState('');
 
-  // 주말/휴일 제외된 일별 DAU 차트 데이터
+  // 주말/휴일 제외된 일별 DAU 차트 데이터 (토글 연동)
   const filteredDailyDauChart = useMemo(() =>
-    filterBusinessDays(dailyDauChart, (d) => String(d.date), holidayDates),
-  [dailyDauChart, holidayDates]);
+    exclude ? filterBusinessDays(dailyDauChart, (d) => String(d.date), holidayDates) : dailyDauChart,
+  [dailyDauChart, holidayDates, exclude]);
 
   useEffect(() => {
     loadData();
@@ -520,7 +523,9 @@ export default function PublicDashboard() {
             배포 완료된 서비스의 월간 사용량 통계 (DEPLOYED only)
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 shadow-soft px-1 py-1">
+        <div className="flex items-center gap-3">
+          <BusinessDayToggle />
+          <div className="flex items-center gap-1 bg-white rounded-xl border border-gray-200 shadow-soft px-1 py-1">
           <button
             onClick={() => goMonth(-1)}
             className="p-1.5 rounded-lg text-pastel-400 hover:text-pastel-700 hover:bg-pastel-50 transition-colors"
@@ -537,6 +542,7 @@ export default function PublicDashboard() {
           >
             <ChevronRight className="w-4 h-4" />
           </button>
+          </div>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import {
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
 
 const COLORS = [
   '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981',
@@ -105,6 +106,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
   const [dailyData, setDailyData] = useState<DailyItem[]>([]);
   const [userData, setUserData] = useState<UserItem[]>([]);
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
   const [modelData, setModelData] = useState<ModelItem[]>([]);
   const [deptData, setDeptData] = useState<DeptItem[]>([]);
   const [dauData, setDauData] = useState<DauItem[]>([]);
@@ -167,8 +169,8 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       outputTokens: d._sum.totalOutputTokens || 0,
       requests: d._sum.requestCount || 0,
     }));
-    return filterBusinessDays(mapped, (d) => d.date, holidayDates);
-  }, [dailyData, holidayDates]);
+    return exclude ? filterBusinessDays(mapped, (d) => d.date, holidayDates) : mapped;
+  }, [dailyData, holidayDates, exclude]);
 
   // Business day averages (dailyChartData는 이미 주말/휴일 제외 상태)
   const businessDayStats = useMemo(() => {
@@ -219,8 +221,8 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
 
   // DAU 차트 데이터 (주말/휴일 제외)
   const filteredDauData = useMemo(() =>
-    filterBusinessDays(dauData, (d) => d.date, holidayDates),
-  [dauData, holidayDates]);
+    exclude ? filterBusinessDays(dauData, (d) => d.date, holidayDates) : dauData,
+  [dauData, holidayDates, exclude]);
 
   const handleExport = () => {
     switch (activeTab) {

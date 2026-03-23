@@ -4,6 +4,7 @@ import {
   Server, Hash,
 } from 'lucide-react';
 import { statsApi, serviceApi } from '../services/api';
+import BusinessDayToggle from '../components/BusinessDayToggle';
 import UserStatsChart from '../components/Charts/UserStatsChart';
 import ModelUsageChart from '../components/Charts/ModelUsageChart';
 import UsersByModelChart from '../components/Charts/UsersByModelChart';
@@ -423,6 +424,11 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
           </div>
         </div>
       )}
+
+      {/* ════════ Toggle ════════ */}
+      <div className="flex justify-end">
+        <BusinessDayToggle />
+      </div>
 
       {/* ════════ Metric Cards ════════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">

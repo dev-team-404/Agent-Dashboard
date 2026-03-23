@@ -12,6 +12,7 @@ import {
 import { statsApi, serviceApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
 
 interface UserInfo {
   id: string;
@@ -77,6 +78,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
   const [days, setDays] = useState(30);
   const [topN, setTopN] = useState(10);
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
 
   // Load models on mount or when serviceId changes
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
   const cumulativeChartData = useMemo(() => {
     if (chartData.length === 0 || users.length === 0) return [];
 
-    const filtered = filterBusinessDays(chartData, (d) => d.date, holidayDates);
+    const filtered = exclude ? filterBusinessDays(chartData, (d) => d.date, holidayDates) : chartData;
     const cumulative: Record<string, number> = {};
     users.forEach((u) => (cumulative[u.id] = 0));
 
@@ -149,7 +151,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
       });
       return newItem;
     });
-  }, [chartData, users, holidayDates]);
+  }, [chartData, users, holidayDates, exclude]);
 
   const formatYAxis = (value: number): string => {
     if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';

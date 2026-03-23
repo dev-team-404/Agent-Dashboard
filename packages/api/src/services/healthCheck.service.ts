@@ -58,8 +58,16 @@ function buildTestRequest(type: string, modelName: string): { url: string; body:
         body: { model: modelName, query: 'test', documents: ['doc'], top_n: 1 },
       };
     case 'IMAGE':
-      // 이미지 생성은 비용이 크므로 헬스체크 스킵
-      return null;
+      // 최소 크기 이미지 1장 생성으로 엔드포인트 확인
+      return {
+        url: '/images/generations',
+        body: {
+          model: modelName,
+          prompt: 'health check: white square',
+          n: 1,
+          size: '256x256',
+        },
+      };
     case 'ASR':
       // ASR은 checkAsrModel()에서 별도 처리
       return null;

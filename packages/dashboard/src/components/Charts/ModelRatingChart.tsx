@@ -12,6 +12,7 @@ import {
 import { ratingApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { isBusinessDay } from '../../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
 
 interface DailyRating {
   date: string;
@@ -80,6 +81,7 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
 
   useEffect(() => {
     loadData();
@@ -120,7 +122,9 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
     if (modelNames.length === 0) return [];
 
     // Generate all dates in range, excluding weekends/holidays
-    const allDates = generateDateRange(days).filter(d => isBusinessDay(d, holidayDates));
+    const allDates = exclude
+      ? generateDateRange(days).filter(d => isBusinessDay(d, holidayDates))
+      : generateDateRange(days);
 
     // Create a map of date+model -> rating
     const ratingMap = new Map<string, number>();
@@ -139,7 +143,7 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
       });
       return item;
     });
-  }, [dailyData, modelNames, days, holidayDates]);
+  }, [dailyData, modelNames, days, holidayDates, exclude]);
 
   // Calculate cumulative average (all-time average up to each date)
   const cumulativeChartData = useMemo(() => {

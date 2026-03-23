@@ -17,6 +17,8 @@ import { api } from '../services/api';
 import { Sparkles, Target } from 'lucide-react';
 import { useHolidayDates } from '../hooks/useHolidayDates';
 import { isBusinessDay } from '../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../hooks/useBusinessDayToggle';
+import BusinessDayToggle from '../components/BusinessDayToggle';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -225,6 +227,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
 
   // Health status
   const [healthStatuses, setHealthStatuses] = useState<Record<string, { modelName: string; success: boolean; latencyMs: number | null; checkedAt: string; errorMessage: string | null }>>({});
@@ -358,10 +361,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const totalTokens = globalTotals?.totalTokens ?? globalOverview.reduce((sum, s) => sum + s.totalTokens, 0);
   const totalRequests = globalTotals?.totalRequests ?? globalOverview.reduce((sum, s) => sum + s.totalRequests, 0);
 
-  // ── Chart data transforms (주말/휴일 제외) ──
+  // ── Chart data transforms (토글에 따라 주말/휴일 제외) ──
   const uniqueDates = [...new Set(serviceDaily.map(d => d.date))]
     .sort()
-    .filter(date => isBusinessDay(date, holidayDates));
+    .filter(date => exclude ? isBusinessDay(date, holidayDates) : true);
   const uniqueServices = [...new Set(serviceDaily.map(d => d.serviceName))];
 
   const serviceRechartsData = uniqueDates.map(date => {
@@ -383,13 +386,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const restServices = rankedServices.slice(10);
 
   const deptTokenRechartsData = deptDailyData
-    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .filter(d => exclude ? isBusinessDay(d.date as string, holidayDates) : true)
     .map(d => ({ ...d, date: (d.date as string).slice(5) }));
   const deptUsersRechartsData = deptUsersDailyData
-    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .filter(d => exclude ? isBusinessDay(d.date as string, holidayDates) : true)
     .map(d => ({ ...d, date: (d.date as string).slice(5) }));
   const deptServiceRechartsData: DeptServiceRequestsDaily[] = deptServiceRequestsData
-    .filter(d => isBusinessDay(d.date as string, holidayDates))
+    .filter(d => exclude ? isBusinessDay(d.date as string, holidayDates) : true)
     .map(d => ({ ...d, date: (d.date as string).slice(5) }));
 
   // Top 10 dept-service combos by total requests
@@ -724,6 +727,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {/* Toggle */}
+      <div className="flex justify-end">
+        <BusinessDayToggle />
+      </div>
       {/* Hero Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 lg:gap-5">
         <StatCard label="전체 사용자" value={totalUsers} icon={Users} gradient="bg-gradient-to-r from-blue-500 to-blue-600" description="모든 서비스 합계" delay={0} />

@@ -12,6 +12,7 @@ import {
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
+import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
 
 interface ModelInfo {
   id: string;
@@ -56,6 +57,7 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
   const holidayDates = useHolidayDates();
+  const { exclude } = useBusinessDayToggle();
 
   useEffect(() => {
     loadData();
@@ -78,7 +80,7 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
   const cumulativeChartData = useMemo(() => {
     if (chartData.length === 0 || models.length === 0) return [];
 
-    const filtered = filterBusinessDays(chartData, (d) => d.date, holidayDates);
+    const filtered = exclude ? filterBusinessDays(chartData, (d) => d.date, holidayDates) : chartData;
     const cumulative: Record<string, number> = {};
     models.forEach((m) => (cumulative[m.id] = 0));
 
@@ -91,7 +93,7 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
       });
       return newItem;
     });
-  }, [chartData, models, holidayDates]);
+  }, [chartData, models, holidayDates, exclude]);
 
   const formatYAxis = (value: number): string => {
     if (value >= 1000000) return (value / 1000000).toFixed(1) + 'M';
