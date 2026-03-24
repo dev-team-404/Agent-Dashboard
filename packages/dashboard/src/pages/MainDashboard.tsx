@@ -260,6 +260,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyTrendUsage, setLatencyTrendUsage] = useState<Record<string, Array<{ period: string; avgLatency: number; count: number }>>>({});
   const [loadingTrend, setLoadingTrend] = useState(false);
   const [latencyTableOpen, setLatencyTableOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState<Record<string, boolean>>({});
 
   // 서버 시간 (1분마다 갱신)
   const [serverTimeOffset, setServerTimeOffset] = useState(0);
@@ -850,6 +851,27 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               </span>
               <h3 className="text-sm font-semibold text-pastel-700">헬스체크 모니터링</h3>
               <span className="text-xs text-pastel-400 ml-1">10분 간격 자동 프로빙</span>
+              {hcModelNames.length > 0 && (
+                <div className="relative ml-auto">
+                  <button
+                    onClick={() => setLegendOpen(prev => ({ ...prev, hc: !prev.hc }))}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
+                  >
+                    범례
+                    <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.hc ? 'rotate-180' : ''}`} />
+                  </button>
+                  {legendOpen.hc && (
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border border-gray-200 shadow-lg p-3 min-w-[160px]">
+                      {hcModelNames.map((name, i) => (
+                        <div key={name} className="flex items-center gap-2 py-1">
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                          <span className="text-xs text-pastel-700 truncate">{name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {hcRechartsData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
@@ -858,6 +880,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#9ca3af" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" domain={[0, 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
                   <Tooltip
+                    wrapperStyle={{ zIndex: 9999 }}
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', maxWidth: 400 }}
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
@@ -886,7 +909,6 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                       );
                     }}
                   />
-                  <Legend />
                   {hcModelNames.map((name, i) => (
                     <RechartsLine key={name} type="monotone" dataKey={name} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls />
                   ))}
@@ -902,7 +924,30 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           {/* 2) 실제 사용 기반 응답 지연 */}
           {latencyRechartsData.length > 0 && (
             <div className="border-t border-gray-100 pt-6">
-              <h3 className="text-sm font-semibold text-pastel-700 mb-4">실제 사용 기반 응답 지연</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <h3 className="text-sm font-semibold text-pastel-700">실제 사용 기반 응답 지연</h3>
+                {latencyKeys.length > 0 && (
+                  <div className="relative ml-auto">
+                    <button
+                      onClick={() => setLegendOpen(prev => ({ ...prev, usage: !prev.usage }))}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
+                    >
+                      범례
+                      <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.usage ? 'rotate-180' : ''}`} />
+                    </button>
+                    {legendOpen.usage && (
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border border-gray-200 shadow-lg p-3 min-w-[160px]">
+                        {latencyKeys.map((key, i) => (
+                          <div key={key} className="flex items-center gap-2 py-1">
+                            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                            <span className="text-xs text-pastel-700 truncate">{key}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 {latencyStats.slice(0, 4).map((stat) => (
                   <div key={`${stat.serviceId}-${stat.modelId}`} className="p-3 bg-gray-50 rounded-lg border border-pastel-100">
@@ -923,8 +968,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
                   <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                  <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [`${(value / 1000).toFixed(2)}s`, name]} />
-                  <Legend />
+                  <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [`${(value / 1000).toFixed(2)}s`, name]} />
                   {latencyKeys.map((key, i) => (
                     <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                   ))}
@@ -970,14 +1014,34 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   const trendKeys = Object.keys(latencyTrendHC).sort();
                   return (
                     <div>
-                      <p className="text-xs text-pastel-400 mb-3">헬스체크 프로빙 평균 응답시간</p>
+                      <div className="flex items-center gap-2 mb-3">
+                        <p className="text-xs text-pastel-400">헬스체크 프로빙 평균 응답시간</p>
+                        <div className="relative ml-auto">
+                          <button
+                            onClick={() => setLegendOpen(prev => ({ ...prev, trendHC: !prev.trendHC }))}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
+                          >
+                            범례
+                            <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.trendHC ? 'rotate-180' : ''}`} />
+                          </button>
+                          {legendOpen.trendHC && (
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border border-gray-200 shadow-lg p-3 min-w-[160px]">
+                              {trendKeys.map((key) => (
+                                <div key={key} className="flex items-center gap-2 py-1">
+                                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(key)] }} />
+                                  <span className="text-xs text-pastel-700 truncate">{key}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       <ResponsiveContainer width="100%" height={260}>
                         <LineChart data={trendData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
-                          <Legend />
+                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}
@@ -1001,14 +1065,34 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   const trendKeys = Object.keys(latencyTrendUsage).sort();
                   return (
                     <div>
-                      <p className="text-xs text-pastel-400 mb-3">실사용 평균 응답시간</p>
+                      <div className="flex items-center gap-2 mb-3">
+                        <p className="text-xs text-pastel-400">실사용 평균 응답시간</p>
+                        <div className="relative ml-auto">
+                          <button
+                            onClick={() => setLegendOpen(prev => ({ ...prev, trendUsage: !prev.trendUsage }))}
+                            className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
+                          >
+                            범례
+                            <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.trendUsage ? 'rotate-180' : ''}`} />
+                          </button>
+                          {legendOpen.trendUsage && (
+                            <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border border-gray-200 shadow-lg p-3 min-w-[160px]">
+                              {trendKeys.map((key) => (
+                                <div key={key} className="flex items-center gap-2 py-1">
+                                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[stableColorIndex(key)] }} />
+                                  <span className="text-xs text-pastel-700 truncate">{key}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       <ResponsiveContainer width="100%" height={260}>
                         <LineChart data={trendData}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
-                          <Legend />
+                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}
@@ -1100,7 +1184,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#9ca3af" />
                     <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
-                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                    <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
                     <Legend />
                     {sortedModels.map(model => (
                       <Bar key={model} dataKey={model} stackId="timeout" fill={CHART_COLORS[stableColorIndex(model)]} />
