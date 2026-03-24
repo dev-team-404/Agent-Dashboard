@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Plus, Edit2, Trash2, Check, X, Layers,
+  Plus, Edit2, Trash2, Check, X, Layers, Copy,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
   Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
   ShieldCheck, Image, MessageSquare, Mic
@@ -325,6 +325,31 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
       extraBody: model.extraBody ? JSON.stringify(model.extraBody, null, 2) : '',
       maxTokens: model.maxTokens,
       enabled: model.enabled,
+      supportsVision: model.supportsVision,
+      type: model.type || 'CHAT',
+      imageProvider: model.imageProvider || '',
+      asrMethod: model.asrMethod || '',
+      visibility: model.visibility,
+      visibilityScope: model.visibilityScope || [],
+      adminVisible: model.adminVisible ?? false,
+      sortOrder: model.sortOrder,
+    });
+    setFormError('');
+    resetTestStates();
+    setShowModal(true);
+  };
+
+  const openCopyModal = (model: Model) => {
+    setEditingModel(null);
+    setForm({
+      name: model.name,
+      displayName: `${model.displayName} (복사)`,
+      endpointUrl: model.endpointUrl,
+      apiKey: model.apiKey || '',
+      extraHeaders: model.extraHeaders ? JSON.stringify(model.extraHeaders, null, 2) : '',
+      extraBody: model.extraBody ? JSON.stringify(model.extraBody, null, 2) : '',
+      maxTokens: model.maxTokens,
+      enabled: true,
       supportsVision: model.supportsVision,
       type: model.type || 'CHAT',
       imageProvider: model.imageProvider || '',
@@ -948,6 +973,19 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                           title="수정"
                         >
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {isAdmin && (
+                        <button
+                          onClick={() => openCopyModal(model)}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-ios text-xs font-medium
+                                     text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200
+                                     transition-all duration-200"
+                          title="복제"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          복제
                         </button>
                       )}
 

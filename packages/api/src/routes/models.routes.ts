@@ -10,6 +10,7 @@
  */
 
 import { Router, RequestHandler } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 
@@ -170,6 +171,34 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
       } else if (effectiveVisibility === 'BUSINESS_UNIT' && businessUnit) {
         effectiveScope = [businessUnit];
       }
+    }
+
+    // 완전 동일한 모델 중복 탐지 (모든 설정 값이 같은 경우)
+    const duplicateWhere: Record<string, unknown> = {
+      name,
+      displayName,
+      endpointUrl,
+      apiKey: apiKey || null,
+      maxTokens: maxTokens || 128000,
+      enabled: enabled !== false,
+      supportsVision: supportsVision || false,
+      visibility: effectiveVisibility,
+      sortOrder: sortOrder || 0,
+      type: type || 'CHAT',
+      imageProvider: imageProvider || null,
+      adminVisible: adminVisible || false,
+    };
+    // Prisma JSON 필드: 값이 있으면 equals로, null이면 DbNull로 비교
+    duplicateWhere.extraHeaders = { equals: extraHeaders ? extraHeaders : Prisma.DbNull };
+    duplicateWhere.extraBody = { equals: extraBody ? extraBody : Prisma.DbNull };
+
+    const existing = await prisma.model.findFirst({ where: duplicateWhere });
+    if (existing) {
+      res.status(409).json({
+        error: '동일한 설정의 모델이 이미 존재합니다.',
+        existingModel: { id: existing.id, name: existing.name, displayName: existing.displayName },
+      });
+      return;
     }
 
     const model = await prisma.model.create({
