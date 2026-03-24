@@ -377,15 +377,17 @@ function buildDeptPrompt(service: {
   type: string;
   description: string | null;
   createdAt: Date;
-}, deptname: string, deptDau: number, deptCalls: number, lastMonthMau: number, currentMonthMau: number, bizDaysElapsed: number, bizDaysTotal: number, savedMM: number | null, deptLlmCallCount: number, deptTotalTokens: number): string {
+}, deptname: string, deptDau: number, deptCalls: number, lastMonthMau: number, currentMonthMau: number, bizDaysElapsed: number, bizDaysTotal: number, savedMM: number | null, deptLlmCallCount: number, deptTotalTokens: number, numBizDays: number): string {
   const callsPerUser = deptDau > 0 ? Math.round(deptCalls / deptDau * 10) / 10 : 0;
   const tokensPerCall = deptLlmCallCount > 0 ? Math.round(deptTotalTokens / deptLlmCallCount) : 0;
+  const avgDailyCalls = numBizDays > 0 ? Math.round(deptLlmCallCount / numBizDays) : 0;
+  const avgDailyTokens = numBizDays > 0 ? Math.round(deptTotalTokens / numBizDays) : 0;
 
   return [
     `You are estimating the M/M (Man-Month) savings that department "${deptname}" gets from using an AI service.`,
     ``,
     `Your reasoning MUST follow this structure:`,
-    `1. Look at the service description, LLM call count (${deptLlmCallCount.toLocaleString()}), and token usage (${(deptTotalTokens / 1000000).toFixed(2)}M tokens) to understand the complexity and nature of work being automated.`,
+    `1. Look at the service description, LLM call count (${deptLlmCallCount.toLocaleString()} total over ${numBizDays} business days), and token usage (${(deptTotalTokens / 1000000).toFixed(2)}M tokens) to understand the complexity and nature of work being automated.`,
     `2. Estimate per-DAU M/M effect: how much time does 1 daily active user save per month by using this service? Consider that each user makes ~${callsPerUser} calls/day with ~${tokensPerCall} tokens/call.`,
     `3. Then calculate total: with MAU ${lastMonthMau}명 and avg DAU ${deptDau}명, the total M/M savings is estimated.`,
     ``,
@@ -397,17 +399,17 @@ function buildDeptPrompt(service: {
     `Type: ${service.type} (${service.type === 'STANDARD' ? 'interactive user-facing' : 'automated batch processing'})`,
     `Description: ${service.description || 'No description'}`,
     ``,
-    `Department "${deptname}" usage data:`,
+    `Department "${deptname}" usage data (last ${numBizDays} business days):`,
     `- Avg daily active users (DAU): ${deptDau}`,
     `- Avg daily LLM calls: ${deptCalls} (${callsPerUser} calls/user/day)`,
+    `- Total LLM call count (${numBizDays}d): ${deptLlmCallCount.toLocaleString()} (avg ${avgDailyCalls.toLocaleString()}/day)`,
+    `- Total token usage (${numBizDays}d): ${deptTotalTokens.toLocaleString()} tokens (${(deptTotalTokens / 1000000).toFixed(2)}M, avg ${avgDailyTokens.toLocaleString()}/day, ~${tokensPerCall} tokens/call)`,
     `- Last month MAU: ${lastMonthMau}`,
     `- Current month MAU: ${currentMonthMau} (${bizDaysElapsed}/${bizDaysTotal} business days elapsed)`,
-    `- Last month LLM call count: ${deptLlmCallCount.toLocaleString()}`,
-    `- Last month token usage: ${deptTotalTokens.toLocaleString()} tokens (${(deptTotalTokens / 1000000).toFixed(2)}M)`,
     `- Manually recorded Saved M/M: ${savedMM ?? 'not set'}`,
     ``,
     `Respond ONLY with valid JSON:`,
-    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<Korean. 서비스 설명과 LLM 호출량(${deptLlmCallCount.toLocaleString()}회), 토큰 사용량(${(deptTotalTokens / 1000000).toFixed(2)}M)을 보니 DAU 1인당 ~의 M/M 효과가 예상되고, MAU ${lastMonthMau}명·평균 DAU ${deptDau}명이므로 현재 ~의 M/M 효과를 보고있는 것으로 추정된다 형식으로 작성>"}`,
+    `{"estimatedMM": <number 1 decimal>, "confidence": "HIGH"|"MEDIUM"|"LOW", "reasoning": "<Korean. 최근 ${numBizDays}영업일 기준 LLM 호출량(${deptLlmCallCount.toLocaleString()}회), 토큰 사용량(${(deptTotalTokens / 1000000).toFixed(2)}M)을 보니 DAU 1인당 ~의 M/M 효과가 예상되고, MAU ${lastMonthMau}명·평균 DAU ${deptDau}명이므로 현재 ~의 M/M 효과를 보고있는 것으로 추정된다 형식으로 작성>"}`,
   ].join('\n');
 }
 
@@ -495,15 +497,16 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate() + 1)),
   );
 
-  // 4. 서비스별 부서 사용 현황 조회 (최근 5영업일 기준 DAU/calls)
+  // 4. 서비스별 부서 사용 현황 조회 (최근 5영업일 기준 DAU/calls/tokens)
   const deptDailyStats = await prisma.$queryRaw<
-    Array<{ service_id: string; deptname: string; d: Date; dau: bigint; calls: bigint }>
+    Array<{ service_id: string; deptname: string; d: Date; dau: bigint; calls: bigint; total_tokens: bigint }>
   >`
     SELECT ul.service_id::text as service_id,
            u.deptname,
            DATE(ul.timestamp) as d,
            COUNT(DISTINCT ul.user_id) as dau,
-           COALESCE(SUM(ul.request_count), 0) as calls
+           COALESCE(SUM(ul.request_count), 0) as calls,
+           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
@@ -530,16 +533,17 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     return { processed: 0, errors: 0 };
   }
 
-  // 서비스+부서별 평균 DAU/calls 집계
-  const deptAgg = new Map<string, Map<string, { totalDau: number; totalCalls: number }>>();
+  // 서비스+부서별 평균 DAU/calls/tokens 집계
+  const deptAgg = new Map<string, Map<string, { totalDau: number; totalCalls: number; totalTokens: number }>>();
   for (const r of deptDailyStats) {
     const day = new Date(r.d).toISOString().split('T')[0];
     if (!bizDaySet.has(day)) continue;
     if (!deptAgg.has(r.service_id)) deptAgg.set(r.service_id, new Map());
     const svcMap = deptAgg.get(r.service_id)!;
-    const cur = svcMap.get(r.deptname) || { totalDau: 0, totalCalls: 0 };
+    const cur = svcMap.get(r.deptname) || { totalDau: 0, totalCalls: 0, totalTokens: 0 };
     cur.totalDau += Number(r.dau);
     cur.totalCalls += Number(r.calls);
+    cur.totalTokens += Number(r.total_tokens);
     svcMap.set(r.deptname, cur);
   }
 
@@ -589,31 +593,7 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     currentMonthMauMap.get(r.service_id)!.set(r.deptname, Number(r.mau));
   }
 
-  // 7. 지난달 부서별 LLM call count + token usage (서비스별)
-  const lastMonthUsageRows = await prisma.$queryRaw<
-    Array<{ service_id: string; deptname: string; call_count: bigint; total_tokens: bigint }>
-  >`
-    SELECT ul.service_id::text as service_id,
-           u.deptname,
-           COALESCE(SUM(ul.request_count), 0) as call_count,
-           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
-    FROM usage_logs ul
-    INNER JOIN users u ON ul.user_id = u.id
-    WHERE ul.timestamp >= ${lastMonth.start} AND ul.timestamp < ${lastMonth.end}
-      AND u.loginid != 'anonymous'
-      AND ul.service_id IS NOT NULL
-      AND u.deptname IS NOT NULL AND u.deptname != ''
-    GROUP BY ul.service_id, u.deptname
-  `;
-  const lastMonthUsageMap = new Map<string, { callCount: number; totalTokens: number }>();
-  for (const r of lastMonthUsageRows) {
-    lastMonthUsageMap.set(`${r.service_id}::${r.deptname}`, {
-      callCount: Number(r.call_count),
-      totalTokens: Number(r.total_tokens),
-    });
-  }
-
-  // 8. 기존 DeptServiceSavedMM (manual savedMM 조회)
+  // 7. 기존 DeptServiceSavedMM (manual savedMM 조회)
   const existingSavedMMs = await prisma.deptServiceSavedMM.findMany({
     select: { serviceId: true, deptname: true, savedMM: true },
   });
@@ -643,15 +623,16 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
           const lmMau = lastMonthMauMap.get(svc.id)?.get(deptname) ?? 0;
           const cmMau = currentMonthMauMap.get(svc.id)?.get(deptname) ?? 0;
           const manualSavedMM = savedMMMap.get(`${svc.id}::${deptname}`) ?? null;
-          const usageInfo = lastMonthUsageMap.get(`${svc.id}::${deptname}`);
-          const deptLlmCallCount = usageInfo?.callCount ?? 0;
-          const deptTotalTokens = usageInfo?.totalTokens ?? 0;
+          // 최근 5영업일 총 call count + token usage (deptAgg에서 직접 계산)
+          const deptLlmCallCount = agg.totalCalls;
+          const deptTotalTokens = agg.totalTokens;
 
           const prompt = buildDeptPrompt(
             svc, deptname, avgDau, avgCalls,
             lmMau, cmMau,
             currentMonthBizElapsed, currentMonthBizTotal,
             manualSavedMM, deptLlmCallCount, deptTotalTokens,
+            numBizDays,
           );
 
           const raw = await callSystemLlm(model, prompt);
