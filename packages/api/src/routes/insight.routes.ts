@@ -536,7 +536,9 @@ async function handleServiceUsage(req: Request, res: Response) {
       where: { status: 'DEPLOYED' },
       select: { id: true, name: true, displayName: true },
     });
-    const deployedIds = deployedServices.map(s => s.id).filter(id => id !== 'api');
+    const EXCLUDED_SERVICE_NAMES = ['api'];
+    const filteredServices = deployedServices.filter(s => !EXCLUDED_SERVICE_NAMES.includes(s.name));
+    const deployedIds = filteredServices.map(s => s.id);
 
     if (deployedIds.length === 0) {
       res.json({ month: monthLabel, isCurrentMonth, services: [] });
