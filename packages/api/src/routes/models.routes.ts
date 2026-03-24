@@ -298,6 +298,26 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
       },
     });
 
+    // displayName이 변경된 경우 로그 테이블들의 스냅샷도 일괄 갱신
+    if (displayName && model.displayName !== displayName) {
+      const oldName = model.displayName;
+      await Promise.all([
+        prisma.healthCheckLog.updateMany({
+          where: { modelId: id },
+          data: { modelName: displayName },
+        }),
+        prisma.requestLog.updateMany({
+          where: { modelName: oldName },
+          data: { modelName: displayName },
+        }),
+        prisma.ratingFeedback.updateMany({
+          where: { modelName: oldName },
+          data: { modelName: displayName },
+        }),
+      ]);
+      console.log(`[Model] displayName changed: "${oldName}" → "${displayName}" — updated logs`);
+    }
+
     recordAudit(req, 'UPDATE_MODEL', updated.id, 'Model', { name: updated.name, changes: Object.keys(req.body) }).catch(() => {});
     res.json({ model: updated });
   } catch (error) {

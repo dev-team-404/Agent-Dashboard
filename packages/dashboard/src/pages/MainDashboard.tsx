@@ -885,10 +885,11 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
                       const errors = hcErrorMap.get(label as string);
+                      const sorted = [...payload].sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
                       return (
                         <div style={{ background: '#fff', borderRadius: 12, padding: '10px 14px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
                           <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>{label}</p>
-                          {payload.map((entry) => {
+                          {sorted.map((entry) => {
                             const modelName = String(entry.name || '');
                             const val = Number(entry.value || 0);
                             const err = errors?.[modelName];
@@ -968,7 +969,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" tick={{ fontSize: 12 }} stroke="#9ca3af" />
                   <YAxis tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                  <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [`${(value / 1000).toFixed(2)}s`, name]} />
+                  <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} itemSorter={(item) => -(Number(item.value) || 0)} formatter={(value: number, name: string) => [`${(value / 1000).toFixed(2)}s`, name]} />
                   {latencyKeys.map((key, i) => (
                     <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                   ))}
@@ -1041,7 +1042,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
+                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} itemSorter={(item) => -(Number(item.value) || 0)} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}
@@ -1092,7 +1093,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                           <XAxis dataKey="period" tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: string) => latencyGranularity === 'monthly' ? v : v.slice(5)} />
                           <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}ms`} />
-                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
+                          <Tooltip wrapperStyle={{ zIndex: 9999 }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} itemSorter={(item) => -(Number(item.value) || 0)} formatter={(value: number, name: string) => [value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`, name]} />
                           {trendKeys.map((key) => (
                             <RechartsLine key={key} type="monotone" dataKey={key} stroke={CHART_COLORS[stableColorIndex(key)]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                           ))}

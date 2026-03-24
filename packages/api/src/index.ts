@@ -169,6 +169,24 @@ async function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
+// health_check_logs.model_name 스냅샷을 현재 models.displayName으로 일괄 동기화
+async function syncHealthCheckModelNames() {
+  try {
+    const result = await prisma.$executeRaw`
+      UPDATE health_check_logs h
+      SET model_name = m."displayName"
+      FROM models m
+      WHERE h.model_id = m.id
+        AND h.model_name IS DISTINCT FROM m."displayName"
+    `;
+    if (result > 0) {
+      console.log(`[Sync] health_check_logs.model_name 갱신: ${result}건`);
+    }
+  } catch (err) {
+    console.error('[Sync] health_check_logs model_name sync failed:', err);
+  }
+}
+
 // 빈 visibilityScope를 가진 TEAM/BUSINESS_UNIT 모델을 owner 기준으로 자동 채움
 async function backfillEmptyVisibilityScope() {
   try {
@@ -327,6 +345,9 @@ async function main() {
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();
+
+    // health_check_logs의 model_name 스냅샷을 현재 displayName으로 일괄 갱신
+    await syncHealthCheckModelNames();
 
     // LLM 헬스체크 (10분마다)
     startHealthCheckCron();

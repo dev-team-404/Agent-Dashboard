@@ -3353,22 +3353,24 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
       where: { checkedAt: { gte: startTime } },
       orderBy: { checkedAt: 'asc' },
       select: {
-        modelName: true,
+        modelId: true,
         latencyMs: true,
         success: true,
         statusCode: true,
         errorMessage: true,
         checkedAt: true,
+        model: { select: { displayName: true } },
       },
     });
 
-    // 모델별로 그룹핑
+    // 모델별로 그룹핑 (현재 displayName 기준)
     const grouped: Record<string, Array<{ time: string; latency: number | null; success: boolean; error?: string }>> = {};
     for (const c of checks) {
       // 시계 변경 등으로 음수/비정상 latency 필터링
       if (c.latencyMs != null && c.latencyMs < 0) continue;
-      if (!grouped[c.modelName]) grouped[c.modelName] = [];
-      grouped[c.modelName].push({
+      const displayName = c.model.displayName;
+      if (!grouped[displayName]) grouped[displayName] = [];
+      grouped[displayName].push({
         time: c.checkedAt.toISOString(),
         latency: c.latencyMs,
         success: c.success,
@@ -3402,7 +3404,7 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
     // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
     const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
 
-    // 1. 헬스체크 프로빙 추이
+    // 1. 헬스체크 프로빙 추이 (현재 displayName 기준 JOIN)
     const hcTrend = await prisma.$queryRawUnsafe<Array<{
       period: Date;
       model_name: string;
@@ -3411,15 +3413,16 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
       total_count: bigint;
     }>>(
       `SELECT
-        date_trunc($1, checked_at) as period,
-        model_name,
-        AVG(latency_ms) as avg_latency,
-        COUNT(*) FILTER (WHERE success = true) as success_count,
+        date_trunc($1, h.checked_at) as period,
+        m."displayName" as model_name,
+        AVG(h.latency_ms) as avg_latency,
+        COUNT(*) FILTER (WHERE h.success = true) as success_count,
         COUNT(*) as total_count
-      FROM health_check_logs
-      WHERE checked_at >= $2
-      GROUP BY period, model_name
-      ORDER BY period, model_name`,
+      FROM health_check_logs h
+      INNER JOIN models m ON h.model_id = m.id
+      WHERE h.checked_at >= $2
+      GROUP BY period, m."displayName"
+      ORDER BY period, m."displayName"`,
       trunc, startDate
     );
 
@@ -3624,7 +3627,7 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
  */
 adminRoutes.get('/stats/health-status', async (req: AuthenticatedRequest, res) => {
   try {
-    // PostgreSQL DISTINCT ON: 모델별 최신 1건
+    // PostgreSQL DISTINCT ON: 모델별 최신 1건 (현재 displayName JOIN)
     const latestChecks: Array<{
       model_id: string;
       model_name: string;
@@ -3633,10 +3636,12 @@ adminRoutes.get('/stats/health-status', async (req: AuthenticatedRequest, res) =
       error_message: string | null;
       checked_at: Date;
     }> = await prisma.$queryRaw`
-      SELECT DISTINCT ON (model_id)
-        model_id, model_name, latency_ms, success, error_message, checked_at
-      FROM health_check_logs
-      ORDER BY model_id, checked_at DESC
+      SELECT DISTINCT ON (h.model_id)
+        h.model_id, m."displayName" as model_name,
+        h.latency_ms, h.success, h.error_message, h.checked_at
+      FROM health_check_logs h
+      INNER JOIN models m ON h.model_id = m.id
+      ORDER BY h.model_id, h.checked_at DESC
     `;
 
     const totalEnabled = await prisma.model.count({
