@@ -938,6 +938,119 @@ export const swaggerSpec = {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 9. External Usage - POST by-user (API Only 서비스 사용자별 사용 기록 전송)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // GPU Power Usage (DT GPU 전력 사용률)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    '/admin/gpu-power': {
+      servers: [{ url: '/api', description: 'Dashboard Admin API' }],
+      post: {
+        summary: 'Register/Update GPU Power Usage (GPU 전력 사용률 등록/업데이트)',
+        description:
+          'Upsert daily average GPU power usage ratio. If the same date exists, the value is overwritten.\n' +
+          '일자별 GPU 평균 전력 사용률을 등록합니다. 동일 날짜가 존재하면 값이 덮어씌워집니다.\n\n' +
+          '**Authentication**: Dashboard JWT token required (Admin only)\n' +
+          '**인증**: 대시보드 JWT 토큰 필요 (관리자 전용)',
+        tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['date', 'power_avg_usage_ratio'],
+                properties: {
+                  date: { type: 'string', format: 'date', description: 'Date (YYYY-MM-DD) / 날짜', example: '2026-03-25' },
+                  power_avg_usage_ratio: { type: 'number', minimum: 0, maximum: 100, description: 'Average GPU power usage ratio (%) / GPU 평균 전력 사용률 (%)', example: 72.35 },
+                },
+              },
+              examples: {
+                'normal': {
+                  summary: 'Normal usage / 일반 사용률',
+                  value: { date: '2026-03-25', power_avg_usage_ratio: 72.35 },
+                },
+                'high': {
+                  summary: 'High usage / 높은 사용률',
+                  value: { date: '2026-03-24', power_avg_usage_ratio: 95.12 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Saved successfully / 저장 성공',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string', example: 'GPU power usage saved' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        date: { type: 'string', example: '2026-03-25' },
+                        power_avg_usage_ratio: { type: 'number', example: 72.35 },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '400': errorResponse('Invalid request (잘못된 요청)', 'Date must be in YYYY-MM-DD format'),
+          '401': errorResponse('Unauthorized (인증 실패)'),
+          '500': errorResponse('Internal server error (서버 내부 오류)'),
+        },
+      },
+      get: {
+        summary: 'Get Recent 30 Days GPU Power Usage (최근 30일 GPU 전력 사용률 조회)',
+        description:
+          'Returns daily GPU power usage data for the last 30 days, sorted by date ascending.\n' +
+          '최근 30일간의 일자별 GPU 전력 사용률 데이터를 날짜 오름차순으로 반환합니다.\n\n' +
+          '**Authentication**: Dashboard JWT token required (Admin only)\n' +
+          '**인증**: 대시보드 JWT 토큰 필요 (관리자 전용)',
+        tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
+        responses: {
+          '200': {
+            description: 'Success / 성공',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          date: { type: 'string', format: 'date', example: '2026-03-25' },
+                          power_avg_usage_ratio: { type: 'number', example: 72.35 },
+                        },
+                      },
+                    },
+                  },
+                },
+                examples: {
+                  'sample': {
+                    summary: 'Sample response / 예시 응답',
+                    value: {
+                      data: [
+                        { date: '2026-03-23', power_avg_usage_ratio: 65.20 },
+                        { date: '2026-03-24', power_avg_usage_ratio: 71.50 },
+                        { date: '2026-03-25', power_avg_usage_ratio: 72.35 },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '401': errorResponse('Unauthorized (인증 실패)'),
+          '500': errorResponse('Internal server error (서버 내부 오류)'),
+        },
+      },
+    },
+
     '/external-usage/by-user': {
       servers: [{ url: '/api', description: 'External Usage API' }],
       post: {
