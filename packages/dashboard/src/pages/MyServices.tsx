@@ -266,12 +266,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   };
 
   const openEditModal = (service: Service) => {
-    if (service.status === 'DEPLOYED') {
-      setFormError('배포 중인 서비스는 수정할 수 없습니다. 먼저 배포 취소(Undeploy) 후 수정하세요.');
-      setEditingService(service);
-      setShowServiceModal(true);
-      return;
-    }
     setEditingService(service);
     setFormData({
       name: service.name,
@@ -755,26 +749,20 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               <button onClick={closeServiceModal} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             {/* DEPLOYED 상태 안내 */}
-            {editingService.status === 'DEPLOYED' ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm font-medium text-amber-800">배포 중인 서비스는 수정할 수 없습니다.</p>
-                  <p className="text-sm text-amber-600 mt-1">먼저 배포 취소(Undeploy) 후 수정하세요.</p>
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">닫기</button>
-                </div>
+            {editingService.status === 'DEPLOYED' && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-700">배포 중 — 서비스 코드, 표시 이름, 타입은 변경할 수 없습니다. 배포 취소 후 변경 가능합니다.</p>
               </div>
-            ) : (
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">서비스 코드</label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono" />
+                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} disabled={editingService.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono ${editingService.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} />
                 <p className="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 사용 가능</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span className="text-red-500">*</span></label>
-                <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} disabled={editingService.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${editingService.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} />
               </div>
               {/* 소유자 */}
               <div>
@@ -844,7 +832,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">서비스 타입</label>
                   <div className="relative">
-                    <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+                    <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })} disabled={editingService?.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${editingService?.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}>
                       <option value="STANDARD">표준 — UI 있음 (ex. Chatbot)</option>
                       <option value="BACKGROUND">백그라운드 — 자동 실행 (ex. Auto Code Review)</option>
                     </select>
@@ -904,16 +892,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 </div>
               </div>
             </div>
-            )}
-            {formError && !editingService?.status?.includes('DEPLOYED') && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
-            {editingService.status !== 'DEPLOYED' && (
+            {formError && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
               <button onClick={handleSaveService} disabled={formSaving} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}저장
               </button>
             </div>
-            )}
           </div>
         </ModalBackdrop>
       )}

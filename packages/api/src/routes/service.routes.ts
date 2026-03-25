@@ -892,12 +892,20 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       return;
     }
 
-    // DEPLOYED 상태에서는 수정 불가 — undeploy 후 수정
-    if (existing.status !== 'DEVELOPMENT') {
-      res.status(400).json({
-        error: '배포 중인 서비스는 수정할 수 없습니다. 먼저 배포 취소(Undeploy) 후 수정하세요.',
-      });
-      return;
+    // DEPLOYED 상태: name, displayName, type 변경 차단 (프록시 연동 보호)
+    if (existing.status === 'DEPLOYED') {
+      if (validation.data.name && validation.data.name !== existing.name) {
+        res.status(400).json({ error: '배포 중인 서비스의 서비스 코드는 변경할 수 없습니다.' });
+        return;
+      }
+      if (validation.data.displayName && validation.data.displayName !== existing.displayName) {
+        res.status(400).json({ error: '배포 중인 서비스의 표시 이름은 변경할 수 없습니다.' });
+        return;
+      }
+      if (validation.data.type && validation.data.type !== existing.type) {
+        res.status(400).json({ error: '배포 중인 서비스의 타입(STANDARD/BACKGROUND)은 변경할 수 없습니다.' });
+        return;
+      }
     }
 
     // name 변경 시 중복 체크
