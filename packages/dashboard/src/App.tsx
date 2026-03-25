@@ -43,6 +43,7 @@ const PublicDashboard = lazyWithRetry(() => import('./pages/PublicDashboard'));
 const InsightUsageRate = lazyWithRetry(() => import('./pages/InsightUsageRate'));
 const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUsage'));
 const DeptMapping = lazyWithRetry(() => import('./pages/DeptMapping'));
+const OrgTree = lazyWithRetry(() => import('./pages/OrgTree'));
 
 interface User {
   id: string;
@@ -171,6 +172,7 @@ function App() {
               <Route path="/error-management" element={<ErrorManagement />} />
               <Route path="/knox-verifications" element={<KnoxVerifications />} />
               <Route path="/dept-mapping" element={<DeptMapping />} />
+              <Route path="/org-tree" element={<OrgTree />} />
             </>
           )}
 

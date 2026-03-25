@@ -415,6 +415,14 @@ export const deptMappingApi = {
   sync: () => api.post('/admin/dept-mapping/sync'),
 };
 
+// 조직도 트리 API
+export const orgTreeApi = {
+  getTree: () => api.get('/admin/org-tree'),
+  sync: () => api.post('/admin/org-tree/sync'),
+  discover: (departmentCode: string) => api.post('/admin/org-tree/discover', { departmentCode }),
+  refresh: (departmentCode: string) => api.post(`/admin/org-tree/refresh/${encodeURIComponent(departmentCode)}`),
+};
+
 // 공개 통계 API (인증 불필요)
 export const publicStatsApi = {
   dauMau: (year: number, month: number) =>

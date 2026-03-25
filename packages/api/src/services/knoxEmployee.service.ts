@@ -391,6 +391,15 @@ export async function verifyAndRegisterUser(
     },
   });
 
+  // 조직도 트리 자동 업데이트 (비동기, 실패해도 인증에 영향 없음)
+  if (employee.departmentCode) {
+    import('./orgTree.service.js').then(({ discoverDepartment }) => {
+      discoverDepartment(employee.departmentCode).catch(err => {
+        console.error('[OrgTree] Auto-discover failed (non-blocking):', err);
+      });
+    }).catch(() => {});
+  }
+
   // 인증 성공 로그
   await recordVerification({ loginid, username: employee.fullName, knoxDeptName: employee.departmentName, claimedDeptName, method, endpoint, success: true, errorMessage: null, ipAddress });
 

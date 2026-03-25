@@ -594,3 +594,25 @@ model DeptServiceSavedMM {
   @@map("dept_service_saved_mm")
 }
 
+// ============================================
+// 조직도 트리 노드 (Knox Organization API 기반)
+// ============================================
+model OrgNode {
+  id                    String   @id @default(uuid())
+  departmentCode        String   @unique @map("department_code")        // Knox 부서코드
+  departmentName        String   @map("department_name")                // 한글 부서명
+  enDepartmentName      String   @map("en_department_name")             // 영문 부서명
+  parentDepartmentCode  String?  @map("parent_department_code")         // 상위 부서코드 (null = root)
+  departmentLevel       String?  @map("department_level")               // 부서 레벨
+  companyCode           String?  @map("company_code")
+  managerId             String?  @map("manager_id")                     // 부서장 ID
+  managerName           String?  @map("manager_name")                   // 부서장 성명
+  hasChildren           Boolean  @default(false) @map("has_children")   // 하위부서 존재 여부
+  userCount             Int      @default(0) @map("user_count")         // 이 부서 소속 시스템 사용자 수
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([parentDepartmentCode])
+  @@map("org_nodes")
+}
+

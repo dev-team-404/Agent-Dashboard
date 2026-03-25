@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, Building2 } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, Building2, FolderTree } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -105,6 +105,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/knox-verifications') return '인증 기록';
     if (location.pathname === '/insight-usage-rate') return 'AI 사용률 인사이트';
     if (location.pathname === '/insight-service-usage') return '서비스 사용량 인사이트';
+    if (location.pathname === '/org-tree') return '조직도';
     if (location.pathname === '/dept-mapping') return '부서 매핑 관리';
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
@@ -212,6 +213,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/error-management" label="에러 관리" icon={AlertTriangle} />
                 <NavLink path="/knox-verifications" label="인증 기록" icon={ShieldCheck} />
                 <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
+                <NavLink path="/org-tree" label="조직도" icon={FolderTree} />
                 <NavLink path="/dept-mapping" label="부서 매핑 관리" icon={Building2} />
               </div>
             </div>
