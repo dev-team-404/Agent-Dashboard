@@ -324,15 +324,18 @@ myUsageRoutes.get('/by-service', async (req: AuthenticatedRequest, res) => {
 
     const serviceMap = new Map(services.map(s => [s.id, s]));
 
-    const result = usage.map(u => ({
-      serviceId: u.serviceId,
-      serviceName: serviceMap.get(u.serviceId!)?.name || 'Unknown',
-      serviceDisplayName: serviceMap.get(u.serviceId!)?.displayName || 'Unknown',
-      requests: u._count,
-      inputTokens: u._sum?.inputTokens ?? 0,
-      outputTokens: u._sum?.outputTokens ?? 0,
-      totalTokens: u._sum?.totalTokens ?? 0,
-    }));
+    // Unknown 서비스 필터링: serviceMap에 존재하는 것만 포함
+    const result = usage
+      .filter(u => serviceMap.has(u.serviceId!))
+      .map(u => ({
+        serviceId: u.serviceId,
+        serviceName: serviceMap.get(u.serviceId!)!.name,
+        serviceDisplayName: serviceMap.get(u.serviceId!)!.displayName,
+        requests: u._count,
+        inputTokens: u._sum?.inputTokens ?? 0,
+        outputTokens: u._sum?.outputTokens ?? 0,
+        totalTokens: u._sum?.totalTokens ?? 0,
+      }));
 
     res.json({ usage: result });
   } catch (error) {
@@ -389,11 +392,14 @@ myUsageRoutes.get('/recent', async (req: AuthenticatedRequest, res) => {
       prisma.usageLog.count({ where: whereClause }),
     ]);
 
+    // Unknown 서비스 제외: service가 존재하는 로그만 반환
+    const filteredLogs = logs.filter(log => log.service !== null);
+
     res.json({
-      logs: logs.map(log => ({
+      logs: filteredLogs.map(log => ({
         id: log.id,
         modelName: log.model.displayName,
-        serviceName: log.service?.displayName || 'Unknown',
+        serviceName: log.service!.displayName,
         serviceId: log.serviceId,
         inputTokens: log.inputTokens,
         outputTokens: log.outputTokens,

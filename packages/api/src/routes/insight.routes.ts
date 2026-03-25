@@ -494,17 +494,21 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const savedMMKey = (serviceId: string, deptname: string) => `${serviceId}:${deptname}`;
     const savedMMMap = new Map(savedMMEntries.map(e => [savedMMKey(e.serviceId, e.deptname), e.savedMM]));
 
-    const teamServices = teamServiceRows.map(r => {
-      const svc = svcMap.get(r.service_id);
-      return {
-        team: deptGroupMap.get(r.deptname) || r.deptname,
-        serviceDisplayName: svc?.displayName || 'Unknown',
-        serviceType: svc?.type || 'STANDARD',
-        savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
-        mau: Number(r.mau),
-        llmCallCount: Number(r.llm_call_count),
-      };
-    }).sort((a, b) => b.llmCallCount - a.llmCallCount);
+    // Unknown 서비스 제외: svcMap에 존재하는 것만 포함
+    const teamServices = teamServiceRows
+      .filter(r => svcMap.has(r.service_id))
+      .map(r => {
+        const svc = svcMap.get(r.service_id)!;
+        return {
+          team: deptGroupMap.get(r.deptname) || r.deptname,
+          serviceDisplayName: svc.displayName,
+          serviceType: svc.type || 'STANDARD',
+          savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
+          mau: Number(r.mau),
+          llmCallCount: Number(r.llm_call_count),
+        };
+      })
+      .sort((a, b) => b.llmCallCount - a.llmCallCount);
 
     res.json({
       centerName,
@@ -572,19 +576,22 @@ async function handleServiceUsage(req: Request, res: Response) {
 
     const svcMap = new Map(deployedServices.map(s => [s.id, s]));
 
-    const data = usageRows.map(r => {
-      const svc = svcMap.get(r.service_id);
-      return {
-        displayName: svc?.displayName || 'Unknown',
-        llmCallCount: Number(r.llm_call_count),
-        tokenUsage: {
-          input: Number(r.total_input),
-          output: Number(r.total_output),
-          total: Number(r.total_tokens),
-        },
-        mau: Number(r.mau),
-      };
-    });
+    // Unknown 서비스 제외: svcMap에 존재하는 것만 포함
+    const data = usageRows
+      .filter(r => svcMap.has(r.service_id))
+      .map(r => {
+        const svc = svcMap.get(r.service_id)!;
+        return {
+          displayName: svc.displayName,
+          llmCallCount: Number(r.llm_call_count),
+          tokenUsage: {
+            input: Number(r.total_input),
+            output: Number(r.total_output),
+            total: Number(r.total_tokens),
+          },
+          mau: Number(r.mau),
+        };
+      });
 
     res.json({
       month: monthLabel,

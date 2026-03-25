@@ -322,20 +322,24 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
         `
       : [];
 
-    const data = stats.map(r => {
-      const svc = serviceMap.get(r.service_id);
-      return {
-        deptname: r.deptname,
-        businessUnit: extractBusinessUnit(r.deptname),
-        serviceName: svc?.name || 'unknown',
-        serviceDisplayName: svc?.displayName || 'Unknown',
-        totalInputTokens: Number(r.total_input),
-        totalOutputTokens: Number(r.total_output),
-        totalTokens: Number(r.total_input) + Number(r.total_output),
-        requestCount: Number(r.request_count),
-        uniqueUsers: Number(r.unique_users),
-      };
-    }).sort((a, b) => a.deptname.localeCompare(b.deptname));
+    // Unknown 서비스 제외: serviceMap에 존재하는 것만 포함
+    const data = stats
+      .filter(r => serviceMap.has(r.service_id))
+      .map(r => {
+        const svc = serviceMap.get(r.service_id)!;
+        return {
+          deptname: r.deptname,
+          businessUnit: extractBusinessUnit(r.deptname),
+          serviceName: svc.name,
+          serviceDisplayName: svc.displayName,
+          totalInputTokens: Number(r.total_input),
+          totalOutputTokens: Number(r.total_output),
+          totalTokens: Number(r.total_input) + Number(r.total_output),
+          requestCount: Number(r.request_count),
+          uniqueUsers: Number(r.unique_users),
+        };
+      })
+      .sort((a, b) => a.deptname.localeCompare(b.deptname));
 
     res.json({ data });
   } catch (err) {
@@ -976,8 +980,9 @@ publicStatsRoutes.get('/dtgpt/service-usage', async (req: Request, res: Response
         entry['기타'].outputTokens += Number(r.output_tokens);
         entry['기타'].totalTokens += Number(r.total_tokens);
       } else {
-        // G1 또는 G2: 개별 서비스명으로 표시
-        const name = svcNameMap.get(r.service_id) || 'Unknown';
+        // G1 또는 G2: 개별 서비스명으로 표시 (Unknown 서비스 제외)
+        const name = svcNameMap.get(r.service_id);
+        if (!name) continue; // Unknown 서비스는 스킵
         if (!entry[name]) entry[name] = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
         entry[name].inputTokens += Number(r.input_tokens);
         entry[name].outputTokens += Number(r.output_tokens);
