@@ -941,15 +941,14 @@ export const swaggerSpec = {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // GPU Power Usage (DT GPU 전력 사용률)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    '/admin/gpu-power': {
-      servers: [{ url: '/api', description: 'Dashboard Admin API' }],
+    '/gpu-power': {
+      servers: [{ url: '/api', description: 'GPU Power API (No Auth)' }],
       post: {
         summary: 'Register/Update GPU Power Usage (GPU 전력 사용률 등록/업데이트)',
         description:
           'Upsert daily average GPU power usage ratio. If the same date exists, the value is overwritten.\n' +
           '일자별 GPU 평균 전력 사용률을 등록합니다. 동일 날짜가 존재하면 값이 덮어씌워집니다.\n\n' +
-          '**Authentication**: Dashboard JWT token required (Admin only)\n' +
-          '**인증**: 대시보드 JWT 토큰 필요 (관리자 전용)',
+          '**Authentication**: None (인증 불필요)',
         tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
         requestBody: {
           required: true,
@@ -998,7 +997,6 @@ export const swaggerSpec = {
             },
           },
           '400': errorResponse('Invalid request (잘못된 요청)', 'Date must be in YYYY-MM-DD format'),
-          '401': errorResponse('Unauthorized (인증 실패)'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
@@ -1007,8 +1005,7 @@ export const swaggerSpec = {
         description:
           'Returns daily GPU power usage data for the last 30 days, sorted by date ascending.\n' +
           '최근 30일간의 일자별 GPU 전력 사용률 데이터를 날짜 오름차순으로 반환합니다.\n\n' +
-          '**Authentication**: Dashboard JWT token required (Admin only)\n' +
-          '**인증**: 대시보드 JWT 토큰 필요 (관리자 전용)',
+          '**Authentication**: None (인증 불필요)',
         tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
         responses: {
           '200': {
@@ -1045,7 +1042,6 @@ export const swaggerSpec = {
               },
             },
           },
-          '401': errorResponse('Unauthorized (인증 실패)'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },

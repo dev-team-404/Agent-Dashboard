@@ -425,8 +425,8 @@ export const orgTreeApi = {
 
 // GPU Power Usage API
 export const gpuPowerApi = {
-  list: () => api.get<{ data: Array<{ date: string; power_avg_usage_ratio: number }> }>('/admin/gpu-power'),
-  save: (data: { date: string; power_avg_usage_ratio: number }) => api.post('/admin/gpu-power', data),
+  list: () => api.get<{ data: Array<{ date: string; power_avg_usage_ratio: number }> }>('/gpu-power'),
+  save: (data: { date: string; power_avg_usage_ratio: number }) => api.post('/gpu-power', data),
 };
 
 // 공개 통계 API (인증 불필요)

@@ -106,7 +106,7 @@ app.use('/admin', deptSavedMMRoutes);
 app.use('/admin', insightRoutes);
 app.use('/admin', deptMappingRoutes);
 app.use('/admin', orgTreeRoutes);
-app.use('/admin/gpu-power', gpuPowerRoutes);
+app.use('/gpu-power', gpuPowerRoutes);
 app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
