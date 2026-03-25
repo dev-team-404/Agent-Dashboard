@@ -355,9 +355,10 @@ export default function OrgTree() {
 
   const filteredTree = filterTree(tree, search);
 
-  // 검색 시 매칭된 경로 전체 자동 확장
+  // 검색어 변경 시 매칭된 경로 전체 자동 확장
   useEffect(() => {
     if (!search) return;
+    const filtered = filterTree(tree, search);
     const toExpand = new Set<string>();
     const collectExpanded = (nodes: OrgTreeNode[]) => {
       for (const n of nodes) {
@@ -367,9 +368,11 @@ export default function OrgTree() {
         }
       }
     };
-    collectExpanded(filteredTree);
+    collectExpanded(filtered);
     setExpandedSet(toExpand);
-  }, [search, filteredTree.length]);
+  // tree, search만 의존 — filteredTree 참조하지 않아 루프 방지
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, tree]);
 
   if (loading) {
     return (

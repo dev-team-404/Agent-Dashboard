@@ -55,16 +55,8 @@ orgTreeRoutes.get('/org-tree', (async (req: AuthenticatedRequest, res) => {
   try {
     const tree = await getFullOrgTree();
 
-    // 통계
+    // 통계 (트리 기반 — 실제 root 수와 일치)
     const totalNodes = await prisma.orgNode.count();
-    const rootNodes = await prisma.orgNode.count({
-      where: {
-        OR: [
-          { parentDepartmentCode: null },
-          // parentDepartmentCode가 DB에 없는 노드도 root 취급 (트리 구축에서 처리됨)
-        ],
-      },
-    });
     const nodesWithUsers = await prisma.orgNode.count({
       where: { userCount: { gt: 0 } },
     });
@@ -73,7 +65,7 @@ orgTreeRoutes.get('/org-tree', (async (req: AuthenticatedRequest, res) => {
       tree,
       stats: {
         totalNodes,
-        rootNodes,
+        rootNodes: tree.length, // 실제 트리 root 수 (부모가 DB에 없는 노드 포함)
         nodesWithUsers,
       },
     });

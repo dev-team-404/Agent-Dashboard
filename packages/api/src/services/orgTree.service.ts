@@ -179,6 +179,9 @@ export async function updateUserCounts(): Promise<void> {
  * DB의 모든 org_nodes를 tree 형태로 반환
  */
 export async function getFullOrgTree(): Promise<OrgTreeNode[]> {
+  // userCount 최신화 후 조회
+  await updateUserCounts();
+
   const allNodes = await prisma.orgNode.findMany({
     orderBy: [
       { departmentLevel: 'asc' },
@@ -186,16 +189,7 @@ export async function getFullOrgTree(): Promise<OrgTreeNode[]> {
     ],
   });
 
-  // userCount 최신화
-  await updateUserCounts();
-  const refreshed = await prisma.orgNode.findMany({
-    orderBy: [
-      { departmentLevel: 'asc' },
-      { departmentName: 'asc' },
-    ],
-  });
-
-  return buildTree(refreshed);
+  return buildTree(allNodes);
 }
 
 /**
