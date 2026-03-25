@@ -80,6 +80,8 @@ interface ServiceFormData {
   registeredBy: string;
   registeredByName: string;
   registeredByDept: string;
+  deployScope: 'ALL' | 'TEAM';
+  deployScopeValue: string[];
 }
 
 const EMPTY_FORM: ServiceFormData = {
@@ -97,6 +99,8 @@ const EMPTY_FORM: ServiceFormData = {
   registeredBy: '',
   registeredByName: '',
   registeredByDept: '',
+  deployScope: 'ALL',
+  deployScopeValue: [],
 };
 
 const SERVICE_CATEGORIES = [
@@ -282,6 +286,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       registeredBy: service.registeredBy || '',
       registeredByName: '',
       registeredByDept: service.registeredByDept || '',
+      deployScope: (service.deployScope === 'BUSINESS_UNIT' ? 'TEAM' : service.deployScope || 'ALL') as 'ALL' | 'TEAM',
+      deployScopeValue: service.deployScopeValue || [],
     });
     setShowOwnerSearch(false);
     setOwnerQuery('');
@@ -315,11 +321,16 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
       jiraTicket: formData.jiraTicket.trim() || null,
     };
-    // 수정 시: name, registeredBy 포함
+    // 수정 시: name, registeredBy, deployScope 포함
     if (editingService) {
       if (formData.name !== editingService.name) payload.name = formData.name;
       if (formData.registeredBy && formData.registeredBy !== editingService.registeredBy) {
         payload.registeredBy = formData.registeredBy;
+      }
+      // 배포 중인 서비스: 공개범위 변경 포함
+      if (editingService.status === 'DEPLOYED') {
+        payload.deployScope = formData.deployScope === 'ALL' ? 'ALL' : 'TEAM';
+        payload.deployScopeValue = formData.deployScope !== 'ALL' ? formData.deployScopeValue : [];
       }
     }
     return payload;
@@ -855,6 +866,39 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   </div>
                 </div>
               </div>
+
+              {/* 공개범위 — DEPLOYED 서비스에서만 편집 모달에 표시 */}
+              {editingService?.status === 'DEPLOYED' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">공개 범위</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, deployScope: 'ALL', deployScopeValue: [] })}
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
+                        ${formData.deployScope === 'ALL' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                    >
+                      전체 공개
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, deployScope: 'TEAM' })}
+                      className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
+                        ${formData.deployScope === 'TEAM' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                    >
+                      부서 선택
+                    </button>
+                  </div>
+                  {formData.deployScope === 'TEAM' && (
+                    <OrgTreeSelector
+                      selected={formData.deployScopeValue}
+                      onChange={(next) => setFormData({ ...formData, deployScopeValue: next })}
+                      maxHeight="max-h-48"
+                    />
+                  )}
+                </div>
+              )}
+
               {/* API Only 토글 */}
               <div className="flex items-center justify-between p-3 bg-amber-50/60 border border-amber-200/80 rounded-lg">
                 <div>
