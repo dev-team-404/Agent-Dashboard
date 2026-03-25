@@ -472,11 +472,11 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       GROUP BY u.deptname, ul.service_id
     `;
 
-    // Get service info
+    // Get service info (DEPLOYED only)
     const svcIds = [...new Set(teamServiceRows.map(r => r.service_id))];
     const services = svcIds.length > 0
       ? await prisma.service.findMany({
-          where: { id: { in: svcIds } },
+          where: { id: { in: svcIds }, status: 'DEPLOYED' },
           select: { id: true, name: true, displayName: true, type: true },
         })
       : [];
