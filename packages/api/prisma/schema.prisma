@@ -595,6 +595,19 @@ model DeptServiceSavedMM {
 }
 
 // ============================================
+// DT GPU Power Usage (일자별 전력 사용률)
+// ============================================
+model GpuPowerUsage {
+  id                 String   @id @default(uuid())
+  date               DateTime @db.Date @unique          // 집계 날짜
+  powerAvgUsageRatio Float    @map("power_avg_usage_ratio") // 평균 전력 사용률 (%)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("gpu_power_usages")
+}
+
+// ============================================
 // 조직도 트리 노드 (Knox Organization API 기반)
 // ============================================
 model OrgNode {

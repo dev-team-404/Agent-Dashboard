@@ -423,6 +423,12 @@ export const orgTreeApi = {
   refresh: (departmentCode: string) => api.post(`/admin/org-tree/refresh/${encodeURIComponent(departmentCode)}`),
 };
 
+// GPU Power Usage API
+export const gpuPowerApi = {
+  list: () => api.get<{ data: Array<{ date: string; power_avg_usage_ratio: number }> }>('/admin/gpu-power'),
+  save: (data: { date: string; power_avg_usage_ratio: number }) => api.post('/admin/gpu-power', data),
+};
+
 // 공개 통계 API (인증 불필요)
 export const publicStatsApi = {
   dauMau: (year: number, month: number) =>
