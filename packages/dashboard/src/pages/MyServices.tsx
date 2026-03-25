@@ -7,6 +7,7 @@ import {
   ArrowLeft, ArrowRight, Check, ExternalLink, FileText, Ticket
 } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
+import OrgTreeSelector from '../components/OrgTreeSelector';
 
 // ── Types ──
 
@@ -183,8 +184,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   // Deploy modal
   const [deployTarget, setDeployTarget] = useState<Service | null>(null);
   const [deploying, setDeploying] = useState(false);
-  const [deployScope, setDeployScope] = useState<'ALL' | 'BUSINESS_UNIT' | 'TEAM'>('ALL');
-  const [deployScopeValue, setDeployScopeValue] = useState('');
+  const [deployScope, setDeployScope] = useState<'ALL' | 'TEAM'>('ALL');
+  const [deployScopeValue, setDeployScopeValue] = useState<string[]>([]);
 
 
   // ── Load services ──
@@ -366,11 +367,9 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const openDeployModal = (service: Service) => {
     setDeployTarget(service);
     // Pre-fill scope from existing service data or default to ALL
-    setDeployScope(service.deployScope || 'ALL');
-    setDeployScopeValue(
-      (service.deployScopeValue || []).join(', ') ||
-      (service.registeredByBusinessUnit || service.registeredByDept || '')
-    );
+    const scope = service.deployScope || 'ALL';
+    setDeployScope(scope === 'BUSINESS_UNIT' ? 'TEAM' : scope as 'ALL' | 'TEAM');
+    setDeployScopeValue(service.deployScopeValue || []);
   };
 
   const handleDeploy = async () => {
@@ -378,10 +377,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     setDeploying(true);
     try {
       await api.post(`/services/${deployTarget.id}/deploy`, {
-        deployScope,
-        deployScopeValue: deployScope !== 'ALL' && deployScopeValue
-          ? deployScopeValue.split(',').map((v: string) => v.trim()).filter(Boolean)
-          : [],
+        deployScope: deployScope === 'ALL' ? 'ALL' : 'TEAM',
+        deployScopeValue: deployScope !== 'ALL' ? deployScopeValue : [],
       });
       setDeployTarget(null);
       await loadServices();
@@ -566,15 +563,11 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                           <span className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
                             service.deployScope === 'ALL'
                               ? 'bg-blue-50 text-blue-600'
-                              : service.deployScope === 'BUSINESS_UNIT'
-                                ? 'bg-amber-50 text-amber-700'
-                                : 'bg-green-50 text-green-700'
+                              : 'bg-purple-50 text-purple-700'
                           }`}>
                             {service.deployScope === 'ALL'
                               ? '전체 공개'
-                              : service.deployScope === 'BUSINESS_UNIT'
-                                ? `사업부: ${(service.deployScopeValue || []).join(', ')}`
-                                : `팀: ${(service.deployScopeValue || []).join(', ')}`}
+                              : `부서 선택 (${(service.deployScopeValue || []).length})`}
                           </span>
                         )}
                       </div>
@@ -962,48 +955,37 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
             {/* Deploy scope selection */}
             <div className="space-y-3 mb-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">공개 범위</label>
-                <div className="relative">
-                  <select
-                    value={deployScope}
-                    onChange={(e) => {
-                      const scope = e.target.value as 'ALL' | 'BUSINESS_UNIT' | 'TEAM';
-                      setDeployScope(scope);
-                      if (scope === 'BUSINESS_UNIT') {
-                        setDeployScopeValue(deployTarget.registeredByBusinessUnit || deployTarget.registeredByDept || '');
-                      } else if (scope === 'TEAM') {
-                        setDeployScopeValue(deployTarget.registeredByDept || '');
-                      } else {
-                        setDeployScopeValue('');
-                      }
-                    }}
-                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors appearance-none pr-8"
+                <label className="block text-sm font-medium text-gray-700 mb-2">공개 범위</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setDeployScope('ALL'); setDeployScopeValue([]); }}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
+                      ${deployScope === 'ALL' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                   >
-                    <option value="ALL">전체 공개 (ALL)</option>
-                    <option value="BUSINESS_UNIT">사업부 공개 (BUSINESS_UNIT)</option>
-                    <option value="TEAM">팀 공개 (TEAM)</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    전체 공개
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeployScope('TEAM')}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
+                      ${deployScope === 'TEAM' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                  >
+                    부서 선택
+                  </button>
                 </div>
               </div>
 
-              {deployScope !== 'ALL' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {deployScope === 'BUSINESS_UNIT' ? '사업부명' : '팀명'} (콤마로 구분하여 복수 입력 가능)
-                  </label>
-                  <input
-                    type="text"
-                    value={deployScopeValue}
-                    onChange={(e) => setDeployScopeValue(e.target.value)}
-                    placeholder={deployScope === 'BUSINESS_UNIT' ? '예: AI사업부, 플랫폼사업부' : '예: AI개발팀, 백엔드팀'}
-                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                  />
-                </div>
+              {deployScope === 'TEAM' && (
+                <OrgTreeSelector
+                  selected={deployScopeValue}
+                  onChange={setDeployScopeValue}
+                  maxHeight="max-h-48"
+                />
               )}
 
               <p className="text-xs text-gray-400 leading-relaxed">
-                전체 공개: 모든 사용자에게 노출 | 사업부 공개: 같은 사업부 사용자에게만 노출 | 팀 공개: 같은 팀 사용자에게만 노출
+                전체 공개: 모든 사용자에게 노출 | 부서 선택: 조직도에서 선택한 부서의 사용자에게만 노출
               </p>
             </div>
 

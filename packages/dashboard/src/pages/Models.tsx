@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Edit2, Trash2, Check, X, Layers, Copy,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
   Users, Lock, Search, ToggleLeft, ToggleRight, Cpu, Sparkles,
   ShieldCheck, Image, MessageSquare, Mic
 } from 'lucide-react';
-import { modelsApi, scopeApi, statsApi } from '../services/api';
+import { modelsApi, statsApi } from '../services/api';
+import OrgTreeSelector from '../components/OrgTreeSelector';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -78,8 +79,8 @@ type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPE
 
 const VISIBILITY_CONFIG: Record<VisibilityType, { label: string; icon: typeof Globe; color: string; bg: string; desc: string }> = {
   PUBLIC: { label: '전체 공개', icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: '모든 서비스에서 사용 가능' },
-  BUSINESS_UNIT: { label: '사업부', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '동일 사업부 서비스만 사용 가능' },
-  TEAM: { label: '팀 전용', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '동일 부서 서비스만 사용 가능' },
+  BUSINESS_UNIT: { label: '부서 선택', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '조직도에서 허용할 부서를 선택합니다' },
+  TEAM: { label: '부서 선택', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '조직도에서 허용할 부서를 선택합니다' },
   ADMIN_ONLY: { label: '시스템 관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: '시스템 관리자 + 슈퍼관리자 접근 가능' },
   SUPER_ADMIN_ONLY: { label: '슈퍼관리자만', icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: '슈퍼관리자만 접근 가능' },
 };
@@ -102,109 +103,6 @@ const emptyForm = {
   adminVisible: false,
   sortOrder: 0,
 };
-
-/* ──────────────────────────────────────────────
-   Multi-Select Dropdown Component
-   ────────────────────────────────────────────── */
-function MultiSelectDropdown({
-  label,
-  options,
-  selected,
-  onChange,
-  loading,
-  placeholder,
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-  loading: boolean;
-  placeholder: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const toggle = (val: string) => {
-    if (selected.includes(val)) onChange(selected.filter(v => v !== val));
-    else onChange([...selected, val]);
-  };
-
-  return (
-    <div className="mt-3" ref={ref}>
-      <label className="block text-xs font-medium text-pastel-600 mb-1">{label}</label>
-
-      {/* Selected pills */}
-      <div
-        className="min-h-[42px] w-full px-3 py-2 border border-pastel-200 rounded-ios text-sm bg-white cursor-pointer
-                   focus-within:ring-2 focus-within:ring-samsung-blue/20 focus-within:border-samsung-blue transition-all
-                   flex flex-wrap items-center gap-1.5"
-        onClick={() => setOpen(!open)}
-      >
-        {selected.length === 0 && (
-          <span className="text-pastel-400 text-sm">{placeholder}</span>
-        )}
-        {selected.map(item => (
-          <span
-            key={item}
-            className="inline-flex items-center gap-1 px-2 py-0.5 bg-samsung-blue/10 text-samsung-blue text-xs font-medium rounded-full"
-          >
-            {item}
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); toggle(item); }}
-              className="hover:text-red-500 transition-colors"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {/* Dropdown panel */}
-      {open && (
-        <div className="relative z-30">
-          <div className="absolute top-1 left-0 right-0 bg-white border border-pastel-200 rounded-ios shadow-card max-h-48 overflow-y-auto animate-slide-down">
-            {loading ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="w-4 h-4 animate-spin text-samsung-blue" />
-                <span className="ml-2 text-xs text-pastel-500">로딩 중...</span>
-              </div>
-            ) : options.length === 0 ? (
-              <p className="text-xs text-pastel-400 py-3 text-center">항목이 없습니다</p>
-            ) : (
-              options.map(opt => {
-                const checked = selected.includes(opt);
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => toggle(opt)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors
-                      ${checked ? 'bg-samsung-blue/5 text-samsung-blue' : 'hover:bg-pastel-50 text-pastel-700'}`}
-                  >
-                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0
-                      ${checked ? 'border-samsung-blue bg-samsung-blue' : 'border-pastel-300'}`}>
-                      {checked && <Check className="w-3 h-3 text-white" />}
-                    </div>
-                    {opt}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ──────────────────────────────────────────────
    Main Component
@@ -245,10 +143,6 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
   const [asrTestRunning, setAsrTestRunning] = useState(false);
   const [asrTestResult, setAsrTestResult] = useState<{ passed: boolean; message?: string } | null>(null);
 
-  // Scope options for multi-select
-  const [scopeOptions, setScopeOptions] = useState<string[]>([]);
-  const [scopeLoading, setScopeLoading] = useState(false);
-
   // Auto-refresh every 30s (with jitter)
   useEffect(() => {
     loadModels();
@@ -266,25 +160,6 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
       // 비관리자 등 접근 불가 시 무시
     }
   };
-
-  // Load scope options when visibility changes
-  useEffect(() => {
-    if (form.visibility === 'BUSINESS_UNIT') {
-      setScopeLoading(true);
-      scopeApi.businessUnits()
-        .then(res => setScopeOptions(res.data.businessUnits || []))
-        .catch(() => setScopeOptions([]))
-        .finally(() => setScopeLoading(false));
-    } else if (form.visibility === 'TEAM') {
-      setScopeLoading(true);
-      scopeApi.departments()
-        .then(res => setScopeOptions(res.data.departments || []))
-        .catch(() => setScopeOptions([]))
-        .finally(() => setScopeLoading(false));
-    } else {
-      setScopeOptions([]);
-    }
-  }, [form.visibility]);
 
   const loadModels = useCallback(async () => {
     try {
@@ -722,7 +597,8 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
     const matchesSearch = !searchQuery ||
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.displayName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesVisibility = !visibilityFilter || m.visibility === visibilityFilter;
+    const matchesVisibility = !visibilityFilter || m.visibility === visibilityFilter
+      || (visibilityFilter === 'TEAM' && m.visibility === 'BUSINESS_UNIT');
     return matchesSearch && matchesVisibility;
   });
 
@@ -797,7 +673,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
           >
             전체
           </button>
-          {(Object.keys(VISIBILITY_CONFIG) as VisibilityType[]).map(v => {
+          {(['PUBLIC', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] as VisibilityType[]).map(v => {
             const cfg = VISIBILITY_CONFIG[v];
             const Icon = cfg.icon;
             return (
@@ -1236,16 +1112,17 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
               {/* ── Visibility ── */}
               <div>
                 <label className="block text-sm font-medium text-pastel-700 mb-2">접근 범위</label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {(Object.keys(VISIBILITY_CONFIG) as VisibilityType[]).map(v => {
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['PUBLIC', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] as VisibilityType[]).map(v => {
                     const cfg = VISIBILITY_CONFIG[v];
                     const Icon = cfg.icon;
-                    const isSelected = form.visibility === v;
+                    // BUSINESS_UNIT 기존 데이터도 TEAM 버튼에 active로 표시
+                    const isSelected = form.visibility === v || (v === 'TEAM' && form.visibility === 'BUSINESS_UNIT');
                     return (
                       <button
                         key={v}
                         type="button"
-                        onClick={() => setForm({ ...form, visibility: v, visibilityScope: [], adminVisible: false })}
+                        onClick={() => setForm({ ...form, visibility: v === 'TEAM' ? 'TEAM' : v, visibilityScope: v === 'TEAM' ? form.visibilityScope : [], adminVisible: false })}
                         className={`flex flex-col items-center gap-1.5 p-3 rounded-ios border-2 transition-all duration-200
                           ${isSelected
                             ? 'border-samsung-blue bg-samsung-blue/5'
@@ -1260,28 +1137,14 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
                   })}
                 </div>
                 <p className="text-xs text-pastel-400 mt-1.5">
-                  {VISIBILITY_CONFIG[form.visibility].desc}
+                  {VISIBILITY_CONFIG[form.visibility === 'BUSINESS_UNIT' ? 'TEAM' : form.visibility].desc}
                 </p>
 
-                {/* Multi-select for BUSINESS_UNIT or TEAM */}
-                {form.visibility === 'BUSINESS_UNIT' && (
-                  <MultiSelectDropdown
-                    label="사업부 선택"
-                    options={scopeOptions}
+                {/* OrgTree selector for TEAM / BUSINESS_UNIT (기존 BU 데이터 호환) */}
+                {(form.visibility === 'TEAM' || form.visibility === 'BUSINESS_UNIT') && (
+                  <OrgTreeSelector
                     selected={form.visibilityScope}
-                    onChange={next => setForm({ ...form, visibilityScope: next })}
-                    loading={scopeLoading}
-                    placeholder="사업부를 선택하세요"
-                  />
-                )}
-                {form.visibility === 'TEAM' && (
-                  <MultiSelectDropdown
-                    label="부서 선택"
-                    options={scopeOptions}
-                    selected={form.visibilityScope}
-                    onChange={next => setForm({ ...form, visibilityScope: next })}
-                    loading={scopeLoading}
-                    placeholder="부서를 선택하세요"
+                    onChange={next => setForm({ ...form, visibility: 'TEAM', visibilityScope: next })}
                   />
                 )}
 

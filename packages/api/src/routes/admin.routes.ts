@@ -5275,6 +5275,33 @@ adminRoutes.get('/scope/departments', async (_req: AuthenticatedRequest, res) =>
   }
 });
 
+/**
+ * GET /admin/scope/org-tree
+ * 공개범위 설정용 조직도 트리 (ADMIN 이상)
+ */
+adminRoutes.get('/scope/org-tree', async (_req: AuthenticatedRequest, res) => {
+  try {
+    const nodes = await prisma.orgNode.findMany({
+      select: {
+        departmentCode: true,
+        departmentName: true,
+        enDepartmentName: true,
+        parentDepartmentCode: true,
+        hasChildren: true,
+        userCount: true,
+      },
+      orderBy: [
+        { departmentLevel: 'asc' },
+        { departmentName: 'asc' },
+      ],
+    });
+    res.json({ nodes });
+  } catch (error) {
+    console.error('Failed to get scope org-tree:', error);
+    res.status(500).json({ error: 'Failed to get organization tree for scope' });
+  }
+});
+
 // ==================== User Deletion (Record Purge) ====================
 
 /**

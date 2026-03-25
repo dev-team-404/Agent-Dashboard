@@ -17,6 +17,7 @@ import {
   discoverDepartment,
   refreshNode,
   updateUserCounts,
+  cleanupStaleScopes,
 } from '../services/orgTree.service.js';
 
 export const orgTreeRoutes = Router();
@@ -88,14 +89,18 @@ orgTreeRoutes.post('/org-tree/sync', (async (req: AuthenticatedRequest, res) => 
 
     const result = await syncFromUsers();
 
+    // 조직개편 대응: stale scope 자동 정리
+    const cleanup = await cleanupStaleScopes();
+
     recordAudit(req, 'SYNC_ORG_TREE', null, {
       total: result.total,
       discovered: result.discovered,
       alreadyExist: result.alreadyExist,
       errors: result.errors.length,
+      scopeCleanup: cleanup,
     }).catch(() => {});
 
-    res.json(result);
+    res.json({ ...result, scopeCleanup: cleanup });
   } catch (error) {
     console.error('Sync org tree error:', error);
     res.status(500).json({ error: 'Failed to sync organization tree' });

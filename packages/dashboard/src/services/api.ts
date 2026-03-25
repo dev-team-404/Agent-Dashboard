@@ -119,6 +119,7 @@ export const modelsApi = {
 export const scopeApi = {
   businessUnits: () => api.get('/admin/scope/business-units'),
   departments: () => api.get('/admin/scope/departments'),
+  orgTree: () => api.get('/admin/scope/org-tree'),
 };
 
 export const usersApi = {
