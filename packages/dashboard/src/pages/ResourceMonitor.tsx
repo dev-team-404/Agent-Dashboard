@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { gpuServerApi, gpuCapacityApi } from '../services/api';
 import {
-  Server, Plus, Trash2, RefreshCw, Wifi, WifiOff, Cpu, MemoryStick,
-  Zap, ChevronDown, ChevronUp, TestTube, Pencil, X, Copy,
+  Server, Plus, Trash2, RefreshCw, WifiOff, Cpu, MemoryStick,
+  ChevronDown, ChevronUp, TestTube, Pencil, X, Copy,
   Activity, Clock, Layers, HardDrive, BarChart3,
 } from 'lucide-react';
 import {
@@ -277,18 +277,24 @@ export default function ResourceMonitor() {
   useEffect(() => { fetch_(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { if (tab === 'analysis') fetchAna(); }, [tab, fetchAna]);
 
-  // 종합 KPI
+  // ── 종합 KPI (투자 판단 관점) ──
   const totGpu = data.reduce((a, e) => a + (e.metrics?.gpus?.length || 0), 0);
-  const totVram = data.reduce((a, e) => a + (e.metrics?.gpus?.reduce((s, g) => s + g.memTotalMb, 0) || 0), 0);
-  const usedVram = data.reduce((a, e) => a + (e.metrics?.gpus?.reduce((s, g) => s + g.memUsedMb, 0) || 0), 0);
   const online = data.filter(e => e.metrics && !e.metrics.error).length;
-  const avgGpu = (() => { let s = 0, c = 0; data.forEach(e => e.metrics?.gpus?.forEach(g => { s += g.utilGpu; c++; })); return c > 0 ? Math.round(s / c) : 0; })();
   const totLlm = data.reduce((a, e) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
   const totTps = data.reduce((a, e) => a + (e.throughputAnalysis?.currentTps || 0), 0);
+
+  // 건강도 = 피크/이론 (GPU 성능 저하 감지)
   const avgHealth = (() => { const h = data.filter(e => e.throughputAnalysis?.gpuHealthPct != null).map(e => e.throughputAnalysis!.gpuHealthPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
+  // 이론 최대 대비 사용률 = 현재/이론max
+  const avgTheoreticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.theoreticalUtilPct != null).map(e => e.throughputAnalysis!.theoreticalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
+  // 실효 가용량 대비 사용률 = 현재/(이론max × 건강도) = theoreticalUtil / health
+  const effectiveUtil = (avgTheoreticalUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheoreticalUtil / avgHealth) * 100) : avgTheoreticalUtil;
+  // 여유 = 100 - 실효사용률
+  const headroom = effectiveUtil != null ? 100 - effectiveUtil : null;
+  // 시스템 리소스
   const avgCpu = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.cpuLoadAvg && e.metrics.cpuCores) { s += (e.metrics.cpuLoadAvg / e.metrics.cpuCores) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
   const avgRam = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.memoryTotalMb && e.metrics.memoryUsedMb) { s += (e.metrics.memoryUsedMb / e.metrics.memoryTotalMb) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
-  const capacityAll = Math.max(avgGpu, (() => { const kvs = data.flatMap(e => e.metrics?.llmEndpoints?.filter(l => l.kvCacheUsagePct != null) || []); return kvs.length > 0 ? kvs.reduce((a, l) => a + l.kvCacheUsagePct!, 0) / kvs.length : 0; })(), totVram > 0 ? (usedVram / totVram) * 100 : 0);
+  const avgDisk = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.diskTotalGb && e.metrics.diskUsedGb) { s += (e.metrics.diskUsedGb / e.metrics.diskTotalGb) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
 
   const handleTest = async (d: any) => { setTesting(true); setTestR(null); try { setTestR((await gpuServerApi.test(d)).data); } catch (e: any) { setTestR({ success: false, message: e?.response?.data?.error || e.message }); } finally { setTesting(false); } };
   const handleSubmit = async (f: any) => { try { if (edit && edit.id) { const u = { ...f }; if (!u.sshPassword) delete u.sshPassword; await gpuServerApi.update(edit.id, u); } else { await gpuServerApi.create(f); } setModal(false); setEdit(null); setTestR(null); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } };
@@ -373,19 +379,45 @@ export default function ResourceMonitor() {
       </div>
     )}
 
-    {/* 종합 KPI */}
+    {/* ── 종합 KPI (투자 판단 우선순위) ── */}
     {data.length > 0 && (
-      <div className="bg-white rounded-lg border p-3 shadow-sm">
-        <div className="flex items-center gap-4 flex-wrap text-xs">
-          <div className="flex items-center gap-1.5"><Wifi className="w-3.5 h-3.5 text-emerald-500" /><span className="text-gray-500">서버</span><b>{online}/{data.length}</b></div>
-          <div className="flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5 text-gray-400" /><span className="text-gray-500">GPU</span><b>{totGpu}장</b></div>
-          <div className="flex items-center gap-1.5"><Layers className="w-3.5 h-3.5 text-purple-500" /><span className="text-gray-500">LLM</span><b>{totLlm}개</b></div>
-          <div className="border-l pl-3 flex items-center gap-1.5"><span className="text-gray-500">LLM 용량</span><b className={utilTxt(capacityAll)}>{Math.round(capacityAll)}%</b><div className="w-16"><MiniBar pct={capacityAll} color={utilCls(capacityAll)} /></div></div>
-          {avgHealth != null && <div className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5 text-gray-400" /><span className="text-gray-500">건강도</span><b className={healthTxt(avgHealth)}>{avgHealth}%</b></div>}
-          {totTps > 0 && <div className="flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-blue-500" /><b className="text-blue-600">{totTps.toFixed(1)} tok/s</b></div>}
-          {(() => { const ta = data.filter(e => e.throughputAnalysis?.theoreticalUtilPct != null); const avg = ta.length > 0 ? Math.round(ta.reduce((a, e) => a + e.throughputAnalysis!.theoreticalUtilPct!, 0) / ta.length) : null; return avg != null ? <div className="flex items-center gap-1.5"><span className="text-gray-500">이론대비</span><b className={utilTxt(avg)}>{avg}%</b></div> : null; })()}
-          <div className="border-l pl-3 flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5 text-gray-400" /><span className="text-gray-500">CPU</span><b className={avgCpu != null && avgCpu > 80 ? 'text-red-600' : ''}>{avgCpu ?? '-'}%</b></div>
-          <div className="flex items-center gap-1.5"><MemoryStick className="w-3.5 h-3.5 text-gray-400" /><span className="text-gray-500">RAM</span><b className={avgRam != null && avgRam > 85 ? 'text-red-600' : ''}>{avgRam ?? '-'}%</b></div>
+      <div className="bg-white rounded-lg border shadow-sm">
+        {/* 핵심 지표 */}
+        <div className="p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-100">
+            <p className="text-[9px] text-blue-600 font-semibold uppercase">실효 가용량 대비 사용률</p>
+            <p className={`text-2xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
+            <p className="text-[9px] text-gray-400">건강도 반영 실사용</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            <p className="text-[9px] text-gray-600 font-semibold uppercase">이론 최대 대비</p>
+            <p className={`text-2xl font-black ${avgTheoreticalUtil != null ? utilTxt(avgTheoreticalUtil) : 'text-gray-300'}`}>{avgTheoreticalUtil ?? '-'}%</p>
+            <p className="text-[9px] text-gray-400">현재 / 이론max</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            <p className="text-[9px] text-gray-600 font-semibold uppercase">GPU 건강도</p>
+            <p className={`text-2xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
+            <p className="text-[9px] text-gray-400">피크 / 이론max</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            <p className="text-[9px] text-gray-600 font-semibold uppercase">여유 용량</p>
+            <p className={`text-2xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : headroom <= 40 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
+            <p className="text-[9px] text-gray-400">{headroom != null && headroom <= 20 ? '증설 필요!' : '포화까지 남은 %'}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            <p className="text-[9px] text-gray-600 font-semibold uppercase">처리량</p>
+            <p className="text-2xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}</p>
+            <p className="text-[9px] text-gray-400">tok/s (전체 서버 합산)</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            <p className="text-[9px] text-gray-600 font-semibold uppercase">인프라</p>
+            <p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
+            <div className="flex gap-2 mt-0.5 text-[9px] text-gray-500">
+              <span>CPU <b className={avgCpu != null && avgCpu > 80 ? 'text-red-600' : ''}>{avgCpu ?? '-'}%</b></span>
+              <span>RAM <b className={avgRam != null && avgRam > 85 ? 'text-red-600' : ''}>{avgRam ?? '-'}%</b></span>
+              <span>Disk <b className={avgDisk != null && avgDisk > 90 ? 'text-red-600' : ''}>{avgDisk ?? '-'}%</b></span>
+            </div>
+          </div>
         </div>
       </div>
     )}
@@ -415,6 +447,29 @@ export default function ResourceMonitor() {
     {/* Analysis Tab */}
     {tab === 'analysis' && ana && (<div className="space-y-4">
       <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외)</span><div className="flex gap-0.5">{[3, 7, 14, 30].map(d => <button key={d} onClick={() => setAnaDays(d)} className={`px-2 py-1 text-[10px] rounded ${anaDays === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{d}일</button>)}</div></div>
+
+      {/* 서버별 핵심 지표 비교 */}
+      {data.length > 0 && (
+        <div className="bg-white rounded-lg border p-4 shadow-sm">
+          <p className="text-[10px] font-semibold text-gray-600 mb-3">서버별 성능 비교 (실효사용률 / 건강도 / 처리량)</p>
+          <div className="space-y-2">
+            {data.filter(e => e.metrics && !e.metrics.error).map(e => {
+              const ta = e.throughputAnalysis;
+              const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct && ta.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
+              return (
+                <div key={e.server.id} className="grid grid-cols-12 gap-2 items-center text-[10px]">
+                  <span className="col-span-2 text-gray-700 font-medium truncate">{e.server.name}</span>
+                  <div className="col-span-3"><span className="text-gray-400">실효 {eu}%</span><MiniBar pct={eu} color={utilCls(eu)} h="h-2" /></div>
+                  <div className="col-span-2"><span className="text-gray-400">이론대비 {ta?.theoreticalUtilPct ?? '-'}%</span><MiniBar pct={ta?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
+                  <div className="col-span-2"><span className="text-gray-400">건강도 {ta?.gpuHealthPct ?? '-'}%</span><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
+                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{ta?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
+                  <div className="col-span-1 text-right"><span className={`px-1 py-0.5 rounded text-[8px] ${eu > 70 ? 'bg-red-100 text-red-600' : eu < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{eu > 70 ? '과부하' : eu < 20 ? '여유' : '정상'}</span></div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="bg-white rounded-lg border p-4 shadow-sm">

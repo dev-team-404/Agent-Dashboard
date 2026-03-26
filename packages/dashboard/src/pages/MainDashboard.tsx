@@ -758,7 +758,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {gpuData.length > 0 && (() => {
         const online = gpuData.filter((e: any) => e.metrics && !e.metrics.error);
         const totGpu = gpuData.reduce((a: number, e: any) => a + (e.metrics?.gpus?.length || 0), 0);
-        const avgUtil = (() => { let s = 0, c = 0; gpuData.forEach((e: any) => e.metrics?.gpus?.forEach((g: any) => { s += g.utilGpu; c++; })); return c > 0 ? Math.round(s / c) : 0; })();
+        // avgUtil은 서버 비교에서 사용
         const avgHealth = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.gpuHealthPct != null).map((e: any) => e.throughputAnalysis.gpuHealthPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
         const totLlm = gpuData.reduce((a: number, e: any) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
         const totTps = gpuData.reduce((a: number, e: any) => a + (e.throughputAnalysis?.currentTps || 0), 0);
@@ -777,12 +777,19 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
-              <div><span className="text-gray-500">GPU</span><p className="text-lg font-bold text-gray-900">{totGpu}<span className="text-xs font-normal text-gray-400">장</span></p></div>
-              <div><span className="text-gray-500">GPU 사용률</span><p className={`text-lg font-bold ${avgUtil >= 80 ? 'text-red-600' : avgUtil >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgUtil}%</p></div>
-              {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 85 ? 'text-emerald-600' : avgHealth >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
-              <div><span className="text-gray-500">LLM</span><p className="text-lg font-bold text-purple-600">{totLlm}<span className="text-xs font-normal text-gray-400">개</span></p></div>
+              {(() => {
+                const avgTheorUtil = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.theoreticalUtilPct != null).map((e: any) => e.throughputAnalysis.theoreticalUtilPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
+                const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
+                const headroom = effUtil != null ? 100 - effUtil : null;
+                return (<>
+                  <div className="bg-blue-50 rounded-lg p-1.5 border border-blue-100"><span className="text-blue-600 font-semibold text-[9px]">실효 사용률</span><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : effUtil != null && effUtil >= 40 ? 'text-amber-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
+                  {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 85 ? 'text-emerald-600' : avgHealth >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
+                  <div><span className="text-gray-500">여유</span><p className={`text-lg font-bold ${headroom != null && headroom <= 20 ? 'text-red-600' : 'text-emerald-600'}`}>{headroom ?? '-'}%</p></div>
+                </>);
+              })()}
               {totTps > 0 && <div><span className="text-gray-500">처리량</span><p className="text-lg font-bold text-blue-600">{totTps.toFixed(1)}<span className="text-[10px] font-normal"> tok/s</span></p></div>}
-              {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded-lg p-2 border border-indigo-100"><span className="text-gray-500">GPU 예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{gpuPrediction.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가 필요</span></p></div>}
+              <div><span className="text-gray-500">인프라</span><p className="text-sm font-bold">{totGpu}GPU · {totLlm}LLM</p></div>
+              {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded-lg p-1.5 border border-indigo-100"><span className="text-gray-500">예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{gpuPrediction.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가</span></p></div>}
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
@@ -887,17 +894,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       })()}
 
       {/* ── 탭 내비게이션 ── */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
-        <div className="px-4 pt-3 pb-0 flex gap-1 overflow-x-auto scrollbar-hide -mb-px">
-          {chartTabs.map(({ key, label, icon: TabIcon }) => (
-            <button key={key} onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border border-b-0 whitespace-nowrap transition-all ${
-                activeTab === key ? 'bg-white text-samsung-blue border-gray-200 shadow-sm' : 'text-pastel-500 hover:text-pastel-700 border-transparent hover:bg-pastel-50'
-              }`}>
-              <TabIcon className="w-3.5 h-3.5" />{label}
-            </button>
-          ))}
-        </div>
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl overflow-x-auto scrollbar-hide">
+        {chartTabs.map(({ key, label, icon: TabIcon }) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg whitespace-nowrap transition-all ${
+              activeTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-white/50'
+            }`}>
+            <TabIcon className="w-3.5 h-3.5" />{label}
+          </button>
+        ))}
       </div>
 
       {/* ── GPU 탭 ── */}
