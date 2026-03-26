@@ -33,6 +33,21 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
       create: { date: dateObj, powerAvgUsageRatio: power_avg_usage_ratio },
     });
 
+    // 감사 로그
+    prisma.auditLog.create({
+      data: {
+        loginid: 'external:gpu-power',
+        action: 'SUBMIT_GPU_POWER',
+        target: record.id,
+        targetType: 'GpuPowerUsage',
+        details: JSON.parse(JSON.stringify({
+          date,
+          power_avg_usage_ratio,
+        })),
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || null,
+      },
+    }).catch(() => {});
+
     res.json({
       message: 'GPU power usage saved',
       data: {

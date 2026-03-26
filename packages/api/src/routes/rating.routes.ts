@@ -6,7 +6,7 @@
  * - GET /rating/stats: 모델별 평균 점수 조회
  */
 
-import { Router } from 'express';
+import { Router, Request } from 'express';
 import { prisma } from '../index.js';
 
 export const ratingRoutes = Router();
@@ -55,6 +55,23 @@ ratingRoutes.post('/', async (req, res) => {
         serviceId: resolvedServiceId,
       },
     });
+
+    // 감사 로그
+    const userId = (req.headers['x-user-id'] as string) || 'anonymous';
+    prisma.auditLog.create({
+      data: {
+        loginid: `rating:${userId}`,
+        action: 'SUBMIT_RATING',
+        target: feedback.id,
+        targetType: 'RatingFeedback',
+        details: JSON.parse(JSON.stringify({
+          modelName,
+          rating: Math.round(rating),
+          serviceId: resolvedServiceId,
+        })),
+        ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || null,
+      },
+    }).catch(() => {});
 
     res.status(201).json({ success: true, id: feedback.id });
   } catch (error) {

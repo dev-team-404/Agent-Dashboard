@@ -15,6 +15,21 @@ import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { z } from 'zod';
 
+// ─── 감사 로그 헬퍼 ────────────────────────────────────────
+function recordAudit(req: AuthenticatedRequest, action: string, target: string | null, details: Record<string, unknown>) {
+  prisma.auditLog.create({
+    data: {
+      adminId: req.adminId || null,
+      loginid: req.user?.loginid || 'unknown',
+      action,
+      target,
+      targetType: 'Holiday',
+      details: JSON.parse(JSON.stringify(details)),
+      ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || null,
+    },
+  }).catch(() => {});
+}
+
 export const holidaysRoutes = Router();
 
 // Validation schemas
@@ -172,6 +187,8 @@ holidaysRoutes.post(
         },
       });
 
+      recordAudit(req, 'CREATE_HOLIDAY', holiday.id, { date, name, type });
+
       res.status(201).json({ holiday });
     } catch (error) {
       console.error('Create holiday error:', error);
@@ -228,6 +245,12 @@ holidaysRoutes.post(
         }
       }
 
+      recordAudit(req, 'BULK_CREATE_HOLIDAYS', null, {
+        created: results.created.length,
+        skipped: results.skipped.length,
+        dates: results.created.map(h => h.date),
+      });
+
       res.status(201).json({
         message: `Created ${results.created.length} holidays, skipped ${results.skipped.length}`,
         ...results,
@@ -265,6 +288,12 @@ holidaysRoutes.put(
         data: parsed.data,
       });
 
+      recordAudit(req, 'UPDATE_HOLIDAY', id, {
+        date: existing.date.toISOString().split('T')[0],
+        name: existing.name,
+        changes: parsed.data,
+      });
+
       res.json({ holiday });
     } catch (error) {
       console.error('Update holiday error:', error);
@@ -291,6 +320,11 @@ holidaysRoutes.delete(
       }
 
       await prisma.holiday.delete({ where: { id } });
+
+      recordAudit(req, 'DELETE_HOLIDAY', id, {
+        date: existing.date.toISOString().split('T')[0],
+        name: existing.name,
+      });
 
       res.json({ message: 'Holiday deleted successfully' });
     } catch (error) {

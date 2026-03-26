@@ -69,6 +69,12 @@ const ACTION_LABELS: Record<string, string> = {
   DELETE_SERVICE_RATE_LIMIT: '서비스 Rate Limit 삭제',
   SUBMIT_EXTERNAL_USAGE: '외부 사용량 제출',
   SUBMIT_EXTERNAL_USAGE_BY_USER: '사용자별 외부 사용량 제출',
+  SUBMIT_GPU_POWER: 'GPU 전력 사용률 등록',
+  SUBMIT_RATING: '모델 평점 제출',
+  CREATE_HOLIDAY: '휴일 추가',
+  BULK_CREATE_HOLIDAYS: '휴일 일괄 추가',
+  UPDATE_HOLIDAY: '휴일 수정',
+  DELETE_HOLIDAY: '휴일 삭제',
   CLEANUP_REQUEST_LOGS: '요청 로그 정리',
   UPDATE_SYSTEM_SETTING: '시스템 설정 변경',
   UPDATE_API_KEY: 'API 키 변경',
@@ -89,11 +95,12 @@ const ACTION_OPTIONS = [
   'PROMOTE_USER', 'DEMOTE_USER', 'DEMOTE_TO_USER', 'DELETE_USER',
   'KNOX_REGISTER_ADMIN', 'RESET_KNOX_VERIFICATION', 'APPROVE_ADMIN_REQUEST', 'REJECT_ADMIN_REQUEST',
   'SET_RATE_LIMIT', 'DELETE_RATE_LIMIT', 'SET_SERVICE_RATE_LIMIT', 'DELETE_SERVICE_RATE_LIMIT',
-  'SUBMIT_EXTERNAL_USAGE',
+  'SUBMIT_EXTERNAL_USAGE', 'SUBMIT_EXTERNAL_USAGE_BY_USER', 'SUBMIT_GPU_POWER', 'SUBMIT_RATING',
+  'CREATE_HOLIDAY', 'BULK_CREATE_HOLIDAYS', 'UPDATE_HOLIDAY', 'DELETE_HOLIDAY',
   'CLEANUP_REQUEST_LOGS', 'UPDATE_SYSTEM_SETTING',
 ];
 
-const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage', 'SystemSetting'];
+const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage', 'SystemSetting', 'GpuPowerUsage', 'Holiday', 'RatingFeedback', 'UsageLog'];
 
 // 활동 카테고리별 탭 정의
 const CATEGORY_TABS = [
@@ -103,7 +110,8 @@ const CATEGORY_TABS = [
   { key: 'model', label: '모델 관리', actions: 'CREATE_MODEL,ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,DELETE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
   { key: 'user', label: '사용자/권한', actions: 'PROMOTE_USER,DEMOTE_USER,DEMOTE_TO_USER,DELETE_USER,KNOX_REGISTER_ADMIN,RESET_KNOX_VERIFICATION,APPROVE_ADMIN_REQUEST,REJECT_ADMIN_REQUEST' },
   { key: 'ratelimit', label: 'Rate Limit', actions: 'SET_RATE_LIMIT,DELETE_RATE_LIMIT,SET_SERVICE_RATE_LIMIT,DELETE_SERVICE_RATE_LIMIT' },
-  { key: 'external', label: '외부 사용 기록', actions: 'SUBMIT_EXTERNAL_USAGE,SUBMIT_EXTERNAL_USAGE_BY_USER' },
+  { key: 'external', label: '외부 API', actions: 'SUBMIT_EXTERNAL_USAGE,SUBMIT_EXTERNAL_USAGE_BY_USER,SUBMIT_GPU_POWER,SUBMIT_RATING' },
+  { key: 'holiday', label: '휴일 관리', actions: 'CREATE_HOLIDAY,BULK_CREATE_HOLIDAYS,UPDATE_HOLIDAY,DELETE_HOLIDAY' },
   { key: 'system', label: '시스템', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING,UPDATE_API_KEY,GENERATE_MISSING_LOGOS' },
 ] as const;
 
