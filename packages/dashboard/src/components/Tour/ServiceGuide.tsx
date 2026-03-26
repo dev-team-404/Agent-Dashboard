@@ -15,9 +15,15 @@ interface SavedService {
   type: string;
 }
 
+function decodeUnicode(str?: string): string {
+  if (!str) return '';
+  try { return str.includes('\\u') ? JSON.parse(`"${str}"`) : str; } catch { return str; }
+}
+
 const TOTAL_STEPS = 9;
 
 export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, deptName }: ServiceGuideProps) {
+  const decodedDept = decodeUnicode(deptName);
   const [step, setStep] = useState(0);
   const [savedService, setSavedService] = useState<SavedService | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -279,7 +285,7 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
   -H "Content-Type: application/json" \\
   -H "x-service-id: ${savedService?.name || 'your-service-code'}" \\
   -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${deptName || 'your-dept'}" \\
+  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
   -d '${JSON.stringify({
     model: 'your-model-alias',
     messages: [{ role: 'user', content: '안녕하세요' }],
@@ -290,7 +296,7 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
   -H "Content-Type: application/json" \\
   -H "x-service-id: ${savedService?.name || 'your-service-code'}" \\
   -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${deptName || 'your-dept'}" \\
+  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
   -d '${JSON.stringify({
     model: 'your-embedding-model',
     input: '검색할 텍스트',
