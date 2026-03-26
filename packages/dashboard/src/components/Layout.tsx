@@ -230,6 +230,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/org-tree" label="조직도" icon={FolderTree} />
                 <NavLink path="/dept-mapping" label="부서 매핑 관리" icon={Building2} />
                 <NavLink path="/gpu-power" label="DT GPU Power Usage" icon={Zap} />
+                <ExternalNavLink href="/internal/docs" label="Internal API" icon={Code} />
               </div>
             </div>
           )}
@@ -255,9 +256,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               <ExternalNavLink href={import.meta.env.VITE_DOCS_URL || '/docs/'} label="문서" icon={BookOpen} />
               {isAdmin && (
                 <ExternalNavLink href="/api/api-docs/ui" label="API 문서" icon={Code} />
-              )}
-              {adminRole === 'SUPER_ADMIN' && (
-                <ExternalNavLink href="/internal/docs" label="Internal API" icon={Code} />
               )}
             </div>
           </div>
