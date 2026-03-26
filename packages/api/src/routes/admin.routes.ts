@@ -6010,6 +6010,15 @@ adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
       return;
     }
 
+    // Path traversal 방어
+    const SAFE_PATH = /^[a-z0-9\-\/]+$/i;
+    for (const r of requests) {
+      if (!SAFE_PATH.test(r.path) || r.path.includes('..')) {
+        res.status(400).json({ error: `Invalid path: ${r.path}` });
+        return;
+      }
+    }
+
     const authHeader = req.headers.authorization || '';
     const port = process.env['PORT'] || 3000;
 
