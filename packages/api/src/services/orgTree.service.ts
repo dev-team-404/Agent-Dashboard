@@ -458,3 +458,51 @@ export async function buildAllHierarchyMap(): Promise<Map<string, OrgHierarchy>>
 
   return result;
 }
+
+/**
+ * 해외 R&D 센터 후손 맵 생성
+ * 지정된 센터 enDepartmentName의 모든 하위 부서를 BFS로 탐색
+ *
+ * @param overseasCenterNames - 해외센터 루트 노드의 enDepartmentName 배열
+ * @returns Map<departmentName(한글), 소속 해외센터 enDepartmentName>
+ */
+export async function buildOverseasMap(
+  overseasCenterNames: string[],
+): Promise<Map<string, string>> {
+  const allNodes = await prisma.orgNode.findMany();
+
+  // 부모코드 → 자식 노드 목록
+  const childrenMap = new Map<string, typeof allNodes>();
+  for (const node of allNodes) {
+    if (node.parentDepartmentCode) {
+      const list = childrenMap.get(node.parentDepartmentCode) || [];
+      list.push(node);
+      childrenMap.set(node.parentDepartmentCode, list);
+    }
+  }
+
+  // 센터 루트 노드 찾기
+  const centerNodes = allNodes.filter(n =>
+    overseasCenterNames.includes(n.enDepartmentName),
+  );
+
+  const result = new Map<string, string>();
+
+  // 각 센터에서 BFS로 후손 수집
+  for (const center of centerNodes) {
+    const queue = [center];
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      result.set(node.departmentName, center.enDepartmentName);
+
+      const children = childrenMap.get(node.departmentCode) || [];
+      for (const child of children) {
+        if (!result.has(child.departmentName)) {
+          queue.push(child);
+        }
+      }
+    }
+  }
+
+  return result;
+}

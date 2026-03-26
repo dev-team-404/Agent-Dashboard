@@ -13,35 +13,21 @@
 import { Router, Request, Response, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
-import { buildAllHierarchyMap, OrgHierarchy } from '../services/orgTree.service.js';
+import { buildAllHierarchyMap, buildOverseasMap } from '../services/orgTree.service.js';
 // ── 사업부 필터 (S.LSI만 집계) ──
 const INSIGHT_BUSINESS_UNIT = 'S.LSI';
 
 // ── 센터 그룹핑 규칙 ──
 const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team', 'Sensor Business Team']);
 
-/**
- * 한글 부서명(deptname) 끝의 괄호 내용 추출
- * 예: "SOC플랫폼팀(S.LSI)" → "S.LSI"
- *     "반도체연구팀(SCSC)" → "SCSC"
- */
-function extractSuffix(deptname: string): string {
-  const match = deptname.match(/\(([^)]+)\)\s*$/);
-  return match ? match[1] : '';
-}
+// ── 해외 R&D 센터 루트 노드 (org_nodes.enDepartmentName 기준) ──
+const OVERSEAS_CENTER_NAMES = ['DSC', 'DSRA-S.LSI(DS)', 'DSRJ(DS)', 'SSIR(DS)'];
 
 /**
- * 센터 그룹 결정 (한글 부서명 기준)
- * - (S.LSI)로 끝남 → 국내: SOC/LSI/Sensor BT 또는 Direct
- * - (S.LSI)가 아님 → Overseas R&D Center
+ * 국내 센터 그룹 결정 (org_nodes 계층 기반)
+ * overseas 분류는 별도 overseasMap으로 처리하므로 여기선 국내만 판별
  */
-function resolveCenter(deptname: string, h: { team: string; center1Name: string; center2Name: string }): string {
-  const suffix = extractSuffix(deptname);
-
-  // (S.LSI)가 아니면 → Overseas R&D Center
-  if (suffix !== 'S.LSI') return 'Overseas R&D Center';
-
-  // (S.LSI)인 경우 → c1/c2/team으로 Business Team 분류
+function resolveDomesticCenter(h: { team: string; center1Name: string; center2Name: string }): string {
   const c1 = (h.center1Name || '').trim();
   const c2 = (h.center2Name || '').trim();
   const team = (h.team || '').trim();
@@ -56,16 +42,6 @@ function resolveCenter(deptname: string, h: { team: string; center1Name: string;
 
   // 그 외 → 집계 제외
   return '';
-}
-
-/**
- * Overseas R&D Center 서브그룹 = 부서명 맨 뒤 괄호 (연구소명)
- * 예: "반도체연구팀(SCSC)" → "SCSC"
- *     "설계팀" (괄호 없음) → "Other"
- */
-function resolveOverseasSubgroup(deptname: string): string {
-  const suffix = extractSuffix(deptname);
-  return suffix || 'Other';
 }
 
 // ── Admin router (auth required) ──
@@ -149,8 +125,9 @@ async function handleUsageRate(req: Request, res: Response) {
     const { targetStart, effectiveEnd, isCurrentMonth, monthLabel } = tm;
     const { prevStart: prevMonthStart, prevEnd: prevMonthEnd } = tm;
 
-    // 1. org_nodes 기반 부서 계층 맵 (departmentName → {team, center2Name, center1Name})
+    // 1. org_nodes 기반 부서 계층 맵 + 해외센터 후손 맵
     const deptHierarchyMap = await buildAllHierarchyMap();
+    const overseasMap = await buildOverseasMap(OVERSEAS_CENTER_NAMES);
 
     // 2. Target month MAU per deptname (business_unit 필터 없음 — deptname suffix로 분류)
     const targetMauRows = await prisma.$queryRaw<MauRow[]>`
@@ -208,17 +185,17 @@ async function handleUsageRate(req: Request, res: Response) {
     for (const deptname of allDeptnames) {
       if (!deptname) continue;
 
-      const suffix = extractSuffix(deptname);
       const h = deptHierarchyMap.get(deptname);
       let teamName = h?.team || deptname;
       let centerName = '';
 
-      if (suffix !== 'S.LSI') {
-        // (S.LSI)가 아니면 → Overseas (hierarchy 불필요)
+      const overseasCenter = overseasMap.get(deptname);
+      if (overseasCenter) {
+        // 해외센터 후손 → Overseas R&D Center
         centerName = 'Overseas R&D Center';
       } else if (h) {
-        // (S.LSI) → hierarchy 기반 BT/Direct 분류
-        centerName = resolveCenter(deptname, h);
+        // 국내 → BT/Direct 분류
+        centerName = resolveDomesticCenter(h);
       }
 
       if (!centerName) continue;
@@ -247,12 +224,12 @@ async function handleUsageRate(req: Request, res: Response) {
         ? Math.round(((totalMau - prevMau) / prevMau) * 10000) / 100
         : totalMau > 0 ? 100 : 0;
 
-      // Overseas R&D Center → 서브그룹(연구소/SSCR) 수로 카운트
+      // Overseas R&D Center → 해외센터(DSC/DSRA/DSRJ/SSIR) 수로 카운트
       let teamCount = group.teams.length;
       if (name === 'Overseas R&D Center') {
         const subgroups = new Set<string>();
         for (const t of group.teams) {
-          subgroups.add(resolveOverseasSubgroup(t.deptname));
+          subgroups.add(overseasMap.get(t.deptname) || 'Other');
         }
         teamCount = subgroups.size;
       }
@@ -299,28 +276,21 @@ async function handleUsageRateDetail(req: Request, res: Response) {
 
     // 1. Find depts belonging to this center (org_nodes 기반)
     const hierMap = await buildAllHierarchyMap();
+    const overseasMap = await buildOverseasMap(OVERSEAS_CENTER_NAMES);
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
 
-    // hierarchy가 있는 부서
-    for (const [deptname, h] of hierMap) {
-      if (resolveCenter(deptname, h) === centerName) {
-        centerDepts.push({ deptname, team: h.team || deptname });
-      }
-    }
-
-    // Overseas: hierarchy 없지만 (S.LSI)가 아닌 부서도 포함
     if (centerName === 'Overseas R&D Center') {
-      const activeDepts = await prisma.$queryRaw<Array<{ deptname: string }>>`
-        SELECT DISTINCT u.deptname FROM users u
-        WHERE u.deptname IS NOT NULL AND u.deptname != ''
-      `;
-      const existing = new Set(centerDepts.map(d => d.deptname));
-      for (const r of activeDepts) {
-        if (existing.has(r.deptname)) continue;
-        const suffix = extractSuffix(r.deptname);
-        if (suffix !== 'S.LSI') {
-          centerDepts.push({ deptname: r.deptname, team: r.deptname });
+      // 해외센터 후손 맵에서 직접 추출
+      for (const [deptname, _center] of overseasMap) {
+        const h = hierMap.get(deptname);
+        centerDepts.push({ deptname, team: h?.team || deptname });
+      }
+    } else {
+      // 국내 센터 — hierarchy 기반 매칭
+      for (const [deptname, h] of hierMap) {
+        if (!overseasMap.has(deptname) && resolveDomesticCenter(h) === centerName) {
+          centerDepts.push({ deptname, team: h.team || deptname });
         }
       }
     }
@@ -333,12 +303,12 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const deptnames = centerDepts.map(d => d.deptname);
     const deptTeamMap = new Map(centerDepts.map(d => [d.deptname, d.team]));
 
-    // Overseas → 부서명 맨 뒤 괄호로 서브그룹, 그 외 → 영문 팀명
+    // Overseas → 소속 해외센터명으로 서브그룹, 그 외 → 영문 팀명
     const isOverseas = centerName === 'Overseas R&D Center';
     const deptGroupMap = new Map<string, string>();
     if (isOverseas) {
       for (const d of centerDepts) {
-        deptGroupMap.set(d.deptname, resolveOverseasSubgroup(d.deptname));
+        deptGroupMap.set(d.deptname, overseasMap.get(d.deptname) || 'Other');
       }
     } else {
       for (const d of centerDepts) {
