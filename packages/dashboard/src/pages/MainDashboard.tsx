@@ -4,7 +4,7 @@ import {
   Clock, BarChart3, Layers, CalendarDays,
   Cpu, AlertTriangle, ChevronDown,
 } from 'lucide-react';
-import { statsApi } from '../services/api';
+import { statsApi, gpuServerApi, gpuCapacityApi } from '../services/api';
 import WeeklyBusinessDAUChart from '../components/Charts/WeeklyBusinessDAUChart';
 import UsageAnalytics from '../components/Charts/UsageAnalytics';
 import EnhancedServiceCharts from '../components/Charts/EnhancedServiceCharts';
@@ -247,6 +247,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('service');
   const holidayDates = useHolidayDates();
+  const [gpuData, setGpuData] = useState<any[]>([]);
+  const [gpuPrediction, setGpuPrediction] = useState<any>(null);
   const { exclude } = useBusinessDayToggle();
 
   // Health status
@@ -348,6 +350,16 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       setHealthStatuses(healthStatusRes.data.statuses || {});
       setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
       setErrorRateDaily(errorRateRes.data.daily || []);
+
+      // GPU 리소스 데이터 (별도 fetch — 실패해도 대시보드 동작)
+      try {
+        const [gpuRes, predRes] = await Promise.all([
+          gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
+          gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
+        ]);
+        setGpuData(gpuRes.data.data || []);
+        setGpuPrediction(predRes.data.prediction);
+      } catch {}
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {
@@ -737,6 +749,47 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         <StatCard label="총 토큰 사용" value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description="누적 합계" delay={320} />
         <StatCard label="총 API 요청" value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description="누적 합계" delay={400} />
       </div>
+      {/* GPU 리소스 요약 */}
+      {gpuData.length > 0 && (() => {
+        const online = gpuData.filter((e: any) => e.metrics && !e.metrics.error);
+        const totGpu = gpuData.reduce((a: number, e: any) => a + (e.metrics?.gpus?.length || 0), 0);
+        const avgUtil = (() => { let s = 0, c = 0; gpuData.forEach((e: any) => e.metrics?.gpus?.forEach((g: any) => { s += g.utilGpu; c++; })); return c > 0 ? Math.round(s / c) : 0; })();
+        const avgHealth = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.gpuHealthPct != null).map((e: any) => e.throughputAnalysis.gpuHealthPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
+        const totLlm = gpuData.reduce((a: number, e: any) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
+        const totTps = gpuData.reduce((a: number, e: any) => a + (e.throughputAnalysis?.currentTps || 0), 0);
+        // 과사용/저사용 서버
+        const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
+          const avg = e.metrics.gpus.reduce((s: number, g: any) => s + g.utilGpu, 0) / e.metrics.gpus.length;
+          return { name: e.server.name, util: Math.round(avg), health: e.throughputAnalysis?.gpuHealthPct };
+        }).sort((a: any, b: any) => b.util - a.util);
+        const over = serverUtils.filter((s: any) => s.util > 70);
+        const under = serverUtils.filter((s: any) => s.util < 20);
+
+        return (
+          <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-blue-100 p-4 animate-slide-up" style={{ animationDelay: '450ms' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">GPU 리소스</span><span className="text-[10px] text-gray-400">서버 {online.length}/{gpuData.length} 온라인</span></div>
+              <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
+              <div><span className="text-gray-500">GPU</span><p className="text-lg font-bold text-gray-900">{totGpu}<span className="text-xs font-normal text-gray-400">장</span></p></div>
+              <div><span className="text-gray-500">GPU 사용률</span><p className={`text-lg font-bold ${avgUtil >= 80 ? 'text-red-600' : avgUtil >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgUtil}%</p></div>
+              {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 85 ? 'text-emerald-600' : avgHealth >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
+              <div><span className="text-gray-500">LLM</span><p className="text-lg font-bold text-purple-600">{totLlm}<span className="text-xs font-normal text-gray-400">개</span></p></div>
+              {totTps > 0 && <div><span className="text-gray-500">처리량</span><p className="text-lg font-bold text-blue-600">{totTps.toFixed(1)}<span className="text-[10px] font-normal"> tok/s</span></p></div>}
+              {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded-lg p-2 border border-indigo-100"><span className="text-gray-500">GPU 예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{gpuPrediction.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가 필요</span></p></div>}
+            </div>
+            {/* 과사용/저사용 */}
+            {(over.length > 0 || under.length > 0) && (
+              <div className="flex flex-wrap gap-2 mt-2 text-[10px]">
+                {over.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded">{s.name} <b>{s.util}%</b> 과부하</span>)}
+                {under.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{s.name} <b>{s.util}%</b> 여유</span>)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Real-time indicator */}
       {todayActive > 0 && (
         <div className="flex items-center gap-3 px-5 py-3 rounded-lg bg-emerald-50 border border-emerald-100 animate-slide-up">

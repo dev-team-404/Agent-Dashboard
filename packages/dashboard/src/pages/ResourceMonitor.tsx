@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { gpuServerApi, gpuCapacityApi } from '../services/api';
 import {
   Server, Plus, Trash2, RefreshCw, Wifi, WifiOff, Cpu, MemoryStick,
-  Zap, ChevronDown, ChevronUp, TestTube, Pencil, X,
+  Zap, ChevronDown, ChevronUp, TestTube, Pencil, X, Copy,
   Activity, Clock, Layers, HardDrive, BarChart3,
 } from 'lucide-react';
 import {
@@ -15,7 +15,7 @@ interface GpuSpec { fp16Tflops: number; memBandwidthGBs: number; tdpW: number; v
 interface GpuInfo { index: number; uuid: string; name: string; memTotalMb: number; memUsedMb: number; utilGpu: number; utilMem: number; temp: number; powerW: number; powerMaxW: number; spec: GpuSpec | null; }
 interface GpuProcess { gpuIndex: number; pid: number; name: string; memMb: number; isLlm: boolean; }
 interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelNames: string[]; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; rawMetrics?: Record<string, number>; }
-interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; hostname: string | null; }
+interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; diskTotalGb: number | null; diskUsedGb: number | null; diskFreeGb: number | null; hostname: string | null; }
 interface GpuServer { id: string; name: string; host: string; sshPort: number; sshUsername: string; description: string | null; isLocal: boolean; enabled: boolean; pollIntervalSec: number; createdAt: string; }
 interface ThroughputAnalysis { theoreticalMaxTps: number | null; peakTps: number | null; currentTps: number; modelName: string | null; modelParams: string | null; gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null; }
 interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; throughputAnalysis?: ThroughputAnalysis; }
@@ -40,31 +40,48 @@ function MiniBar({ pct, color = 'bg-blue-500', bg = 'bg-gray-200', h = 'h-1.5' }
   return <div className={`${h} ${bg} rounded-full overflow-hidden`}><div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} /></div>;
 }
 
-// ── Server Form Modal (unchanged) ──
+// ── Server Form Modal ──
 interface FormData { name: string; host: string; sshPort: number; sshUsername: string; sshPassword: string; description: string; isLocal: boolean; pollIntervalSec: number; }
-function ServerModal({ open, onClose, onSubmit, edit, testing, testResult, onTest }: {
+const EMPTY_FORM: FormData = { name: '', host: '', sshPort: 22, sshUsername: '', sshPassword: '', description: '', isLocal: false, pollIntervalSec: 60 };
+const ic = "w-full px-2.5 py-1.5 border rounded-lg text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500";
+
+function ServerModal({ open, onClose, onSubmit, edit, testing, testResult, onTest, existingHosts }: {
   open: boolean; onClose: () => void; onSubmit: (d: FormData) => void; edit?: GpuServer | null;
-  testing: boolean; testResult: any; onTest: (d: any) => void;
+  testing: boolean; testResult: any; onTest: (d: any) => void; existingHosts: string[];
 }) {
-  const [f, setF] = useState<FormData>({ name: '', host: '', sshPort: 22, sshUsername: '', sshPassword: '', description: '', isLocal: false, pollIntervalSec: 60 });
-  useEffect(() => { edit ? setF({ name: edit.name, host: edit.host, sshPort: edit.sshPort, sshUsername: edit.sshUsername, sshPassword: '', description: edit.description || '', isLocal: edit.isLocal, pollIntervalSec: edit.pollIntervalSec }) : setF({ name: '', host: '', sshPort: 22, sshUsername: '', sshPassword: '', description: '', isLocal: false, pollIntervalSec: 60 }); }, [edit, open]);
+  const [f, setF] = useState<FormData>(EMPTY_FORM);
+  const set = (k: keyof FormData, v: any) => setF(p => ({ ...p, [k]: v }));
+  const dupHost = !edit && existingHosts.includes(f.host);
+
+  useEffect(() => {
+    if (edit) setF({ name: edit.name, host: edit.host, sshPort: edit.sshPort, sshUsername: edit.sshUsername, sshPassword: '', description: edit.description || '', isLocal: edit.isLocal, pollIntervalSec: edit.pollIntervalSec });
+    else setF(EMPTY_FORM);
+  }, [edit, open]);
+
   if (!open) return null;
-  const I = ({ label, v, k, type = 'text', ph = '', span = false }: any) => <div className={span ? 'col-span-2' : ''}><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{label}</label><input type={type} className="w-full px-2.5 py-1.5 border rounded-lg text-xs focus:ring-1 focus:ring-blue-500" placeholder={ph} value={v} onChange={e => setF(p => ({ ...p, [k]: type === 'number' ? parseInt(e.target.value) || 0 : e.target.value }))} /></div>;
   return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
     <div className="flex items-center justify-between px-4 py-3 border-b"><h3 className="font-semibold text-sm text-gray-900">{edit ? '서버 수정' : '서버 추가'}</h3><button onClick={onClose}><X className="w-4 h-4 text-gray-400" /></button></div>
     <div className="p-4 space-y-3"><div className="grid grid-cols-2 gap-3">
-      <I label="서버 이름" v={f.name} k="name" ph="GPU서버-1" span /><I label="호스트" v={f.host} k="host" ph="192.168.1.100" /><I label="SSH 포트" v={f.sshPort} k="sshPort" type="number" /><I label="사용자명" v={f.sshUsername} k="sshUsername" ph="root" /><I label="비밀번호" v={f.sshPassword} k="sshPassword" type="password" ph="••••" /><I label="설명" v={f.description} k="description" span /><I label="폴링(초)" v={f.pollIntervalSec} k="pollIntervalSec" type="number" />
-      <div className="flex items-end pb-0.5"><label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" className="rounded text-blue-600" checked={f.isLocal} onChange={e => setF(p => ({ ...p, isLocal: e.target.checked }))} />로컬 서버</label></div>
-    </div>{testResult && <div className={`p-2 rounded text-xs ${testResult.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}><p className="font-medium">{testResult.message}</p>{testResult.gpuInfo && <pre className="mt-1 text-[10px] opacity-80 whitespace-pre-wrap max-h-32 overflow-y-auto">{testResult.gpuInfo}</pre>}</div>}</div>
+      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">서버 이름</label><input className={ic} placeholder="GPU서버-1" value={f.name} onChange={e => set('name', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">호스트 (IP){dupHost && <span className="text-red-500 ml-1">중복!</span>}</label><input className={`${ic} ${dupHost ? 'border-red-400' : ''}`} placeholder="192.168.1.100" value={f.host} onChange={e => set('host', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">SSH 포트</label><input type="number" className={ic} value={f.sshPort} onChange={e => set('sshPort', parseInt(e.target.value) || 22)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">사용자명</label><input className={ic} placeholder="root" value={f.sshUsername} onChange={e => set('sshUsername', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">비밀번호{edit && <span className="text-gray-400 ml-1">(변경 시만)</span>}</label><input type="password" className={ic} placeholder="••••" value={f.sshPassword} onChange={e => set('sshPassword', e.target.value)} /></div>
+      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">설명</label><input className={ic} placeholder="vLLM 서빙 전용 서버" value={f.description} onChange={e => set('description', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">폴링 (초)</label><input type="number" className={ic} value={f.pollIntervalSec} onChange={e => set('pollIntervalSec', parseInt(e.target.value) || 60)} /></div>
+      <div className="flex items-end pb-0.5"><label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" className="rounded text-blue-600" checked={f.isLocal} onChange={e => set('isLocal', e.target.checked)} />로컬 서버</label></div>
+    </div>
+    {testResult && <div className={`p-2 rounded text-xs ${testResult.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}><p className="font-medium">{testResult.message}</p>{testResult.gpuInfo && <pre className="mt-1 text-[10px] opacity-80 whitespace-pre-wrap max-h-32 overflow-y-auto">{testResult.gpuInfo}</pre>}</div>}
+    </div>
     <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
       <button onClick={() => onTest({ host: f.host, sshPort: f.sshPort, sshUsername: f.sshUsername, sshPassword: f.sshPassword })} disabled={testing || !f.host || !f.sshUsername || !f.sshPassword} className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-50 flex items-center gap-1"><TestTube className="w-3 h-3" />{testing ? '테스트 중...' : '연결 테스트'}</button>
-      <div className="flex gap-2"><button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500">취소</button><button onClick={() => onSubmit(f)} disabled={!f.name || !f.host || !f.sshUsername || (!edit && !f.sshPassword)} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg disabled:opacity-50">{edit ? '수정' : '등록'}</button></div>
+      <div className="flex gap-2"><button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500">취소</button><button onClick={() => onSubmit(f)} disabled={!f.name || !f.host || !f.sshUsername || (!edit && !f.sshPassword) || dupHost} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg disabled:opacity-50">{edit ? '수정' : '등록'}</button></div>
     </div>
   </div></div>);
 }
 
 // ── Compact Server Card ──
-function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntry; onEdit: () => void; onDelete: () => void; onToggle: () => void; }) {
+function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: RealtimeEntry; onEdit: () => void; onDelete: () => void; onToggle: () => void; onCopy: () => void; }) {
   const [open, setOpen] = useState(false);
   const [hist, setHist] = useState<any>(null);
   const [hrs, setHrs] = useState(24);
@@ -83,6 +100,8 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
   const kvPct = avgKv.length > 0 ? avgKv.reduce((a, e) => a + e.kvCacheUsagePct!, 0) / avgKv.length : null;
   const cpuPct = m?.cpuLoadAvg && m?.cpuCores ? Math.min(Math.round((m.cpuLoadAvg / m.cpuCores) * 100), 100) : null;
   const ramPct = m?.memoryTotalMb && m?.memoryUsedMb ? Math.round((m.memoryUsedMb / m.memoryTotalMb) * 100) : null;
+  const diskPct = m?.diskTotalGb && m?.diskUsedGb ? Math.round((m.diskUsedGb / m.diskTotalGb) * 100) : null;
+  const currentTps = eps.reduce((a, e) => a + (e.promptThroughputTps || 0) + (e.genThroughputTps || 0), 0);
   const capacityPct = Math.max(avgGpu, kvPct || 0, memPct);
 
   const loadHist = useCallback(async () => { try { const r = await gpuServerApi.history(s.id, hrs); setHist(r.data); } catch {} }, [s.id, hrs]);
@@ -110,9 +129,10 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
           {spec && <span className="text-[10px] text-gray-400">{spec.label} x{gc}</span>}
           <span className="text-[10px] text-gray-400 ml-auto">{s.host}</span>
           <div className="flex items-center gap-0.5 ml-1">
-            <button onClick={onEdit} className="p-1 text-gray-300 hover:text-gray-500"><Pencil className="w-3 h-3" /></button>
+            <button onClick={onEdit} className="p-1 text-gray-300 hover:text-gray-500" title="수정"><Pencil className="w-3 h-3" /></button>
+            <button onClick={onCopy} className="p-1 text-gray-300 hover:text-blue-500" title="복사"><Copy className="w-3 h-3" /></button>
             <button onClick={onToggle} className={`px-1.5 py-0.5 text-[9px] rounded ${s.enabled ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>{s.enabled ? 'ON' : 'OFF'}</button>
-            <button onClick={onDelete} className="p-1 text-gray-300 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+            <button onClick={onDelete} className="p-1 text-gray-300 hover:text-red-400" title="삭제"><Trash2 className="w-3 h-3" /></button>
           </div>
         </div>
 
@@ -137,8 +157,10 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
 
           {/* ── 3) 시스템 리소스 한 줄 ── */}
           <div className="flex items-center gap-3 text-[10px] text-gray-500">
-            {cpuPct != null && <span className="flex items-center gap-1"><Cpu className="w-3 h-3" />CPU <b className={cpuPct > 80 ? 'text-red-600' : 'text-gray-700'}>{cpuPct}%</b><span className="text-gray-400">({m.cpuLoadAvg}/{m.cpuCores})</span></span>}
-            {ramPct != null && <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />RAM <b className={ramPct > 85 ? 'text-red-600' : 'text-gray-700'}>{ramPct}%</b><span className="text-gray-400">({fmt(m.memoryUsedMb!)}/{fmt(m.memoryTotalMb!)})</span></span>}
+            {cpuPct != null && <span className="flex items-center gap-1"><Cpu className="w-3 h-3" />CPU <b className={cpuPct > 80 ? 'text-red-600' : 'text-gray-700'}>{cpuPct}%</b></span>}
+            {ramPct != null && <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />RAM <b className={ramPct > 85 ? 'text-red-600' : 'text-gray-700'}>{ramPct}%</b></span>}
+            {diskPct != null && <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />Disk <b className={diskPct > 90 ? 'text-red-600' : 'text-gray-700'}>{diskPct}%</b><span className="text-gray-400">({m.diskFreeGb}GB free)</span></span>}
+            {currentTps > 0 && <span className="flex items-center gap-1 text-blue-600"><Activity className="w-3 h-3" /><b>{currentTps.toFixed(1)}</b> tok/s</span>}
             {eps.length > 0 && <span className="flex items-center gap-1"><Layers className="w-3 h-3" />LLM {eps.length}개</span>}
             {kvPct != null && <span>KV <b className={utilTxt(kvPct)}>{kvPct.toFixed(0)}%</b></span>}
           </div>
@@ -215,7 +237,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
           <div className="px-3 py-2 border-t border-gray-100">
             <div className="flex items-center gap-2">
               <button onClick={async () => { setDbgL(true); try { const r = await gpuServerApi.debug(s.id); setDbg(r.data.raw); } catch (e: any) { setDbg('Error: ' + e.message); } finally { setDbgL(false); } }} className="text-[9px] text-gray-400 hover:text-gray-600 underline">{dbgL ? '조회 중...' : 'SSH Raw 출력 (디버그)'}</button>
-              {dbg && <button onClick={() => { navigator.clipboard.writeText(dbg); }} className="text-[9px] text-blue-400 hover:text-blue-600 underline">복사</button>}
+              {dbg && <button onClick={() => { try { navigator.clipboard.writeText(dbg); } catch { const ta = document.createElement('textarea'); ta.value = dbg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } alert('복사됨'); }} className="text-[9px] text-blue-400 hover:text-blue-600 underline">복사</button>}
             </div>
             {dbg && <pre className="mt-1 p-2 bg-gray-900 text-green-400 rounded text-[9px] max-h-48 overflow-auto whitespace-pre-wrap">{dbg}</pre>}
           </div>
@@ -269,7 +291,7 @@ export default function ResourceMonitor() {
   const capacityAll = Math.max(avgGpu, (() => { const kvs = data.flatMap(e => e.metrics?.llmEndpoints?.filter(l => l.kvCacheUsagePct != null) || []); return kvs.length > 0 ? kvs.reduce((a, l) => a + l.kvCacheUsagePct!, 0) / kvs.length : 0; })(), totVram > 0 ? (usedVram / totVram) * 100 : 0);
 
   const handleTest = async (d: any) => { setTesting(true); setTestR(null); try { setTestR((await gpuServerApi.test(d)).data); } catch (e: any) { setTestR({ success: false, message: e?.response?.data?.error || e.message }); } finally { setTesting(false); } };
-  const handleSubmit = async (f: any) => { try { if (edit) { const u = { ...f }; if (!u.sshPassword) delete u.sshPassword; await gpuServerApi.update(edit.id, u); } else { await gpuServerApi.create(f); } setModal(false); setEdit(null); setTestR(null); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } };
+  const handleSubmit = async (f: any) => { try { if (edit && edit.id) { const u = { ...f }; if (!u.sshPassword) delete u.sshPassword; await gpuServerApi.update(edit.id, u); } else { await gpuServerApi.create(f); } setModal(false); setEdit(null); setTestR(null); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
 
@@ -381,7 +403,12 @@ export default function ResourceMonitor() {
       <div className="bg-white rounded-lg border p-10 text-center"><Server className="w-10 h-10 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400 mb-3">등록된 서버 없음</p><button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="text-xs text-blue-600 hover:underline">+ 서버 추가</button></div>
     ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-        {data.map(e => <ServerCard key={e.server.id} entry={e} onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }} onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }} onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }} />)}
+        {data.map(e => <ServerCard key={e.server.id} entry={e}
+          onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
+          onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
+          onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+          onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
+        />)}
       </div>
     ))}
 
@@ -422,6 +449,6 @@ export default function ResourceMonitor() {
       </div>}
     </div>)}
 
-    <ServerModal open={modal} onClose={() => { setModal(false); setEdit(null); setTestR(null); }} onSubmit={handleSubmit} edit={edit} testing={testing} testResult={testR} onTest={handleTest} />
+    <ServerModal open={modal} onClose={() => { setModal(false); setEdit(null); setTestR(null); }} onSubmit={handleSubmit} edit={edit} testing={testing} testResult={testR} onTest={handleTest} existingHosts={data.map(e => e.server.host)} />
   </div>);
 }

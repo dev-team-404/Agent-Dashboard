@@ -95,6 +95,7 @@ const METRICS_CMD = [
   "free -m | awk '/Mem:/{print $2,$3}'",
   'nproc',
   'hostname',
+  'df -BG / 2>/dev/null | awk "NR==2{gsub(/G/,\\"\\"); print \\$2,\\$3,\\$4}"',
   // LLM 탐지: vllm/sglang/tgi/lmdeploy 이미지 컨테이너만 스캔
   'echo "==LLM=="',
   'docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep -iE "vllm|sglang|tgi|text-generation|lmdeploy|aphrodite" | while IFS="|" read PORTS CNAME CIMAGE; do'
@@ -236,6 +237,9 @@ export interface ServerMetrics {
   cpuCores: number | null;
   memoryTotalMb: number | null;
   memoryUsedMb: number | null;
+  diskTotalGb: number | null;
+  diskUsedGb: number | null;
+  diskFreeGb: number | null;
   hostname: string | null;
 }
 
@@ -371,6 +375,9 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
 
   // 시스템 메트릭 파싱
   const sysSection = (sections[3] || '').trim();
+  let diskTotalGb: number | null = null;
+  let diskUsedGb: number | null = null;
+  let diskFreeGb: number | null = null;
   if (sysSection) {
     const lines = sysSection.split('\n').map(s => s.trim()).filter(Boolean);
     if (lines[0]) cpuLoadAvg = parseFloat(lines[0]) || null;
@@ -381,6 +388,13 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
     }
     if (lines[2]) cpuCores = parseInt(lines[2], 10) || null;
     if (lines[3]) hostname = lines[3];
+    // Line 4: disk "total used free" (GB)
+    if (lines[4]) {
+      const dp = lines[4].split(/\s+/);
+      diskTotalGb = parseFloat(dp[0]) || null;
+      diskUsedGb = parseFloat(dp[1]) || null;
+      diskFreeGb = parseFloat(dp[2]) || null;
+    }
   }
 
   // LLM 자동 탐지 파싱
@@ -481,7 +495,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
     }
   }
 
-  return { gpus, processes, llmEndpoints, cpuLoadAvg, cpuCores, memoryTotalMb, memoryUsedMb, hostname };
+  return { gpus, processes, llmEndpoints, cpuLoadAvg, cpuCores, memoryTotalMb, memoryUsedMb, diskTotalGb, diskUsedGb, diskFreeGb, hostname };
 }
 
 // ================================================================
@@ -548,6 +562,7 @@ async function pollServer(server: { id: string; name: string; host: string; sshP
       gpus: prev?.gpus || [], processes: prev?.processes || [], llmEndpoints: prev?.llmEndpoints || [],
       cpuLoadAvg: prev?.cpuLoadAvg ?? null, cpuCores: prev?.cpuCores ?? null,
       memoryTotalMb: prev?.memoryTotalMb ?? null, memoryUsedMb: prev?.memoryUsedMb ?? null,
+      diskTotalGb: prev?.diskTotalGb ?? null, diskUsedGb: prev?.diskUsedGb ?? null, diskFreeGb: prev?.diskFreeGb ?? null,
       hostname: prev?.hostname ?? null,
     });
   } finally {
