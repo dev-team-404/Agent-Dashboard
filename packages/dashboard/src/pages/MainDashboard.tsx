@@ -760,9 +760,11 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         const totLlm = gpuData.reduce((a: number, e: any) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
         const totTps = gpuData.reduce((a: number, e: any) => a + (e.throughputAnalysis?.currentTps || 0), 0);
         // 과사용/저사용 서버
+        // 실효사용률 기준으로 과부하/여유 판단
         const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
-          const avg = e.metrics.gpus.reduce((s: number, g: any) => s + g.utilGpu, 0) / e.metrics.gpus.length;
-          return { name: e.server.name, util: Math.round(avg), health: e.throughputAnalysis?.gpuHealthPct };
+          const ta = e.throughputAnalysis;
+          const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
+          return { name: e.server.name, util: eu, health: ta?.gpuHealthPct };
         }).sort((a: any, b: any) => b.util - a.util);
         const over = serverUtils.filter((s: any) => s.util > 70);
         const under = serverUtils.filter((s: any) => s.util < 20);
@@ -905,8 +907,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {/* ── GPU 탭 ── */}
       {activeTab === 'gpu' && gpuData.length > 0 && (() => {
         const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
-          const avg = e.metrics.gpus.reduce((s: number, g: any) => s + g.utilGpu, 0) / e.metrics.gpus.length;
-          return { name: e.server.name, util: Math.round(avg), health: e.throughputAnalysis?.gpuHealthPct, tps: e.throughputAnalysis?.currentTps || 0, gpuCount: e.metrics.gpus.length, spec: e.metrics.gpus[0]?.spec?.label || '?' };
+          const ta = e.throughputAnalysis;
+          const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
+          return { name: e.server.name, util: eu, health: ta?.gpuHealthPct, tps: ta?.currentTps || 0, gpuCount: e.metrics.gpus.length, spec: e.metrics.gpus[0]?.spec?.label || '?' };
         }).sort((a: any, b: any) => b.util - a.util);
         return (
           <div className="space-y-4">
