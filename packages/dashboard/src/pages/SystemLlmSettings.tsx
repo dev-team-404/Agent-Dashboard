@@ -197,7 +197,7 @@ export default function SystemLlmSettings() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in" data-tour="system-llm-settings">
       {/* Header */}
       <div className="flex items-center gap-4">
         <div className="p-3 rounded-lg bg-violet-50">

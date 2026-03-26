@@ -2,6 +2,8 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import TourProvider from './components/Tour/TourProvider';
+import TourTriggerButton from './components/Tour/TourTriggerButton';
 import { authApi } from './services/api';
 
 // 배포 후 구버전 chunk 404 방지: 실패 시 페이지 자동 새로고침
@@ -135,6 +137,7 @@ function App() {
   }
 
   return (
+    <TourProvider userId={user.id} adminRole={adminRole}>
     <Layout user={user} isAdmin={isAdmin} adminRole={adminRole} onLogout={handleLogout}>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -185,6 +188,8 @@ function App() {
         </Routes>
       </Suspense>
     </Layout>
+    <TourTriggerButton />
+    </TourProvider>
   );
 }
 

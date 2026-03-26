@@ -122,6 +122,18 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   const sidebarWidth = sidebarCollapsed ? 'w-[72px]' : 'w-60';
   const mainMargin = sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-60';
 
+  // Expand sidebar when tour requests it
+  useEffect(() => {
+    const handleExpandSidebar = () => {
+      if (sidebarCollapsed) {
+        setSidebarCollapsed(false);
+        localStorage.setItem('sidebar_collapsed', 'false');
+      }
+    };
+    window.addEventListener('expand-sidebar', handleExpandSidebar);
+    return () => window.removeEventListener('expand-sidebar', handleExpandSidebar);
+  }, [sidebarCollapsed]);
+
   const NavLink = ({ path, label, icon: Icon }: { path: string; label: string; icon: React.ElementType }) => {
     const isActive = location.pathname === path;
     return (
@@ -129,6 +141,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
         to={path}
         onClick={() => setSidebarOpen(false)}
         title={sidebarCollapsed ? label : undefined}
+        data-tour={`nav-${path}`}
         className={`flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-colors ${
           isActive
             ? 'bg-white/10 text-white font-medium'

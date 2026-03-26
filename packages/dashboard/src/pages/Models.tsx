@@ -641,6 +641,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
         {isAdmin && (
           <button
             onClick={openCreateModal}
+            data-tour="models-add-btn"
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
                        hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
                        transform active:scale-[0.97] transition-all duration-200"

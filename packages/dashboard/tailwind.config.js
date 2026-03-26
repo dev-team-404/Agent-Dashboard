@@ -92,6 +92,7 @@ export default {
         'stagger-4': 'slideUp 0.4s ease-out 0.2s both',
         'stagger-5': 'slideUp 0.4s ease-out 0.25s both',
         'stagger-6': 'slideUp 0.4s ease-out 0.3s both',
+        'bounce-gentle': 'bounceGentle 2s ease-in-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -133,6 +134,10 @@ export default {
         glow: {
           '0%': { boxShadow: '0 0 12px rgb(37 99 235 / 0.1)' },
           '100%': { boxShadow: '0 0 20px rgb(37 99 235 / 0.18)' },
+        },
+        bounceGentle: {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-6px)' },
         },
       },
       backdropBlur: {
