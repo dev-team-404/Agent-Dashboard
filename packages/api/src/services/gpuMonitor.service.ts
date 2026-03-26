@@ -81,33 +81,23 @@ function sshExec(host: string, port: number, username: string, password: string,
 // ================================================================
 // SSH 명령어: GPU + 시스템 + LLM 자동 탐지 전부 한 번에
 // ================================================================
-const METRICS_CMD = `
-NSMI=$(which nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi || echo /usr/bin/nvidia-smi)
-echo "==GPU=="
-$NSMI --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"
-echo "==PROC=="
-$NSMI --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null || echo "NO_PROC"
-echo "==SYS=="
-awk '{print $1}' /proc/loadavg
-free -m | awk '/Mem:/{print $2,$3}'
-nproc
-hostname
-echo "==LLM=="
-for port in $(docker ps --format '{{.Ports}}' 2>/dev/null | grep -oP '0\\.0\\.0\\.0:\\K[0-9]+' | sort -u); do
-  RESP=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null)
-  if echo "$RESP" | grep -qE 'vllm:|sglang:|tgi_'; then
-    CNAME=$(docker ps --format '{{.Ports}}|{{.Names}}|{{.Image}}' 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1)
-    echo "PORT:$port|CONTAINER:$CNAME"
-    echo "$RESP" | grep -E '^(vllm:|sglang:|tgi_)[a-zA-Z_:]+ '
-    echo "---ENDPORT---"
-  fi
-done
-OLLAMA_OUT=$(curl -s --max-time 3 http://localhost:11434/api/ps 2>/dev/null)
-if [ -n "$OLLAMA_OUT" ] && echo "$OLLAMA_OUT" | grep -q '"models"'; then
-  echo "OLLAMA_PS:$OLLAMA_OUT"
-fi
-echo "==ENDLLM=="
-`.trim().replace(/\n/g, '; ');
+// 줄바꿈 유지 (for/if/do/done 호환) — SSH exec는 multiline 명령을 그대로 지원
+const METRICS_CMD = [
+  'NSMI=$(which nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi || echo /usr/bin/nvidia-smi)',
+  'echo "==GPU=="',
+  '$NSMI --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"',
+  'echo "==PROC=="',
+  '$NSMI --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null || echo "NO_PROC"',
+  'echo "==SYS=="',
+  "awk '{print $1}' /proc/loadavg",
+  "free -m | awk '/Mem:/{print $2,$3}'",
+  'nproc',
+  'hostname',
+  'echo "==LLM=="',
+  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -oP "0\\.0\\.0\\.0:\\K[0-9]+" | sort -u); do RESP=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null); if echo "$RESP" | grep -qE "vllm:|sglang:|tgi_"; then CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1); echo "PORT:$port|CONTAINER:$CNAME"; echo "$RESP" | grep -E "^(vllm:|sglang:|tgi_)[a-zA-Z_:]+ "; echo "---ENDPORT---"; fi; done',
+  'OLLAMA_OUT=$(curl -s --max-time 3 http://localhost:11434/api/ps 2>/dev/null); if [ -n "$OLLAMA_OUT" ] && echo "$OLLAMA_OUT" | grep -q \'"models"\'; then echo "OLLAMA_PS:$OLLAMA_OUT"; fi',
+  'echo "==ENDLLM=="',
+].join('\n');
 
 // ================================================================
 // LLM 프로세스 감지 패턴
