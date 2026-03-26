@@ -352,9 +352,7 @@ function buildSystemPrompt(adminRole: string | null, loginid: string, deptname: 
   }
 
   prompt += USER_SECTION;
-  if (adminRole === 'ADMIN' || adminRole === 'SUPER_ADMIN') {
-    prompt += RESOURCE_SECTION;
-  }
+  prompt += RESOURCE_SECTION;
   prompt += API_PROXY_SECTION + FAQ_SECTION;
 
   // 사용자 정보
