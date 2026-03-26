@@ -129,58 +129,22 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-// ── 빨간 테두리 + 화살표 하이라이팅 ──
-let highlightCleanup: (() => void) | null = null;
-
-function showHighlight(tourId: string) {
-  if (highlightCleanup) highlightCleanup();
-
-  // 요소가 렌더링될 때까지 최대 3초 재시도
+// ── Tailwind 클래스 기반 하이라이팅 ──
+function highlightElement(tourId: string) {
   let attempts = 0;
   const tryFind = () => {
-    const el = document.querySelector(`[data-tour="${tourId}"]`) as HTMLElement | null;
+    const el = document.querySelector(`[data-tour="${tourId}"]`);
     if (!el) {
       if (++attempts < 15) setTimeout(tryFind, 200);
       return;
     }
-    applyHighlight(el);
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('ring-4', 'ring-red-500', 'ring-offset-2', 'rounded-lg', 'animate-pulse');
+    setTimeout(() => {
+      el.classList.remove('ring-4', 'ring-red-500', 'ring-offset-2', 'rounded-lg', 'animate-pulse');
+    }, 5000);
   };
   tryFind();
-}
-
-function applyHighlight(el: HTMLElement) {
-  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-  setTimeout(() => {
-    const rect = el.getBoundingClientRect();
-
-    // 빨간 화살표 (SVG) — 요소 좌측에 표시
-    const arrow = document.createElement('div');
-    arrow.id = 'chatbot-highlight-arrow';
-    arrow.innerHTML = `<svg width="56" height="40" viewBox="0 0 56 40" fill="none">
-      <path d="M4 20 H40" stroke="#EF4444" stroke-width="6" stroke-linecap="round"/>
-      <path d="M32 8 L46 20 L32 32" stroke="#EF4444" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>`;
-    arrow.style.cssText = `
-      position: fixed;
-      left: ${rect.left - 64}px;
-      top: ${rect.top + rect.height / 2 - 20}px;
-      z-index: 10001;
-      filter: drop-shadow(0 2px 8px rgba(239,68,68,0.5));
-      animation: chatbot-arrow-pulse 0.8s ease-in-out infinite alternate;
-      pointer-events: none;
-    `;
-    document.body.appendChild(arrow);
-
-    // 5초 후 자동 제거
-    const cleanup = () => {
-      arrow.remove();
-      highlightCleanup = null;
-    };
-
-    const timer = setTimeout(cleanup, 5000);
-    highlightCleanup = () => { clearTimeout(timer); cleanup(); };
-  }, 400);
 }
 
 interface Props {
@@ -215,8 +179,8 @@ export default function HelpChatbot({ adminRole }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const navigate = useNavigate();
 
-  // 스트리밍 완료 후 자동 네비게이션을 위한 ref
-  const pendingNavRef = useRef<string | null>(null);
+  // 스트리밍 중 네비게이션 1회만 실행하기 위한 ref
+  const navigatedRef = useRef(false);
 
   // 메시지 변경 시 sessionStorage에 저장
   useEffect(() => { saveMessages(messages); }, [messages]);
@@ -255,27 +219,18 @@ export default function HelpChatbot({ adminRole }: Props) {
     }
   }, [isOpen]);
 
-  // 스트리밍 완료 시 자동 네비게이션 실행
-  useEffect(() => {
-    if (!isStreaming && pendingNavRef.current) {
-      const msgId = pendingNavRef.current;
-      pendingNavRef.current = null;
-
-      const msg = messages.find(m => m.id === msgId);
-      if (!msg || !msg.content) return;
-
-      const actions = extractNavActions(msg.content);
-      if (actions.length === 0) return;
-
-      // 첫 번째 nav action 자동 실행
-      const action = actions[0];
-      navigate(action.path);
-
-      if (action.tourId) {
-        setTimeout(() => showHighlight(action.tourId!), 600);
-      }
+  // 스트리밍 중 콘텐츠에서 [[...]] 감지 시 즉시 네비게이션
+  const tryNavigateFromContent = useCallback((content: string) => {
+    if (navigatedRef.current) return;
+    const actions = extractNavActions(content);
+    if (actions.length === 0) return;
+    navigatedRef.current = true;
+    const action = actions[0];
+    navigate(action.path);
+    if (action.tourId) {
+      setTimeout(() => highlightElement(action.tourId!), 800);
     }
-  }, [isStreaming, messages, navigate]);
+  }, [navigate]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -299,9 +254,10 @@ export default function HelpChatbot({ adminRole }: Props) {
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, assistantMsg]);
+    navigatedRef.current = false;
 
-    // 스트리밍 완료 후 이 메시지의 nav action 체크 예약
-    pendingNavRef.current = assistantMsg.id;
+    // 스트리밍 중 누적 콘텐츠 추적 (nav action 즉시 감지용)
+    let accumulated = '';
 
     try {
       const controller = new AbortController();
@@ -322,7 +278,6 @@ export default function HelpChatbot({ adminRole }: Props) {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({ error: '연결 실패' }));
-        pendingNavRef.current = null;
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id
             ? { ...m, content: errData.error || `오류가 발생했습니다 (${response.status})` }
@@ -354,11 +309,14 @@ export default function HelpChatbot({ adminRole }: Props) {
           try {
             const parsed = JSON.parse(data);
             if (parsed.content) {
+              accumulated += parsed.content;
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsg.id
                   ? { ...m, content: m.content + parsed.content }
                   : m
               ));
+              // [[...]] 패턴 감지 즉시 페이지 이동
+              tryNavigateFromContent(accumulated);
             }
             if (parsed.error) {
               setMessages(prev => prev.map(m =>
@@ -374,7 +332,7 @@ export default function HelpChatbot({ adminRole }: Props) {
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== 'AbortError') {
-        pendingNavRef.current = null;
+        navigatedRef.current = false;
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && !m.content
             ? { ...m, content: '연결이 중단되었습니다. 다시 시도해주세요.' }
@@ -397,8 +355,8 @@ export default function HelpChatbot({ adminRole }: Props) {
   const handleClear = () => {
     if (isStreaming) {
       abortRef.current?.abort();
-      pendingNavRef.current = null;
     }
+    navigatedRef.current = false;
     setMessages([]);
   };
 
@@ -638,10 +596,6 @@ export default function HelpChatbot({ adminRole }: Props) {
         @keyframes chatbot-slideUp {
           from { opacity: 0; transform: translateY(16px) scale(0.97); }
           to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes chatbot-arrow-pulse {
-          from { transform: translateX(0); opacity: 0.7; }
-          to { transform: translateX(8px); opacity: 1; }
         }
       `}</style>
     </>
