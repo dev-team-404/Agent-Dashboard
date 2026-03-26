@@ -296,7 +296,10 @@ export default function DeptSavedMM() {
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">지난달 DAU</th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">이번달 DAU</th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px] cursor-pointer select-none" onClick={() => toggleSort('mau')}>
-                  MAU <SortIcon columnKey="mau" />
+                  지난달 MAU <SortIcon columnKey="mau" />
+                </th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">
+                  이번달 MAU
                 </th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px] cursor-pointer select-none" onClick={() => toggleSort('savedMM')}>
                   Saved M/M <SortIcon columnKey="savedMM" />
@@ -309,7 +312,7 @@ export default function DeptSavedMM() {
             <tbody className="divide-y divide-gray-100/60">
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-5 py-20 text-center">
+                  <td colSpan={11} className="px-5 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="p-4 rounded-lg bg-pastel-50">
                         <Search className="w-8 h-8 text-pastel-300" />
@@ -353,6 +356,9 @@ export default function DeptSavedMM() {
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className="text-sm font-medium text-pastel-700">{s.lastMonth.mau}</span>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-sm font-medium text-pastel-700">{s.currentMonth.mau}</span>
                       </td>
                       {/* Saved M/M */}
                       <td className="px-3 py-3 text-center">
