@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '../index.js';
+import { logInternalLlmUsage } from './internalUsageLogger.js';
 
 const ESTIMATION_INTERVAL_MS = 60 * 60 * 1000; // 1시간마다 체크
 const LLM_TIMEOUT_MS = 60_000; // 60초
@@ -27,14 +28,13 @@ You must respond ONLY with valid JSON, no other text.`;
 
 // ── LLM 호출 ──
 async function callSystemLlm(
-  model: { name: string; endpointUrl: string; apiKey: string | null; extraHeaders: unknown; extraBody: unknown },
+  model: { id?: string; name: string; endpointUrl: string; apiKey: string | null; extraHeaders: unknown; extraBody: unknown },
   prompt: string,
+  logPath: string = '/internal/ai-estimation',
 ): Promise<string> {
   let url = model.endpointUrl.trim();
   if (!url.endsWith('/chat/completions')) {
     if (url.endsWith('/')) url = url.slice(0, -1);
-    // /v1으로 끝나면 /chat/completions만 추가, 아니면 그대로 /chat/completions 추가
-    // (대부분의 엔드포인트 URL은 이미 /v1까지 포함하거나, /chat/completions를 포함)
     url = `${url}/chat/completions`;
   }
 
@@ -61,6 +61,7 @@ async function callSystemLlm(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const startMs = Date.now();
 
   try {
     const response = await fetch(url, {
@@ -70,13 +71,36 @@ async function callSystemLlm(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    const latencyMs = Date.now() - startMs;
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
+      if (model.id) {
+        logInternalLlmUsage({
+          modelId: model.id, modelName: model.name,
+          inputTokens: 0, outputTokens: 0, latencyMs,
+          path: logPath, statusCode: response.status,
+          errorMessage: errText.substring(0, 300),
+        });
+      }
       throw new Error(`LLM ${response.status}: ${errText.substring(0, 300)}`);
     }
 
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const data = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    // 사용량 로깅
+    if (model.id) {
+      logInternalLlmUsage({
+        modelId: model.id, modelName: model.name,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
+        latencyMs, path: logPath,
+      });
+    }
+
     return data.choices?.[0]?.message?.content || '';
   } catch (err) {
     clearTimeout(timeoutId);
@@ -635,7 +659,7 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
             numBizDays,
           );
 
-          const raw = await callSystemLlm(model, prompt);
+          const raw = await callSystemLlm(model, prompt, '/internal/dept-ai-estimation');
           const result = parseEstimation(raw);
 
           if (!result) {

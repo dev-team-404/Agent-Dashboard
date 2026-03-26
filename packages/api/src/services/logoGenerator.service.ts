@@ -10,6 +10,7 @@ import path from 'node:path';
 import { prisma } from '../index.js';
 import { generateImages, ImageEndpointInfo } from './imageProviders.service.js';
 import { saveImage, ensureStorageDir, IMAGE_STORAGE_PATH } from './imageStorage.service.js';
+import { logInternalLlmUsage } from './internalUsageLogger.js';
 
 const LOGO_MODEL_KEY = 'LOGO_GENERATION_MODEL_ID';
 
@@ -72,10 +73,22 @@ export async function generateLogoForService(
       extraBody: model.extraBody as Record<string, any> | null,
     };
 
+    const logoStartMs = Date.now();
     const results = await generateImages(model.imageProvider || 'OPENAI', endpoint, {
       prompt,
       n: 1,
       size: '512x512',
+    });
+    const logoLatencyMs = Date.now() - logoStartMs;
+
+    // 이미지 생성 사용량 로깅 (토큰 없음, 요청 기록만)
+    logInternalLlmUsage({
+      modelId: model.id, modelName: model.name,
+      inputTokens: 0, outputTokens: 0,
+      latencyMs: logoLatencyMs,
+      path: '/internal/logo-generation',
+      statusCode: results.length > 0 ? 200 : 502,
+      errorMessage: results.length === 0 ? 'No results returned' : undefined,
     });
 
     if (results.length === 0) {

@@ -8,6 +8,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth.js';
+import { logInternalLlmUsage } from '../services/internalUsageLogger.js';
 
 export const errorLogsRoutes = Router();
 errorLogsRoutes.use(authenticateToken);
@@ -374,6 +375,7 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
+    const analyzeStartMs = Date.now();
 
     try {
       const llmResponse = await fetch(url, {
@@ -392,9 +394,16 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
       });
 
       clearTimeout(timeout);
+      const analyzeLatencyMs = Date.now() - analyzeStartMs;
 
       if (!llmResponse.ok) {
         const errText = await llmResponse.text().catch(() => '');
+        logInternalLlmUsage({
+          modelId: model.id, modelName: model.name,
+          inputTokens: 0, outputTokens: 0, latencyMs: analyzeLatencyMs,
+          path: '/internal/error-analysis', statusCode: llmResponse.status,
+          errorMessage: errText.substring(0, 300),
+        });
         res.status(502).json({
           error: 'LLM analysis failed',
           detail: `LLM returned ${llmResponse.status}: ${errText.substring(0, 500)}`,
@@ -402,8 +411,20 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
         return;
       }
 
-      const llmData = await llmResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const llmData = await llmResponse.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
       const content = llmData.choices?.[0]?.message?.content;
+
+      // 사용량 로깅
+      logInternalLlmUsage({
+        modelId: model.id, modelName: model.name,
+        inputTokens: llmData.usage?.prompt_tokens || 0,
+        outputTokens: llmData.usage?.completion_tokens || 0,
+        latencyMs: analyzeLatencyMs,
+        path: '/internal/error-analysis',
+      });
 
       if (!content) {
         res.status(502).json({ error: 'LLM returned empty response' });
@@ -433,6 +454,13 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
       const msg = fetchErr instanceof Error
         ? (fetchErr.name === 'AbortError' ? 'LLM 응답 시간 초과 (60초)' : fetchErr.message)
         : 'Unknown error';
+      logInternalLlmUsage({
+        modelId: model.id, modelName: model.name,
+        inputTokens: 0, outputTokens: 0,
+        latencyMs: Date.now() - analyzeStartMs,
+        path: '/internal/error-analysis', statusCode: 502,
+        errorMessage: msg,
+      });
       res.status(502).json({ error: 'LLM connection failed', detail: msg });
     }
   } catch (error) {

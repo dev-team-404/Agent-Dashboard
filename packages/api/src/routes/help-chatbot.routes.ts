@@ -9,6 +9,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
+import { logInternalLlmUsage } from '../services/internalUsageLogger.js';
 
 export const helpChatbotRoutes = Router();
 
@@ -494,6 +495,8 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
     req.on('close', () => { controller.abort(); clearTimeout(timeoutId); });
+    const chatStartMs = Date.now();
+    let streamedContent = '';
 
     const response = await fetch(url, {
       method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal,
@@ -503,6 +506,13 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
       console.error(`[HelpChatbot] LLM error ${response.status}:`, errText.substring(0, 500));
+      logInternalLlmUsage({
+        modelId: model.id, modelName: model.name,
+        inputTokens: 0, outputTokens: 0,
+        latencyMs: Date.now() - chatStartMs,
+        path: '/internal/help-chatbot', statusCode: response.status,
+        errorMessage: errText.substring(0, 300),
+      });
       res.write(`data: ${JSON.stringify({ error: `LLM 호출 실패 (${response.status})` })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
@@ -519,6 +529,8 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+
+    let streamUsage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
 
     try {
       while (true) {
@@ -538,9 +550,10 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
           try {
             const parsed = JSON.parse(data);
             const content = parsed.choices?.[0]?.delta?.content;
-            if (content) res.write(`data: ${JSON.stringify({ content })}\n\n`);
+            if (content) { streamedContent += content; res.write(`data: ${JSON.stringify({ content })}\n\n`); }
             const finishReason = parsed.choices?.[0]?.finish_reason;
             if (finishReason) res.write(`data: ${JSON.stringify({ finish_reason: finishReason })}\n\n`);
+            if (parsed.usage) streamUsage = parsed.usage;
           } catch { /* ignore */ }
         }
       }
@@ -554,7 +567,8 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
             try {
               const parsed = JSON.parse(data);
               const content = parsed.choices?.[0]?.delta?.content;
-              if (content) res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              if (content) { streamedContent += content; res.write(`data: ${JSON.stringify({ content })}\n\n`); }
+              if (parsed.usage) streamUsage = parsed.usage;
             } catch { /* ignore */ }
           }
         }
@@ -565,6 +579,18 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
         res.write(`data: ${JSON.stringify({ error: '스트리밍 중 오류가 발생했습니다.' })}\n\n`);
       }
     }
+
+    // 사용량 로깅 (스트리밍 완료 후)
+    const chatLatencyMs = Date.now() - chatStartMs;
+    const estimatedInputTokens = streamUsage?.prompt_tokens || Math.ceil(JSON.stringify(recentMessages).length / 4);
+    const estimatedOutputTokens = streamUsage?.completion_tokens || Math.ceil(streamedContent.length / 4);
+    logInternalLlmUsage({
+      modelId: model.id, modelName: model.name,
+      inputTokens: estimatedInputTokens,
+      outputTokens: estimatedOutputTokens,
+      latencyMs: chatLatencyMs,
+      path: '/internal/help-chatbot',
+    });
 
     res.write('data: [DONE]\n\n');
     res.end();

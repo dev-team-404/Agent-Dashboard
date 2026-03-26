@@ -10,6 +10,7 @@
 
 import { prisma } from '../index.js';
 import { B300_SPEC, lookupGpuSpec, calcTheoreticalMaxTps, estimateModelParams } from './gpuMonitor.service.js';
+import { logInternalLlmUsage } from './internalUsageLogger.js';
 
 const INTERVAL_MS = 60 * 60 * 1000;
 const LLM_TIMEOUT_MS = 120_000;
@@ -22,7 +23,7 @@ let lastRunDate = '';
 
 // ── LLM 호출 ──
 async function callSystemLlm(
-  model: { name: string; endpointUrl: string; apiKey: string | null; extraHeaders: unknown; extraBody: unknown },
+  model: { id?: string; name: string; endpointUrl: string; apiKey: string | null; extraHeaders: unknown; extraBody: unknown },
   systemPrompt: string, userPrompt: string,
 ): Promise<string> {
   let url = model.endpointUrl.trim();
@@ -42,11 +43,35 @@ async function callSystemLlm(
   };
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+  const startMs = Date.now();
   try {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal });
     clearTimeout(tid);
-    if (!res.ok) throw new Error(`LLM ${res.status}: ${(await res.text().catch(() => '')).substring(0, 300)}`);
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const latencyMs = Date.now() - startMs;
+    if (!res.ok) {
+      const errText = (await res.text().catch(() => '')).substring(0, 300);
+      if (model.id) {
+        logInternalLlmUsage({
+          modelId: model.id, modelName: model.name,
+          inputTokens: 0, outputTokens: 0, latencyMs,
+          path: '/internal/gpu-capacity-prediction', statusCode: res.status,
+          errorMessage: errText,
+        });
+      }
+      throw new Error(`LLM ${res.status}: ${errText}`);
+    }
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    if (model.id) {
+      logInternalLlmUsage({
+        modelId: model.id, modelName: model.name,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0,
+        latencyMs, path: '/internal/gpu-capacity-prediction',
+      });
+    }
     return data.choices?.[0]?.message?.content || '';
   } catch (err) { clearTimeout(tid); throw err; }
 }

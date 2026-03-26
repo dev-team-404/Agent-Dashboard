@@ -55,6 +55,7 @@ import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js'
 import { extractBusinessUnit } from './middleware/auth.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
+import { seedAgentRegistryService } from './seed-agent-registry.js';
 
 import 'dotenv/config';
 
@@ -382,6 +383,9 @@ async function main() {
 
     await redis.ping();
     console.log('Redis connected');
+
+    // agent-registry 내부 서비스 시드 (LLM 사용량 추적용)
+    await seedAgentRegistryService(prisma);
 
     // 빈 visibilityScope 자동 보정 (기존 모델 대상)
     await backfillEmptyVisibilityScope();
