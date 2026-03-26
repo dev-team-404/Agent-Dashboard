@@ -213,7 +213,10 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
 
           {/* 디버그 */}
           <div className="px-3 py-2 border-t border-gray-100">
-            <button onClick={async () => { setDbgL(true); try { const r = await gpuServerApi.debug(s.id); setDbg(r.data.raw); } catch (e: any) { setDbg('Error: ' + e.message); } finally { setDbgL(false); } }} className="text-[9px] text-gray-400 hover:text-gray-600 underline">{dbgL ? '조회 중...' : 'SSH Raw 출력 (디버그)'}</button>
+            <div className="flex items-center gap-2">
+              <button onClick={async () => { setDbgL(true); try { const r = await gpuServerApi.debug(s.id); setDbg(r.data.raw); } catch (e: any) { setDbg('Error: ' + e.message); } finally { setDbgL(false); } }} className="text-[9px] text-gray-400 hover:text-gray-600 underline">{dbgL ? '조회 중...' : 'SSH Raw 출력 (디버그)'}</button>
+              {dbg && <button onClick={() => { navigator.clipboard.writeText(dbg); }} className="text-[9px] text-blue-400 hover:text-blue-600 underline">복사</button>}
+            </div>
             {dbg && <pre className="mt-1 p-2 bg-gray-900 text-green-400 rounded text-[9px] max-h-48 overflow-auto whitespace-pre-wrap">{dbg}</pre>}
           </div>
         </div>)}
