@@ -25,6 +25,9 @@ import {
   getAllLatestMetrics,
   getLatestMetrics,
   testSshConnection,
+  estimateModelParams,
+  calcTheoreticalMaxTps,
+  lookupGpuSpec,
 } from '../services/gpuMonitor.service.js';
 
 export const gpuServerRoutes = Router();
@@ -141,10 +144,59 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
     const metrics = getAllLatestMetrics();
     const serverMap = new Map(servers.map(s => [s.id, { ...s, sshPassword: '***' }]));
 
-    const result = servers.map(s => ({
-      server: serverMap.get(s.id),
-      metrics: metrics.find(m => m.serverId === s.id) || null,
-    }));
+    // 서버별 7일 피크 처리량 조회
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const peakSnapshots = await prisma.gpuMetricSnapshot.findMany({
+      where: { timestamp: { gte: sevenDaysAgo } },
+      select: { serverId: true, llmMetrics: true },
+    });
+
+    // serverId → 7일 피크 tok/s
+    const peakTpsMap = new Map<string, number>();
+    for (const snap of peakSnapshots) {
+      const llms = snap.llmMetrics as any[];
+      if (!Array.isArray(llms)) continue;
+      const tps = llms.reduce((s: number, l: any) => s + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
+      if (tps > (peakTpsMap.get(snap.serverId) || 0)) peakTpsMap.set(snap.serverId, tps);
+    }
+
+    const result = servers.map(s => {
+      const m = metrics.find(mt => mt.serverId === s.id) || null;
+      const gpuCount = m?.gpus?.length || 0;
+      const spec = gpuCount > 0 ? m!.gpus[0].spec : null;
+
+      // 모델 파라미터 추정 (첫 번째 LLM 엔드포인트의 모델명에서)
+      const modelName = m?.llmEndpoints?.[0]?.modelNames?.[0] || null;
+      const modelParams = modelName ? estimateModelParams(modelName) : null;
+
+      // 이론적 최대 처리량
+      const theoreticalMaxTps = (spec && modelParams && gpuCount > 0)
+        ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, modelParams) * 10) / 10
+        : null;
+
+      // 현재 처리량
+      const currentTps = m?.llmEndpoints?.reduce((sum, ep) =>
+        sum + (ep.promptThroughputTps || 0) + (ep.genThroughputTps || 0), 0) || 0;
+
+      // 7일 피크
+      const peakTps = peakTpsMap.get(s.id) || null;
+
+      return {
+        server: serverMap.get(s.id),
+        metrics: m,
+        throughputAnalysis: {
+          theoreticalMaxTps,    // 이론 최대 (GPU 스펙 + 모델 크기 기반)
+          peakTps,              // 7일 관측 피크
+          currentTps: Math.round(currentTps * 10) / 10,
+          modelName,
+          modelParams: modelParams ? `${modelParams}B` : null,
+          gpuHealthPct: (theoreticalMaxTps && peakTps) ? Math.round((peakTps / theoreticalMaxTps) * 1000) / 10 : null,
+          utilizationPct: (peakTps && peakTps > 0) ? Math.round((currentTps / peakTps) * 1000) / 10 : null,
+          theoreticalUtilPct: (theoreticalMaxTps && theoreticalMaxTps > 0) ? Math.round((currentTps / theoreticalMaxTps) * 1000) / 10 : null,
+        },
+      };
+    });
 
     res.json({ data: result });
   } catch (error) {

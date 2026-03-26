@@ -16,15 +16,9 @@ interface SavedModel {
   type: string;
 }
 
-function decodeUnicode(str?: string): string {
-  if (!str) return '';
-  try { return str.includes('\\u') ? JSON.parse(`"${str}"`) : str; } catch { return str; }
-}
-
 const TOTAL_STEPS = 9;
 
-export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptName }: ModelGuideProps) {
-  const decodedDept = decodeUnicode(deptName);
+export default function ModelGuide({ onClose, onOpenCreateModal, userId }: ModelGuideProps) {
   const [step, setStep] = useState(0);
 
   const [savedModel, setSavedModel] = useState<SavedModel | null>(null);
@@ -290,7 +284,6 @@ export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptNam
   -H "Content-Type: application/json" \\
   -H "x-service-id: your-service-name" \\
   -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
   -d '${JSON.stringify({
     model: savedModel?.name || 'your-model',
     messages: [{ role: 'user', content: '안녕하세요' }],

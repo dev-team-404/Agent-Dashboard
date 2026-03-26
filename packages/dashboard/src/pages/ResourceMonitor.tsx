@@ -14,10 +14,15 @@ import {
 interface GpuSpec { fp16Tflops: number; memBandwidthGBs: number; tdpW: number; vramGb: number; label: string; }
 interface GpuInfo { index: number; uuid: string; name: string; memTotalMb: number; memUsedMb: number; utilGpu: number; utilMem: number; temp: number; powerW: number; powerMaxW: number; spec: GpuSpec | null; }
 interface GpuProcess { gpuIndex: number; pid: number; name: string; memMb: number; isLlm: boolean; }
-interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelName: string | null; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; }
+interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelNames: string[]; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; rawMetrics?: Record<string, number>; }
 interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; hostname: string | null; }
 interface GpuServer { id: string; name: string; host: string; sshPort: number; sshUsername: string; description: string | null; isLocal: boolean; enabled: boolean; pollIntervalSec: number; createdAt: string; }
-interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; }
+interface ThroughputAnalysis {
+  theoreticalMaxTps: number | null; peakTps: number | null; currentTps: number;
+  modelName: string | null; modelParams: string | null;
+  gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null;
+}
+interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; throughputAnalysis?: ThroughputAnalysis; }
 
 // ── Helpers ──
 const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
@@ -122,7 +127,7 @@ function LlmCard({ ep }: { ep: LlmEndpoint }) {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${llmTypeBadge(ep.type)}`}>{ep.type}</span>
-          <span className="text-xs font-medium text-gray-800 truncate max-w-[200px]">{ep.modelName || ep.containerName || `port:${ep.port}`}</span>
+          <span className="text-xs font-medium text-gray-800 truncate max-w-[300px]">{ep.modelNames?.join(', ') || ep.containerName || `port:${ep.port}`}</span>
         </div>
         <span className="text-[10px] text-gray-400">:{ep.port}</span>
       </div>
@@ -145,7 +150,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
   const [expanded, setExpanded] = useState(false);
   const [historyData, setHistoryData] = useState<any>(null);
   const [historyHours, setHistoryHours] = useState(24);
-  const { server, metrics: m } = entry;
+  const [debugData, setDebugData] = useState<string | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const { server, metrics: m, throughputAnalysis: ta } = entry;
   const isOnline = m && !m.error;
   const gpuCount = m?.gpus?.length || 0;
   const avgGpuUtil = gpuCount > 0 ? Math.round(m!.gpus.reduce((s, g) => s + g.utilGpu, 0) / gpuCount) : 0;
@@ -223,6 +230,54 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
             </div>
             {totalBw && <p className="text-[9px] text-gray-400 mt-1.5">이론적 메모리 대역폭: {(totalBw / 1000).toFixed(1)} TB/s | LLM 추론 병목 = 메모리 대역폭</p>}
           </div>
+          {/* 처리량 분석 (이론 최대 vs 피크 vs 현재) */}
+          {ta && (ta.theoreticalMaxTps || ta.peakTps) && (
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-3 mb-3 border border-indigo-100">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-700">처리량 분석 {ta.modelParams && <span className="font-normal text-gray-400">({ta.modelName} · {ta.modelParams})</span>}</p>
+              </div>
+              {/* 3단 바 */}
+              <div className="space-y-1.5 mb-2">
+                {ta.theoreticalMaxTps && (
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="w-16 text-gray-500 text-right">이론 최대</span>
+                    <div className="flex-1 h-2.5 bg-white rounded-full overflow-hidden shadow-inner">
+                      <div className="h-full bg-indigo-200 rounded-full" style={{ width: '100%' }} />
+                    </div>
+                    <span className="w-20 font-semibold text-gray-600 tabular-nums">{ta.theoreticalMaxTps.toFixed(1)} tok/s</span>
+                  </div>
+                )}
+                {ta.peakTps != null && ta.peakTps > 0 && (
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="w-16 text-gray-500 text-right">7일 피크</span>
+                    <div className="flex-1 h-2.5 bg-white rounded-full overflow-hidden shadow-inner">
+                      <div className="h-full bg-purple-400 rounded-full transition-all duration-500" style={{ width: `${ta.gpuHealthPct || 0}%` }} />
+                    </div>
+                    <span className="w-20 font-semibold text-purple-600 tabular-nums">{ta.peakTps.toFixed(1)} tok/s</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="w-16 text-gray-500 text-right">현재</span>
+                  <div className="flex-1 h-2.5 bg-white rounded-full overflow-hidden shadow-inner">
+                    <div className={`h-full rounded-full transition-all duration-500 ${utilCls(ta.theoreticalUtilPct || ta.utilizationPct || 0)}`} style={{ width: `${ta.theoreticalUtilPct || 0}%` }} />
+                  </div>
+                  <span className={`w-20 font-semibold tabular-nums ${ta.currentTps > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{ta.currentTps.toFixed(1)} tok/s</span>
+                </div>
+              </div>
+              {/* 지표 */}
+              <div className="grid grid-cols-3 gap-2 text-[10px]">
+                {ta.gpuHealthPct != null && (
+                  <div><span className="text-gray-500">GPU 건강도</span><p className={`font-bold ${ta.gpuHealthPct >= 80 ? 'text-emerald-600' : ta.gpuHealthPct >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{ta.gpuHealthPct}%<span className="font-normal text-gray-400 ml-0.5">피크/이론</span></p></div>
+                )}
+                {ta.utilizationPct != null && (
+                  <div><span className="text-gray-500">피크 대비 사용률</span><p className={`font-bold ${utilTxt(ta.utilizationPct)}`}>{ta.utilizationPct}%<span className="font-normal text-gray-400 ml-0.5">현재/피크</span></p></div>
+                )}
+                {ta.theoreticalUtilPct != null && (
+                  <div><span className="text-gray-500">이론 대비 사용률</span><p className={`font-bold ${utilTxt(ta.theoreticalUtilPct)}`}>{ta.theoreticalUtilPct}%<span className="font-normal text-gray-400 ml-0.5">현재/이론</span></p></div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-4 text-xs text-gray-600 mb-2">
             {m.hostname && <span className="flex items-center gap-1"><Monitor className="w-3 h-3" />{m.hostname}</span>}
             {m.cpuLoadAvg != null && <span className="flex items-center gap-1"><Cpu className="w-3 h-3" />CPU {m.cpuLoadAvg}{m.cpuCores ? `/${m.cpuCores}코어` : ''}</span>}
@@ -244,6 +299,12 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
               <div><p className="text-[10px] text-gray-500 mb-1">GPU / VRAM / LLM / KV Cache (%)</p><ResponsiveContainer width="100%" height={220}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient><linearGradient id="gM" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} /><stop offset="95%" stopColor="#f59e0b" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} /><Tooltip content={<ChartTooltip />} /><Area type="monotone" dataKey="gpuUtil" name="GPU 사용률" stroke="#3b82f6" fill="url(#gG)" strokeWidth={2} dot={false} /><Area type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" fill="url(#gM)" strokeWidth={1.5} dot={false} /><Line type="monotone" dataKey="llmPct" name="LLM VRAM" stroke="#10b981" strokeWidth={1.5} dot={false} /><Line type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="4 2" /></AreaChart></ResponsiveContainer></div>
               <div><p className="text-[10px] text-gray-500 mb-1">처리량 (tok/s) / CPU / RAM</p><ResponsiveContainer width="100%" height={160}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 10 }} /><Tooltip content={<ChartTooltip />} /><Line type="monotone" dataKey="throughput" name="LLM tok/s" stroke="#3b82f6" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="cpuLoad" name="CPU 로드" stroke="#8b5cf6" strokeWidth={1.5} dot={false} /><Line type="monotone" dataKey="ramPct" name="RAM %" stroke="#ec4899" strokeWidth={1.5} dot={false} /></LineChart></ResponsiveContainer></div>
             </div>) : <p className="text-xs text-gray-400 text-center py-8">히스토리 데이터 없음</p>}
+          </div>
+          {/* SSH 디버그 */}
+          <div className="px-4 py-3 border-t border-gray-100">
+            <button onClick={async () => { setDebugLoading(true); try { const r = await gpuServerApi.debug(server.id); setDebugData(r.data.raw); } catch (e: any) { setDebugData('Error: ' + (e?.response?.data?.error || e.message)); } finally { setDebugLoading(false); } }}
+              className="text-[10px] text-gray-400 hover:text-gray-600 underline">{debugLoading ? '조회 중...' : 'SSH Raw 출력 보기 (디버그)'}</button>
+            {debugData && (<pre className="mt-2 p-3 bg-gray-900 text-green-400 rounded-lg text-[10px] overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">{debugData}</pre>)}
           </div>
         </div>)}
       </>)}

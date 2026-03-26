@@ -9,16 +9,10 @@ interface ServiceDetailGuideProps {
   deptName?: string;
 }
 
-function decodeUnicode(str?: string): string {
-  if (!str) return '';
-  try { return str.includes('\\u') ? JSON.parse(`"${str}"`) : str; } catch { return str; }
-}
-
 const TOTAL_STEPS = 6;
 
-export default function ServiceDetailGuide({ onClose, serviceName, userId, deptName }: ServiceDetailGuideProps) {
+export default function ServiceDetailGuide({ onClose, serviceName, userId }: ServiceDetailGuideProps) {
   const [step, setStep] = useState(0);
-  const decodedDept = decodeUnicode(deptName);
   const origin = window.location.origin;
 
   // 각 스텝에서 해당 탭 하이라이트
@@ -153,13 +147,13 @@ export default function ServiceDetailGuide({ onClose, serviceName, userId, deptN
   -H "Content-Type: application/json" \\
   -H "x-service-id: ${serviceName || 'your-service-code'}" \\
   -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
   -d '${JSON.stringify({
     model: 'your-model-alias',
     messages: [{ role: 'user', content: '안녕하세요' }],
   }, null, 2)}'`} />
             <p className="text-xs text-gray-500 mt-1">
-              <code>x-service-id</code>에 서비스 코드, <code>model</code>에 모델 별칭을 넣으세요.
+              <code>x-service-id</code>에 서비스 코드, <code>x-user-id</code>에 사용자 ID, <code>model</code>에 모델 별칭을 넣으세요.
+              부서 정보는 최초 호출 시 Knox에서 자동 등록됩니다.
             </p>
           </StepDesc>
         </>

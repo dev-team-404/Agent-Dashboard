@@ -160,6 +160,39 @@ export function lookupGpuSpec(gpuName: string): GpuSpec | null {
 }
 
 // ================================================================
+// 모델 파라미터 수 추정 (이름에서 파싱)
+// ================================================================
+const MODEL_SIZE_PATTERNS: Array<{ pattern: RegExp; billionParams: number }> = [
+  { pattern: /(\d+)[xX](\d+)[bB]/i, billionParams: 0 }, // MoE: 8x7B → 특수 처리
+  { pattern: /(\d+\.?\d*)\s*[bB]/i, billionParams: 0 },  // 70B, 7.5B → 숫자 추출
+];
+
+export function estimateModelParams(modelName: string): number | null {
+  if (!modelName) return null;
+  // MoE 모델: 8x7B → 총 파라미터 = experts × per_expert
+  const moe = modelName.match(/(\d+)[xX](\d+\.?\d*)[bB]/i);
+  if (moe) return parseFloat(moe[1]) * parseFloat(moe[2]);
+  // 일반 모델: 70B, 8B, 0.5B 등
+  const match = modelName.match(/(\d+\.?\d*)\s*[bB]/i);
+  if (match) return parseFloat(match[1]);
+  // 알려진 모델 매핑
+  const lower = modelName.toLowerCase();
+  if (lower.includes('gpt-4')) return 200;
+  if (lower.includes('gpt-3.5')) return 20;
+  return null;
+}
+
+/**
+ * 이론적 최대 처리량 계산 (decode phase, memory-bandwidth bound)
+ * tok/s ≈ (GPU 대역폭 × GPU 수) / (모델 파라미터 × 2 bytes/FP16)
+ */
+export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number): number {
+  const modelSizeBytes = modelParamsBillion * 1e9 * 2; // FP16 = 2 bytes
+  const totalBandwidthBytes = spec.memBandwidthGBs * 1e9 * gpuCount;
+  return totalBandwidthBytes / modelSizeBytes;
+}
+
+// ================================================================
 // 타입 정의
 // ================================================================
 export interface GpuInfo {
