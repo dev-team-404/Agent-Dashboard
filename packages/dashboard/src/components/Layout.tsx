@@ -243,6 +243,9 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               {isAdmin && (
                 <ExternalNavLink href="/api/api-docs/ui" label="API 문서" icon={Code} />
               )}
+              {adminRole === 'SUPER_ADMIN' && (
+                <ExternalNavLink href="/internal/docs" label="Internal API" icon={Code} />
+              )}
             </div>
           </div>
 
