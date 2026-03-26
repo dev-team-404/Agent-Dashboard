@@ -180,6 +180,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   proxyReq.teamName = teamName;
   proxyReq.businessUnit = businessUnit;
   proxyReq.isBackground = isBackground;
+  proxyReq.userDeptCode = '';  // Standard: getOrCreateUser에서 세팅, Background: 미사용
   proxyReq.deployScope = service.deployScope;
   proxyReq.deployScopeValue = service.deployScopeValue || [];
 

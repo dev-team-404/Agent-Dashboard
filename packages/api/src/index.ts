@@ -41,8 +41,8 @@ import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
 import { gpuServerRoutes } from './routes/gpu-server.routes.js';
 import { gpuCapacityRoutes } from './routes/gpu-capacity.routes.js';
 import { internalOrgRoutes } from './routes/internal-org.routes.js';
-import { internalDocsRoutes } from './routes/internal-docs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
+import { internalSwaggerSpec, getInternalSwaggerUiHtml } from './internal-swagger.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -124,7 +124,12 @@ app.use('/v1', proxyRoutes);
 
 // Internal Organization API (인증 불필요 — 내부 서비스 간 통신용)
 app.use('/internal/org', internalOrgRoutes);
-app.use('/internal/docs', internalDocsRoutes);
+
+// Internal API Swagger UI
+app.get('/internal/api-docs', (_req, res) => { res.json(internalSwaggerSpec); });
+app.get('/internal/api-docs/ui', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.send(getInternalSwaggerUiHtml()); });
+// 기존 /internal/docs → Swagger UI로 redirect
+app.get('/internal/docs', (_req, res) => { res.redirect('/internal/api-docs/ui'); });
 
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
