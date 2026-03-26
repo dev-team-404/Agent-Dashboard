@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  MessageCircle, X, Send, Loader2, Bot, User, Sparkles,
+  X, Send, Loader2, Bot, User, Sparkles,
   ChevronDown, Trash2, ArrowRight,
 } from 'lucide-react';
 import { api } from '../../services/api';
@@ -357,7 +357,7 @@ export default function HelpChatbot({ adminRole }: Props) {
         `}
         title="AI 도우미"
       >
-        {isOpen ? <X className="w-5 h-5" /> : <MessageCircle className="w-6 h-6" />}
+        {isOpen ? <X className="w-5 h-5" /> : <Bot className="w-6 h-6" />}
         {/* 설정 안됨 뱃지 */}
         {configured === false && !isOpen && (
           <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-400 rounded-full border-2 border-white" />
