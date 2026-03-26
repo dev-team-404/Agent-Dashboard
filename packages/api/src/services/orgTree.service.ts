@@ -481,10 +481,17 @@ export async function buildOverseasMap(
     }
   }
 
-  // 센터 루트 노드 찾기
+  // 센터 루트 노드 찾기 (departmentName / enDepartmentName 양쪽 매칭)
+  const nameSet = new Set(overseasCenterNames);
   const centerNodes = allNodes.filter(n =>
-    overseasCenterNames.includes(n.enDepartmentName),
+    nameSet.has(n.enDepartmentName) || nameSet.has(n.departmentName),
   );
+
+  if (centerNodes.length === 0) {
+    console.warn(`[OrgTree] buildOverseasMap: 매칭된 센터 노드 0건 (검색: ${overseasCenterNames.join(', ')})`);
+  } else {
+    console.log(`[OrgTree] buildOverseasMap: ${centerNodes.length}개 센터 매칭 → ${centerNodes.map(n => `"${n.enDepartmentName}" (${n.departmentName})`).join(', ')}`);
+  }
 
   const result = new Map<string, string>();
 
