@@ -198,7 +198,7 @@ export const tourSteps: TourStep[] = [
     route: null,
     popover: {
       title: '안내 완료! 🎉',
-      description: '이제 자유롭게 사용해 보세요. 우측 하단의 로봇 아이콘을 누르면 언제든 다시 안내를 받을 수 있습니다.',
+      description: '이제 자유롭게 사용해 보세요. 우측 하단의 책 아이콘을 누르면 언제든 다시 안내를 받을 수 있습니다.',
     },
     roles: ['SUPER_ADMIN', 'ADMIN', 'USER'],
   },

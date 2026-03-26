@@ -75,6 +75,7 @@ interface TestImageResult {
 interface ModelsProps {
   adminRole?: AdminRole;
   isAdmin?: boolean;
+  user?: { id: string; loginid: string; username: string; deptname: string } | null;
 }
 
 type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
@@ -109,7 +110,7 @@ const emptyForm = {
 /* ──────────────────────────────────────────────
    Main Component
    ────────────────────────────────────────────── */
-export default function Models({ adminRole, isAdmin }: ModelsProps) {
+export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1625,6 +1626,8 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
         <ModelGuide
           onClose={() => setShowGuide(false)}
           onOpenCreateModal={openCreateModal}
+          userId={user?.loginid}
+          deptName={user?.deptname}
         />
       )}
     </div>

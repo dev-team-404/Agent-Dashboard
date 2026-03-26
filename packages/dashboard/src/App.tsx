@@ -154,7 +154,7 @@ function App() {
           {isAdmin && (
             <>
               <Route path="/" element={<MainDashboard adminRole={adminRole} isAdmin={isAdmin} />} />
-              <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} />} />
+              <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} user={user} />} />
               <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service-targets" element={<ServiceTargets />} />
               <Route path="/admin-requests-manage" element={<AdminRequestsManage />} />
