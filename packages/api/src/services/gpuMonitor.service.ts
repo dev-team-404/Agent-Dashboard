@@ -261,7 +261,7 @@ async function pollServer(server: { id: string; name: string; host: string; sshP
   try {
     let output: string;
     if (server.isLocal) {
-      const { stdout } = await execAsync(`bash -c '${METRICS_CMD}'`, { timeout: 15000 });
+      const { stdout } = await execAsync(METRICS_CMD, { timeout: 15000, shell: '/bin/sh' });
       output = stdout;
     } else {
       const password = decryptPassword(server.sshPassword);
