@@ -14,6 +14,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 
+const AGENT_REGISTRY_SERVICE_NAME = 'agent-registry';
+
 export const modelsRoutes = Router();
 
 async function recordAudit(req: AuthenticatedRequest, action: string, target: string | null, targetType: string, details?: Record<string, unknown>) {
@@ -222,6 +224,17 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
     });
 
     recordAudit(req, 'CREATE_MODEL', model.id, 'Model', { name: model.name, displayName: model.displayName, visibility: model.visibility }).catch(() => {});
+
+    // agent-registry 서비스에 자동 등록 (내부 사용량 추적용)
+    prisma.service.findUnique({ where: { name: AGENT_REGISTRY_SERVICE_NAME }, select: { id: true } })
+      .then(svc => {
+        if (!svc) return;
+        return prisma.serviceModel.create({
+          data: { serviceId: svc.id, modelId: model.id, aliasName: '', weight: 1, enabled: true, addedBy: 'system' },
+        });
+      })
+      .catch(() => {}); // 중복이면 unique constraint로 조용히 실패
+
     res.status(201).json({ model });
   } catch (error) {
     console.error('Create model error:', error);

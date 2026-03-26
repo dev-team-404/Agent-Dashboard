@@ -53,6 +53,8 @@ export interface InternalUsageParams {
   statusCode?: number;
   /** 에러 메시지 (실패 시) */
   errorMessage?: string;
+  /** 스트리밍 여부 */
+  stream?: boolean;
 }
 
 /**
@@ -72,6 +74,7 @@ export async function logInternalLlmUsage(params: InternalUsageParams): Promise<
       latencyMs, path,
       statusCode = 200,
       errorMessage,
+      stream = false,
     } = params;
 
     const totalTokens = inputTokens + outputTokens;
@@ -103,12 +106,12 @@ export async function logInternalLlmUsage(params: InternalUsageParams): Promise<
         method: 'POST',
         path,
         statusCode,
-        inputTokens: inputTokens || null,
-        outputTokens: outputTokens || null,
-        latencyMs: latencyMs || null,
+        inputTokens: inputTokens ?? null,
+        outputTokens: outputTokens ?? null,
+        latencyMs: latencyMs ?? null,
         errorMessage: errorMessage ? errorMessage.substring(0, 2000) : null,
         userAgent: 'agent-registry-internal',
-        stream: false,
+        stream,
       },
     });
 

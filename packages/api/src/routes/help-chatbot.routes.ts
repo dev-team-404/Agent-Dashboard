@@ -590,6 +590,7 @@ helpChatbotRoutes.post('/chat', (async (req: AuthenticatedRequest, res) => {
       outputTokens: estimatedOutputTokens,
       latencyMs: chatLatencyMs,
       path: '/internal/help-chatbot',
+      stream: true,
     });
 
     res.write('data: [DONE]\n\n');
