@@ -134,7 +134,7 @@ export default function TourProvider({ children, userId, adminRole }: TourProvid
       showButtons: ['next', 'previous', 'close'],
       nextBtnText: index === totalSteps - 1 ? '완료' : '다음',
       prevBtnText: '이전',
-      doneBtnText: '완료',
+      doneBtnText: index === totalSteps - 1 ? '완료' : '다음',
       progressText: `{{current}} / {{total}}`,
       allowClose: true,
       stagePadding: 8,

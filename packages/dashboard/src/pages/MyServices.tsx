@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
 import OrgTreeSelector from '../components/OrgTreeSelector';
+import ServiceGuide from '../components/Tour/ServiceGuide';
+import { BookOpen } from 'lucide-react';
 
 // ── Types ──
 
@@ -177,6 +179,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   // Wizard states (creation only)
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  const [showGuide, setShowGuide] = useState(false);
 
   // Owner search states
   const [showOwnerSearch, setShowOwnerSearch] = useState(false);
@@ -356,11 +359,15 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       } else {
         await api.post('/services', { name: formData.name, ...buildPayload() });
       }
+      window.dispatchEvent(new CustomEvent('service-guide-success', {
+        detail: { name: formData.name, displayName: formData.displayName, description: formData.description, type: formData.type },
+      }));
       if (editingService) closeServiceModal();
       else closeWizard();
       await loadServices();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      window.dispatchEvent(new CustomEvent('service-guide-error', { detail: { error: msg || '저장에 실패했습니다.' } }));
       setFormError(msg || '저장에 실패했습니다.');
     } finally {
       setFormSaving(false);
@@ -460,14 +467,23 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               : '내가 등록한 서비스를 관리하고, 새 서비스를 만들 수 있습니다.'}
           </p>
         </div>
-        <button
-          onClick={openCreateWizard}
-          data-tour="my-services-create-btn"
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          새 서비스 만들기
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGuide(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-blue-600 bg-blue-50 border border-blue-200 text-sm font-medium rounded-lg hover:bg-blue-100 transition-colors"
+          >
+            <BookOpen className="w-4 h-4" />
+            등록 가이드
+          </button>
+          <button
+            onClick={openCreateWizard}
+            data-tour="my-services-create-btn"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            새 서비스 만들기
+          </button>
+        </div>
       </div>
 
       {/* ── Tabs (System Admin only) ── */}
@@ -1040,6 +1056,14 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         </ModalBackdrop>
       )}
 
+      {showGuide && (
+        <ServiceGuide
+          onClose={() => setShowGuide(false)}
+          onOpenCreateWizard={openCreateWizard}
+          userId={user?.loginid}
+          deptName={user?.deptname}
+        />
+      )}
     </div>
   );
 }

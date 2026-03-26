@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { modelsApi, statsApi } from '../services/api';
 import OrgTreeSelector from '../components/OrgTreeSelector';
+import ModelGuide from '../components/Tour/ModelGuide';
+import { BookOpen } from 'lucide-react';
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
@@ -119,6 +121,7 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
 
   // Delete state
   const [deleteTarget, setDeleteTarget] = useState<Model | null>(null);
@@ -529,10 +532,15 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
         await modelsApi.create(data);
       }
 
+      window.dispatchEvent(new CustomEvent('model-guide-success', {
+        detail: { name: form.name, displayName: form.displayName, endpointUrl: form.endpointUrl, type: form.type },
+      }));
       setShowModal(false);
       loadModels();
     } catch (error: any) {
-      setFormError(error.response?.data?.error || '저장에 실패했습니다.');
+      const errMsg = error.response?.data?.error || '저장에 실패했습니다.';
+      window.dispatchEvent(new CustomEvent('model-guide-error', { detail: { error: errMsg } }));
+      setFormError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -639,16 +647,25 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
           </p>
         </div>
         {isAdmin && (
-          <button
-            onClick={openCreateModal}
-            data-tour="models-add-btn"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
-                       hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
-                       transform active:scale-[0.97] transition-all duration-200"
-          >
-            <Plus className="w-4 h-4" />
-            새 모델 추가
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowGuide(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2.5 text-samsung-blue bg-blue-50 border border-blue-200 rounded-ios font-medium text-sm hover:bg-blue-100 transition-colors"
+            >
+              <BookOpen className="w-4 h-4" />
+              등록 가이드
+            </button>
+            <button
+              onClick={openCreateModal}
+              data-tour="models-add-btn"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-samsung-blue text-white rounded-ios font-medium text-sm
+                         hover:bg-samsung-blue-dark shadow-ios hover:shadow-ios-lg
+                         transform active:scale-[0.97] transition-all duration-200"
+            >
+              <Plus className="w-4 h-4" />
+              새 모델 추가
+            </button>
+          </div>
         )}
       </div>
 
@@ -1603,6 +1620,12 @@ export default function Models({ adminRole, isAdmin }: ModelsProps) {
             </div>
           </div>
         </div>
+      )}
+      {showGuide && (
+        <ModelGuide
+          onClose={() => setShowGuide(false)}
+          onOpenCreateModal={openCreateModal}
+        />
       )}
     </div>
   );

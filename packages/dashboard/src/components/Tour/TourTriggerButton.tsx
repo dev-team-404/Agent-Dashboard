@@ -1,4 +1,4 @@
-import { Bot } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { useTour } from '../../hooks/useTour';
 
 export default function TourTriggerButton() {
@@ -25,7 +25,7 @@ export default function TourTriggerButton() {
         animation: !isTourCompleted ? undefined : 'none',
       }}
     >
-      <Bot className="w-6 h-6" />
+      <BookOpen className="w-6 h-6" />
 
       {/* 미완료 시 알림 뱃지 */}
       {!isTourCompleted && (

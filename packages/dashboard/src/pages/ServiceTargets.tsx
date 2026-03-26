@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Search, Sparkles } from 'lucide-react';
+import { Target, Search, Sparkles, BookOpen } from 'lucide-react';
 import { api } from '../services/api';
 import DeptSavedMM from './DeptSavedMM';
+import SavedMMGuide from '../components/Tour/SavedMMGuide';
 
 interface DeptBreakdown {
   deptname: string;
@@ -63,6 +64,7 @@ export default function ServiceTargets() {
   const [expandedAi, setExpandedAi] = useState<string | null>(null);
   const [hoveredSavedMM, setHoveredSavedMM] = useState<string | null>(null);
   const [hoveredAiMM, setHoveredAiMM] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
 
   const loadServices = useCallback(async (showSpinner = true) => {
     try {
@@ -119,16 +121,25 @@ export default function ServiceTargets() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-lg bg-indigo-50">
-            <Target className="w-6 h-6 text-indigo-600" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 rounded-lg bg-indigo-50">
+              <Target className="w-6 h-6 text-indigo-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
+              <p className="text-sm text-pastel-500 mt-0.5">
+                서비스별 절감 실적(Saved M/M)을 관리합니다
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">
-              서비스별 절감 실적(Saved M/M)을 관리합니다
-            </p>
-          </div>
+          <button
+            onClick={() => setShowGuide(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-indigo-600 bg-indigo-50 border border-indigo-200 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            <BookOpen className="w-4 h-4" />
+            관리 가이드
+          </button>
         </div>
       </div>
 
@@ -410,6 +421,8 @@ export default function ServiceTargets() {
       ) : (
         <DeptSavedMM />
       )}
+
+      {showGuide && <SavedMMGuide onClose={() => setShowGuide(false)} />}
     </div>
   );
 }
