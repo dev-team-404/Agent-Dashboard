@@ -442,6 +442,15 @@ export const gpuServerApi = {
   debug: (id: string) => api.get(`/admin/gpu-servers/${id}/debug`),
 };
 
+// GPU Capacity Prediction API
+export const gpuCapacityApi = {
+  latest: () => api.get('/admin/gpu-capacity/latest'),
+  history: (days = 30) => api.get('/admin/gpu-capacity/history', { params: { days } }),
+  run: () => api.post('/admin/gpu-capacity/run'),
+  getSettings: () => api.get('/admin/gpu-capacity/settings'),
+  updateSettings: (targetUserCount: number) => api.put('/admin/gpu-capacity/settings', { targetUserCount }),
+};
+
 // GPU Power Usage API
 export const gpuPowerApi = {
   list: () => api.get<{ data: Array<{ date: string; power_avg_usage_ratio: number }> }>('/gpu-power'),

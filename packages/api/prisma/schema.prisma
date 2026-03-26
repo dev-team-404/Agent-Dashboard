@@ -658,6 +658,39 @@ model GpuMetricSnapshot {
 }
 
 // ============================================
+// GPU 수요 예측 (일일 자동 계산 + LLM 분석)
+// ============================================
+model GpuCapacityPrediction {
+  id                      String   @id @default(uuid())
+  date                    DateTime @db.Date @unique          // 예측 날짜
+  targetUserCount         Int      @map("target_user_count") // 목표 사용자 수 (e.g. 15000)
+  currentDau              Float    @map("current_dau")
+  currentUsers            Int      @map("current_users")     // 최근 30일 고유 사용자
+  avgTokensPerUserPerDay  Float    @map("avg_tokens_per_user_per_day")
+  avgRequestsPerUserPerDay Float   @map("avg_requests_per_user_per_day")
+  peakConcurrentRequests  Float    @map("peak_concurrent_requests")
+  avgLatencyMs            Float?   @map("avg_latency_ms")
+  currentGpuInventory     Json     @map("current_gpu_inventory")     // [{type, count, vramGb}]
+  currentTotalVramGb      Float    @map("current_total_vram_gb")
+  currentAvgGpuUtil       Float?   @map("current_avg_gpu_util")
+  currentAvgKvCache       Float?   @map("current_avg_kv_cache")
+  predictedTotalVramGb    Float    @map("predicted_total_vram_gb")
+  predictedGpuCount       Json     @map("predicted_gpu_count")       // [{type, count}]
+  predictedB300Units      Int      @map("predicted_b300_units")
+  gapVramGb               Float    @map("gap_vram_gb")
+  scalingFactor           Float    @map("scaling_factor")
+  safetyMargin            Float    @map("safety_margin")
+  aiAnalysis              String   @db.Text @map("ai_analysis")
+  aiConfidence            String   @map("ai_confidence")             // HIGH/MEDIUM/LOW
+  modelId                 String   @map("model_id")
+  calculationDetails      Json     @map("calculation_details")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("gpu_capacity_predictions")
+}
+
+// ============================================
 // 조직도 트리 노드 (Knox Organization API 기반)
 // ============================================
 model OrgNode {

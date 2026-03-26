@@ -139,7 +139,10 @@ interface GpuSpec {
   label: string;           // 표시 이름
 }
 
+export const B300_SPEC: GpuSpec = { fp16Tflops: 2250, memBandwidthGBs: 8000, tdpW: 1000, vramGb: 192, label: 'B300' };
+
 const GPU_SPECS: Array<{ pattern: RegExp; spec: GpuSpec }> = [
+  { pattern: /B300/i,        spec: B300_SPEC },
   { pattern: /H200.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200 SXM' } },
   { pattern: /H200/i,       spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200' } },
   { pattern: /H100.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100 SXM' } },

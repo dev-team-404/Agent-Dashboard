@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { gpuServerApi } from '../services/api';
+import { gpuServerApi, gpuCapacityApi } from '../services/api';
 import {
   Server, Plus, Trash2, RefreshCw, Wifi, WifiOff, Cpu, MemoryStick,
   Zap, ChevronDown, ChevronUp, TestTube, Pencil, X,
-  Activity, Clock, Layers, HardDrive,
+  Activity, Clock, Layers, HardDrive, BarChart3,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -246,9 +246,11 @@ export default function ResourceMonitor() {
   const [updated, setUpdated] = useState<Date | null>(null);
   const [ana, setAna] = useState<any>(null);
   const [anaDays, setAnaDays] = useState(7);
+  const [pred, setPred] = useState<any>(null);
+  const [predRunning, setPredRunning] = useState(false);
   const ref = useRef<ReturnType<typeof setInterval>>();
 
-  const fetch_ = useCallback(async () => { try { const r = await gpuServerApi.realtime(); setData(r.data.data || []); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
+  const fetch_ = useCallback(async () => { try { const [r, p] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest()]); setData(r.data.data || []); setPred(p.data.prediction); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays); setAna(r.data); } catch {} }, [anaDays]);
   useEffect(() => { fetch_(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { if (tab === 'analysis') fetchAna(); }, [tab, fetchAna]);
@@ -281,6 +283,53 @@ export default function ResourceMonitor() {
         <button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700"><Plus className="w-3.5 h-3.5" />서버 추가</button>
       </div>
     </div>
+
+    {/* GPU 수요 예측 하이라이트 */}
+    {pred && (
+      <div className="bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50 rounded-lg border border-indigo-200 p-4 shadow-sm">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center"><BarChart3 className="w-4 h-4 text-indigo-600" /></div>
+            <div><p className="text-xs font-bold text-gray-900">GPU 수요 예측</p><p className="text-[10px] text-gray-500">{new Date(pred.date).toLocaleDateString('ko-KR')} 기준 | 목표 {pred.targetUserCount?.toLocaleString()}명</p></div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${pred.aiConfidence === 'HIGH' ? 'bg-emerald-100 text-emerald-700' : pred.aiConfidence === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{pred.aiConfidence}</span>
+            <button onClick={async () => { setPredRunning(true); try { const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setPredRunning(false); } }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중...' : '재실행'}</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+          <div><p className="text-[10px] text-gray-500">현재 사용자</p><p className="text-lg font-bold text-gray-900">{pred.currentUsers?.toLocaleString()}<span className="text-xs font-normal text-gray-400 ml-0.5">명</span></p><p className="text-[10px] text-gray-400">DAU {Math.round(pred.currentDau)}</p></div>
+          <div><p className="text-[10px] text-gray-500">현재 GPU VRAM</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
+          <div><p className="text-[10px] text-gray-500">예상 필요 VRAM</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
+          <div><p className="text-[10px] text-gray-500">부족분</p><p className={`text-lg font-bold ${pred.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{pred.gapVramGb > 0 ? `+${Math.round(pred.gapVramGb)}` : '0'}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
+          <div className="sm:col-span-2 bg-white/60 rounded-lg p-2 border border-indigo-100">
+            <p className="text-[10px] text-gray-500">추가 필요 GPU</p>
+            <p className="text-2xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-sm font-normal text-gray-500 ml-1">B300</span></p>
+            <p className="text-[10px] text-gray-400">(192GB/장 기준)</p>
+          </div>
+        </div>
+        {/* 계산 논리 */}
+        {pred.calculationDetails && (
+          <details className="text-[10px]">
+            <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">계산 논리 보기</summary>
+            <div className="mt-2 p-2 bg-white/70 rounded-lg space-y-1 text-gray-600">
+              <p>스케일링: DAU 비율 {(pred.calculationDetails.inputs?.dauRatio * 100).toFixed(1)}% x 서브리니어 {pred.calculationDetails.scaling?.sublinearScale} = 팩터 x{pred.calculationDetails.scaling?.scalingFactor}</p>
+              <p>Method A (KV Cache): 현재 {pred.calculationDetails.methodA?.kvVramCurrent}GB → 예측 {pred.calculationDetails.methodA?.totalVramA}GB</p>
+              <p>Method B (처리량): 필요 GPU {pred.calculationDetails.methodB?.gpuNeededB}장 → {pred.calculationDetails.methodB?.totalVramB}GB</p>
+              <p>안전마진 x{pred.safetyMargin} 적용 → 최종 {Math.round(pred.predictedTotalVramGb)}GB</p>
+              {pred.calculationDetails.inputs?.detectedModelName && <p>서빙 모델: {pred.calculationDetails.inputs.detectedModelName} ({pred.calculationDetails.inputs.modelParams || '크기 미확인'})</p>}
+            </div>
+          </details>
+        )}
+        {/* AI 분석 */}
+        {pred.aiAnalysis && pred.modelId !== 'none' && (
+          <details className="text-[10px] mt-1">
+            <summary className="cursor-pointer text-purple-600 font-medium hover:text-purple-800">AI 분석 리포트</summary>
+            <div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 whitespace-pre-wrap leading-relaxed">{pred.aiAnalysis}</div>
+          </details>
+        )}
+      </div>
+    )}
 
     {/* 종합 KPI */}
     {data.length > 0 && (
