@@ -13,6 +13,7 @@ import { prisma } from '../index.js';
 import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
+import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
 import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
 import { generateImages } from '../services/imageProviders.service.js';
@@ -3679,178 +3680,182 @@ adminRoutes.get('/stats/health-status', async (req: AuthenticatedRequest, res) =
  */
 adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res) => {
   try {
-    // Get all services with stats
-    const services = await prisma.service.findMany({
-      where: { enabled: true },
-      select: {
-        id: true,
-        name: true,
-        displayName: true,
-        _count: {
-          select: {
-            usageLogs: true,
-          },
-        },
-      },
-    });
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
 
-    // Get per-service statistics
-    const serviceStats = await Promise.all(
-      services.map(async (service) => {
-        const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-        const [totalUsers, todayRequests, todayActiveUsers, avgDailyUsers, avgDailyUsersExcluding, totalTokens, totalRequests] = await Promise.all([
-          // Total unique users for this service
-          prisma.usageLog.groupBy({
-            by: ['userId'],
-            where: {
-              serviceId: service.id,
-              user: { loginid: { not: 'anonymous' } },
-            },
-          }).then((r) => r.length),
+    // 1. Get services + try pre-computed data from Redis + live today stats (all in parallel)
+    const [services, prePerService, preGlobal, perServiceTodayRows, globalTodayResult] = await Promise.all([
+      prisma.service.findMany({
+        where: { enabled: true },
+        select: { id: true, name: true, displayName: true },
+      }),
+      getPrecomputedPerService(),
+      getPrecomputedGlobal(),
+      // Today stats — always live
+      prisma.$queryRaw<Array<{ service_id: string; today_requests: bigint; today_active_users: bigint }>>`
+        SELECT
+          ul.service_id::text as service_id,
+          COALESCE(SUM(ul.request_count), 0) as today_requests,
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as today_active_users
+        FROM usage_logs ul
+        LEFT JOIN users u ON ul.user_id = u.id
+        WHERE ul.service_id IS NOT NULL
+          AND ul.timestamp >= ${todayStart}
+        GROUP BY ul.service_id
+      `,
+      prisma.$queryRaw<Array<{ today_active: bigint }>>`
+        SELECT COUNT(DISTINCT ul.user_id) as today_active
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND ul.timestamp >= ${todayStart}
+      `,
+    ]);
 
-          // Today's requests
-          prisma.usageLog.aggregate({
-            where: {
-              serviceId: service.id,
-              timestamp: { gte: todayStart },
-            },
-            _sum: { requestCount: true },
-          }).then((r) => r._sum.requestCount || 0),
+    const todayMap = new Map(perServiceTodayRows.map(r => [r.service_id, r]));
 
-          // Today's active users (distinct)
-          prisma.$queryRaw<Array<{ count: bigint }>>`
-            SELECT COUNT(DISTINCT ul.user_id) as count
-            FROM usage_logs ul
-            INNER JOIN users u ON ul.user_id = u.id
-            WHERE ul.service_id::text = ${service.id}
-              AND ul.timestamp >= ${todayStart}
-              AND u.loginid != 'anonymous'
-          `.then((r) => Number(r[0]?.count || 0)),
-
-          // Average daily active users (last 30 days, excluding anonymous)
-          prisma.$queryRaw<Array<{ avg_users: number }>>`
-            SELECT COALESCE(AVG(user_count), 0)::float as avg_users
-            FROM (
-              SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
-              FROM usage_logs ul
-              INNER JOIN users u ON ul.user_id = u.id
-              WHERE ul.service_id::text = ${service.id}
-                AND ul.timestamp >= NOW() - INTERVAL '30 days'
-                AND u.loginid != 'anonymous'
-              GROUP BY DATE(ul.timestamp)
-            ) daily_counts
-          `.then((r) => Math.round(r[0]?.avg_users || 0)),
-
-          // Average daily active users EXCLUDING weekends and holidays
-          prisma.$queryRaw<Array<{ avg_users: number }>>`
-            SELECT COALESCE(AVG(user_count), 0)::float as avg_users
-            FROM (
-              SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as user_count
-              FROM usage_logs ul
-              INNER JOIN users u ON ul.user_id = u.id
-              WHERE ul.service_id::text = ${service.id}
-                AND ul.timestamp >= NOW() - INTERVAL '30 days'
-                AND u.loginid != 'anonymous'
-                AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-                AND NOT EXISTS (
-                  SELECT 1 FROM holidays h
-                  WHERE h.date = DATE(ul.timestamp)
-                )
-              GROUP BY DATE(ul.timestamp)
-            ) daily_counts
-          `.then((r) => Math.round(r[0]?.avg_users || 0)),
-
-          // Total tokens
-          prisma.usageLog.aggregate({
-            where: { serviceId: service.id },
-            _sum: { totalTokens: true },
-          }).then((r) => r._sum.totalTokens || 0),
-
-          // Total requests (cumulative)
-          prisma.usageLog.aggregate({
-            where: { serviceId: service.id },
-            _sum: { requestCount: true },
-          }).then((r) => r._sum.requestCount || 0),
-        ]);
-
+    // 2. If pre-computed data available, use it (fast path: 3 queries only)
+    if (prePerService && preGlobal) {
+      const serviceStats = services.map(service => {
+        const pre = prePerService[service.id];
+        const td = todayMap.get(service.id);
         return {
           serviceId: service.id,
           serviceName: service.name,
           serviceDisplayName: service.displayName,
-          totalUsers,
-          todayRequests,
-          todayActiveUsers,
-          avgDailyActiveUsers: avgDailyUsers,
-          avgDailyActiveUsersExcluding: avgDailyUsersExcluding,
-          totalTokens,
-          totalRequests,
+          totalUsers: pre?.totalUsers || 0,
+          todayRequests: Number(td?.today_requests || 0),
+          todayActiveUsers: Number(td?.today_active_users || 0),
+          avgDailyActiveUsers: pre?.avgDau30d || 0,
+          avgDailyActiveUsersExcluding: pre?.avgDau30dExcl || 0,
+          totalTokens: pre?.totalTokens || 0,
+          totalRequests: pre?.totalRequests || 0,
         };
-      })
-    );
+      });
 
-    // Overall totals - deduplicate users across services
-    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-    const [uniqueUsersResult, todayActiveResult, avgDailyActiveResult, avgDailyActiveExcludingResult] = await Promise.all([
-      prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(DISTINCT user_id) as count
+      const totals = {
+        totalServices: services.length,
+        totalUsers: preGlobal.totalUniqueUsers,
+        todayActiveUsers: Number(globalTodayResult[0]?.today_active || 0),
+        avgDailyActiveUsers: preGlobal.avgDailyActive30d,
+        avgDailyActiveUsersExcluding: preGlobal.avgDailyActive30dExcl,
+        totalRequests: serviceStats.reduce((sum, s) => sum + Number(s.totalRequests), 0),
+        totalTokens: serviceStats.reduce((sum, s) => sum + Number(s.totalTokens), 0),
+      };
+
+      res.json({ services: serviceStats, totals });
+      return;
+    }
+
+    // 3. Fallback: bulk queries when pre-computed data not available
+    const [
+      perServiceTotalsRows,
+      perServiceAvg30dRows,
+      perServiceAvg30dExclRows,
+      globalTotalsResult,
+      globalAvgResult,
+    ] = await Promise.all([
+      prisma.$queryRaw<Array<{ service_id: string; total_users: bigint; total_tokens: bigint; total_requests: bigint }>>`
+        SELECT
+          ul.service_id::text as service_id,
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as total_users,
+          COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
+          COALESCE(SUM(ul.request_count), 0) as total_requests
         FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        LEFT JOIN users u ON ul.user_id = u.id
+        WHERE ul.service_id IS NOT NULL
+        GROUP BY ul.service_id
       `,
-      prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND ul.timestamp >= ${todayStart}
-      `,
-      prisma.$queryRaw<Array<{ avg_users: number }>>`
-        SELECT COALESCE(AVG(user_count), 0)::float as avg_users
+      prisma.$queryRaw<Array<{ service_id: string; avg_users: number }>>`
+        SELECT service_id::text as service_id, COALESCE(AVG(user_count), 0)::float as avg_users
         FROM (
-          SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
+          SELECT ul.service_id, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-          GROUP BY DATE(ul.timestamp)
+            AND u.loginid != 'anonymous'
+          GROUP BY ul.service_id, DATE(ul.timestamp)
         ) daily_counts
+        GROUP BY service_id
       `,
-      prisma.$queryRaw<Array<{ avg_users: number }>>`
-        SELECT COALESCE(AVG(user_count), 0)::float as avg_users
+      prisma.$queryRaw<Array<{ service_id: string; avg_users: number }>>`
+        SELECT service_id::text as service_id, COALESCE(AVG(user_count), 0)::float as avg_users
         FROM (
-          SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as user_count
+          SELECT ul.service_id, DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            AND u.loginid != 'anonymous'
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
               WHERE h.date = DATE(ul.timestamp)
             )
-          GROUP BY DATE(ul.timestamp)
+          GROUP BY ul.service_id, DATE(ul.timestamp)
         ) daily_counts
+        GROUP BY service_id
+      `,
+      prisma.$queryRaw<Array<{ total_unique_users: bigint }>>`
+        SELECT COUNT(DISTINCT ul.user_id) as total_unique_users
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous'
+      `,
+      prisma.$queryRaw<Array<{ avg_all: number; avg_excl: number }>>`
+        SELECT
+          (SELECT COALESCE(AVG(user_count), 0)::float FROM (
+            SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
+            FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(ul.timestamp)
+          ) dc) as avg_all,
+          (SELECT COALESCE(AVG(user_count), 0)::float FROM (
+            SELECT DATE(ul.timestamp) as ld, COUNT(DISTINCT ul.user_id) as user_count
+            FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY DATE(ul.timestamp)
+          ) dc2) as avg_excl
       `,
     ]);
-    const uniqueTotalUsers = Number(uniqueUsersResult[0]?.count || 0);
-    const todayActive = Number(todayActiveResult[0]?.count || 0);
-    const avgDailyActive = Math.round(avgDailyActiveResult[0]?.avg_users || 0);
-    const avgDailyActiveExcluding = Math.round(avgDailyActiveExcludingResult[0]?.avg_users || 0);
 
+    const totalsMap = new Map(perServiceTotalsRows.map(r => [r.service_id, r]));
+    const avg30dMap = new Map(perServiceAvg30dRows.map(r => [r.service_id, r]));
+    const avg30dExclMap = new Map(perServiceAvg30dExclRows.map(r => [r.service_id, r]));
+
+    const serviceStats = services.map(service => {
+      const t = totalsMap.get(service.id);
+      const td = todayMap.get(service.id);
+      const a = avg30dMap.get(service.id);
+      const ae = avg30dExclMap.get(service.id);
+      return {
+        serviceId: service.id,
+        serviceName: service.name,
+        serviceDisplayName: service.displayName,
+        totalUsers: Number(t?.total_users || 0),
+        todayRequests: Number(td?.today_requests || 0),
+        todayActiveUsers: Number(td?.today_active_users || 0),
+        avgDailyActiveUsers: Math.round(a?.avg_users || 0),
+        avgDailyActiveUsersExcluding: Math.round(ae?.avg_users || 0),
+        totalTokens: Number(t?.total_tokens || 0),
+        totalRequests: Number(t?.total_requests || 0),
+      };
+    });
+
+    const fbGlobalTotals = globalTotalsResult[0];
+    const fbGlobalAvg = globalAvgResult[0];
     const totals = {
       totalServices: services.length,
-      totalUsers: uniqueTotalUsers,
-      todayActiveUsers: todayActive,
-      avgDailyActiveUsers: avgDailyActive,
-      avgDailyActiveUsersExcluding: avgDailyActiveExcluding,
+      totalUsers: Number(fbGlobalTotals?.total_unique_users || 0),
+      todayActiveUsers: Number(globalTodayResult[0]?.today_active || 0),
+      avgDailyActiveUsers: Math.round(fbGlobalAvg?.avg_all || 0),
+      avgDailyActiveUsersExcluding: Math.round(fbGlobalAvg?.avg_excl || 0),
       totalRequests: serviceStats.reduce((sum, s) => sum + Number(s.totalRequests), 0),
       totalTokens: serviceStats.reduce((sum, s) => sum + Number(s.totalTokens), 0),
     };
 
-    res.json({
-      services: serviceStats,
-      totals,
-    });
+    res.json({ services: serviceStats, totals });
   } catch (error) {
     console.error('Get global overview error:', error);
     res.status(500).json({ error: 'Failed to get global overview' });
@@ -5982,5 +5987,59 @@ adminRoutes.get('/knox-verifications', requireSuperAdmin as RequestHandler, asyn
   } catch (error) {
     console.error('Get Knox verifications error:', error);
     res.status(500).json({ error: 'Knox 인증 기록 조회에 실패했습니다.' });
+  }
+});
+
+/**
+ * POST /admin/stats/batch
+ * 여러 stats 엔드포인트를 한 번의 HTTP 요청으로 호출.
+ * 기존 개별 엔드포인트 로직을 내부 호출하여 결과 반환.
+ * 부분 실패 허용 (Promise.allSettled).
+ */
+adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
+  try {
+    const requests: Array<{ key: string; path: string; params?: Record<string, string> }> = req.body?.requests || [];
+    if (!Array.isArray(requests) || requests.length === 0) {
+      res.status(400).json({ error: 'requests array required' });
+      return;
+    }
+
+    // Limit to prevent abuse
+    if (requests.length > 20) {
+      res.status(400).json({ error: 'Maximum 20 requests per batch' });
+      return;
+    }
+
+    const authHeader = req.headers.authorization || '';
+    const port = process.env['PORT'] || 3000;
+
+    const results = await Promise.allSettled(
+      requests.map(async (r) => {
+        const queryString = r.params
+          ? '?' + Object.entries(r.params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
+          : '';
+        const url = `http://localhost:${port}/admin/stats/${r.path}${queryString}`;
+        const resp = await fetch(url, {
+          headers: { authorization: authHeader },
+        });
+        if (!resp.ok) throw new Error(`${resp.status}`);
+        return resp.json();
+      })
+    );
+
+    const response: Record<string, { data: unknown; error: string | null }> = {};
+    requests.forEach((r, i) => {
+      const result = results[i];
+      if (result && result.status === 'fulfilled') {
+        response[r.key] = { data: result.value, error: null };
+      } else {
+        response[r.key] = { data: null, error: result && result.status === 'rejected' ? String(result.reason) : 'Unknown error' };
+      }
+    });
+
+    res.json({ results: response });
+  } catch (error) {
+    console.error('Batch stats error:', error);
+    res.status(500).json({ error: 'Batch request failed' });
   }
 });

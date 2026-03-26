@@ -320,43 +320,88 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         setGpuPrediction(predRes.data.prediction);
       }).catch(() => {});
 
-      Promise.all([
-        statsApi.globalByService(30),
-        statsApi.globalByDept(30),
-        statsApi.globalByDeptDaily(30, 5),
-        statsApi.globalByDeptUsersDaily(30, 5),
-        statsApi.globalByDeptServiceRequestsDaily(30, 10),
-        statsApi.latency(),
-        statsApi.latencyHistory(24, 10),
-        statsApi.latencyHealthcheck(24),
-        statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
-        statsApi.errorRate(10).catch(() => ({ data: { daily: [], summary: [], days: 10 } })),
-      ]).then(([serviceDailyRes, deptRes, deptDailyRes, deptUsersDailyRes, deptServiceReqsRes, latencyRes, latencyHistoryRes, healthcheckRes, mauRes, errorRateRes]) => {
-        setServiceDaily(serviceDailyRes.data.dailyData || []);
-        setDeptStats(deptRes.data.deptStats || []);
-        setDeptDailyData(deptDailyRes.data.chartData || []);
-        setDeptBusinessUnits(deptDailyRes.data.businessUnits || []);
-        setDeptUsersDailyData(deptUsersDailyRes.data.chartData || []);
-        setDeptUsersBUs(deptUsersDailyRes.data.businessUnits || []);
-        setDeptServiceRequestsData(deptServiceReqsRes.data.chartData || []);
-        setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
-        setMauServices(mauRes.data.services || []);
-        setMauMonthlyData(mauRes.data.monthlyData || []);
-        setMauEstimationMeta(mauRes.data.estimationMeta || null);
-        const mData = mauRes.data.monthlyData || [];
+      // Phase 3 stats — apply helper (shared by batch & fallback)
+      const applyPhase3 = (d: Record<string, any>) => {
+        setServiceDaily(d.globalByService?.dailyData || []);
+        setDeptStats(d.globalByDept?.deptStats || []);
+        setDeptDailyData(d.globalByDeptDaily?.chartData || []);
+        setDeptBusinessUnits(d.globalByDeptDaily?.businessUnits || []);
+        setDeptUsersDailyData(d.globalByDeptUsersDaily?.chartData || []);
+        setDeptUsersBUs(d.globalByDeptUsersDaily?.businessUnits || []);
+        setDeptServiceRequestsData(d.globalByDeptServiceRequestsDaily?.chartData || []);
+        setDeptServiceCombos(d.globalByDeptServiceRequestsDaily?.combinations || []);
+        setMauServices(d.globalMauByService?.services || []);
+        setMauMonthlyData(d.globalMauByService?.monthlyData || []);
+        setMauEstimationMeta(d.globalMauByService?.estimationMeta || null);
+        const mData = d.globalMauByService?.monthlyData || [];
         if (mData.length > 0) {
           const recentMonths = mData.slice(-3);
-          const allServiceIds = (mauRes.data.services || []).map((s: { id: string }) => s.id);
+          const allServiceIds = (d.globalMauByService?.services || []).map((s: { id: string }) => s.id);
           const monthTotals = recentMonths.map((m: Record<string, unknown>) =>
             allServiceIds.reduce((sum: number, sid: string) => sum + ((m[sid] as number) || 0), 0)
           );
           setAvgMau(Math.round(monthTotals.reduce((a: number, b: number) => a + b, 0) / monthTotals.length));
         }
-        setLatencyStats((latencyRes.data.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
-        setLatencyHistory(latencyHistoryRes.data.history || {});
-        setHealthCheckHistory(healthcheckRes.data.history || {});
-        setErrorRateDaily(errorRateRes.data.daily || []);
-      }).catch(() => {});
+        setLatencyStats((d.latency?.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
+        setLatencyHistory(d.latencyHistory?.history || {});
+        setHealthCheckHistory(d.latencyHealthcheck?.history || {});
+        setErrorRateDaily(d.errorRate?.daily || []);
+      };
+
+      // Try batch (1 HTTP call), fallback to original 10 individual calls
+      statsApi.batch([
+        { key: 'globalByService', path: 'global/by-service', params: { days: '30' } },
+        { key: 'globalByDept', path: 'global/by-dept', params: { days: '30' } },
+        { key: 'globalByDeptDaily', path: 'global/by-dept-daily', params: { days: '30', topN: '5' } },
+        { key: 'globalByDeptUsersDaily', path: 'global/by-dept-users-daily', params: { days: '30', topN: '5' } },
+        { key: 'globalByDeptServiceRequestsDaily', path: 'global/by-dept-service-requests-daily', params: { days: '30', topN: '10' } },
+        { key: 'latency', path: 'latency' },
+        { key: 'latencyHistory', path: 'latency/history', params: { hours: '24', interval: '10' } },
+        { key: 'latencyHealthcheck', path: 'latency/healthcheck', params: { hours: '24' } },
+        { key: 'globalMauByService', path: 'global/mau-by-service', params: { months: '6' } },
+        { key: 'errorRate', path: 'error-rate', params: { days: '10' } },
+      ]).then(batchRes => {
+        const r = batchRes.data.results;
+        applyPhase3({
+          globalByService: r.globalByService?.data,
+          globalByDept: r.globalByDept?.data,
+          globalByDeptDaily: r.globalByDeptDaily?.data,
+          globalByDeptUsersDaily: r.globalByDeptUsersDaily?.data,
+          globalByDeptServiceRequestsDaily: r.globalByDeptServiceRequestsDaily?.data,
+          latency: r.latency?.data,
+          latencyHistory: r.latencyHistory?.data,
+          latencyHealthcheck: r.latencyHealthcheck?.data,
+          globalMauByService: r.globalMauByService?.data,
+          errorRate: r.errorRate?.data,
+        });
+      }).catch(() => {
+        // Fallback: original 10 individual calls (exact same behavior as before)
+        Promise.all([
+          statsApi.globalByService(30),
+          statsApi.globalByDept(30),
+          statsApi.globalByDeptDaily(30, 5),
+          statsApi.globalByDeptUsersDaily(30, 5),
+          statsApi.globalByDeptServiceRequestsDaily(30, 10),
+          statsApi.latency(),
+          statsApi.latencyHistory(24, 10),
+          statsApi.latencyHealthcheck(24),
+          statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
+          statsApi.errorRate(10).catch(() => ({ data: { daily: [], summary: [], days: 10 } })),
+        ]).then(([serviceDailyRes, deptRes, deptDailyRes, deptUsersDailyRes, deptServiceReqsRes, latencyRes, latencyHistoryRes, healthcheckRes, mauRes, errorRateRes]) => {
+          applyPhase3({
+            globalByService: serviceDailyRes.data,
+            globalByDept: deptRes.data,
+            globalByDeptDaily: deptDailyRes.data,
+            globalByDeptUsersDaily: deptUsersDailyRes.data,
+            globalByDeptServiceRequestsDaily: deptServiceReqsRes.data,
+            latency: latencyRes.data,
+            latencyHistory: latencyHistoryRes.data,
+            latencyHealthcheck: healthcheckRes.data,
+            globalMauByService: mauRes.data,
+            errorRate: errorRateRes.data,
+          });
+        }).catch(() => {});
+      });
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {

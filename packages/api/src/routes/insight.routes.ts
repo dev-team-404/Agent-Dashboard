@@ -346,28 +346,38 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       .map(([team, mau]) => ({ team, mau }))
       .sort((a, b) => b.mau - a.mau);
 
-    // 3. monthlyTrend: last 6 months total MAU for the center
+    // 3+5. monthlyTrend + monthlyTokenTrend: single query (replaces 12 sequential queries)
+    const firstTrendDate = new Date(Date.UTC(currentYear, currentMonth - 2 - 5, 1));
+    const lastTrendDate = new Date(Date.UTC(currentYear, currentMonth - 2, 1));
+    const [rangeStart] = getMonthBoundariesKST(firstTrendDate.getUTCFullYear(), firstTrendDate.getUTCMonth() + 1);
+    const [, rangeEnd] = getMonthBoundariesKST(lastTrendDate.getUTCFullYear(), lastTrendDate.getUTCMonth() + 1);
+
+    const monthlyRows = await prisma.$queryRaw<Array<{ month: string; mau: bigint; total_tokens: bigint }>>`
+      SELECT
+        TO_CHAR(ul.timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM') as month,
+        COUNT(DISTINCT ul.user_id) as mau,
+        COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp < ${rangeEnd}
+        AND u.loginid != 'anonymous'
+        AND ul.service_id IS NOT NULL
+        AND u.deptname = ANY(${deptnames})
+      GROUP BY TO_CHAR(ul.timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')
+      ORDER BY month ASC
+    `;
+
+    const monthlyDataMap = new Map(monthlyRows.map(r => [r.month, r]));
     const monthlyTrend: Array<{ month: string; mau: number }> = [];
+    const monthlyTokenTrend: Array<{ month: string; tokens: number }> = [];
     for (let i = 5; i >= 0; i--) {
       const trendDate = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
       const trendYear = trendDate.getUTCFullYear();
       const trendMonth = trendDate.getUTCMonth() + 1;
-      const [trendStart, trendEnd] = getMonthBoundariesKST(trendYear, trendMonth);
-
-      const mauResult = await prisma.$queryRaw<[{ mau: bigint }]>`
-        SELECT COUNT(DISTINCT ul.user_id) as mau
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${trendStart} AND ul.timestamp < ${trendEnd}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id IS NOT NULL
-          AND u.deptname = ANY(${deptnames})
-      `;
-
-      monthlyTrend.push({
-        month: `${trendYear}-${String(trendMonth).padStart(2, '0')}`,
-        mau: Number(mauResult[0]?.mau || 0),
-      });
+      const monthKey = `${trendYear}-${String(trendMonth).padStart(2, '0')}`;
+      const row = monthlyDataMap.get(monthKey);
+      monthlyTrend.push({ month: monthKey, mau: Number(row?.mau || 0) });
+      monthlyTokenTrend.push({ month: monthKey, tokens: Number(row?.total_tokens || 0) });
     }
 
     // 4. teamTokenChart: 팀별 토큰 사용량
@@ -393,30 +403,6 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const teamTokenChart = Array.from(tokensByGroup.entries())
       .map(([team, tokens]) => ({ team, tokens }))
       .sort((a, b) => b.tokens - a.tokens);
-
-    // 5. monthlyTokenTrend: 최근 6개월 센터 토큰 추이
-    const monthlyTokenTrend: Array<{ month: string; tokens: number }> = [];
-    for (let i = 5; i >= 0; i--) {
-      const trendDate = new Date(Date.UTC(currentYear, currentMonth - 2 - i, 1));
-      const trendYear = trendDate.getUTCFullYear();
-      const trendMonth = trendDate.getUTCMonth() + 1;
-      const [trendStart, trendEnd] = getMonthBoundariesKST(trendYear, trendMonth);
-
-      const tokenResult = await prisma.$queryRaw<[{ total_tokens: bigint }]>`
-        SELECT COALESCE(SUM(ul."totalTokens"), 0) as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${trendStart} AND ul.timestamp < ${trendEnd}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id IS NOT NULL
-          AND u.deptname = ANY(${deptnames})
-      `;
-
-      monthlyTokenTrend.push({
-        month: `${trendYear}-${String(trendMonth).padStart(2, '0')}`,
-        tokens: Number(tokenResult[0]?.total_tokens || 0),
-      });
-    }
 
     // 6. teamServices: team x service matrix (last month)
     const teamServiceRows = await prisma.$queryRaw<Array<{

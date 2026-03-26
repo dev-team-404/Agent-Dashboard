@@ -330,6 +330,8 @@ model UsageLog {
   @@index([serviceId])
   @@index([deptname])
   @@index([userId, serviceId, timestamp])  // rate limit aggregate 최적화
+  @@index([serviceId, timestamp])           // globalOverview 날짜 범위 + 서비스 필터
+  @@index([timestamp, serviceId])           // 전역 날짜 범위 GROUP BY service_id
   @@map("usage_logs")
 }
 

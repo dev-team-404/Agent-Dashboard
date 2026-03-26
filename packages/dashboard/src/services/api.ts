@@ -227,6 +227,10 @@ export const statsApi = {
     summary: Array<{ model: string; totalErrors: number; errorTypes: Array<{ type: string; cause: string; count: number }>; byType: Record<string, number> }>;
     days: number;
   }>('/admin/stats/error-rate', { params: { days } }),
+
+  /** Batch multiple stats calls into one HTTP request */
+  batch: (requests: Array<{ key: string; path: string; params?: Record<string, string> }>) =>
+    api.post<{ results: Record<string, { data: unknown; error: string | null }> }>('/admin/stats/batch', { requests }),
 };
 
 // 개인 사용량 API
