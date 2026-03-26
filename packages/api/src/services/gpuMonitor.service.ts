@@ -35,7 +35,9 @@ export function encryptPassword(text: string): string {
 }
 
 export function decryptPassword(encrypted: string): string {
-  const [ivHex, tagHex, data] = encrypted.split(':');
+  const parts = encrypted.split(':');
+  if (parts.length !== 3) throw new Error('Invalid encrypted password format');
+  const [ivHex, tagHex, data] = parts;
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const decipher = crypto.createDecipheriv(ALGO, getEncKey(), iv);
@@ -79,11 +81,11 @@ function sshExec(host: string, port: number, username: string, password: string,
 }
 
 // ================================================================
-// SSH 명령어: GPU + 시스템 + LLM 자동 탐지 전부 한 번에
+// SSH 명령어: GPU + 시스템 + LLM 자동 탐지 (모든 정보 수집)
 // ================================================================
-// 줄바꿈 유지 (for/if/do/done 호환) — SSH exec는 multiline 명령을 그대로 지원
 const METRICS_CMD = [
-  'NSMI=$(which nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi || echo /usr/bin/nvidia-smi)',
+  // nvidia-smi PATH 탐지
+  'NSMI=$(which nvidia-smi 2>/dev/null); [ -z "$NSMI" ] && [ -x /usr/lib/wsl/lib/nvidia-smi ] && NSMI=/usr/lib/wsl/lib/nvidia-smi; [ -z "$NSMI" ] && NSMI=nvidia-smi',
   'echo "==GPU=="',
   '$NSMI --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"',
   'echo "==PROC=="',
@@ -93,9 +95,22 @@ const METRICS_CMD = [
   "free -m | awk '/Mem:/{print $2,$3}'",
   'nproc',
   'hostname',
+  // LLM 탐지: 포트별로 /v1/models + /metrics + 컨테이너 정보 전부 수집
   'echo "==LLM=="',
-  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -oP "0\\.0\\.0\\.0:\\K[0-9]+" | sort -u); do RESP=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null); if echo "$RESP" | grep -qiE "vllm|sglang|tgi|num_requests|cache_usage|throughput"; then CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1); echo "PORT:$port|CONTAINER:$CNAME"; echo "$RESP" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|model_name" | head -50; echo "---ENDPORT---"; fi; done',
-  'OLLAMA_OUT=$(curl -s --max-time 3 http://localhost:11434/api/ps 2>/dev/null); if [ -n "$OLLAMA_OUT" ] && echo "$OLLAMA_OUT" | grep -q \'"models"\'; then echo "OLLAMA_PS:$OLLAMA_OUT"; fi',
+  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -o "0\\.0\\.0\\.0:[0-9]*" | sed "s/0\\.0\\.0\\.0://" | sort -u); do'
+  + ' MODELS=$(curl -s --max-time 2 "http://localhost:$port/v1/models" 2>/dev/null);'
+  + ' METRICS=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null);'
+  + ' if [ -n "$MODELS" ] || echo "$METRICS" | grep -qiE "vllm|sglang|tgi|request|cache|throughput" 2>/dev/null; then'
+  + '   CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1);'
+  + '   echo "PORT:$port|CONTAINER:$CNAME";'
+  + '   echo "MODELS_JSON:$MODELS";'
+  + '   echo "$METRICS" | grep -vE "^#|^$" | head -200;'
+  + '   echo "---ENDPORT---";'
+  + ' fi;'
+  + ' done',
+  // Ollama 탐지 (기본 포트 11434)
+  'OLLAMA_PS=$(ollama ps 2>/dev/null); if [ -n "$OLLAMA_PS" ]; then echo "OLLAMA_CLI:$OLLAMA_PS"; fi',
+  'OLLAMA_API=$(curl -s --max-time 2 http://localhost:11434/api/ps 2>/dev/null); if [ -n "$OLLAMA_API" ] && echo "$OLLAMA_API" | grep -q "models"; then echo "OLLAMA_PS:$OLLAMA_API"; fi',
   'echo "==ENDLLM=="',
 ].join('\n');
 
@@ -165,12 +180,13 @@ export interface LlmEndpointMetrics {
   containerName: string;
   containerImage: string;
   type: 'vllm' | 'sglang' | 'tgi' | 'ollama' | 'unknown';
-  modelName: string | null;
+  modelNames: string[];               // /v1/models에서 가져온 모델 목록
   runningRequests: number | null;
   waitingRequests: number | null;
   kvCacheUsagePct: number | null;
   promptThroughputTps: number | null;
   genThroughputTps: number | null;
+  rawMetrics: Record<string, number>; // AI 분석용 전체 Prometheus 메트릭
 }
 
 export interface ServerMetrics {
@@ -191,15 +207,24 @@ export interface ServerMetrics {
 // ================================================================
 // Prometheus 메트릭 파싱
 // ================================================================
-function parsePrometheusLines(lines: string[]): Map<string, number> {
-  const m = new Map<string, number>();
+interface PromLine { name: string; labels: string; value: number; }
+
+function parsePrometheusLines(lines: string[]): { metrics: Map<string, number>; raw: PromLine[] } {
+  const metrics = new Map<string, number>();
+  const raw: PromLine[] = [];
   for (const line of lines) {
     if (line.startsWith('#') || !line.trim()) continue;
-    // "metric_name{labels} value" 또는 "metric_name value"
-    const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+([0-9.eE+\-]+)/);
-    if (match) m.set(match[1], parseFloat(match[2]));
+    // "metric_name{label="val",...} value" 또는 "metric_name value"
+    const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+([0-9.eE+\-]+)/);
+    if (match) {
+      const name = match[1];
+      const labels = match[2] || '';
+      const value = parseFloat(match[3]);
+      metrics.set(name, value); // 같은 이름이면 마지막 값 (단일 모델 기준)
+      raw.push({ name, labels, value });
+    }
   }
-  return m;
+  return { metrics, raw };
 }
 
 function extractLlmType(prom: Map<string, number>, containerImage: string): 'vllm' | 'sglang' | 'tgi' | 'unknown' {
@@ -217,11 +242,11 @@ function extractLlmType(prom: Map<string, number>, containerImage: string): 'vll
   return 'unknown';
 }
 
-// 여러 가능한 키 이름 중 첫 번째로 매칭되는 값 반환
+// 여러 가능한 키 이름 중 첫 번째로 매칭되는 값 반환 (_ 또는 : 경계 기반)
 function promGet(prom: Map<string, number>, ...keys: string[]): number | null {
   for (const k of keys) {
     for (const [mk, mv] of prom) {
-      if (mk === k || mk.endsWith(k) || mk.includes(k)) return mv;
+      if (mk === k || mk.endsWith('_' + k) || mk.endsWith(':' + k)) return mv;
     }
   }
   return null;
@@ -325,13 +350,12 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
   // LLM 자동 탐지 파싱
   const llmSection = (sections[4] || '').trim();
   if (llmSection) {
-    // Prometheus 기반 (vLLM/SGLang/TGI)
+    // 포트별 블록 파싱
     const portBlocks = llmSection.split('---ENDPORT---').filter(Boolean);
     for (const block of portBlocks) {
       const lines = block.trim().split('\n').filter(Boolean);
       if (lines.length === 0) continue;
 
-      // 첫 줄: PORT:8000|CONTAINER:ports|name|image
       const headerMatch = lines[0].match(/PORT:(\d+)\|CONTAINER:(.*)/);
       if (!headerMatch) continue;
 
@@ -340,62 +364,84 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
       const containerName = containerParts[1] || '';
       const containerImage = containerParts[2] || '';
 
-      // 나머지: Prometheus 메트릭 라인
-      const promLines = lines.slice(1);
-      const prom = parsePrometheusLines(promLines);
+      // /v1/models JSON에서 모델명 추출 (가장 확실)
+      const modelNames: string[] = [];
+      const modelsLine = lines.find(l => l.startsWith('MODELS_JSON:'));
+      if (modelsLine) {
+        try {
+          const json = JSON.parse(modelsLine.replace('MODELS_JSON:', ''));
+          const models = json.data || json.models || [];
+          for (const m of models) {
+            const name = m.id || m.model || m.name;
+            if (name) modelNames.push(name);
+          }
+        } catch { /* json parse fail */ }
+      }
+
+      // Prometheus 메트릭 파싱 (MODELS_JSON 줄 제외)
+      const promLines = lines.slice(1).filter(l => !l.startsWith('MODELS_JSON:'));
+      const { metrics: prom, raw: promRaw } = parsePrometheusLines(promLines);
+      const rawMetrics: Record<string, number> = {};
+      for (const [k, v] of prom) rawMetrics[k] = v;
+
       const type = extractLlmType(prom, containerImage);
       const extracted = extractLlmMetricsFromProm(prom, type);
 
-      // 모델명 추출 시도
-      let modelName: string | null = null;
-      // 1. Prometheus 라벨에서 model_name 추출
-      for (const key of prom.keys()) {
-        const labelMatch = key.match(/model_name="([^"]+)"/);
-        if (labelMatch) { modelName = labelMatch[1]; break; }
+      // 모델명 fallback: Prometheus 라벨에서 model_name 추출
+      if (modelNames.length === 0) {
+        for (const pl of promRaw) {
+          const m = pl.labels.match(/model_name="([^"]+)"/);
+          if (m && !modelNames.includes(m[1])) { modelNames.push(m[1]); break; }
+        }
       }
-      // 2. 컨테이너 이름에서 추출 (보통 모델명 포함)
-      if (!modelName && containerName) {
-        modelName = containerName.replace(/^vllm[-_]?|^sglang[-_]?/i, '').trim() || null;
-      }
-      // 3. 이미지 태그에서
-      if (!modelName && containerImage) {
-        const imgParts = containerImage.split(':');
-        modelName = imgParts[imgParts.length - 1] || null;
+      if (modelNames.length === 0 && containerName) {
+        modelNames.push(containerName);
       }
 
       llmEndpoints.push({
         port, containerName, containerImage, type,
-        modelName,
+        modelNames,
         runningRequests: extracted.runningRequests ?? null,
         waitingRequests: extracted.waitingRequests ?? null,
         kvCacheUsagePct: extracted.kvCacheUsagePct ?? null,
         promptThroughputTps: extracted.promptThroughputTps ?? null,
         genThroughputTps: extracted.genThroughputTps ?? null,
+        rawMetrics,
       });
     }
 
-    // Ollama
-    const ollamaMatch = llmSection.match(/OLLAMA_PS:(.+)/);
-    if (ollamaMatch) {
+    // Ollama (CLI)
+    const ollamaCli = llmSection.match(/OLLAMA_CLI:([\s\S]*?)(?=OLLAMA_PS:|==ENDLLM==|$)/);
+    if (ollamaCli) {
+      const cliLines = ollamaCli[1].trim().split('\n').filter(l => l && !l.startsWith('NAME'));
+      for (const line of cliLines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[0]) {
+          llmEndpoints.push({
+            port: 11434, containerName: 'ollama', containerImage: 'ollama', type: 'ollama',
+            modelNames: [parts[0]], runningRequests: null, waitingRequests: null,
+            kvCacheUsagePct: null, promptThroughputTps: null, genThroughputTps: null, rawMetrics: {},
+          });
+        }
+      }
+    }
+
+    // Ollama (API)
+    const ollamaApi = llmSection.match(/OLLAMA_PS:(.+)/);
+    if (ollamaApi && !ollamaCli) {
       try {
-        const data = JSON.parse(ollamaMatch[1]);
+        const data = JSON.parse(ollamaApi[1]);
         if (data.models && Array.isArray(data.models)) {
           for (const m of data.models) {
             llmEndpoints.push({
-              port: 11434,
-              containerName: 'ollama',
-              containerImage: 'ollama',
-              type: 'ollama',
-              modelName: m.name || m.model || null,
-              runningRequests: null,
-              waitingRequests: null,
-              kvCacheUsagePct: null,
-              promptThroughputTps: null,
-              genThroughputTps: null,
+              port: 11434, containerName: 'ollama', containerImage: 'ollama', type: 'ollama',
+              modelNames: [m.name || m.model || 'unknown'],
+              runningRequests: null, waitingRequests: null, kvCacheUsagePct: null,
+              promptThroughputTps: null, genThroughputTps: null, rawMetrics: {},
             });
           }
         }
-      } catch { /* ignore parse error */ }
+      } catch { /* ignore */ }
     }
   }
 
