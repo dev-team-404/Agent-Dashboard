@@ -608,6 +608,53 @@ model GpuPowerUsage {
 }
 
 // ============================================
+// GPU 서버 모니터링 (SSH 기반)
+// ============================================
+model GpuServer {
+  id              String   @id @default(uuid())
+  name            String   @unique                          // 표시 이름 (예: "GPU서버-1")
+  host            String                                    // IP 주소 또는 hostname
+  sshPort         Int      @default(22) @map("ssh_port")
+  sshUsername      String   @map("ssh_username")
+  sshPassword     String   @map("ssh_password")             // AES-256-GCM 암호화
+  description     String?
+  isLocal         Boolean  @default(false) @map("is_local") // 대시보드 서버 자체인 경우
+  enabled         Boolean  @default(true)
+  pollIntervalSec Int      @default(60) @map("poll_interval_sec")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  snapshots GpuMetricSnapshot[]
+
+  @@map("gpu_servers")
+}
+
+model GpuMetricSnapshot {
+  id               String   @id @default(uuid())
+  serverId         String   @map("server_id")
+  timestamp        DateTime @default(now())
+
+  // GPU 메트릭 (JSON 배열: [{index, uuid, name, memTotalMb, memUsedMb, utilGpu, utilMem, temp, powerW, powerMaxW}])
+  gpuMetrics       Json     @map("gpu_metrics")
+
+  // 시스템 메트릭
+  cpuLoadAvg       Float?   @map("cpu_load_avg")       // 1분 로드 평균
+  cpuCores         Int?     @map("cpu_cores")           // CPU 코어 수
+  memoryTotalMb    Float?   @map("memory_total_mb")
+  memoryUsedMb     Float?   @map("memory_used_mb")
+  hostname         String?
+
+  // GPU 프로세스 (JSON 배열: [{gpuIndex, pid, name, memMb, isLlm}])
+  gpuProcesses     Json?    @map("gpu_processes")
+
+  server GpuServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId, timestamp])
+  @@index([timestamp])
+  @@map("gpu_metric_snapshots")
+}
+
+// ============================================
 // 조직도 트리 노드 (Knox Organization API 기반)
 // ============================================
 model OrgNode {

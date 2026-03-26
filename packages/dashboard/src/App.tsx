@@ -47,6 +47,7 @@ const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUs
 const DeptMapping = lazyWithRetry(() => import('./pages/DeptMapping'));
 const OrgTree = lazyWithRetry(() => import('./pages/OrgTree'));
 const GpuPowerUsage = lazyWithRetry(() => import('./pages/GpuPowerUsage'));
+const ResourceMonitor = lazyWithRetry(() => import('./pages/ResourceMonitor'));
 
 interface User {
   id: string;
@@ -178,6 +179,7 @@ function App() {
               <Route path="/dept-mapping" element={<DeptMapping />} />
               <Route path="/org-tree" element={<OrgTree />} />
               <Route path="/gpu-power" element={<GpuPowerUsage />} />
+              <Route path="/resource-monitor" element={<ResourceMonitor />} />
             </>
           )}
 

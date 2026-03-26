@@ -38,6 +38,7 @@ import { insightRoutes, publicInsightRoutes } from './routes/insight.routes.js';
 import { deptMappingRoutes } from './routes/dept-mapping.routes.js';
 import { orgTreeRoutes } from './routes/org-tree.routes.js';
 import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
+import { gpuServerRoutes } from './routes/gpu-server.routes.js';
 import { internalOrgRoutes } from './routes/internal-org.routes.js';
 import { internalDocsRoutes } from './routes/internal-docs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
@@ -47,6 +48,7 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { startAiEstimationCron } from './services/aiEstimation.service.js';
+import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
 
@@ -109,6 +111,7 @@ app.use('/admin', insightRoutes);
 app.use('/admin', deptMappingRoutes);
 app.use('/admin', orgTreeRoutes);
 app.use('/gpu-power', gpuPowerRoutes);
+app.use('/admin/gpu-servers', gpuServerRoutes);
 app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
@@ -375,6 +378,7 @@ async function main() {
     // LLM 헬스체크 (10분마다)
     startHealthCheckCron();
     startAiEstimationCron();
+    startGpuMonitorCron();
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Registry API server running on port ${PORT}`);

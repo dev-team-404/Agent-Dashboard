@@ -424,6 +424,22 @@ export const orgTreeApi = {
   refresh: (departmentCode: string) => api.post(`/admin/org-tree/refresh/${encodeURIComponent(departmentCode)}`),
 };
 
+// GPU Server Monitoring API (리소스 모니터링)
+export const gpuServerApi = {
+  list: () => api.get('/admin/gpu-servers'),
+  create: (data: {
+    name: string; host: string; sshPort?: number; sshUsername: string;
+    sshPassword: string; description?: string; isLocal?: boolean; pollIntervalSec?: number;
+  }) => api.post('/admin/gpu-servers', data),
+  update: (id: string, data: Record<string, unknown>) => api.put(`/admin/gpu-servers/${id}`, data),
+  delete: (id: string) => api.delete(`/admin/gpu-servers/${id}`),
+  test: (data: { host: string; sshPort: number; sshUsername: string; sshPassword: string }) =>
+    api.post('/admin/gpu-servers/test', data),
+  testExisting: (id: string) => api.post(`/admin/gpu-servers/${id}/test`),
+  realtime: () => api.get('/admin/gpu-servers/realtime'),
+  history: (id: string, hours = 24) => api.get(`/admin/gpu-servers/${id}/history`, { params: { hours } }),
+};
+
 // GPU Power Usage API
 export const gpuPowerApi = {
   list: () => api.get<{ data: Array<{ date: string; power_avg_usage_ratio: number }> }>('/gpu-power'),
