@@ -186,7 +186,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
 
           {/* ── 3) 영업시간 평균 ── */}
           <div className="mb-1.5 p-1.5 bg-blue-50/50 rounded border border-blue-100/50">
-            <p className="text-[8px] text-blue-500 mb-1">KST 9-18시 평일 기준 (주말·공휴일 제외) | 최근 24h 영업시간 평균</p>
+            <p className="text-[8px] text-blue-500 mb-1">KST 9-18시 영업일 기준 (주말·등록 휴일 제외) | 최근 24h 영업시간 평균</p>
             <div className="grid grid-cols-3 gap-1.5">
               <div className="text-[9px]"><span className="text-blue-600 font-medium">GPU 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgGpuUtil || 0} color={utilCls(hist?.businessHoursAvg?.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist?.businessHoursAvg?.avgGpuUtil || 0)}>{hist?.businessHoursAvg?.avgGpuUtil ?? '-'}%</b></div></div>
               <div className="text-[9px]"><span className="text-blue-600 font-medium">VRAM 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist?.businessHoursAvg?.avgMemUtil ?? '-'}%</b></div></div>
@@ -265,7 +265,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {/* 히스토리 차트 */}
           <div className="px-3 py-2 border-t border-gray-100">
             <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-medium text-gray-500">사용률 추이</span><div className="flex gap-0.5">{[6, 12, 24, 72].map(h => <button key={h} onClick={() => setHrs(h)} className={`px-1.5 py-0.5 text-[9px] rounded ${hrs === h ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{h}h</button>)}</div></div>
-            {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>KST 9-18시 평일 평균 (주말·공휴일 제외): GPU <b>{hist.businessHoursAvg.avgGpuUtil}%</b> VRAM <b>{hist.businessHoursAvg.avgMemUtil}%</b> ({hist.businessHoursAvg.sampleCount}건)</span></div>}
+            {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>KST 9-18시 영업일 평균 (주말·등록 휴일 제외): GPU <b>{hist.businessHoursAvg.avgGpuUtil}%</b> VRAM <b>{hist.businessHoursAvg.avgMemUtil}%</b> ({hist.businessHoursAvg.sampleCount}건)</span></div>}
             <div className="space-y-3">
               {/* 실효사용률 + KV Cache + GPU 사용률 */}
               <div><p className="text-[9px] text-gray-400 mb-0.5">실효사용률 / KV Cache / GPU (%)</p>
@@ -470,7 +470,7 @@ export default function ResourceMonitor() {
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="px-3 pt-2 flex items-center justify-between">
-          <p className="text-[9px] text-gray-500">실시간 종합 지표 | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도) | 건강도 = 7일 피크 ÷ 이론max | 영업시간: KST 9-18시 평일</p>
+          <p className="text-[9px] text-gray-500">실시간 종합 지표 | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도) | 건강도 = 7일 피크 ÷ 이론max | 영업시간: KST 9-18시 영업일 (휴일 관리 기준)</p>
         </div>
         <div className="p-3 pt-1.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-100">
@@ -574,7 +574,7 @@ export default function ResourceMonitor() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="bg-white rounded-lg border p-4 shadow-sm">
           <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3 text-blue-500" />영업시간 평균</p>
-          <p className="text-[8px] text-gray-400 mb-2">KST 9:00-18:00, 주말·공휴일 제외 | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도)</p>
+          <p className="text-[8px] text-gray-400 mb-2">KST 9:00-18:00 영업일 (주말·등록 휴일 제외) | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도)</p>
           <div className="grid grid-cols-3 gap-2 text-[10px]">
             <div><span className="text-gray-400">GPU</span><p className={`text-lg font-bold ${ana.businessHours?.avgGpuUtil != null ? utilTxt(ana.businessHours.avgGpuUtil) : 'text-gray-300'}`}>{ana.businessHours?.avgGpuUtil ?? '-'}%</p></div>
             <div><span className="text-gray-400">VRAM</span><p className="text-lg font-bold text-gray-800">{ana.businessHours?.avgMemUtil ?? '-'}%</p></div>
