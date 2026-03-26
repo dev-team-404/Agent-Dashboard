@@ -105,7 +105,7 @@ const METRICS_CMD = [
   + ' METRICS=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null);'
   + ' echo "PORT:$port|CONTAINER:$PORTS|$CNAME|$CIMAGE";'
   + ' echo "MODELS_JSON:$MODELS";'
-  + ' echo "$METRICS" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|latency|flops|bytes|sleep|model_name|prompt|generation|batch|kv_" | head -100;'
+  + ' echo "$METRICS" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|latency|flops|bytes|sleep|model_name|prompt|generation|batch|kv_|accepted|spec_decode" | head -150;'
   + ' echo "---ENDPORT---";'
   + ' done',
   // Ollama 탐지 (기본 포트 11434)
@@ -291,15 +291,32 @@ function promGet(prom: Map<string, number>, ...keys: string[]): number | null {
   return null;
 }
 
-function extractLlmMetricsFromProm(prom: Map<string, number>, type: string): Partial<LlmEndpointMetrics> {
+function extractLlmMetricsFromProm(prom: Map<string, number>, type: string, counterKey?: string): Partial<LlmEndpointMetrics> {
   if (type === 'vllm' || type === 'unknown') {
     const running = promGet(prom, 'num_requests_running');
     const waiting = promGet(prom, 'num_requests_waiting');
-    // v0.17: kv_cache_usage_perc, 이전: gpu_cache_usage_perc
     const kvRaw = promGet(prom, 'kv_cache_usage_perc', 'gpu_cache_usage_perc');
     const kv = kvRaw != null ? (kvRaw <= 1 ? kvRaw * 100 : kvRaw) : null;
-    const promptTps = promGet(prom, 'avg_prompt_throughput_toks_per_s', 'prompt_tokens_per_second');
-    const genTps = promGet(prom, 'avg_generation_throughput_toks_per_s', 'generation_tokens_per_second');
+    // gauge 먼저, 없으면 counter 기반 throughput
+    let promptTps = promGet(prom, 'avg_prompt_throughput_toks_per_s', 'prompt_tokens_per_second');
+    let genTps = promGet(prom, 'avg_generation_throughput_toks_per_s', 'generation_tokens_per_second');
+    // counter 기반 fallback (vLLM nightly: gauge 없고 counter만 있는 경우)
+    if (promptTps == null && genTps == null && counterKey) {
+      const promptTotal = promGet(prom, 'prompt_tokens_total');
+      const genTotal = promGet(prom, 'generation_tokens_total') ?? promGet(prom, 'spec_decode_num_accepted_tokens_total');
+      const now = Date.now();
+      const prev = prevCounters.get(counterKey);
+      if (prev && promptTotal != null && genTotal != null) {
+        const dtSec = (now - prev.ts) / 1000;
+        if (dtSec > 5) {
+          promptTps = Math.max(0, (promptTotal - prev.promptTotal) / dtSec);
+          genTps = Math.max(0, (genTotal - prev.genTotal) / dtSec);
+        }
+      }
+      if (promptTotal != null || genTotal != null) {
+        prevCounters.set(counterKey, { promptTotal: promptTotal || 0, genTotal: genTotal || 0, ts: now });
+      }
+    }
     if (running != null || kv != null || promptTps != null) {
       return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, promptThroughputTps: promptTps, genThroughputTps: genTps };
     }
@@ -309,7 +326,15 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string): Par
     const waiting = promGet(prom, 'num_waiting_reqs', 'waiting_req');
     const kvRaw = promGet(prom, 'kv_cache_usage_perc', 'token_usage');
     const kv = kvRaw != null ? (kvRaw <= 1 ? kvRaw * 100 : kvRaw) : null;
-    const genTps = promGet(prom, 'gen_throughput', 'generation_throughput');
+    let genTps = promGet(prom, 'gen_throughput', 'generation_throughput');
+    // counter fallback
+    if (genTps == null && counterKey) {
+      const genTotal = promGet(prom, 'generation_tokens_total');
+      const now = Date.now();
+      const prev = prevCounters.get(counterKey);
+      if (prev && genTotal != null) { const dt = (now - prev.ts) / 1000; if (dt > 5) genTps = Math.max(0, (genTotal - prev.genTotal) / dt); }
+      if (genTotal != null) prevCounters.set(counterKey, { promptTotal: 0, genTotal, ts: now });
+    }
     if (running != null || kv != null || genTps != null) {
       return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, genThroughputTps: genTps };
     }
@@ -435,7 +460,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
       for (const [k, v] of prom) rawMetrics[k] = v;
 
       const type = extractLlmType(prom, containerImage);
-      const extracted = extractLlmMetricsFromProm(prom, type);
+      const extracted = extractLlmMetricsFromProm(prom, type, `${containerName}:${port}`);
 
       // 모델명 fallback: Prometheus 라벨에서 model_name 추출
       if (modelNames.length === 0) {
@@ -502,6 +527,8 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
 // 인메모리 캐시 & 폴링 관리
 // ================================================================
 const latestMetrics = new Map<string, ServerMetrics>();
+// counter → throughput 계산용: serverId:port → { promptTotal, genTotal, timestamp }
+const prevCounters = new Map<string, { promptTotal: number; genTotal: number; ts: number }>();
 const pollTimers = new Map<string, ReturnType<typeof setInterval>>();
 const pollLocks = new Map<string, boolean>();
 
