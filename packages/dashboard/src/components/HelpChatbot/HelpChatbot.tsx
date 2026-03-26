@@ -22,9 +22,6 @@ interface NavAction {
   tourId?: string;
 }
 
-// 가이드 투어가 있는 페이지 목록
-const PAGES_WITH_TOUR = ['/', '/models', '/users', '/service-targets', '/system-llm', '/services', '/my-services', '/my-usage', '/admin-request'];
-
 function extractNavActions(text: string): NavAction[] {
   const regex = /\[\[([^|]+)\|([^|\]]+)(?:\|([^\]]+))?\]\]/g;
   const actions: NavAction[] = [];
@@ -132,87 +129,57 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-// ── 스포트라이트 오버레이 (box-shadow 방식) ──
-let spotlightCleanup: (() => void) | null = null;
+// ── 빨간 테두리 + 화살표 하이라이팅 ──
+let highlightCleanup: (() => void) | null = null;
 
-function showSpotlight(tourId: string, showTourHint = false) {
-  if (spotlightCleanup) spotlightCleanup();
+function showHighlight(tourId: string) {
+  if (highlightCleanup) highlightCleanup();
 
   // 요소가 렌더링될 때까지 최대 3초 재시도
   let attempts = 0;
-  const maxAttempts = 15;
   const tryFind = () => {
     const el = document.querySelector(`[data-tour="${tourId}"]`) as HTMLElement | null;
     if (!el) {
-      attempts++;
-      if (attempts < maxAttempts) { setTimeout(tryFind, 200); }
+      if (++attempts < 15) setTimeout(tryFind, 200);
       return;
     }
-    applySpotlight(el, showTourHint);
+    applyHighlight(el);
   };
   tryFind();
 }
 
-function applySpotlight(el: HTMLElement, showTourHint: boolean) {
+function applyHighlight(el: HTMLElement) {
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
   setTimeout(() => {
-    // 오버레이 (클릭 가능한 배경)
-    const overlay = document.createElement('div');
-    overlay.id = 'chatbot-spotlight-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0);transition:background 0.3s ease;cursor:pointer;';
-    document.body.appendChild(overlay);
+    const rect = el.getBoundingClientRect();
 
-    // 대상 요소에 거대한 box-shadow로 어둡게 (가장 안정적인 방식)
-    const prevPosition = el.style.position;
-    const prevZIndex = el.style.zIndex;
-    const prevBoxShadow = el.style.boxShadow;
-    const prevBorderRadius = el.style.borderRadius;
+    // 빨간 화살표 (SVG) — 요소 좌측에 표시
+    const arrow = document.createElement('div');
+    arrow.id = 'chatbot-highlight-arrow';
+    arrow.innerHTML = `<svg width="56" height="40" viewBox="0 0 56 40" fill="none">
+      <path d="M4 20 H40" stroke="#EF4444" stroke-width="6" stroke-linecap="round"/>
+      <path d="M32 8 L46 20 L32 32" stroke="#EF4444" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+    arrow.style.cssText = `
+      position: fixed;
+      left: ${rect.left - 64}px;
+      top: ${rect.top + rect.height / 2 - 20}px;
+      z-index: 10001;
+      filter: drop-shadow(0 2px 8px rgba(239,68,68,0.5));
+      animation: chatbot-arrow-pulse 0.8s ease-in-out infinite alternate;
+      pointer-events: none;
+    `;
+    document.body.appendChild(arrow);
 
-    el.style.position = 'relative';
-    el.style.zIndex = '10001';
-    el.style.borderRadius = '8px';
-    el.style.boxShadow = '0 0 0 4px rgba(6,182,212,0.8), 0 0 0 9999px rgba(0,0,0,0.5)';
-    el.style.transition = 'box-shadow 0.3s ease';
-
-    // 투어 가이드 힌트
-    let tourHint: HTMLElement | null = null;
-    const tourBtn = document.querySelector('[title="가이드 투어 시작"]') as HTMLElement | null;
-    if (showTourHint && tourBtn) {
-      tourBtn.style.position = 'relative';
-      tourBtn.style.zIndex = '10001';
-      tourBtn.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.8), 0 0 0 9999px transparent';
-      tourBtn.style.borderRadius = '9999px';
-
-      tourHint = document.createElement('div');
-      const btnRect = tourBtn.getBoundingClientRect();
-      tourHint.style.cssText = `position:fixed;right:${window.innerWidth - btnRect.left + 8}px;top:${btnRect.top + btnRect.height / 2 - 16}px;z-index:10002;background:white;border-radius:10px;padding:8px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.15);font-size:12px;color:#334155;white-space:nowrap;opacity:0;transition:opacity 0.3s ease;`;
-      tourHint.textContent = '상세 가이드 투어도 이용해보세요!';
-      document.body.appendChild(tourHint);
-      requestAnimationFrame(() => { tourHint!.style.opacity = '1'; });
-    }
-
+    // 5초 후 자동 제거
     const cleanup = () => {
-      el.style.position = prevPosition;
-      el.style.zIndex = prevZIndex;
-      el.style.boxShadow = prevBoxShadow;
-      el.style.borderRadius = prevBorderRadius;
-      el.style.transition = '';
-      if (tourBtn) {
-        tourBtn.style.position = '';
-        tourBtn.style.zIndex = '';
-        tourBtn.style.boxShadow = '';
-        tourBtn.style.borderRadius = '';
-      }
-      if (tourHint) tourHint.remove();
-      overlay.remove();
-      spotlightCleanup = null;
+      arrow.remove();
+      highlightCleanup = null;
     };
 
-    overlay.addEventListener('click', cleanup, { once: true });
-    const timer = setTimeout(cleanup, 4500);
-
-    spotlightCleanup = () => { clearTimeout(timer); cleanup(); };
+    const timer = setTimeout(cleanup, 5000);
+    highlightCleanup = () => { clearTimeout(timer); cleanup(); };
   }, 400);
 }
 
@@ -305,8 +272,7 @@ export default function HelpChatbot({ adminRole }: Props) {
       navigate(action.path);
 
       if (action.tourId) {
-        const hasTour = PAGES_WITH_TOUR.includes(action.path);
-        setTimeout(() => showSpotlight(action.tourId!, hasTour), 600);
+        setTimeout(() => showHighlight(action.tourId!), 600);
       }
     }
   }, [isStreaming, messages, navigate]);
@@ -673,9 +639,9 @@ export default function HelpChatbot({ adminRole }: Props) {
           from { opacity: 0; transform: translateY(16px) scale(0.97); }
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        @keyframes chatbot-arrow-pulse {
+          from { transform: translateX(0); opacity: 0.7; }
+          to { transform: translateX(8px); opacity: 1; }
         }
       `}</style>
     </>
