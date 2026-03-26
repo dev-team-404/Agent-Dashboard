@@ -1031,7 +1031,7 @@ proxyRoutes.post('/chat/completions', async (req: Request, res: Response) => {
 // Request handling
 // ============================================
 
-const REQUEST_TIMEOUT_MS = 120000;
+const REQUEST_TIMEOUT_MS = 300000; // 5분
 
 function isMaxTokensError(errorText: string): boolean {
   return errorText.includes('max_tokens') && errorText.includes('must be at least');
