@@ -35,7 +35,6 @@ import { externalUsageRoutes } from './routes/external-usage.routes.js';
 import { errorLogsRoutes } from './routes/error-logs.routes.js';
 import { deptSavedMMRoutes } from './routes/dept-saved-mm.routes.js';
 import { insightRoutes, publicInsightRoutes } from './routes/insight.routes.js';
-import { deptMappingRoutes } from './routes/dept-mapping.routes.js';
 import { orgTreeRoutes } from './routes/org-tree.routes.js';
 import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
 import { gpuServerRoutes } from './routes/gpu-server.routes.js';
@@ -52,7 +51,8 @@ import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
-import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
+import { lookupEmployee } from './services/knoxEmployee.service.js';
+import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
 
 import 'dotenv/config';
 
@@ -110,7 +110,6 @@ app.use('/admin', adminLogsRoutes);
 app.use('/admin', serviceTargetsRoutes);
 app.use('/admin', deptSavedMMRoutes);
 app.use('/admin', insightRoutes);
-app.use('/admin', deptMappingRoutes);
 app.use('/admin', orgTreeRoutes);
 app.use('/gpu-power', gpuPowerRoutes);
 app.use('/admin/gpu-servers', gpuServerRoutes);
@@ -350,7 +349,7 @@ async function backfillServiceHierarchy() {
         }
 
         // 3. 조직 계층 조회 (캐시 또는 API)
-        const hierarchy = await getDepartmentHierarchy(departmentCode, deptName, enDeptName);
+        const hierarchy = await getHierarchyFromOrgTree(departmentCode);
 
         if (hierarchy) {
           await prisma.service.update({

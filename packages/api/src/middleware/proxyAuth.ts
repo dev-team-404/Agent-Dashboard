@@ -189,7 +189,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
 
 /**
  * Background 서비스의 x-dept-name을 DB에서 검증 + resolve
- * 한글명/영문명 모두 지원 (User, OrgNode, DepartmentHierarchy 병렬 조회)
+ * 한글명/영문명 모두 지원 (User, OrgNode 병렬 조회)
  * @returns resolve된 부서 정보 or null (미등록 부서)
  */
 async function resolveBackgroundDept(deptNameInput: string): Promise<{
@@ -198,17 +198,13 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
   businessUnit: string;
   departmentCode: string;
 } | null> {
-  const [userMatch, orgMatch, hierMatch] = await Promise.all([
+  const [userMatch, orgMatch] = await Promise.all([
     prisma.user.findFirst({
       where: { OR: [{ deptname: deptNameInput }, { enDeptName: deptNameInput }] },
       select: { deptname: true, businessUnit: true, departmentCode: true },
     }),
     prisma.orgNode.findFirst({
       where: { OR: [{ departmentName: deptNameInput }, { enDepartmentName: deptNameInput }] },
-      select: { departmentName: true, departmentCode: true },
-    }),
-    prisma.departmentHierarchy.findFirst({
-      where: { OR: [{ departmentName: deptNameInput }, { team: deptNameInput }] },
       select: { departmentName: true, departmentCode: true },
     }),
   ]);
@@ -231,17 +227,6 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
       teamName: deptName.match(/^([^(]+)/)?.[1]?.trim() || deptName,
       businessUnit: extractBusinessUnit(deptName),
       departmentCode: orgMatch.departmentCode,
-    };
-  }
-
-  // DepartmentHierarchy 매칭 (캐시)
-  if (hierMatch) {
-    const deptName = hierMatch.departmentName || deptNameInput;
-    return {
-      deptName,
-      teamName: deptName.match(/^([^(]+)/)?.[1]?.trim() || deptName,
-      businessUnit: extractBusinessUnit(deptName),
-      departmentCode: hierMatch.departmentCode,
     };
   }
 

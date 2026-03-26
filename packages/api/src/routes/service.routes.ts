@@ -16,7 +16,8 @@ import { Router, RequestHandler } from 'express';
 import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
-import { getDepartmentHierarchy, lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
+import { lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
+import { getHierarchyFromOrgTree } from '../services/orgTree.service.js';
 import { generateLogoForService } from '../services/logoGenerator.service.js';
 
 /**
@@ -706,7 +707,7 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
       }
 
       if (departmentCode && enDeptName) {
-        const hierarchy = await getDepartmentHierarchy(departmentCode, deptname, enDeptName);
+        const hierarchy = await getHierarchyFromOrgTree(departmentCode);
         if (hierarchy) {
           team = hierarchy.team || null;
           center2Name = hierarchy.center2Name || null;
@@ -936,7 +937,7 @@ serviceRoutes.put('/:id', authenticateToken, async (req: AuthenticatedRequest, r
       updateData.registeredByBusinessUnit = extractBusinessUnit(employee.departmentName) || existing.registeredByBusinessUnit;
       // 조직 계층 갱신
       try {
-        const hierarchy = await getDepartmentHierarchy(employee.departmentCode, employee.departmentName, employee.enDepartmentName);
+        const hierarchy = await getHierarchyFromOrgTree(employee.departmentCode);
         if (hierarchy) {
           updateData.team = hierarchy.team || null;
           updateData.center2Name = hierarchy.center2Name || null;

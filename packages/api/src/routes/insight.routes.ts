@@ -13,6 +13,7 @@
 import { Router, Request, Response, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth.js';
+import { buildAllHierarchyMap, OrgHierarchy } from '../services/orgTree.service.js';
 // ── 사업부 필터 (S.LSI만 집계) ──
 const INSIGHT_BUSINESS_UNIT = 'S.LSI';
 
@@ -133,15 +134,6 @@ function resolveTargetMonth(req: Request): {
 }
 
 // ── Shared handler types ──
-interface DeptHierarchyRow {
-  id: string;
-  departmentCode: string;
-  departmentName: string;
-  team: string;
-  center2Name: string;
-  center1Name: string;
-}
-
 interface MauRow {
   deptname: string;
   mau: bigint;
@@ -157,14 +149,8 @@ async function handleUsageRate(req: Request, res: Response) {
     const { targetStart, effectiveEnd, isCurrentMonth, monthLabel } = tm;
     const { prevStart: prevMonthStart, prevEnd: prevMonthEnd } = tm;
 
-    // 1. Department hierarchies
-    const hierarchies = await prisma.departmentHierarchy.findMany();
-
-    // Build deptname → hierarchy map
-    const deptHierarchyMap = new Map<string, DeptHierarchyRow>();
-    for (const h of hierarchies) {
-      deptHierarchyMap.set(h.departmentName, h as DeptHierarchyRow);
-    }
+    // 1. org_nodes 기반 부서 계층 맵 (departmentName → {team, center2Name, center1Name})
+    const deptHierarchyMap = await buildAllHierarchyMap();
 
     // 2. Target month MAU per deptname (business_unit 필터 없음 — deptname suffix로 분류)
     const targetMauRows = await prisma.$queryRaw<MauRow[]>`
@@ -311,16 +297,15 @@ async function handleUsageRateDetail(req: Request, res: Response) {
     const currentYear = targetYear;
     const currentMonth = targetMonth;
 
-    // 1. Find depts belonging to this center
-    const hierarchies = await prisma.departmentHierarchy.findMany();
-    const hierMap = new Map(hierarchies.map(h => [h.departmentName, h]));
+    // 1. Find depts belonging to this center (org_nodes 기반)
+    const hierMap = await buildAllHierarchyMap();
 
     const centerDepts: Array<{ deptname: string; team: string }> = [];
 
     // hierarchy가 있는 부서
-    for (const h of hierarchies) {
-      if (resolveCenter(h.departmentName, h) === centerName) {
-        centerDepts.push({ deptname: h.departmentName, team: h.team || h.departmentName });
+    for (const [deptname, h] of hierMap) {
+      if (resolveCenter(deptname, h) === centerName) {
+        centerDepts.push({ deptname, team: h.team || deptname });
       }
     }
 
@@ -663,12 +648,12 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       ORDER BY total_tokens DESC
     `;
 
-    // Map deptname → English team name via department_hierarchies
-    const hierarchies = await prisma.departmentHierarchy.findMany();
+    // Map deptname → English team name via org_nodes
+    const hierMap = await buildAllHierarchyMap();
     const deptToTeam = new Map<string, string>();
-    for (const h of hierarchies) {
+    for (const [deptname, h] of hierMap) {
       if (h.team) {
-        deptToTeam.set(h.departmentName, h.team);
+        deptToTeam.set(deptname, h.team);
       }
     }
 

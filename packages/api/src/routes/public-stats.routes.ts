@@ -12,7 +12,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../index.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
-import { isTopLevelDivision, getDepartmentHierarchy, lookupEmployee } from '../services/knoxEmployee.service.js';
+import { isTopLevelDivision, lookupEmployee } from '../services/knoxEmployee.service.js';
 
 function filterHierarchy<T extends { center2Name?: string | null; center1Name?: string | null }>(s: T): T {
   let c2 = s.center2Name ?? null;

@@ -44,7 +44,6 @@ const ServiceDetail = lazyWithRetry(() => import('./pages/ServiceDetail'));
 const PublicDashboard = lazyWithRetry(() => import('./pages/PublicDashboard'));
 const InsightUsageRate = lazyWithRetry(() => import('./pages/InsightUsageRate'));
 const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUsage'));
-const DeptMapping = lazyWithRetry(() => import('./pages/DeptMapping'));
 const OrgTree = lazyWithRetry(() => import('./pages/OrgTree'));
 const GpuPowerUsage = lazyWithRetry(() => import('./pages/GpuPowerUsage'));
 const ResourceMonitor = lazyWithRetry(() => import('./pages/ResourceMonitor'));
@@ -176,7 +175,6 @@ function App() {
               <Route path="/audit-logs" element={<AuditLogs />} />
               <Route path="/error-management" element={<ErrorManagement />} />
               <Route path="/knox-verifications" element={<KnoxVerifications />} />
-              <Route path="/dept-mapping" element={<DeptMapping />} />
               <Route path="/org-tree" element={<OrgTree />} />
               <Route path="/gpu-power" element={<GpuPowerUsage />} />
               <Route path="/resource-monitor" element={<ResourceMonitor />} />

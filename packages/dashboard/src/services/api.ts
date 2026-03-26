@@ -408,14 +408,6 @@ export const insightApi = {
   serviceUsageDetail: (serviceId: string) => api.get(`/admin/insight/service-usage/${serviceId}`),
 };
 
-// 부서 매핑 관리 API (슈퍼 관리자)
-export const deptMappingApi = {
-  list: () => api.get('/admin/dept-mapping'),
-  update: (id: string, data: { team?: string; center2Name?: string; center1Name?: string }) =>
-    api.put(`/admin/dept-mapping/${id}`, data),
-  sync: () => api.post('/admin/dept-mapping/sync'),
-};
-
 // 조직도 트리 API
 export const orgTreeApi = {
   getTree: () => api.get('/admin/org-tree'),

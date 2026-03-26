@@ -497,22 +497,6 @@ model AuditLog {
 }
 
 // ============================================
-// 부서 계층 캐시 (Knox Organization API 결과)
-// ============================================
-model DepartmentHierarchy {
-  id              String   @id @default(uuid())
-  departmentCode  String   @unique @map("department_code")   // Knox 부서코드 (캐시 키)
-  departmentName  String   @map("department_name")            // 한글 부서명
-  team            String                                      // 영문 팀이름 (enDepartmentName)
-  center2Name     String   @map("center_2_name")              // 1차 상위부서 영문
-  center1Name     String   @map("center_1_name")              // 2차 상위부서 영문
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  @@map("department_hierarchies")
-}
-
-// ============================================
 // LLM 헬스체크 로그 (10분 주기 프로빙)
 // ============================================
 model HealthCheckLog {

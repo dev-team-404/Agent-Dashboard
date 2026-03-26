@@ -379,3 +379,82 @@ export async function cleanupStaleScopes(): Promise<{
 
   return { servicesFixed, modelsFixed, removedCodes: [...new Set(removedCodes)] };
 }
+
+// ── org_nodes 기반 부서 계층 조회 (department_hierarchies 대체) ──
+
+export interface OrgHierarchy {
+  team: string;        // 영문 팀이름 (본인 노드의 enDepartmentName)
+  center2Name: string; // 부모 노드의 enDepartmentName
+  center1Name: string; // 조부모 노드의 enDepartmentName
+}
+
+/**
+ * org_nodes 기반으로 단일 부서의 계층 정보 조회
+ * 노드 미존재 시 discoverDepartment로 자동 탐색
+ */
+export async function getHierarchyFromOrgTree(departmentCode: string): Promise<OrgHierarchy | null> {
+  if (!departmentCode) return null;
+
+  let node = await prisma.orgNode.findUnique({ where: { departmentCode } });
+  if (!node) {
+    await discoverDepartment(departmentCode);
+    node = await prisma.orgNode.findUnique({ where: { departmentCode } });
+    if (!node) return null;
+  }
+
+  const team = node.enDepartmentName || '';
+  let center2Name = '';
+  let center1Name = '';
+
+  if (node.parentDepartmentCode) {
+    const parent = await prisma.orgNode.findUnique({
+      where: { departmentCode: node.parentDepartmentCode },
+    });
+    if (parent) {
+      center2Name = parent.enDepartmentName || '';
+      if (parent.parentDepartmentCode) {
+        const grandparent = await prisma.orgNode.findUnique({
+          where: { departmentCode: parent.parentDepartmentCode },
+        });
+        if (grandparent) {
+          center1Name = grandparent.enDepartmentName || '';
+        }
+      }
+    }
+  }
+
+  return { team, center2Name, center1Name };
+}
+
+/**
+ * 전체 org_nodes에서 departmentName(한글) → {team, center2Name, center1Name} 맵 생성
+ * insight 등 bulk 조회용
+ */
+export async function buildAllHierarchyMap(): Promise<Map<string, OrgHierarchy>> {
+  const allNodes = await prisma.orgNode.findMany();
+  const codeMap = new Map(allNodes.map(n => [n.departmentCode, n]));
+  const result = new Map<string, OrgHierarchy>();
+
+  for (const node of allNodes) {
+    const team = node.enDepartmentName || '';
+    let center2Name = '';
+    let center1Name = '';
+
+    if (node.parentDepartmentCode) {
+      const parent = codeMap.get(node.parentDepartmentCode);
+      if (parent) {
+        center2Name = parent.enDepartmentName || '';
+        if (parent.parentDepartmentCode) {
+          const grandparent = codeMap.get(parent.parentDepartmentCode);
+          if (grandparent) {
+            center1Name = grandparent.enDepartmentName || '';
+          }
+        }
+      }
+    }
+
+    result.set(node.departmentName, { team, center2Name, center1Name });
+  }
+
+  return result;
+}
