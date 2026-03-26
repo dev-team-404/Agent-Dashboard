@@ -290,19 +290,19 @@ export default function DeptSavedMM() {
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">서비스</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">타입</th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] cursor-pointer select-none" onClick={() => toggleSort('deptUserCount')}>
-                  부서 사용자 <SortIcon columnKey="deptUserCount" />
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('deptUserCount')}>
+                  <span className="inline-flex items-center gap-0.5">부서 사용자<SortIcon columnKey="deptUserCount" /></span>
                 </th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">지난달 DAU</th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">이번달 DAU</th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px] cursor-pointer select-none" onClick={() => toggleSort('mau')}>
-                  지난달 MAU <SortIcon columnKey="mau" />
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">지난달 DAU</th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">이번달 DAU</th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('mau')}>
+                  <span className="inline-flex items-center gap-0.5">지난달 MAU<SortIcon columnKey="mau" /></span>
                 </th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] whitespace-nowrap">
                   이번달 MAU
                 </th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px] cursor-pointer select-none" onClick={() => toggleSort('savedMM')}>
-                  Saved M/M <SortIcon columnKey="savedMM" />
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('savedMM')}>
+                  <span className="inline-flex items-center gap-0.5">Saved M/M<SortIcon columnKey="savedMM" /></span>
                 </th>
                 <th className="px-3 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[150px]">사유</th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px]">AI 추정</th>
