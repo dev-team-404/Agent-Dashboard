@@ -38,6 +38,8 @@ import { insightRoutes, publicInsightRoutes } from './routes/insight.routes.js';
 import { deptMappingRoutes } from './routes/dept-mapping.routes.js';
 import { orgTreeRoutes } from './routes/org-tree.routes.js';
 import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
+import { internalOrgRoutes } from './routes/internal-org.routes.js';
+import { internalDocsRoutes } from './routes/internal-docs.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -113,6 +115,10 @@ app.use('/', adminRequestRoutes);
 
 // LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
 app.use('/v1', proxyRoutes);
+
+// Internal Organization API (인증 불필요 — 내부 서비스 간 통신용)
+app.use('/internal/org', internalOrgRoutes);
+app.use('/internal/docs', internalDocsRoutes);
 
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
