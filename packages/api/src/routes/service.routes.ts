@@ -2202,3 +2202,167 @@ serviceRoutes.delete('/:id/service-rate-limit', authenticateToken, async (req: A
   }
 });
 
+// ============================================
+// 서비스별 에러 로그 조회
+// ============================================
+
+const SERVICE_ERROR_RULES: Array<{ pattern: string; cause: string; category: string }> = [
+  { pattern: 'x-service-id header is required', cause: 'x-service-id 헤더를 포함시키지 않았습니다', category: '헤더 누락' },
+  { pattern: 'x-dept-name header is required', cause: 'x-dept-name 헤더를 포함시키지 않았습니다', category: '헤더 누락' },
+  { pattern: 'x-user-id header is required', cause: 'STANDARD 서비스에서 x-user-id 헤더를 포함시키지 않았습니다', category: '헤더 누락' },
+  { pattern: 'is not registered', cause: '등록되지 않은 서비스 ID를 사용했습니다', category: '서비스 오류' },
+  { pattern: 'is disabled', cause: '비활성화된 서비스를 호출했습니다', category: '서비스 오류' },
+  { pattern: 'Department mismatch', cause: '부서 정보가 등록된 정보와 다릅니다', category: '인증 오류' },
+  { pattern: 'Knox verification failed', cause: 'Knox 임직원 인증에 실패했습니다', category: '인증 오류' },
+  { pattern: 'restricted to specific business units', cause: '해당 사업부에 공개되지 않은 서비스입니다', category: '접근 제한' },
+  { pattern: 'restricted to specific teams', cause: '해당 팀에 공개되지 않은 서비스입니다', category: '접근 제한' },
+  { pattern: 'not found', cause: '존재하지 않는 모델 또는 서비스입니다', category: '모델/서비스 오류' },
+  { pattern: 'Use a registered alias', cause: '등록되지 않은 모델 alias를 사용했습니다', category: '모델/서비스 오류' },
+  { pattern: 'Rate limit exceeded', cause: '토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
+  { pattern: 'Token rate limit', cause: '토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
+  { pattern: 'model and messages are required', cause: 'model 또는 messages 필드가 누락되었습니다', category: '요청 오류' },
+  { pattern: 'model is required', cause: 'model 필드가 누락되었습니다', category: '요청 오류' },
+  { pattern: 'model and input are required', cause: 'model 또는 input 필드가 누락되었습니다', category: '요청 오류' },
+  { pattern: 'context_length_exceeded', cause: '입력이 모델의 최대 컨텍스트 길이를 초과했습니다', category: '요청 오류' },
+  { pattern: 'is not an IMAGE model', cause: 'IMAGE 타입이 아닌 모델로 이미지 생성을 시도했습니다', category: '모델/서비스 오류' },
+  { pattern: 'audio file is required', cause: '오디오 파일이 첨부되지 않았습니다', category: '요청 오류' },
+  { pattern: 'Service temporarily unavailable', cause: 'LLM 엔드포인트에 연결할 수 없습니다', category: 'LLM 장애' },
+  { pattern: 'Connection failed', cause: 'LLM 엔드포인트 연결에 실패했습니다', category: 'LLM 장애' },
+  { pattern: 'Timed out', cause: 'LLM 응답 시간이 초과되었습니다', category: 'LLM 장애' },
+  { pattern: 'LLM request failed', cause: 'LLM 요청이 실패했습니다', category: 'LLM 장애' },
+];
+
+function matchServiceErrorCause(errorMessage: string | null): { cause: string; category: string } | null {
+  if (!errorMessage) return null;
+  const lower = errorMessage.toLowerCase();
+  for (const rule of SERVICE_ERROR_RULES) {
+    if (lower.includes(rule.pattern.toLowerCase())) {
+      return { cause: rule.cause, category: rule.category };
+    }
+  }
+  return null;
+}
+
+function getServiceCategoryDbFilter(cat: string): Record<string, unknown> | null {
+  if (cat === '미분류') {
+    return {
+      AND: SERVICE_ERROR_RULES.map(r => ({
+        errorMessage: { not: { contains: r.pattern, mode: 'insensitive' as const } },
+      })),
+    };
+  }
+  const patterns = SERVICE_ERROR_RULES.filter(r => r.category === cat).map(r => r.pattern);
+  if (patterns.length === 0) return null;
+  return {
+    OR: patterns.map(p => ({
+      errorMessage: { contains: p, mode: 'insensitive' as const },
+    })),
+  };
+}
+
+/**
+ * GET /services/:id/error-logs
+ * 서비스별 에러 로그 조회
+ * 권한: Service OWNER/ADMIN 또는 System Super Admin
+ */
+serviceRoutes.get('/:id/error-logs', authenticateToken, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params.id as string;
+
+    if (!(await canManageService(req, serviceId))) {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+
+    const page = Math.max(1, parseInt(req.query['page'] as string) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query['limit'] as string) || 50));
+    const skip = (page - 1) * limit;
+
+    const statusCode = req.query['statusCode'] as string | undefined;
+    const category = req.query['category'] as string | undefined;
+    const userId = req.query['userId'] as string | undefined;
+    const startDate = req.query['startDate'] as string | undefined;
+    const endDate = req.query['endDate'] as string | undefined;
+
+    const where: Record<string, unknown> = {
+      serviceId,
+      statusCode: { not: 200 },
+    };
+
+    if (statusCode) {
+      const codes = statusCode.split(',').map(c => parseInt(c.trim())).filter(c => !isNaN(c));
+      if (codes.length === 1) {
+        where.statusCode = codes[0];
+      } else if (codes.length > 1) {
+        where.statusCode = { in: codes };
+      }
+    }
+    if (userId) where.userId = { contains: userId, mode: 'insensitive' };
+
+    if (startDate || endDate) {
+      const ts: Record<string, Date> = {};
+      if (startDate) ts.gte = new Date(startDate);
+      if (endDate) ts.lte = new Date(endDate + 'T23:59:59.999Z');
+      where.timestamp = ts;
+    }
+
+    if (category) {
+      const catFilter = getServiceCategoryDbFilter(category);
+      if (catFilter) Object.assign(where, catFilter);
+    }
+
+    const [logs, total] = await Promise.all([
+      prisma.requestLog.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          serviceId: true,
+          userId: true,
+          deptname: true,
+          modelName: true,
+          resolvedModel: true,
+          method: true,
+          path: true,
+          statusCode: true,
+          errorMessage: true,
+          errorDetails: true,
+          inputTokens: true,
+          outputTokens: true,
+          latencyMs: true,
+          userAgent: true,
+          ipAddress: true,
+          stream: true,
+          timestamp: true,
+          service: { select: { name: true, displayName: true } },
+        },
+      }),
+      prisma.requestLog.count({ where }),
+    ]);
+
+    const enriched = logs.map(log => {
+      const matched = matchServiceErrorCause(log.errorMessage);
+      return {
+        ...log,
+        ruleCause: matched?.cause || null,
+        ruleCategory: matched?.category || null,
+        isAnalyzable: !matched,
+      };
+    });
+
+    res.json({
+      logs: enriched,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      categories: [
+        '헤더 누락', '서비스 오류', '인증 오류', '접근 제한',
+        '모델/서비스 오류', 'Rate Limit', '요청 오류', 'LLM 장애', '미분류',
+      ],
+    });
+  } catch (error) {
+    console.error('Get service error logs error:', error);
+    res.status(500).json({ error: 'Failed to get service error logs' });
+  }
+}) as RequestHandler);
+
