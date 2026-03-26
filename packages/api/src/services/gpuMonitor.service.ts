@@ -382,6 +382,11 @@ async function pollServer(server: { id: string; name: string; host: string; sshP
 
     latestMetrics.set(server.id, metrics);
 
+    // GPU 데이터가 없으면 DB 저장 스킵 (간헐적 SSH 파싱 실패 방지)
+    if (parsed.gpus.length === 0 && parsed.cpuLoadAvg == null) {
+      return;
+    }
+
     await prisma.gpuMetricSnapshot.create({
       data: {
         serverId: server.id,
@@ -396,11 +401,15 @@ async function pollServer(server: { id: string; name: string; host: string; sshP
       },
     });
   } catch (err: any) {
+    // 에러 시 이전 메트릭에 에러 표시만 추가 (빈 데이터로 덮어쓰지 않음)
+    const prev = latestMetrics.get(server.id);
     latestMetrics.set(server.id, {
       serverId: server.id, serverName: server.name, timestamp: new Date(),
       error: err.message || 'Unknown error',
-      gpus: [], processes: [], llmEndpoints: [],
-      cpuLoadAvg: null, cpuCores: null, memoryTotalMb: null, memoryUsedMb: null, hostname: null,
+      gpus: prev?.gpus || [], processes: prev?.processes || [], llmEndpoints: prev?.llmEndpoints || [],
+      cpuLoadAvg: prev?.cpuLoadAvg ?? null, cpuCores: prev?.cpuCores ?? null,
+      memoryTotalMb: prev?.memoryTotalMb ?? null, memoryUsedMb: prev?.memoryUsedMb ?? null,
+      hostname: prev?.hostname ?? null,
     });
   } finally {
     pollLocks.set(server.id, false);
