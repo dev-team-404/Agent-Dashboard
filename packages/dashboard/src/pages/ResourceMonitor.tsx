@@ -117,9 +117,18 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
     const kvs = ls.filter((l: any) => l.kvCacheUsagePct != null); const kv = kvs.length > 0 ? kvs.reduce((a: number, l: any) => a + l.kvCacheUsagePct, 0) / kvs.length : null;
     const tp = ls.reduce((a: number, l: any) => a + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
     const t = new Date(snap.timestamp);
-    // 건강도/실효사용률은 이론max 대비이므로 throughputAnalysis 기반이 아닌 KV+GPU로 추정
     const effUtil = kv != null ? kv : (tm > 0 ? (um / tm) * 100 : au);
-    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0 };
+    // LLM별 throughput + KV (최대 5개)
+    const perLlm: Record<string, number> = {};
+    const perLlmKv: Record<string, number> = {};
+    ls.slice(0, 5).forEach((l: any, i: number) => {
+      const label = l.modelNames?.[0] || l.containerName || `LLM${i}`;
+      const short = label.length > 15 ? label.slice(-15) : label;
+      const ltps = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
+      if (ltps > 0) perLlm[short] = Math.round(ltps * 10) / 10;
+      if (l.kvCacheUsagePct != null) perLlmKv[`${short}_kv`] = Math.round(l.kvCacheUsagePct * 10) / 10;
+    });
+    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0, ...perLlm, ...perLlmKv };
   }) || [];
   const dd = cd.length > 150 ? cd.filter((_: any, i: number) => i % Math.ceil(cd.length / 150) === 0) : cd;
 
@@ -257,9 +266,26 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               {/* 실효사용률 + KV Cache + GPU 사용률 */}
               <div><p className="text-[9px] text-gray-400 mb-0.5">실효사용률 / KV Cache / GPU (%)</p>
               <ResponsiveContainer width="100%" height={140}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="effUtil" name="실효사용률" stroke="#2563eb" fill="url(#gG)" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="3 2" /><Line type="monotone" dataKey="gpuUtil" name="GPU" stroke="#94a3b8" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer></div>
-              {/* tok/s 처리량 */}
-              <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s)</p>
-              <ResponsiveContainer width="100%" height={100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="throughput" name="tok/s" stroke="#3b82f6" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>
+              {/* tok/s 처리량 (합산 + LLM별) */}
+              {(() => {
+                const llmColors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+                const llmKeys = dd.length > 0 ? Object.keys(dd[dd.length - 1]).filter(k => !['time','fullTime','gpuUtil','memPct','llmPct','kvCache','throughput','effUtil','cpuLoad','ramPct'].includes(k) && !k.endsWith('_kv')) : [];
+                const kvKeys = dd.length > 0 ? Object.keys(dd[dd.length - 1]).filter(k => k.endsWith('_kv')) : [];
+                return (<>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s){llmKeys.length > 0 && <span className="ml-1 text-blue-500">— LLM별 분리</span>}</p>
+                  <ResponsiveContainer width="100%" height={llmKeys.length > 1 ? 130 : 100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
+                    <Line type="monotone" dataKey="throughput" name="합산" stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 2" />
+                    {llmKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k} stroke={llmColors[i % llmColors.length]} strokeWidth={1.5} dot={false} />)}
+                  </LineChart></ResponsiveContainer></div>
+                  {/* LLM별 KV Cache */}
+                  {kvKeys.length > 1 && (
+                    <div><p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) — LLM별</p>
+                    <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
+                      {kvKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k.replace('_kv', '')} stroke={llmColors[i % llmColors.length]} strokeWidth={1.5} dot={false} />)}
+                    </LineChart></ResponsiveContainer></div>
+                  )}
+                </>);
+              })()}
               {/* CPU / RAM / VRAM */}
               <div><p className="text-[9px] text-gray-400 mb-0.5">시스템 리소스 (%)</p>
               <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="ramPct" name="RAM" stroke="#ec4899" strokeWidth={1} dot={false} /><Line type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" strokeWidth={1} dot={false} /></LineChart></ResponsiveContainer></div>
