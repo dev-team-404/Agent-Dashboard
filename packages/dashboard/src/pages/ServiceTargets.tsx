@@ -120,27 +120,25 @@ export default function ServiceTargets() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-lg bg-indigo-50">
-              <Target className="w-6 h-6 text-indigo-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
-              <p className="text-sm text-pastel-500 mt-0.5">
-                서비스별 절감 실적(Saved M/M)을 관리합니다
-              </p>
-            </div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-lg bg-indigo-50">
+            <Target className="w-6 h-6 text-indigo-600" />
           </div>
-          <button
-            onClick={() => setShowGuide(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-indigo-600 bg-indigo-50 border border-indigo-200 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors"
-          >
-            <BookOpen className="w-4 h-4" />
-            관리 가이드
-          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">
+              서비스별 절감 실적(Saved M/M)을 관리합니다
+            </p>
+          </div>
         </div>
+        <button
+          onClick={() => setShowGuide(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 text-indigo-600 bg-indigo-50 border border-indigo-200 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors shrink-0"
+        >
+          <BookOpen className="w-4 h-4" />
+          관리 가이드
+        </button>
       </div>
 
       {/* Tab Bar */}
