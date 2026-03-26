@@ -339,6 +339,40 @@ gpuServerRoutes.get('/:id/history', async (req: Request, res: Response) => {
   }
 });
 
+// ── SSH raw output 디버그 ──
+
+gpuServerRoutes.get('/:id/debug', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const server = await prisma.gpuServer.findUnique({ where: { id } });
+    if (!server) return res.status(404).json({ error: 'Server not found' });
+
+    const { Client } = await import('ssh2');
+    const password = decryptPassword(server.sshPassword);
+
+    const output = await new Promise<string>((resolve, reject) => {
+      const conn = new Client();
+      const timer = setTimeout(() => { conn.end(); reject(new Error('timeout')); }, 30000);
+      conn.on('ready', () => {
+        // LLM 섹션만 실행
+        const cmd = 'docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null; echo "==="; for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -o "0\\.0\\.0\\.0:[0-9]*" | sed "s/0\\.0\\.0\\.0://" | sort -u); do echo "--- PORT $port ---"; CINFO=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->"); echo "CONTAINER: $CINFO"; echo "MODELS:"; curl -s --max-time 2 "http://localhost:$port/v1/models" 2>/dev/null | head -20; echo; echo "METRICS (first 30):"; curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null | grep -vE "^#|^$" | head -30; echo; done';
+        conn.exec(cmd, (err: any, stream: any) => {
+          if (err) { clearTimeout(timer); conn.end(); return reject(err); }
+          let out = '';
+          stream.on('data', (d: Buffer) => { out += d.toString(); });
+          stream.on('close', () => { clearTimeout(timer); conn.end(); resolve(out); });
+        });
+      });
+      conn.on('error', (e: any) => { clearTimeout(timer); reject(e); });
+      conn.connect({ host: server.host, port: server.sshPort, username: server.sshUsername, password, readyTimeout: 10000 });
+    });
+
+    res.json({ raw: output });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── 종합 분석 (피크타임 히트맵 + 비즈니스시간 분석) ──
 
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {

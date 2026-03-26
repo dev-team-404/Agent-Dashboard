@@ -439,6 +439,7 @@ export const gpuServerApi = {
   realtime: () => api.get('/admin/gpu-servers/realtime'),
   history: (id: string, hours = 24) => api.get(`/admin/gpu-servers/${id}/history`, { params: { hours } }),
   analytics: (days = 7) => api.get('/admin/gpu-servers/analytics/overview', { params: { days } }),
+  debug: (id: string) => api.get(`/admin/gpu-servers/${id}/debug`),
 };
 
 // GPU Power Usage API
