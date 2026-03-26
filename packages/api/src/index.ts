@@ -146,6 +146,19 @@ app.get('/api-docs/ui', (_req, res) => {
 // Error handling
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Error:', err);
+  // 글로벌 에러도 request_logs에 기록
+  prisma.requestLog.create({
+    data: {
+      modelName: '-',
+      method: _req.method,
+      path: _req.originalUrl || _req.path,
+      statusCode: 500,
+      errorMessage: (err.message || 'Internal server error').substring(0, 2000),
+      userAgent: (_req.headers['user-agent'] as string) || null,
+      ipAddress: _req.ip || (_req.headers['x-forwarded-for'] as string) || null,
+      stream: false,
+    },
+  }).catch(() => {});
   if (!res.headersSent) {
     res.status(500).json({
       error: 'Internal server error',

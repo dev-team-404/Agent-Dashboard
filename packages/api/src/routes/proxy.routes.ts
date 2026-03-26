@@ -13,6 +13,7 @@ import { Router, Request, Response } from 'express';
 import path from 'node:path';
 import multer from 'multer';
 import { prisma, redis } from '../index.js';
+import { logErrorToRequestLog } from '../services/requestLog.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
 import { validateProxyHeaders, ProxyAuthRequest } from '../middleware/proxyAuth.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
@@ -99,10 +100,12 @@ proxyRoutes.post(
     try {
       const modelName = req.body?.model;
       if (!modelName) {
+        logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model is required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/audio/transcriptions' }).catch(() => {});
         res.status(400).json({ error: 'model is required' });
         return;
       }
       if (!req.file) {
+        logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'audio file is required (field: "file")', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/audio/transcriptions' }).catch(() => {});
         res.status(400).json({ error: 'audio file is required (field: "file")' });
         return;
       }
@@ -110,6 +113,7 @@ proxyRoutes.post(
       // 모델 조회: 서비스 alias 기반
       const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
       if (!resolved.found || !resolved.model) {
+        logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/audio/transcriptions' }).catch(() => {});
         res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
         return;
       }
@@ -286,6 +290,7 @@ proxyRoutes.post(
 
     } catch (error) {
       console.error('ASR transcription proxy error:', error);
+      logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process audio transcription request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/audio/transcriptions', latencyMs: Date.now() - startTime }).catch(() => {});
       if (!res.headersSent) {
         res.status(500).json({ error: 'Failed to process audio transcription request' });
       }
@@ -1447,6 +1452,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     const { model: modelName, input, ...otherParams } = req.body;
 
     if (!modelName || !input) {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model and input are required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/embeddings' }).catch(() => {});
       res.status(400).json({ error: 'model and input are required' });
       return;
     }
@@ -1454,6 +1460,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
     // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
+      logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/embeddings' }).catch(() => {});
       res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
@@ -1616,6 +1623,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Embeddings proxy error:', error);
+    logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process embeddings request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/embeddings', latencyMs: Date.now() - startTime }).catch(() => {});
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to process embeddings request' });
     }
@@ -1647,14 +1655,17 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     const { model: modelName, query, documents, top_n, return_documents, ...otherParams } = req.body;
 
     if (!modelName) {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model is required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/rerank' }).catch(() => {});
       res.status(400).json({ error: 'model is required' });
       return;
     }
     if (!query || typeof query !== 'string') {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'query is required and must be a string', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => {});
       res.status(400).json({ error: 'query is required and must be a string' });
       return;
     }
     if (!documents || !Array.isArray(documents) || documents.length === 0) {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'documents is required and must be a non-empty array', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => {});
       res.status(400).json({ error: 'documents is required and must be a non-empty array' });
       return;
     }
@@ -1662,6 +1673,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
     // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
+      logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => {});
       res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
@@ -1829,6 +1841,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Rerank proxy error:', error);
+    logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process rerank request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/rerank', latencyMs: Date.now() - startTime }).catch(() => {});
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to process rerank request' });
     }
@@ -1847,6 +1860,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
     const { model: modelName, prompt, n, size, quality, style, ...otherParams } = req.body;
 
     if (!modelName || !prompt) {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model and prompt are required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/images/generations' }).catch(() => {});
       res.status(400).json({ error: 'model and prompt are required' });
       return;
     }
@@ -1854,12 +1868,14 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
     // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
     const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
     if (!resolved.found || !resolved.model) {
+      logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/images/generations' }).catch(() => {});
       res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
       return;
     }
     const model = resolved.model;
 
     if (model.type !== 'IMAGE') {
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: `Model '${modelName}' is not an IMAGE model`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/images/generations' }).catch(() => {});
       res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
       return;
     }
@@ -2000,6 +2016,7 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Image generation proxy error:', error);
+    logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process image generation request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/images/generations', latencyMs: Date.now() - startTime }).catch(() => {});
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to process image generation request' });
     }

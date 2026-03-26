@@ -12,6 +12,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../index.js';
 import { extractBusinessUnit } from './auth.js';
+import { logErrorToRequestLog } from '../services/requestLog.js';
 
 export interface ProxyAuthRequest extends Request {
   serviceId: string;
@@ -50,6 +51,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   // 1. x-service-id 필수
   const serviceIdHeader = req.headers['x-service-id'] as string | undefined;
   if (!serviceIdHeader) {
+    logErrorToRequestLog({ req, statusCode: 401, errorMessage: 'x-service-id header is required' }).catch(() => {});
     res.status(401).json({
       error: 'x-service-id header is required',
       message: 'All API calls must include x-service-id header. Register your service at the dashboard first.',
@@ -68,6 +70,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   });
 
   if (!service) {
+    logErrorToRequestLog({ req, statusCode: 403, errorMessage: `Service '${serviceIdHeader}' is not registered` }).catch(() => {});
     res.status(403).json({
       error: `Service '${serviceIdHeader}' is not registered`,
       message: 'Please register your service at the dashboard before making API calls.',
@@ -76,6 +79,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   }
 
   if (!service.enabled) {
+    logErrorToRequestLog({ req, statusCode: 403, errorMessage: `Service '${serviceIdHeader}' is disabled`, serviceId: service.id }).catch(() => {});
     res.status(403).json({
       error: `Service '${serviceIdHeader}' is disabled`,
       message: 'This service has been disabled. Contact your admin.',
@@ -88,6 +92,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   // 3. x-dept-name 필수 (모든 서비스)
   const deptNameHeader = safeDecodeURIComponent(req.headers['x-dept-name'] as string || '');
   if (!deptNameHeader) {
+    logErrorToRequestLog({ req, statusCode: 401, errorMessage: 'x-dept-name header is required', serviceId: service.id }).catch(() => {});
     res.status(401).json({
       error: 'x-dept-name header is required',
       message: 'All API calls must include x-dept-name header. Format: "팀명(사업부)" e.g., "S/W혁신팀(S.LSI)"',
@@ -98,6 +103,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   // 4. x-user-id: 일반 서비스는 필수, 백그라운드는 선택
   const userIdHeader = req.headers['x-user-id'] as string | undefined;
   if (!isBackground && !userIdHeader) {
+    logErrorToRequestLog({ req, statusCode: 401, errorMessage: 'x-user-id header is required for standard services', serviceId: service.id, deptname: deptNameHeader }).catch(() => {});
     res.status(401).json({
       error: 'x-user-id header is required for standard services',
       message: 'Standard services must include x-user-id header. If this is a background service, register it as BACKGROUND type.',
@@ -118,6 +124,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
 
   if (scope === 'BUSINESS_UNIT' && scopeValues.length > 0) {
     if (!scopeValues.includes(businessUnit)) {
+      logErrorToRequestLog({ req, statusCode: 403, errorMessage: 'This service is restricted to specific business units', serviceId: service.id, deptname: deptNameHeader, userId: userIdHeader }).catch(() => {});
       res.status(403).json({
         error: `This service is restricted to specific business units`,
         message: `Your business unit '${businessUnit}' does not have access to service '${service.name}'.`,
@@ -126,6 +133,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
     }
   } else if (scope === 'TEAM' && scopeValues.length > 0) {
     if (!scopeValues.includes(deptNameHeader) && !scopeValues.includes(teamName)) {
+      logErrorToRequestLog({ req, statusCode: 403, errorMessage: 'This service is restricted to specific teams', serviceId: service.id, deptname: deptNameHeader, userId: userIdHeader }).catch(() => {});
       res.status(403).json({
         error: `This service is restricted to specific teams`,
         message: `Your team '${deptNameHeader}' does not have access to service '${service.name}'.`,
