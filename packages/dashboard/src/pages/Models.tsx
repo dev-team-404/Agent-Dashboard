@@ -726,6 +726,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
             return (
               <div
                 key={model.id}
+                data-model-name={model.name}
                 className="bg-white rounded-ios-lg border border-pastel-100 shadow-card hover:shadow-card-hover
                            transition-all duration-300 overflow-hidden"
               >

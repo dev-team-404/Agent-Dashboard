@@ -1,29 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
-import GuidePanel, { StepTitle, StepDesc, FieldGuide, Tip, Warning, CopyBlock } from './GuidePanel';
+import GuidePanel, { StepTitle, StepDesc, FieldGuide, Tip, Warning } from './GuidePanel';
 
 interface ServiceGuideProps {
   onClose: () => void;
   onOpenCreateWizard: () => void;
-  userId?: string;
-  deptName?: string;
+  onNavigateToService?: (serviceId: string) => void;
 }
 
 interface SavedService {
+  id?: string;
   name: string;
   displayName: string;
   description?: string;
   type: string;
 }
 
-function decodeUnicode(str?: string): string {
-  if (!str) return '';
-  try { return str.includes('\\u') ? JSON.parse(`"${str}"`) : str; } catch { return str; }
-}
+const TOTAL_STEPS = 6;
 
-const TOTAL_STEPS = 9;
-
-export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, deptName }: ServiceGuideProps) {
-  const decodedDept = decodeUnicode(deptName);
+export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateToService }: ServiceGuideProps) {
   const [step, setStep] = useState(0);
   const [savedService, setSavedService] = useState<SavedService | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +50,16 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
     } else if (step === 4) {
       // 등록 스텝: "다음" 클릭 불가 — 저장 성공 이벤트로만 진행
       return;
+    } else if (step === 5) {
+      // 성공 스텝 → 서비스 상세 페이지로 이동
+      if (savedService?.id && onNavigateToService) {
+        sessionStorage.setItem('service_detail_guide', savedService.id);
+        onNavigateToService(savedService.id);
+        onClose();
+      } else {
+        onClose();
+      }
+      return;
     } else if (step === TOTAL_STEPS - 1) {
       onClose();
     } else {
@@ -67,8 +71,6 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
     setStep(s => Math.max(s - 1, 0));
   };
 
-  const origin = window.location.origin;
-
   return (
     <GuidePanel
       title="서비스 등록 가이드"
@@ -77,7 +79,7 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
       onNext={handleNext}
       onPrev={handlePrev}
       onClose={onClose}
-      nextLabel={step === 0 ? '서비스 등록 시작' : step === 4 ? '등록을 눌러주세요' : step === TOTAL_STEPS - 1 ? '완료' : undefined}
+      nextLabel={step === 0 ? '서비스 등록 시작' : step === 4 ? '등록을 눌러주세요' : step === 5 ? '상세 페이지로 이동' : undefined}
       nextDisabled={step === 4}
     >
       {/* ── Step 0: 시작 ── */}
@@ -208,101 +210,9 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
                 <div><span className="font-medium text-green-800">유형:</span> {savedService.type === 'BACKGROUND' ? '백그라운드' : '표준'}</div>
               </div>
             )}
-            <p className="mt-3">서비스 카드를 클릭하면 <strong>서비스 상세 페이지</strong>로 이동합니다.</p>
-            <p className="mt-2">다음 단계부터는 서비스 상세 페이지에서 진행하는 내용을 안내합니다.</p>
+            <p className="mt-3">'상세 페이지로 이동' 버튼을 누르면 서비스 상세 페이지에서 각 탭을 하이라이트하며 안내합니다.</p>
           </StepDesc>
-          <Tip>서비스 상세 페이지에는 <strong>대시보드, 멤버, Rate Limit, 모델, 로그</strong> 탭이 있습니다.</Tip>
-        </>
-      )}
-
-      {/* ── Step 6: 모델 연동 ── */}
-      {step === 6 && (
-        <>
-          <StepTitle>5. 모델을 연동하세요</StepTitle>
-          <StepDesc>
-            <p>서비스 상세 페이지의 <strong>'모델'</strong> 탭에서 LLM 모델을 연동합니다.</p>
-            <div className="mt-2 space-y-2">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="font-semibold text-gray-800">모델 별칭(Alias) 그룹</p>
-                <p className="mt-1">하나의 별칭에 여러 모델을 등록하면 <strong>Round Robin</strong>으로 요청이 분배됩니다.</p>
-                <p className="text-xs text-gray-500 mt-1">예: "gpt-4o" 별칭에 Model A(가중치 2), Model B(가중치 3) → 2:3 비율로 분배</p>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="font-semibold text-gray-800">Fallback 설정</p>
-                <p className="mt-1">주 모델 장애 시 자동으로 대체 모델로 전환합니다.</p>
-                <p className="text-xs text-gray-500 mt-1">재시도 횟수: 0~10회 설정 가능</p>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="font-semibold text-gray-800">설정 복사</p>
-                <p className="mt-1">다른 서비스의 모델 설정을 <strong>한 번에 복사</strong>할 수 있습니다. (병합/덮어쓰기 선택)</p>
-              </div>
-            </div>
-          </StepDesc>
-          <Tip>가중치를 조절하면 특정 모델에 더 많은 트래픽을 보낼 수 있습니다. <strong>+/- 버튼</strong>으로 조절하세요.</Tip>
-        </>
-      )}
-
-      {/* ── Step 7: Rate Limit & 대시보드 ── */}
-      {step === 7 && (
-        <>
-          <StepTitle>6. Rate Limit과 대시보드</StepTitle>
-          <StepDesc>
-            <div className="space-y-3">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="font-semibold text-gray-800">⚡ Rate Limit (사용량 제한)</p>
-                <p className="mt-1"><strong>'Rate Limit'</strong> 탭에서 설정합니다.</p>
-                <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                  <li><strong>공용 제한</strong>: 모든 사용자에게 동일하게 적용</li>
-                  <li><strong>개인별 제한</strong>: 특정 사용자에게 별도 한도 설정</li>
-                  <li>시간 창: 5시간 또는 24시간 선택</li>
-                  <li>토큰 기준으로 제한 (예: 100,000 토큰)</li>
-                </ul>
-              </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="font-semibold text-gray-800">📊 전용 대시보드</p>
-                <p className="mt-1"><strong>'대시보드'</strong> 탭에서 확인합니다.</p>
-                <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                  <li>실시간 활성 사용자 수</li>
-                  <li>DAU/MAU 통계</li>
-                  <li>일별 요청 수, 토큰 사용량</li>
-                  <li>모델별/사용자별 사용 차트</li>
-                </ul>
-              </div>
-            </div>
-          </StepDesc>
-        </>
-      )}
-
-      {/* ── Step 8: curl 테스트 ── */}
-      {step === 8 && (
-        <>
-          <StepTitle>7. curl로 테스트하세요</StepTitle>
-          <StepDesc>
-            <p>모델을 연동했으면 아래 curl로 프록시를 통한 호출을 테스트할 수 있습니다.</p>
-
-            <p className="mt-3 font-semibold text-gray-800">📋 Chat Completion 호출</p>
-            <CopyBlock text={`curl -X POST ${origin}/api/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "x-service-id: ${savedService?.name || 'your-service-code'}" \\
-  -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
-  -d '${JSON.stringify({
-    model: 'your-model-alias',
-    messages: [{ role: 'user', content: '안녕하세요' }],
-  }, null, 2)}'`} />
-
-            <p className="font-semibold text-gray-800">📋 Embedding 호출</p>
-            <CopyBlock text={`curl -X POST ${origin}/api/v1/embeddings \\
-  -H "Content-Type: application/json" \\
-  -H "x-service-id: ${savedService?.name || 'your-service-code'}" \\
-  -H "x-user-id: ${userId || 'your-id'}" \\
-  -H "x-dept-name: ${decodedDept || 'your-dept'}" \\
-  -d '${JSON.stringify({
-    model: 'your-embedding-model',
-    input: '검색할 텍스트',
-  }, null, 2)}'`} />
-          </StepDesc>
-          <Tip><code>x-service-id</code>에 서비스 코드를, <code>model</code>에 모델 별칭을 넣으면 등록된 모델로 자동 라우팅됩니다.</Tip>
+          <Tip>서비스 상세 페이지에는 <strong>대시보드, 모델 관리, 멤버 관리, Rate Limit</strong> 탭이 있습니다.</Tip>
         </>
       )}
     </GuidePanel>

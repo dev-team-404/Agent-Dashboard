@@ -357,11 +357,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       if (editingService) {
         await api.put(`/services/${editingService.id}`, buildPayload());
       } else {
-        await api.post('/services', { name: formData.name, ...buildPayload() });
+        const createRes = await api.post('/services', { name: formData.name, ...buildPayload() });
+        const newServiceId = createRes.data?.id || createRes.data?.service?.id;
+        window.dispatchEvent(new CustomEvent('service-guide-success', {
+          detail: { id: newServiceId, name: formData.name, displayName: formData.displayName, description: formData.description, type: formData.type },
+        }));
       }
-      window.dispatchEvent(new CustomEvent('service-guide-success', {
-        detail: { name: formData.name, displayName: formData.displayName, description: formData.description, type: formData.type },
-      }));
       if (editingService) closeServiceModal();
       else closeWizard();
       await loadServices();
@@ -1060,8 +1061,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         <ServiceGuide
           onClose={() => setShowGuide(false)}
           onOpenCreateWizard={openCreateWizard}
-          userId={user?.loginid}
-          deptName={user?.deptname}
+          onNavigateToService={(id) => navigate(`/my-services/${id}`)}
         />
       )}
     </div>

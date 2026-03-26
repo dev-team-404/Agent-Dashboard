@@ -127,3 +127,19 @@
 .driver-popover.driver-popover-center .driver-popover-description {
   font-size: 14px !important;
 }
+
+/* ─── 가이드 하이라이트 (GuidePanel에서 요소 강조 시) ─── */
+.guide-highlight {
+  outline: 2px solid #2563EB !important;
+  outline-offset: 3px !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.15) !important;
+  animation: guideHighlightPulse 1.5s ease-in-out infinite !important;
+  position: relative;
+  z-index: 10;
+}
+
+@keyframes guideHighlightPulse {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.15); }
+  50% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0.08); }
+}

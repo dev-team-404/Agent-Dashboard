@@ -18,6 +18,7 @@ import {
 } from 'recharts';
 
 import BusinessDayToggle from '../components/BusinessDayToggle';
+import ServiceDetailGuide from '../components/Tour/ServiceDetailGuide';
 
 // ── Reusable chart components ──
 import UserStatsChart from '../components/Charts/UserStatsChart';
@@ -211,12 +212,24 @@ const TOKEN_COLORS = ['#3B82F6', '#8B5CF6'];
 // Main Component
 // ════════════════════════════════════════════
 
-export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
+export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
   const [service, setService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [showDetailGuide, setShowDetailGuide] = useState(false);
+
+  // 서비스 등록 가이드에서 넘어온 경우 자동 시작
+  useEffect(() => {
+    const guideData = sessionStorage.getItem('service_detail_guide');
+    if (guideData) {
+      sessionStorage.removeItem('service_detail_guide');
+      // 페이지 로딩 후 시작
+      const timer = setTimeout(() => setShowDetailGuide(true), 800);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const loadService = useCallback(async () => {
     if (!serviceId) return;
@@ -391,6 +404,7 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
           return (
             <button
               key={tab.id}
+              data-tour={`svc-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 ${
                 isActive
@@ -412,6 +426,15 @@ export default function ServiceDetail({ adminRole }: ServiceDetailProps) {
         {activeTab === 'ratelimit' && <RateLimitTab serviceId={serviceId!} />}
         {activeTab === 'models' && <ModelsTab serviceId={serviceId!} />}
       </div>
+
+      {showDetailGuide && (
+        <ServiceDetailGuide
+          onClose={() => setShowDetailGuide(false)}
+          serviceName={service?.name}
+          userId={user?.loginid}
+          deptName={user?.deptname}
+        />
+      )}
     </div>
   );
 }

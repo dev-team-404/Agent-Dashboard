@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import GuidePanel, { StepTitle, StepDesc, FieldGuide, Tip, Warning, CopyBlock } from './GuidePanel';
+import { useHighlight } from '../../hooks/useHighlight';
 
 interface ModelGuideProps {
   onClose: () => void;
@@ -20,12 +21,19 @@ function decodeUnicode(str?: string): string {
   try { return str.includes('\\u') ? JSON.parse(`"${str}"`) : str; } catch { return str; }
 }
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptName }: ModelGuideProps) {
   const decodedDept = decodeUnicode(deptName);
   const [step, setStep] = useState(0);
+
   const [savedModel, setSavedModel] = useState<SavedModel | null>(null);
+
+  // step 8: 새로 등록된 모델 카드 하이라이트
+  useHighlight(
+    savedModel ? `[data-model-name="${savedModel.name}"]` : null,
+    step === 8,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleSuccess = useCallback((e: Event) => {
@@ -298,6 +306,31 @@ export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptNam
             </div>
           </StepDesc>
           <Tip>같은 엔드포인트에 다른 API 키를 사용하려면, 모델 목록에서 이 모델의 <strong>복제 버튼</strong>을 눌러 쉽게 복사할 수 있습니다.</Tip>
+        </>
+      )}
+
+      {/* ── Step 8: 모델 행 하이라이트 ── */}
+      {step === 8 && (
+        <>
+          <StepTitle>모델을 확인하세요</StepTitle>
+          <StepDesc>
+            <p>방금 등록한 <strong>{savedModel?.displayName}</strong> 모델이 목록에서 하이라이트되어 있습니다.</p>
+            <div className="mt-3 space-y-2">
+              <div className="p-2.5 bg-green-50 rounded-lg">
+                <span className="font-semibold text-green-800">🟢 헬스체크</span>
+                <p className="text-xs text-green-700 mt-0.5">모델 카드 좌측의 색깔 점이 초록색이면 정상입니다. 10분 간격으로 자동 점검됩니다.</p>
+              </div>
+              <div className="p-2.5 bg-blue-50 rounded-lg">
+                <span className="font-semibold text-blue-800">📋 복제</span>
+                <p className="text-xs text-blue-700 mt-0.5">모델 카드의 <strong>'복제'</strong> 버튼을 누르면 설정을 복사해서 API 키만 바꿔 빠르게 추가할 수 있습니다.</p>
+              </div>
+              <div className="p-2.5 bg-violet-50 rounded-lg">
+                <span className="font-semibold text-violet-800">⚡ 테스트</span>
+                <p className="text-xs text-violet-700 mt-0.5">재생 버튼(▶)을 눌러 언제든 수동 헬스체크를 실행할 수 있습니다.</p>
+              </div>
+            </div>
+          </StepDesc>
+          <Tip>이제 <strong>서비스 관리</strong>에서 서비스를 만들고 이 모델을 연동하면 프록시를 통해 호출할 수 있습니다.</Tip>
         </>
       )}
     </GuidePanel>
