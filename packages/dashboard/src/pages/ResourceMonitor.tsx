@@ -105,6 +105,8 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const serverHeadroom = serverEffUtil != null ? 100 - serverEffUtil : null;
 
   const loadHist = useCallback(async () => { try { const r = await gpuServerApi.history(s.id, hrs); setHist(r.data); } catch {} }, [s.id, hrs]);
+  // 영업시간 평균은 항상 로드 (컴팩트 뷰에 표시), 차트 데이터는 open 시
+  useEffect(() => { if (!hist) loadHist(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) loadHist(); }, [open, loadHist]);
 
   const cd = hist?.snapshots?.map((snap: any) => {
@@ -115,7 +117,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
     const kvs = ls.filter((l: any) => l.kvCacheUsagePct != null); const kv = kvs.length > 0 ? kvs.reduce((a: number, l: any) => a + l.kvCacheUsagePct, 0) / kvs.length : null;
     const tp = ls.reduce((a: number, l: any) => a + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
     const t = new Date(snap.timestamp);
-    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0 };
+    // 건강도/실효사용률은 이론max 대비이므로 throughputAnalysis 기반이 아닌 KV+GPU로 추정
+    const effUtil = kv != null ? kv : (tm > 0 ? (um / tm) * 100 : au);
+    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0 };
   }) || [];
   const dd = cd.length > 150 ? cd.filter((_: any, i: number) => i % Math.ceil(cd.length / 150) === 0) : cd;
 
@@ -159,7 +163,16 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             </div>
           )}
 
-          {/* ── 3) 시스템 리소스 한 줄 ── */}
+          {/* ── 3) 영업시간 평균 (9-18 KST) ── */}
+          {hist?.businessHoursAvg && (
+            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
+              <div className="text-[9px]"><span className="text-gray-400">영업시간 실효</span><div className="flex items-center gap-1"><MiniBar pct={hist.businessHoursAvg.avgGpuUtil || 0} color={utilCls(hist.businessHoursAvg.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist.businessHoursAvg.avgGpuUtil || 0)}>{hist.businessHoursAvg.avgGpuUtil || 0}%</b></div></div>
+              <div className="text-[9px]"><span className="text-gray-400">영업시간 이론대비</span><div className="flex items-center gap-1"><MiniBar pct={hist.businessHoursAvg.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist.businessHoursAvg.avgMemUtil || 0}%</b></div></div>
+              <div className="text-[9px]"><span className="text-gray-400">영업시간 건강도</span><div className="flex items-center gap-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-1.5" /><b className={healthTxt(ta?.gpuHealthPct || 0)}>{ta?.gpuHealthPct ?? '-'}%</b></div></div>
+            </div>
+          )}
+
+          {/* ── 4) 시스템 리소스 한 줄 ── */}
           <div className="flex items-center gap-3 text-[10px] text-gray-500">
             {cpuPct != null && <span className="flex items-center gap-1"><Cpu className="w-3 h-3" />CPU <b className={cpuPct > 80 ? 'text-red-600' : 'text-gray-700'}>{cpuPct}%</b></span>}
             {ramPct != null && <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />RAM <b className={ramPct > 85 ? 'text-red-600' : 'text-gray-700'}>{ramPct}%</b></span>}
@@ -231,10 +244,17 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           <div className="px-3 py-2 border-t border-gray-100">
             <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-medium text-gray-500">사용률 추이</span><div className="flex gap-0.5">{[6, 12, 24, 72].map(h => <button key={h} onClick={() => setHrs(h)} className={`px-1.5 py-0.5 text-[9px] rounded ${hrs === h ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{h}h</button>)}</div></div>
             {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>9-18시: GPU <b>{hist.businessHoursAvg.avgGpuUtil}%</b> VRAM <b>{hist.businessHoursAvg.avgMemUtil}%</b></span></div>}
-            {dd.length > 0 ? (<div className="space-y-3">
-              <ResponsiveContainer width="100%" height={160}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="gpuUtil" name="GPU" stroke="#3b82f6" fill="url(#gG)" strokeWidth={1.5} dot={false} /><Line type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="3 2" /><Line type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer>
-              <ResponsiveContainer width="100%" height={100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="throughput" name="tok/s" stroke="#3b82f6" strokeWidth={1.5} dot={false} /><Line type="monotone" dataKey="ramPct" name="RAM%" stroke="#ec4899" strokeWidth={1} dot={false} /></LineChart></ResponsiveContainer>
-            </div>) : <p className="text-[10px] text-gray-400 text-center py-4">데이터 없음</p>}
+            <div className="space-y-3">
+              {/* 실효사용률 + KV Cache + GPU 사용률 */}
+              <div><p className="text-[9px] text-gray-400 mb-0.5">실효사용률 / KV Cache / GPU (%)</p>
+              <ResponsiveContainer width="100%" height={140}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="effUtil" name="실효사용률" stroke="#2563eb" fill="url(#gG)" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="3 2" /><Line type="monotone" dataKey="gpuUtil" name="GPU" stroke="#94a3b8" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer></div>
+              {/* tok/s 처리량 */}
+              <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s)</p>
+              <ResponsiveContainer width="100%" height={100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="throughput" name="tok/s" stroke="#3b82f6" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div>
+              {/* CPU / RAM / VRAM */}
+              <div><p className="text-[9px] text-gray-400 mb-0.5">시스템 리소스 (%)</p>
+              <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="ramPct" name="RAM" stroke="#ec4899" strokeWidth={1} dot={false} /><Line type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" strokeWidth={1} dot={false} /></LineChart></ResponsiveContainer></div>
+            </div>
           </div>
 
           {/* 디버그 */}
@@ -458,15 +478,26 @@ export default function ResourceMonitor() {
           <p className="text-[10px] font-semibold text-gray-600 mb-3">서버별 성능 비교 (실효사용률 / 건강도 / 처리량)</p>
           <div className="space-y-2">
             {data.filter(e => e.metrics && !e.metrics.error).map(e => {
-              const ta = e.throughputAnalysis;
-              const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct && ta.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
+              const t = e.throughputAnalysis;
+              const eu = (t?.theoreticalUtilPct != null && t?.gpuHealthPct && t.gpuHealthPct > 0) ? Math.round((t.theoreticalUtilPct / t.gpuHealthPct) * 100) : t?.theoreticalUtilPct || 0;
+              const tooltip = [
+                `서버: ${e.server.name}`,
+                `이론 최대: ${t?.theoreticalMaxTps?.toFixed(1) || '?'} tok/s (${t?.modelParams || '?'} 모델 × GPU 대역폭 기반)`,
+                `7일 피크: ${t?.peakTps?.toFixed(1) || '?'} tok/s`,
+                `현재: ${t?.currentTps?.toFixed(1) || '0'} tok/s`,
+                ``,
+                `건강도 = 피크(${t?.peakTps?.toFixed(1) || '?'}) / 이론(${t?.theoreticalMaxTps?.toFixed(1) || '?'}) = ${t?.gpuHealthPct ?? '?'}%`,
+                `이론대비 = 현재(${t?.currentTps?.toFixed(1) || '0'}) / 이론(${t?.theoreticalMaxTps?.toFixed(1) || '?'}) = ${t?.theoreticalUtilPct ?? '?'}%`,
+                `실효사용률 = 이론대비(${t?.theoreticalUtilPct ?? '?'}%) / 건강도(${t?.gpuHealthPct ?? '?'}%) = ${eu}%`,
+                `여유 = 100% - ${eu}% = ${100 - eu}%`,
+              ].join('\n');
               return (
-                <div key={e.server.id} className="grid grid-cols-12 gap-2 items-center text-[10px]">
+                <div key={e.server.id} className="grid grid-cols-12 gap-2 items-center text-[10px] cursor-help" title={tooltip}>
                   <span className="col-span-2 text-gray-700 font-medium truncate">{e.server.name}</span>
                   <div className="col-span-3"><span className="text-gray-400">실효 {eu}%</span><MiniBar pct={eu} color={utilCls(eu)} h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">이론대비 {ta?.theoreticalUtilPct ?? '-'}%</span><MiniBar pct={ta?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">건강도 {ta?.gpuHealthPct ?? '-'}%</span><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
-                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{ta?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
+                  <div className="col-span-2"><span className="text-gray-400">이론대비 {t?.theoreticalUtilPct ?? '-'}%</span><MiniBar pct={t?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
+                  <div className="col-span-2"><span className="text-gray-400">건강도 {t?.gpuHealthPct ?? '-'}%</span><MiniBar pct={t?.gpuHealthPct || 0} color={t?.gpuHealthPct && t.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
+                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{t?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
                   <div className="col-span-1 text-right"><span className={`px-1 py-0.5 rounded text-[8px] ${eu > 70 ? 'bg-red-100 text-red-600' : eu < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{eu > 70 ? '과부하' : eu < 20 ? '여유' : '정상'}</span></div>
                 </div>
               );
