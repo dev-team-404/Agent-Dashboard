@@ -231,20 +231,30 @@ async function backfillEmptyVisibilityScope() {
     console.log(`[Backfill] Found ${models.length} model(s) with empty visibilityScope`);
 
     for (const model of models) {
-      let scope: string[] = [];
-      if (model.visibility === 'TEAM' && model.createdByDept) {
-        scope = [model.createdByDept];
-      } else if (model.visibility === 'BUSINESS_UNIT') {
-        const bu = model.createdByBusinessUnit || extractBusinessUnit(model.createdByDept || '');
-        if (bu) scope = [bu];
+      // creator의 departmentCode를 User 테이블에서 조회
+      let deptCode = '';
+      if (model.createdBy) {
+        const admin = await prisma.admin.findUnique({ where: { id: model.createdBy }, select: { loginid: true } });
+        if (admin?.loginid) {
+          const user = await prisma.user.findUnique({ where: { loginid: admin.loginid }, select: { departmentCode: true } });
+          deptCode = user?.departmentCode || '';
+        }
+      }
+      // fallback: createdByDept로 OrgNode 조회
+      if (!deptCode && model.createdByDept) {
+        const org = await prisma.orgNode.findFirst({
+          where: { departmentName: model.createdByDept },
+          select: { departmentCode: true },
+        });
+        deptCode = org?.departmentCode || '';
       }
 
-      if (scope.length > 0) {
+      if (deptCode) {
         await prisma.model.update({
           where: { id: model.id },
-          data: { visibilityScope: scope },
+          data: { visibilityScope: [deptCode] },
         });
-        console.log(`[Backfill] Updated model "${model.displayName}" (${model.visibility}): scope = [${scope.join(', ')}]`);
+        console.log(`[Backfill] Updated model "${model.displayName}" (${model.visibility}): scope = [${deptCode}]`);
       }
     }
   } catch (error) {
@@ -371,6 +381,10 @@ async function main() {
 
     // departmentCode 미수집 사용자 Knox 인증 리셋 (DB 쿼리만, 빠름)
     await resetKnoxForMissingDeptCode();
+
+    // OrgNode 조상 캐시 초기화 (visibilityScope/deployScope 매칭용)
+    const { loadOrgAncestorCache } = await import('./services/orgAncestorCache.js');
+    await loadOrgAncestorCache();
 
     // 만료 이미지 자동 삭제 (1시간마다)
     startImageCleanupCron();

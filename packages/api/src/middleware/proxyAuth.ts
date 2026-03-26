@@ -13,6 +13,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../index.js';
 import { extractBusinessUnit } from './auth.js';
 import { logErrorToRequestLog } from '../services/requestLog.js';
+import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 
 export interface ProxyAuthRequest extends Request {
   serviceId: string;
@@ -24,8 +25,9 @@ export interface ProxyAuthRequest extends Request {
   teamName: string;
   businessUnit: string;
   isBackground: boolean;
+  userDeptCode: string;          // 사용자 departmentCode (scope 매칭용)
   deployScope: string;           // 서비스 배포 범위 (ALL | BUSINESS_UNIT | TEAM)
-  deployScopeValue: string[];    // 배포 범위 허용 값
+  deployScopeValue: string[];    // 배포 범위 허용 값 (departmentCode[])
 }
 
 function safeDecodeURIComponent(text: string): string {
@@ -125,7 +127,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
     // 배포 범위 접근 제어 (부서 정보 확정 상태)
     const scopeError = checkDeployScope(
       service.deployScope, service.deployScopeValue || [],
-      resolvedDept.deptName, teamName, businessUnit, service.name,
+      resolvedDept.departmentCode, service.name,
     );
     if (scopeError) {
       logErrorToRequestLog({ req, statusCode: 403, errorMessage: scopeError, serviceId: service.id, deptname: deptNameHeader }).catch(() => {});
@@ -148,7 +150,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
     // → 미인증 사용자는 getOrCreateUser에서 Knox 인증 후 체크
     const existingUser = await prisma.user.findUnique({
       where: { loginid: userIdHeader },
-      select: { deptname: true, businessUnit: true, knoxVerified: true },
+      select: { deptname: true, businessUnit: true, departmentCode: true, knoxVerified: true },
     });
 
     if (existingUser?.knoxVerified && existingUser.deptname) {
@@ -158,7 +160,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
       // 배포 범위 접근 제어
       const scopeError = checkDeployScope(
         service.deployScope, service.deployScopeValue || [],
-        existingUser.deptname, teamName, businessUnit, service.name,
+        existingUser.departmentCode || '', service.name,
       );
       if (scopeError) {
         logErrorToRequestLog({ req, statusCode: 403, errorMessage: scopeError, serviceId: service.id, deptname: existingUser.deptname, userId: userIdHeader }).catch(() => {});
@@ -193,19 +195,20 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
   deptName: string;
   teamName: string;
   businessUnit: string;
+  departmentCode: string;
 } | null> {
   const [userMatch, orgMatch, hierMatch] = await Promise.all([
     prisma.user.findFirst({
       where: { OR: [{ deptname: deptNameInput }, { enDeptName: deptNameInput }] },
-      select: { deptname: true, businessUnit: true },
+      select: { deptname: true, businessUnit: true, departmentCode: true },
     }),
     prisma.orgNode.findFirst({
       where: { OR: [{ departmentName: deptNameInput }, { enDepartmentName: deptNameInput }] },
-      select: { departmentName: true },
+      select: { departmentName: true, departmentCode: true },
     }),
     prisma.departmentHierarchy.findFirst({
       where: { OR: [{ departmentName: deptNameInput }, { team: deptNameInput }] },
-      select: { departmentName: true },
+      select: { departmentName: true, departmentCode: true },
     }),
   ]);
 
@@ -215,6 +218,7 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
       deptName: userMatch.deptname,
       teamName: userMatch.deptname.match(/^([^(]+)/)?.[1]?.trim() || userMatch.deptname,
       businessUnit: userMatch.businessUnit || extractBusinessUnit(userMatch.deptname),
+      departmentCode: userMatch.departmentCode || '',
     };
   }
 
@@ -225,6 +229,7 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
       deptName,
       teamName: deptName.match(/^([^(]+)/)?.[1]?.trim() || deptName,
       businessUnit: extractBusinessUnit(deptName),
+      departmentCode: orgMatch.departmentCode,
     };
   }
 
@@ -235,6 +240,7 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
       deptName,
       teamName: deptName.match(/^([^(]+)/)?.[1]?.trim() || deptName,
       businessUnit: extractBusinessUnit(deptName),
+      departmentCode: hierMatch.departmentCode,
     };
   }
 
@@ -243,24 +249,24 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
 
 /**
  * 서비스 배포 범위(deployScope) 접근 제어
- * ALL → 통과, BUSINESS_UNIT → BU 매칭, TEAM → 팀명 매칭
+ * deployScopeValue는 departmentCode 배열:
+ * - TEAM: 사용자의 departmentCode가 scope에 포함되면 통과
+ * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 통과
  * @returns 에러 메시지 or null (통과)
  */
 export function checkDeployScope(
   scope: string,
   scopeValues: string[],
-  deptName: string,
-  teamName: string,
-  businessUnit: string,
+  userDeptCode: string,
   serviceName: string,
 ): string | null {
   if (scope === 'BUSINESS_UNIT' && scopeValues.length > 0) {
-    if (!scopeValues.includes(businessUnit)) {
-      return `Your business unit '${businessUnit}' does not have access to service '${serviceName}'.`;
+    if (!isUnderAnyScope(userDeptCode, scopeValues)) {
+      return `Your department does not have access to service '${serviceName}'.`;
     }
   } else if (scope === 'TEAM' && scopeValues.length > 0) {
-    if (!scopeValues.includes(deptName) && !scopeValues.includes(teamName)) {
-      return `Your team '${deptName}' does not have access to service '${serviceName}'.`;
+    if (!scopeValues.includes(userDeptCode)) {
+      return `Your department does not have access to service '${serviceName}'.`;
     }
   }
   return null;

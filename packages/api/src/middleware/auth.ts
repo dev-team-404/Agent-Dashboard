@@ -13,6 +13,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../index.js';
+import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 
 export interface JWTPayload {
   loginid: string;
@@ -31,6 +32,7 @@ export interface AuthenticatedRequest extends Request {
   adminId?: string;
   adminDept?: string;
   adminBusinessUnit?: string;
+  adminDeptCode?: string;       // departmentCode (visibilityScope 매칭용)
 }
 
 const JWT_SECRET = process.env['JWT_SECRET'] || 'your-jwt-secret-change-in-production';
@@ -129,6 +131,13 @@ export async function requireAdmin(req: AuthenticatedRequest, res: Response, nex
   }
 
   try {
+    // 사용자의 departmentCode 조회 (visibilityScope 매칭용)
+    const userRecord = await prisma.user.findUnique({
+      where: { loginid: req.user.loginid },
+      select: { departmentCode: true },
+    });
+    req.adminDeptCode = userRecord?.departmentCode || '';
+
     // 1. 하드코딩/환경변수 Super Admin 체크
     if (isSuperAdminByEnv(req.user.loginid)) {
       req.isAdmin = true;
@@ -208,11 +217,14 @@ export async function requireSuperAdmin(req: AuthenticatedRequest, res: Response
 
 /**
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
+ *
+ * visibilityScope는 departmentCode 배열:
+ * - TEAM: 사용자의 departmentCode가 scope에 포함되면 허용
+ * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용
  */
 export function isModelVisibleTo(
   model: { visibility: string; visibilityScope: string[]; adminVisible?: boolean },
-  userDept: string,
-  userBU: string,
+  userDeptCode: string,
   isAdmin: boolean
 ): boolean {
   // adminVisible: true → 모든 관리자(ADMIN + SUPER_ADMIN) 접근 허용 (scope 무관)
@@ -222,9 +234,9 @@ export function isModelVisibleTo(
     case 'PUBLIC':
       return true;
     case 'BUSINESS_UNIT':
-      return model.visibilityScope.includes(userBU);
+      return isUnderAnyScope(userDeptCode, model.visibilityScope);
     case 'TEAM':
-      return model.visibilityScope.includes(userDept);
+      return model.visibilityScope.includes(userDeptCode);
     case 'ADMIN_ONLY':
       return isAdmin;
     case 'SUPER_ADMIN_ONLY':

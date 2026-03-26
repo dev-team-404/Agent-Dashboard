@@ -90,8 +90,7 @@ modelsRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async (
     });
 
     // 권한에 따라 필터링
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const userDeptCode = req.adminDeptCode || '';
     const isSuper = req.adminRole === 'SUPER_ADMIN';
 
     const filtered = isSuper
@@ -99,7 +98,7 @@ modelsRoutes.get('/', authenticateToken, requireAdmin as RequestHandler, async (
       : models.filter(m => {
           // SUPER_ADMIN_ONLY models are only visible to super admins
           if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
-          return isModelVisibleTo(m, userDept, userBU, true);
+          return isModelVisibleTo(m, userDeptCode, true);
         });
 
     res.json({ models: filtered });
@@ -129,9 +128,7 @@ modelsRoutes.get('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
         res.status(403).json({ error: 'No access to this model' });
         return;
       }
-      const userDept = req.adminDept || req.user?.deptname || '';
-      const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
-      if (!isModelVisibleTo(model, userDept, userBU, true)) {
+      if (!isModelVisibleTo(model, req.adminDeptCode || '', true)) {
         res.status(403).json({ error: 'No access to this model' });
         return;
       }
@@ -161,15 +158,14 @@ modelsRoutes.post('/', authenticateToken, requireAdmin as RequestHandler, async 
 
     const deptname = req.adminDept || req.user?.deptname || '';
     const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
+    const creatorDeptCode = req.adminDeptCode || '';
 
-    // visibilityScope가 비어있으면 creator의 dept/BU 기준으로 자동 채움
+    // visibilityScope가 비어있으면 creator의 departmentCode 기준으로 자동 채움
     const effectiveVisibility = visibility || 'PUBLIC';
     let effectiveScope = visibilityScope || [];
-    if (effectiveScope.length === 0) {
-      if (effectiveVisibility === 'TEAM' && deptname) {
-        effectiveScope = [deptname];
-      } else if (effectiveVisibility === 'BUSINESS_UNIT' && businessUnit) {
-        effectiveScope = [businessUnit];
+    if (effectiveScope.length === 0 && creatorDeptCode) {
+      if (effectiveVisibility === 'TEAM' || effectiveVisibility === 'BUSINESS_UNIT') {
+        effectiveScope = [creatorDeptCode];
       }
     }
 
@@ -265,15 +261,12 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin as RequestHandler, asyn
             extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder,
             type, imageProvider, adminVisible } = req.body;
 
-    // visibility 변경 시 scope가 비어있으면 creator 기준으로 자동 채움
+    // visibility 변경 시 scope가 비어있으면 creator의 departmentCode 기준으로 자동 채움
     let effectiveScope = visibilityScope;
     if (visibility !== undefined && (visibilityScope === undefined || (Array.isArray(visibilityScope) && visibilityScope.length === 0))) {
-      const ownerDept = model.createdByDept || req.adminDept || req.user?.deptname || '';
-      const ownerBU = model.createdByBusinessUnit || req.adminBusinessUnit || extractBusinessUnit(ownerDept);
-      if (visibility === 'TEAM' && ownerDept) {
-        effectiveScope = [ownerDept];
-      } else if (visibility === 'BUSINESS_UNIT' && ownerBU) {
-        effectiveScope = [ownerBU];
+      const ownerDeptCode = req.adminDeptCode || '';
+      if ((visibility === 'TEAM' || visibility === 'BUSINESS_UNIT') && ownerDeptCode) {
+        effectiveScope = [ownerDeptCode];
       }
     }
 

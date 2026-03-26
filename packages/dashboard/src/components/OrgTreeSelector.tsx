@@ -5,8 +5,8 @@
  * - 하위 전체 해제 → 상위 자동 해제
  * - 부분 선택 시 indeterminate 표시
  * - 검색 지원
- * - selected: departmentName[] (외부 state)
- * - onChange: (departmentNames: string[]) => void
+ * - selected: departmentCode[] (외부 state)
+ * - onChange: (departmentCodes: string[]) => void
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -27,8 +27,8 @@ interface TreeNode extends OrgNodeFlat {
 }
 
 interface OrgTreeSelectorProps {
-  selected: string[];          // 선택된 departmentName 배열
-  onChange: (names: string[]) => void;
+  selected: string[];          // 선택된 departmentCode 배열
+  onChange: (codes: string[]) => void;
   maxHeight?: string;          // 기본 'max-h-64'
 }
 
@@ -57,13 +57,13 @@ function buildTree(nodes: OrgNodeFlat[]): TreeNode[] {
   return roots;
 }
 
-// 노드 + 모든 하위의 departmentName 수집
-function collectAllNames(node: TreeNode): string[] {
-  const names = [node.departmentName];
+// 노드 + 모든 하위의 departmentCode 수집
+function collectAllCodes(node: TreeNode): string[] {
+  const codes = [node.departmentCode];
   for (const child of node.children) {
-    names.push(...collectAllNames(child));
+    codes.push(...collectAllCodes(child));
   }
-  return names;
+  return codes;
 }
 
 // 트리 검색 필터
@@ -104,11 +104,11 @@ function CheckNode({
   const hasChildren = node.children.length > 0;
   const isExpanded = expandedSet.has(node.departmentCode);
 
-  // 체크 상태 계산
-  const allNames = collectAllNames(node);
-  const checkedCount = allNames.filter(n => selectedSet.has(n)).length;
-  const isChecked = checkedCount === allNames.length;
-  const isIndeterminate = checkedCount > 0 && checkedCount < allNames.length;
+  // 체크 상태 계산 (departmentCode 기반 — 동명 조직 구분)
+  const allCodes = collectAllCodes(node);
+  const checkedCount = allCodes.filter(c => selectedSet.has(c)).length;
+  const isChecked = checkedCount === allCodes.length;
+  const isIndeterminate = checkedCount > 0 && checkedCount < allCodes.length;
 
   useEffect(() => {
     if (ref.current) {
@@ -258,14 +258,14 @@ export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h
     });
   };
 
-  // 체크/언체크 — 하위 전체 연동
+  // 체크/언체크 — 하위 전체 연동 (departmentCode 기반)
   const handleToggle = (node: TreeNode, checked: boolean) => {
-    const allNames = collectAllNames(node);
+    const allCodes = collectAllCodes(node);
     const newSet = new Set(selected);
     if (checked) {
-      allNames.forEach(n => newSet.add(n));
+      allCodes.forEach(c => newSet.add(c));
     } else {
-      allNames.forEach(n => newSet.delete(n));
+      allCodes.forEach(c => newSet.delete(c));
     }
     onChange([...newSet]);
   };

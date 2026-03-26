@@ -517,6 +517,9 @@ async function getOrCreateUser(
         proxyReq.deptName = result.user.deptname || '';
         proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
         proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+        // 재검증 후 최신 departmentCode 조회
+        const freshUser = await prisma.user.findUnique({ where: { id: result.user.id }, select: { departmentCode: true } });
+        proxyReq.userDeptCode = freshUser?.departmentCode || '';
         reverified = true;
       } else if (!result.success) {
         // Knox 조회 실패: 퇴직/비활성 or API 오류
@@ -534,12 +537,13 @@ async function getOrCreateUser(
       proxyReq.deptName = existingUser.deptname || '';
       proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
       proxyReq.businessUnit = existingUser.businessUnit || extractBusinessUnit(proxyReq.deptName);
+      proxyReq.userDeptCode = existingUser.departmentCode || '';
     }
 
     // 배포 범위 접근 제어 (부서 확정 후)
     const scopeError = checkDeployScope(
       proxyReq.deployScope, proxyReq.deployScopeValue,
-      proxyReq.deptName, proxyReq.teamName, proxyReq.businessUnit, proxyReq.serviceName,
+      proxyReq.userDeptCode, proxyReq.serviceName,
     );
     if (scopeError) {
       return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
@@ -574,12 +578,15 @@ async function getOrCreateUser(
     proxyReq.deptName = result.user.deptname || '';
     proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
     proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+    // 최초 인증된 사용자의 departmentCode 조회
+    const newUser = await prisma.user.findUnique({ where: { id: result.user.id }, select: { departmentCode: true } });
+    proxyReq.userDeptCode = newUser?.departmentCode || '';
   }
 
   // 배포 범위 접근 제어 (부서 확정 후)
   const scopeError = checkDeployScope(
     proxyReq.deployScope, proxyReq.deployScopeValue,
-    proxyReq.deptName, proxyReq.teamName, proxyReq.businessUnit, proxyReq.serviceName,
+    proxyReq.userDeptCode, proxyReq.serviceName,
   );
   if (scopeError) {
     return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };

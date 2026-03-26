@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useOrgCodeResolver } from '../hooks/useOrgCodeResolver';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Edit2, Trash2, ChevronDown, ChevronRight, Loader2,
@@ -216,6 +217,7 @@ const TOKEN_COLORS = ['#3B82F6', '#8B5CF6'];
 export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
+  const { resolveAll } = useOrgCodeResolver();
   const [service, setService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -370,7 +372,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
                      service.deployScope === 'BUSINESS_UNIT' ? <Building2 className="w-3 h-3" /> :
                      <Lock className="w-3 h-3" />}
                     {service.deployScope}
-                    {service.deployScopeValue?.length ? ` · ${service.deployScopeValue.join(', ')}` : ''}
+                    {service.deployScopeValue?.length ? ` · ${resolveAll(service.deployScopeValue).join(', ')}` : ''}
                   </span>
                 )}
               </div>

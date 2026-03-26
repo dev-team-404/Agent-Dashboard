@@ -13,6 +13,7 @@
  */
 
 import { Router, RequestHandler } from 'express';
+import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { getDepartmentHierarchy, lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
@@ -170,8 +171,7 @@ const deployServiceSchema = z.object({
 function isServiceVisibleByScope(
   service: { deployScope: string; deployScopeValue: string[]; registeredBy: string | null },
   loginid: string,
-  userDept: string,
-  userBU: string,
+  userDeptCode: string,
 ): boolean {
   // Owner always sees their own service
   if (service.registeredBy === loginid) return true;
@@ -180,9 +180,9 @@ function isServiceVisibleByScope(
     case 'ALL':
       return true;
     case 'BUSINESS_UNIT':
-      return service.deployScopeValue.includes(userBU);
+      return isUnderAnyScope(userDeptCode, service.deployScopeValue);
     case 'TEAM':
-      return service.deployScopeValue.includes(userDept);
+      return service.deployScopeValue.includes(userDeptCode);
     default:
       return true;
   }
@@ -241,8 +241,7 @@ serviceRoutes.get('/employees/search', authenticateToken, async (req: Authentica
 serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
     const loginid = req.user?.loginid || '';
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const userDeptCode = req.adminDeptCode || '';
     const isAdmin = req.adminRole === 'SUPER_ADMIN' || req.adminRole === 'ADMIN';
     let whereClause: any = { enabled: true };
 
@@ -302,10 +301,10 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
           if (s.status !== 'DEPLOYED') return true;
           // ADMIN sees their dept's scoped services
           if (req.adminRole === 'ADMIN') {
-            return isServiceVisibleByScope(s, loginid, userDept, userBU);
+            return isServiceVisibleByScope(s, loginid, userDeptCode);
           }
           // Regular user: check scope
-          return isServiceVisibleByScope(s, loginid, userDept, userBU);
+          return isServiceVisibleByScope(s, loginid, userDeptCode);
         });
 
     res.json({ services: filtered.map(filterServiceHierarchy) });
@@ -370,8 +369,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
 serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
     const loginid = req.user?.loginid || '';
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const userDeptCode = req.adminDeptCode || '';
 
     const services = await prisma.service.findMany({
       where: { enabled: true, status: 'DEPLOYED' },
@@ -418,7 +416,7 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
     // SUPER_ADMIN sees all; others filtered by deployScope
     const filtered = req.adminRole === 'SUPER_ADMIN'
       ? services
-      : services.filter((s: any) => isServiceVisibleByScope(s, loginid, userDept, userBU));
+      : services.filter((s: any) => isServiceVisibleByScope(s, loginid, userDeptCode));
 
     // Attach stats
     const result = filtered.map(s => ({
@@ -1129,8 +1127,7 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
 
     // 현재 사용자의 모델 접근 권한 확인을 위해 admin 정보 감지
     await detectAdminInfo(req);
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const userDeptCode = req.adminDeptCode || '';
     const isAdmin = !!(req.adminRole);
 
     const serviceModels = await prisma.serviceModel.findMany({
@@ -1163,7 +1160,7 @@ serviceRoutes.get('/:id/models', authenticateToken, async (req: AuthenticatedReq
         ? true  // SUPER_ADMIN은 모든 모델 접근 가능
         : sm.model.visibility === 'SUPER_ADMIN_ONLY'
           ? false
-          : isModelVisibleTo(sm.model, userDept, userBU, isAdmin);
+          : isModelVisibleTo(sm.model, userDeptCode, isAdmin);
       return {
         id: sm.id,
         serviceId: sm.serviceId,
@@ -1212,15 +1209,14 @@ serviceRoutes.get('/:id/available-models', authenticateToken, async (req: Authen
     });
 
     const isSuper = req.adminRole === 'SUPER_ADMIN';
-    const userDept = req.adminDept || req.user?.deptname || '';
-    const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+    const userDeptCode = req.adminDeptCode || '';
     const isAdmin = !!(req.adminRole);
 
     const filtered = isSuper
       ? models
       : models.filter(m => {
           if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
-          return isModelVisibleTo(m, userDept, userBU, isAdmin);
+          return isModelVisibleTo(m, userDeptCode, isAdmin);
         });
 
     res.json({ models: filtered });
@@ -1276,13 +1272,12 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
     // 모델 접근 가능 여부 확인 (admin 정보는 canManageService에서 이미 감지됨)
     // SUPER_ADMIN은 모든 모델에 접근 가능
     if (req.adminRole !== 'SUPER_ADMIN') {
-      const userDept = req.adminDept || req.user?.deptname || '';
-      const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+      const userDeptCode = req.adminDeptCode || '';
       const isAdmin = !!(req.adminRole);
       if (model.visibility === 'SUPER_ADMIN_ONLY') {
         res.status(403).json({ error: 'You do not have access to this model' });
         return;
-      } else if (!isModelVisibleTo(model, userDept, userBU, isAdmin)) {
+      } else if (!isModelVisibleTo(model, userDeptCode, isAdmin)) {
         res.status(403).json({ error: 'You do not have access to this model' });
         return;
       }
@@ -1443,9 +1438,8 @@ serviceRoutes.put('/:id/models/fallback', authenticateToken, async (req: Authent
         return;
       }
       if (req.adminRole !== 'SUPER_ADMIN') {
-        const userDept = req.adminDept || req.user?.deptname || '';
-        const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
-        if (fbModel.visibility === 'SUPER_ADMIN_ONLY' || !isModelVisibleTo(fbModel, userDept, userBU, !!req.adminRole)) {
+        const fbDeptCode = req.adminDeptCode || '';
+        if (fbModel.visibility === 'SUPER_ADMIN_ONLY' || !isModelVisibleTo(fbModel, fbDeptCode, !!req.adminRole)) {
           res.status(403).json({ error: 'You do not have access to this model' });
           return;
         }

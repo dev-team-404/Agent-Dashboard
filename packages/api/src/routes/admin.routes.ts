@@ -472,8 +472,7 @@ adminRoutes.get('/models', async (req: AuthenticatedRequest, res) => {
         if (m.visibility === 'SUPER_ADMIN_ONLY') return false;
         return isModelVisibleTo(
           { visibility: m.visibility, visibilityScope: m.visibilityScope, adminVisible: m.adminVisible },
-          req.adminDept || '',
-          req.adminBusinessUnit || '',
+          req.adminDeptCode || '',
           true
         );
       });
@@ -768,8 +767,7 @@ adminRoutes.get('/models/:modelId/sub-models', async (req: AuthenticatedRequest,
     if (!req.isSuperAdmin) {
       if (!isModelVisibleTo(
         { visibility: model.visibility, visibilityScope: model.visibilityScope, adminVisible: model.adminVisible },
-        req.adminDept || '',
-        req.adminBusinessUnit || '',
+        req.adminDeptCode || '',
         true
       )) {
         res.status(403).json({ error: 'No access to this model' });

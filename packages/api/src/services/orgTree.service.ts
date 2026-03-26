@@ -299,77 +299,83 @@ export async function refreshNode(departmentCode: string): Promise<boolean> {
 }
 
 /**
- * 조직개편 대응: 서비스/모델의 scope에서 org_nodes에 없는 departmentName 제거
+ * 조직개편 대응: 서비스/모델의 scope에서 org_nodes에 없는 departmentCode 제거
  *
- * - Service.deployScopeValue에서 유효하지 않은 부서명 제거
- * - Model.visibilityScope에서 유효하지 않은 부서명 제거
- * - TEAM scope인 항목만 대상 (BUSINESS_UNIT/ALL은 무시)
+ * - Service.deployScopeValue에서 유효하지 않은 코드 제거
+ * - Model.visibilityScope에서 유효하지 않은 코드 제거
+ * - TEAM/BUSINESS_UNIT scope 모두 대상
  *
- * @returns { servicesFixed, modelsFixed, removedNames }
+ * @returns { servicesFixed, modelsFixed, removedCodes }
  */
 export async function cleanupStaleScopes(): Promise<{
   servicesFixed: number;
   modelsFixed: number;
-  removedNames: string[];
+  removedCodes: string[];
 }> {
-  // 현재 유효한 departmentName 목록
+  // 현재 유효한 departmentCode 목록
   const validNodes = await prisma.orgNode.findMany({
-    select: { departmentName: true },
+    select: { departmentCode: true },
   });
-  const validNames = new Set(validNodes.map(n => n.departmentName));
+  const validCodes = new Set(validNodes.map(n => n.departmentCode));
 
   let servicesFixed = 0;
   let modelsFixed = 0;
-  const removedNames: string[] = [];
+  const removedCodes: string[] = [];
 
-  // 1. Service — TEAM scope인 것 중 deployScopeValue에 유효하지 않은 이름이 있는 서비스
-  const teamServices = await prisma.service.findMany({
+  // 1. Service — TEAM/BUSINESS_UNIT scope 중 deployScopeValue에 유효하지 않은 코드가 있는 서비스
+  const scopedServices = await prisma.service.findMany({
     where: {
-      deployScope: 'TEAM',
+      deployScope: { in: ['TEAM', 'BUSINESS_UNIT'] },
       deployScopeValue: { isEmpty: false },
     },
     select: { id: true, deployScopeValue: true },
   });
 
-  for (const svc of teamServices) {
-    const cleaned = svc.deployScopeValue.filter(name => validNames.has(name));
-    const removed = svc.deployScopeValue.filter(name => !validNames.has(name));
+  for (const svc of scopedServices) {
+    const cleaned = svc.deployScopeValue.filter(code => validCodes.has(code));
+    const removed = svc.deployScopeValue.filter(code => !validCodes.has(code));
     if (removed.length > 0) {
       await prisma.service.update({
         where: { id: svc.id },
         data: { deployScopeValue: cleaned },
       });
       servicesFixed++;
-      removedNames.push(...removed);
+      removedCodes.push(...removed);
     }
   }
 
-  // 2. Model — TEAM scope인 것 중 visibilityScope에 유효하지 않은 이름이 있는 모델
-  const teamModels = await prisma.model.findMany({
+  // 2. Model — TEAM/BUSINESS_UNIT visibility 중 visibilityScope에 유효하지 않은 코드가 있는 모델
+  const scopedModels = await prisma.model.findMany({
     where: {
-      visibility: 'TEAM',
+      visibility: { in: ['TEAM', 'BUSINESS_UNIT'] },
       visibilityScope: { isEmpty: false },
     },
     select: { id: true, visibilityScope: true },
   });
 
-  for (const mdl of teamModels) {
-    const cleaned = mdl.visibilityScope.filter(name => validNames.has(name));
-    const removed = mdl.visibilityScope.filter(name => !validNames.has(name));
+  for (const mdl of scopedModels) {
+    const cleaned = mdl.visibilityScope.filter(code => validCodes.has(code));
+    const removed = mdl.visibilityScope.filter(code => !validCodes.has(code));
     if (removed.length > 0) {
       await prisma.model.update({
         where: { id: mdl.id },
         data: { visibilityScope: cleaned },
       });
       modelsFixed++;
-      removedNames.push(...removed);
+      removedCodes.push(...removed);
     }
   }
 
-  if (removedNames.length > 0) {
-    console.log(`[OrgTree] Stale scope cleanup: removed ${removedNames.length} entries from ${servicesFixed} services, ${modelsFixed} models`);
-    console.log(`[OrgTree] Removed names: ${[...new Set(removedNames)].join(', ')}`);
+  if (removedCodes.length > 0) {
+    console.log(`[OrgTree] Stale scope cleanup: removed ${removedCodes.length} entries from ${servicesFixed} services, ${modelsFixed} models`);
+    console.log(`[OrgTree] Removed codes: ${[...new Set(removedCodes)].join(', ')}`);
   }
 
-  return { servicesFixed, modelsFixed, removedNames: [...new Set(removedNames)] };
+  // 조상 캐시 갱신
+  try {
+    const { refreshOrgAncestorCache } = await import('./orgAncestorCache.js');
+    await refreshOrgAncestorCache();
+  } catch {}
+
+  return { servicesFixed, modelsFixed, removedCodes: [...new Set(removedCodes)] };
 }
