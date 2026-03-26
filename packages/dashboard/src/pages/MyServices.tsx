@@ -1062,6 +1062,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
           onClose={() => setShowGuide(false)}
           onOpenCreateWizard={openCreateWizard}
           onNavigateToService={(id) => navigate(`/my-services/${id}`)}
+          wizardStep={wizardStep}
+          wizardOpen={showWizard}
         />
       )}
     </div>
@@ -1306,17 +1308,18 @@ function ServiceCreationWizard({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
           <button onClick={wizardStep === 0 ? onClose : () => setWizardStep(wizardStep - 1)}
+            data-tour="wizard-prev-btn"
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             <ArrowLeft className="w-4 h-4" />
             {wizardStep === 0 ? '취소' : '이전'}
           </button>
           {wizardStep < WIZARD_STEPS.length - 1 ? (
-            <button onClick={handleNext} disabled={!canNext()}
+            <button onClick={handleNext} disabled={!canNext()} data-tour="wizard-next-btn"
               className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
               다음 <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
-            <button onClick={onSave} disabled={formSaving}
+            <button onClick={onSave} disabled={formSaving} data-tour="wizard-save-btn"
               className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
               {formSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
               서비스 등록

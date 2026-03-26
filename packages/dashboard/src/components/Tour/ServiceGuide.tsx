@@ -5,6 +5,9 @@ interface ServiceGuideProps {
   onClose: () => void;
   onOpenCreateWizard: () => void;
   onNavigateToService?: (serviceId: string) => void;
+  /** 마법사 현재 스텝 (0-3). 마법사가 닫혀있으면 -1 */
+  wizardStep: number;
+  wizardOpen: boolean;
 }
 
 interface SavedService {
@@ -15,18 +18,28 @@ interface SavedService {
   type: string;
 }
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 6; // 0: intro, 1-4: wizard steps, 5: success
 
-export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateToService }: ServiceGuideProps) {
-  const [step, setStep] = useState(0);
+export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateToService, wizardStep, wizardOpen }: ServiceGuideProps) {
+  const [phase, setPhase] = useState<'intro' | 'wizard' | 'success'>('intro');
   const [savedService, setSavedService] = useState<SavedService | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 가이드 스텝 계산: intro=0, wizard=wizardStep+1, success=5
+  const currentStep = phase === 'intro' ? 0 : phase === 'success' ? 5 : wizardStep + 1;
+
+  // 마법사 스텝이 변경되면 가이드도 wizard phase로 동기화
+  useEffect(() => {
+    if (wizardOpen && phase === 'intro') {
+      setPhase('wizard');
+    }
+  }, [wizardOpen, phase]);
 
   const handleSuccess = useCallback((e: Event) => {
     const detail = (e as CustomEvent).detail as SavedService;
     setSavedService(detail);
     setError(null);
-    setStep(5); // 성공 → 등록 후 안내 스텝으로
+    setPhase('success');
   }, []);
 
   const handleError = useCallback((e: Event) => {
@@ -43,15 +56,38 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
     };
   }, [handleSuccess, handleError]);
 
+  // 마법사 "다음" 버튼 클릭 (validation 포함)
+  const clickWizardNext = () => {
+    const btn = document.querySelector('[data-tour="wizard-next-btn"]') as HTMLButtonElement;
+    if (btn && !btn.disabled) btn.click();
+  };
+
+  // 마법사 "이전" 버튼 클릭
+  const clickWizardPrev = () => {
+    const prevBtns = document.querySelectorAll('[data-tour="wizard-prev-btn"]');
+    const btn = (prevBtns.length > 0 ? prevBtns[0] : null) as HTMLButtonElement | null;
+    if (btn) btn.click();
+  };
+
+  // 마법사 "서비스 등록" 버튼 클릭
+  const clickWizardSave = () => {
+    const btn = document.querySelector('[data-tour="wizard-save-btn"]') as HTMLButtonElement;
+    if (btn && !btn.disabled) btn.click();
+  };
+
   const handleNext = () => {
-    if (step === 0) {
+    if (phase === 'intro') {
       onOpenCreateWizard();
-      setStep(1);
-    } else if (step === 4) {
-      // 등록 스텝: "다음" 클릭 불가 — 저장 성공 이벤트로만 진행
-      return;
-    } else if (step === 5) {
-      // 성공 스텝 → 서비스 상세 페이지로 이동
+      setPhase('wizard');
+    } else if (phase === 'wizard') {
+      if (wizardStep < 3) {
+        // 마법사 "다음" 클릭 — validation 통과하면 wizardStep이 올라감
+        clickWizardNext();
+      } else {
+        // 마법사 마지막 스텝 → "서비스 등록" 클릭
+        clickWizardSave();
+      }
+    } else if (phase === 'success') {
       if (savedService?.id && onNavigateToService) {
         sessionStorage.setItem('service_detail_guide', savedService.id);
         onNavigateToService(savedService.id);
@@ -59,31 +95,36 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
       } else {
         onClose();
       }
-      return;
-    } else if (step === TOTAL_STEPS - 1) {
-      onClose();
-    } else {
-      setStep(s => Math.min(s + 1, TOTAL_STEPS - 1));
     }
   };
+
   const handlePrev = () => {
     setError(null);
-    setStep(s => Math.max(s - 1, 0));
+    if (phase === 'wizard' && wizardStep === 0) {
+      // 마법사 첫 스텝에서 이전 → intro로
+      setPhase('intro');
+    } else if (phase === 'wizard') {
+      clickWizardPrev();
+    }
   };
 
   return (
     <GuidePanel
       title="서비스 등록 가이드"
-      currentStep={step}
+      currentStep={currentStep}
       totalSteps={TOTAL_STEPS}
       onNext={handleNext}
       onPrev={handlePrev}
       onClose={onClose}
-      nextLabel={step === 0 ? '서비스 등록 시작' : step === 4 ? '등록을 눌러주세요' : step === 5 ? '상세 페이지로 이동' : undefined}
-      nextDisabled={step === 4}
+      nextLabel={
+        phase === 'intro' ? '서비스 등록 시작' :
+        phase === 'success' ? '상세 페이지로 이동' :
+        wizardStep === 3 ? '서비스 등록' : undefined
+      }
+      nextDisabled={false}
     >
-      {/* ── Step 0: 시작 ── */}
-      {step === 0 && (
+      {/* ── intro: 시작 ── */}
+      {phase === 'intro' && (
         <>
           <StepTitle>서비스를 등록해봅시다</StepTitle>
           <StepDesc>
@@ -101,35 +142,23 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
         </>
       )}
 
-      {/* ── Step 1: 기본 정보 ── */}
-      {step === 1 && (
+      {/* ── wizard step 0: 기본 정보 ── */}
+      {phase === 'wizard' && wizardStep === 0 && (
         <>
           <StepTitle>1. 기본 정보를 입력하세요</StepTitle>
           <StepDesc>
             <p>마법사의 첫 번째 단계입니다.</p>
-            <FieldGuide
-              label="서비스 코드"
-              desc="시스템 내부 식별자. 영문 소문자, 숫자, 하이픈만 가능"
-              example="my-ai-chatbot"
-            />
-            <FieldGuide
-              label="표시 이름"
-              desc="사용자에게 보여질 서비스 이름"
-              example="내 AI 챗봇"
-            />
-            <FieldGuide
-              label="설명"
-              desc="서비스에 대한 간단한 설명"
-              example="사내 문서 검색 AI 챗봇"
-            />
+            <FieldGuide label="서비스 코드" desc="시스템 내부 식별자. 영문 소문자, 숫자, 하이픈만 가능" example="my-ai-chatbot" />
+            <FieldGuide label="표시 이름" desc="사용자에게 보여질 서비스 이름" example="내 AI 챗봇" />
+            <FieldGuide label="설명" desc="서비스에 대한 간단한 설명" example="사내 문서 검색 AI 챗봇" />
           </StepDesc>
           <Warning>서비스 코드는 등록 후 변경할 수 없습니다! curl 호출 시 <code>x-service-id</code> 헤더로 사용됩니다.</Warning>
-          <Tip>마법사에서 '다음' 버튼을 눌러 다음 단계로 진행하세요.</Tip>
+          <Tip>입력 후 '다음'을 누르면 마법사와 가이드가 함께 다음 단계로 이동합니다.</Tip>
         </>
       )}
 
-      {/* ── Step 2: 서비스 분류 ── */}
-      {step === 2 && (
+      {/* ── wizard step 1: 서비스 분류 ── */}
+      {phase === 'wizard' && wizardStep === 1 && (
         <>
           <StepTitle>2. 서비스 유형과 카테고리를 선택하세요</StepTitle>
           <StepDesc>
@@ -153,8 +182,8 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
         </>
       )}
 
-      {/* ── Step 3: 링크 설정 ── */}
-      {step === 3 && (
+      {/* ── wizard step 2: 링크 설정 ── */}
+      {phase === 'wizard' && wizardStep === 2 && (
         <>
           <StepTitle>3. 링크를 설정하세요 (선택사항)</StepTitle>
           <StepDesc>
@@ -167,12 +196,12 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
         </>
       )}
 
-      {/* ── Step 4: 확인 및 등록 ── */}
-      {step === 4 && (
+      {/* ── wizard step 3: 확인 및 등록 ── */}
+      {phase === 'wizard' && wizardStep === 3 && (
         <>
           <StepTitle>4. 확인하고 등록하세요</StepTitle>
           <StepDesc>
-            <p>마법사의 마지막 단계입니다. 입력한 정보를 확인하고 <strong>'서비스 등록'</strong> 버튼을 클릭하세요.</p>
+            <p>입력한 정보를 확인하세요. 가이드의 <strong>'서비스 등록'</strong> 버튼을 누르면 등록됩니다.</p>
             {error && (
               <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
                 <p className="font-semibold text-red-700">❌ 등록 실패</p>
@@ -182,7 +211,7 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
                   <ul className="list-disc pl-4 mt-1 space-y-0.5">
                     {error.includes('이미 존재') && <li>다른 서비스 코드를 입력하세요</li>}
                     {error.includes('형식') && <li>서비스 코드: 영문 소문자, 숫자, 하이픈만 사용</li>}
-                    <li>'이전' 버튼으로 돌아가서 수정한 후 다시 시도하세요</li>
+                    <li>'이전'으로 돌아가서 수정한 후 다시 시도하세요</li>
                   </ul>
                 </div>
               </div>
@@ -199,8 +228,8 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, onNavigateTo
         </>
       )}
 
-      {/* ── Step 5: 등록 완료 ── */}
-      {step === 5 && (
+      {/* ── success: 등록 완료 ── */}
+      {phase === 'success' && (
         <>
           <StepTitle>🎉 서비스가 등록되었습니다!</StepTitle>
           <StepDesc>
