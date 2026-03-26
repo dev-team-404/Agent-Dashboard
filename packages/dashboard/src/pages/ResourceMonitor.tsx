@@ -356,7 +356,21 @@ export default function ResourceMonitor() {
   const avgDisk = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.diskTotalGb && e.metrics.diskUsedGb) { s += (e.metrics.diskUsedGb / e.metrics.diskTotalGb) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
 
   const handleTest = async (d: any) => { setTesting(true); setTestR(null); try { setTestR((await gpuServerApi.test(d)).data); } catch (e: any) { setTestR({ success: false, message: e?.response?.data?.error || e.message }); } finally { setTesting(false); } };
-  const handleSubmit = async (f: any) => { try { if (edit && edit.id) { const u = { ...f }; if (!u.sshPassword) delete u.sshPassword; await gpuServerApi.update(edit.id, u); } else { await gpuServerApi.create(f); } setModal(false); setEdit(null); setTestR(null); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } };
+  const handleSubmit = async (f: any) => {
+    try {
+      const payload = { ...f };
+      if (!payload.sshPassword) delete payload.sshPassword;
+      if (payload.description === '') payload.description = null;
+      if (edit && edit.id) {
+        await gpuServerApi.update(edit.id, payload);
+      } else {
+        await gpuServerApi.create(payload);
+      }
+      setModal(false); setEdit(null); setTestR(null); fetch_();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || '저장 실패');
+    }
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
 

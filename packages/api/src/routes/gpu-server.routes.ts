@@ -137,7 +137,6 @@ gpuServerRoutes.get('/', async (_req: Request, res: Response) => {
 gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
   try {
     const servers = await prisma.gpuServer.findMany({
-      where: { enabled: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -228,7 +227,10 @@ gpuServerRoutes.post('/test', async (req: Request, res: Response) => {
 gpuServerRoutes.put('/:id', async (req: Request, res: Response) => {
   try {
     const parsed = updateSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.errors });
+    if (!parsed.success) {
+      console.error('[GPU Server] Update validation failed:', JSON.stringify(parsed.error.errors));
+      return res.status(400).json({ error: 'Invalid request: ' + parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '), details: parsed.error.errors });
+    }
 
     const { id } = req.params;
     const existing = await prisma.gpuServer.findUnique({ where: { id } });
