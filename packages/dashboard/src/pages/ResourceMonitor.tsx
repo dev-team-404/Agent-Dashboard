@@ -308,16 +308,36 @@ export default function ResourceMonitor() {
             <p className="text-[10px] text-gray-400">(192GB/장 기준)</p>
           </div>
         </div>
+        {/* 성장률 + 에러율 */}
+        {pred.calculationDetails?.growth && (
+          <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
+            <span className="text-gray-500">주간 성장률: <b className={pred.calculationDetails.growth.weeklyGrowthRate > 5 ? 'text-red-600' : pred.calculationDetails.growth.weeklyGrowthRate > 0 ? 'text-amber-600' : 'text-gray-700'}>{pred.calculationDetails.growth.weeklyGrowthRate}%</b></span>
+            <span className="text-gray-500">DAU 성장: <b>{pred.calculationDetails.growth.dauGrowthRate}%</b>/주</span>
+            <span className="text-gray-500">인당 토큰 성장: <b>{pred.calculationDetails.growth.tokensPerUserGrowthRate}%</b>/주</span>
+            <span className="text-gray-500">6개월 배율: <b>x{pred.calculationDetails.growth.growthMultiplier6mo}</b></span>
+            {pred.calculationDetails.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={pred.calculationDetails.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{pred.calculationDetails.inputs.errorRate}%</b></span>}
+          </div>
+        )}
+        {/* 서비스별 Top */}
+        {pred.calculationDetails?.topServices?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {pred.calculationDetails.topServices.slice(0, 3).map((s: any, i: number) => (
+              <span key={i} className="px-1.5 py-0.5 bg-white/60 rounded text-[9px] text-gray-600 border border-gray-200">{s.name}: {(s.tokens / 1000000).toFixed(1)}M tok</span>
+            ))}
+          </div>
+        )}
         {/* 계산 논리 */}
         {pred.calculationDetails && (
           <details className="text-[10px]">
             <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">계산 논리 보기</summary>
             <div className="mt-2 p-2 bg-white/70 rounded-lg space-y-1 text-gray-600">
-              <p>스케일링: DAU 비율 {(pred.calculationDetails.inputs?.dauRatio * 100).toFixed(1)}% x 서브리니어 {pred.calculationDetails.scaling?.sublinearScale} = 팩터 x{pred.calculationDetails.scaling?.scalingFactor}</p>
-              <p>Method A (KV Cache): 현재 {pred.calculationDetails.methodA?.kvVramCurrent}GB → 예측 {pred.calculationDetails.methodA?.totalVramA}GB</p>
-              <p>Method B (처리량): 필요 GPU {pred.calculationDetails.methodB?.gpuNeededB}장 → {pred.calculationDetails.methodB?.totalVramB}GB</p>
-              <p>안전마진 x{pred.safetyMargin} 적용 → 최종 {Math.round(pred.predictedTotalVramGb)}GB</p>
-              {pred.calculationDetails.inputs?.detectedModelName && <p>서빙 모델: {pred.calculationDetails.inputs.detectedModelName} ({pred.calculationDetails.inputs.modelParams || '크기 미확인'})</p>}
+              <p><b>1. 스케일링:</b> DAU 비율 {(pred.calculationDetails.inputs?.dauRatio * 100).toFixed(1)}% x 서브리니어 0.7 = 기본 x{pred.calculationDetails.scaling?.scalingFactor} → 성장 반영 x{pred.calculationDetails.growth?.growthAdjustedScaling}</p>
+              <p><b>2. Method A</b> (모델가중치 {pred.calculationDetails.methodA?.modelWeightVram}GB 고정 + KV {pred.calculationDetails.methodA?.kvVramCurrent}GB → {pred.calculationDetails.methodA?.kvVramPredicted}GB): <b>{pred.calculationDetails.methodA?.totalVramA}GB</b></p>
+              <p><b>3. Method B</b> (처리량 {pred.calculationDetails.methodB?.currentTps} → {pred.calculationDetails.methodB?.predictedTps} tok/s, 이론 max {pred.calculationDetails.methodB?.weightedMaxTps} tok/s): <b>{pred.calculationDetails.methodB?.totalVramB}GB</b></p>
+              <p><b>4. 최종:</b> max(A,B) x 안전마진 {pred.safetyMargin} x 에러보정 {pred.calculationDetails.scaling?.errorMargin} = <b>{Math.round(pred.predictedTotalVramGb)}GB</b></p>
+              {pred.calculationDetails.inputs?.detectedModels?.length > 0 && <p><b>모델:</b> {pred.calculationDetails.inputs.detectedModels.join(', ')} ({pred.calculationDetails.inputs.modelParams || '?'})</p>}
+              {pred.calculationDetails.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {pred.calculationDetails.confidenceIssues.join(', ')}</p>}
+              {pred.calculationDetails.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{pred.calculationDetails.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
             </div>
           </details>
         )}
