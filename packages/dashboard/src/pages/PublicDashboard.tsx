@@ -42,6 +42,10 @@ interface AggregatedTeamUsage {
   deptname: string;
   totalTokens: number;
   requestCount: number;
+}
+
+interface TeamServiceGroup {
+  deptname: string;
   serviceCount: number;
   serviceNames: string[];
 }
@@ -497,7 +501,7 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-pastel-800">팀별 토큰 사용량 &amp; LLM 호출 수</h3>
-            <p className="text-[11px] text-pastel-400">전체 서비스 합산 기준 · 토큰(좌) / 호출 수(우)</p>
+            <p className="text-[11px] text-pastel-400">전체 서비스 합산 기준</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
@@ -569,11 +573,7 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
               radius={[0, 6, 6, 0]}
               maxBarSize={18}
               fill="#6366F1"
-            >
-              {chartData.map((_, i) => (
-                <Cell key={i} fill={`${TEAM_COLORS[i % TEAM_COLORS.length]}CC`} />
-              ))}
-            </Bar>
+            />
             <Bar
               dataKey="requestCount"
               xAxisId="calls"
@@ -581,11 +581,7 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
               radius={[0, 6, 6, 0]}
               maxBarSize={18}
               fill="#10B981"
-            >
-              {chartData.map((_, i) => (
-                <Cell key={i} fill={`${TEAM_COLORS[i % TEAM_COLORS.length]}66`} />
-              ))}
-            </Bar>
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -595,7 +591,26 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
 
 // ── Team Registered Services Chart ──
 
-function TeamServicesChart({ data }: { data: AggregatedTeamUsage[] }) {
+function TeamServicesChart({ services }: { services: ServiceData[] }) {
+  // registeredByDept 기준으로 그룹핑 (실제 등록한 팀 기준)
+  const grouped = new Map<string, TeamServiceGroup>();
+  for (const s of services) {
+    const dept = s.registeredByDept;
+    if (!dept) continue;
+    const existing = grouped.get(dept);
+    if (existing) {
+      existing.serviceCount++;
+      existing.serviceNames.push(s.displayName);
+    } else {
+      grouped.set(dept, {
+        deptname: dept,
+        serviceCount: 1,
+        serviceNames: [s.displayName],
+      });
+    }
+  }
+
+  const data = Array.from(grouped.values());
   if (data.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
@@ -604,7 +619,6 @@ function TeamServicesChart({ data }: { data: AggregatedTeamUsage[] }) {
     );
   }
 
-  // 서비스 수 기준 정렬
   const sorted = [...data]
     .sort((a, b) => b.serviceCount - a.serviceCount)
     .slice(0, 20);
@@ -624,7 +638,7 @@ function TeamServicesChart({ data }: { data: AggregatedTeamUsage[] }) {
           </div>
           <div>
             <h3 className="text-sm font-semibold text-pastel-800">팀별 등록한 서비스</h3>
-            <p className="text-[11px] text-pastel-400">해당 월에 사용 기록이 있는 서비스 수 기준</p>
+            <p className="text-[11px] text-pastel-400">각 팀이 배포/등록한 서비스 수</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
@@ -660,7 +674,7 @@ function TeamServicesChart({ data }: { data: AggregatedTeamUsage[] }) {
             <Tooltip
               content={({ active, payload }) => {
                 if (!active || !payload?.length) return null;
-                const d = payload[0].payload as AggregatedTeamUsage & { fullName: string };
+                const d = payload[0].payload as TeamServiceGroup & { fullName: string };
                 return (
                   <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm max-w-xs">
                     <p className="font-semibold text-pastel-800 mb-1.5">{d.fullName}</p>
@@ -737,38 +751,35 @@ export default function PublicDashboard() {
       const lastDay = new Date(year, month, 0).getDate();
       const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-      const [dauRes, teamRes] = await Promise.all([
-        publicStatsApi.dauMau(year, month),
-        publicStatsApi.teamUsageAll(startDate, endDate),
-      ]);
-
+      // dau-mau는 필수, team-usage-all은 실패해도 기존 대시보드에 영향 없도록 분리
+      const dauRes = await publicStatsApi.dauMau(year, month);
       setServices(dauRes.data.data || []);
       setOverallDAU(dauRes.data.overallAvgDailyDAU || 0);
       setDailyDauChart(dauRes.data.dailyDauChart || []);
 
-      // 팀별 사용량 집계
-      const rows: TeamUsageRow[] = teamRes.data.data || [];
-      const grouped = new Map<string, AggregatedTeamUsage>();
-      for (const r of rows) {
-        const existing = grouped.get(r.deptname);
-        if (existing) {
-          existing.totalTokens += r.totalTokens;
-          existing.requestCount += r.requestCount;
-          if (!existing.serviceNames.includes(r.serviceDisplayName || r.serviceName)) {
-            existing.serviceNames.push(r.serviceDisplayName || r.serviceName);
-            existing.serviceCount++;
+      // 팀별 사용량 (실패 시 빈 배열로 graceful fallback)
+      try {
+        const teamRes = await publicStatsApi.teamUsageAll(startDate, endDate);
+        const rows: TeamUsageRow[] = teamRes.data.data || [];
+        const grouped = new Map<string, AggregatedTeamUsage>();
+        for (const r of rows) {
+          const existing = grouped.get(r.deptname);
+          if (existing) {
+            existing.totalTokens += r.totalTokens;
+            existing.requestCount += r.requestCount;
+          } else {
+            grouped.set(r.deptname, {
+              deptname: r.deptname,
+              totalTokens: r.totalTokens,
+              requestCount: r.requestCount,
+            });
           }
-        } else {
-          grouped.set(r.deptname, {
-            deptname: r.deptname,
-            totalTokens: r.totalTokens,
-            requestCount: r.requestCount,
-            serviceCount: 1,
-            serviceNames: [r.serviceDisplayName || r.serviceName],
-          });
         }
+        setTeamUsage(Array.from(grouped.values()));
+      } catch {
+        console.error('Failed to load team usage data');
+        setTeamUsage([]);
       }
-      setTeamUsage(Array.from(grouped.values()));
     } catch (err) {
       console.error('Failed to load public dashboard:', err);
       if (!silent) setError('데이터를 불러올 수 없습니다.');
@@ -889,10 +900,10 @@ export default function PublicDashboard() {
       )}
 
       {/* Team Usage Charts */}
-      {!error && teamUsage.length > 0 && (
+      {!error && (
         <div className="space-y-5">
-          <TeamUsageChart data={teamUsage} />
-          <TeamServicesChart data={teamUsage} />
+          {teamUsage.length > 0 && <TeamUsageChart data={teamUsage} />}
+          {enabledServices.length > 0 && <TeamServicesChart services={enabledServices} />}
         </div>
       )}
 
