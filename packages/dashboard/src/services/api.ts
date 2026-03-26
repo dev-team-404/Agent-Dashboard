@@ -434,4 +434,6 @@ export const gpuPowerApi = {
 export const publicStatsApi = {
   dauMau: (year: number, month: number) =>
     api.get('/public/stats/dau-mau', { params: { year, month } }),
+  teamUsageAll: (startDate: string, endDate: string) =>
+    api.get('/public/stats/team-usage-all', { params: { startDate, endDate } }),
 };

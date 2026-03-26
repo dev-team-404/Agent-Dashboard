@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info } from 'lucide-react';
+import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info, Building2, Package } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { publicStatsApi } from '../services/api';
 import { useHolidayDates } from '../hooks/useHolidayDates';
@@ -26,6 +26,24 @@ interface ServiceData {
   center2Name?: string;
   center1Name?: string;
   iconUrl?: string;
+}
+
+interface TeamUsageRow {
+  deptname: string;
+  businessUnit: string;
+  serviceName: string;
+  serviceDisplayName: string;
+  totalTokens: number;
+  requestCount: number;
+  uniqueUsers: number;
+}
+
+interface AggregatedTeamUsage {
+  deptname: string;
+  totalTokens: number;
+  requestCount: number;
+  serviceCount: number;
+  serviceNames: string[];
 }
 
 type MetricKey = 'dau' | 'totalTokens' | 'totalCallCount';
@@ -442,6 +460,245 @@ function DailyDauLineChart({ data }: { data: Record<string, unknown>[] }) {
   );
 }
 
+// ── Team Token + Call Bar Chart ──
+
+const TEAM_COLORS = [
+  '#2563EB', '#7C3AED', '#059669', '#D97706', '#E11D48',
+  '#0891B2', '#4F46E5', '#15803D', '#B45309', '#BE123C',
+  '#0E7490', '#6D28D9', '#047857', '#A16207', '#9F1239',
+  '#155E75', '#5B21B6', '#065F46', '#92400E', '#881337',
+];
+
+function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
+        팀별 사용량 데이터가 없습니다
+      </div>
+    );
+  }
+
+  const sorted = [...data]
+    .sort((a, b) => b.totalTokens - a.totalTokens)
+    .slice(0, 20);
+
+  const chartData = sorted.map(d => ({
+    ...d,
+    displayName: d.deptname.length > 20 ? d.deptname.slice(0, 18) + '…' : d.deptname,
+    fullName: d.deptname,
+  }));
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden animate-slide-up">
+      <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-indigo-50">
+            <Building2 className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-pastel-800">팀별 토큰 사용량 &amp; LLM 호출 수</h3>
+            <p className="text-[11px] text-pastel-400">전체 서비스 합산 기준 · 토큰(좌) / 호출 수(우)</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
+          <TrendingUp className="w-3 h-3" />
+          <span>Top {sorted.length}</span>
+        </div>
+      </div>
+
+      <div className="px-4 py-4" style={{ height: Math.max(360, sorted.length * 36 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 4, right: 60, left: 8, bottom: 4 }}
+            barCategoryGap="20%"
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+            <XAxis
+              type="number"
+              xAxisId="tokens"
+              orientation="bottom"
+              tickFormatter={formatTokens}
+              tick={{ fontSize: 10, fill: '#9CA3AF' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <XAxis
+              type="number"
+              xAxisId="calls"
+              orientation="top"
+              tickFormatter={formatCompact}
+              tick={{ fontSize: 10, fill: '#9CA3AF' }}
+              axisLine={false}
+              tickLine={false}
+              hide
+            />
+            <YAxis
+              type="category"
+              dataKey="displayName"
+              width={200}
+              tick={{ fontSize: 11, fill: '#4B5563' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload;
+                return (
+                  <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm">
+                    <p className="font-semibold text-pastel-800 mb-1">{d.fullName}</p>
+                    <div className="space-y-0.5 text-pastel-600">
+                      <p>토큰: <span className="font-mono font-bold text-indigo-600">{formatTokens(d.totalTokens)}</span></p>
+                      <p>호출 수: <span className="font-mono font-bold text-emerald-600">{formatCompact(d.requestCount)}</span> 회</p>
+                    </div>
+                  </div>
+                );
+              }}
+              cursor={{ fill: '#F9FAFB' }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+              formatter={(value: string) => value === 'totalTokens' ? '토큰 사용량' : 'LLM 호출 수'}
+            />
+            <Bar
+              dataKey="totalTokens"
+              xAxisId="tokens"
+              name="totalTokens"
+              radius={[0, 6, 6, 0]}
+              maxBarSize={18}
+              fill="#6366F1"
+            >
+              {chartData.map((_, i) => (
+                <Cell key={i} fill={`${TEAM_COLORS[i % TEAM_COLORS.length]}CC`} />
+              ))}
+            </Bar>
+            <Bar
+              dataKey="requestCount"
+              xAxisId="calls"
+              name="requestCount"
+              radius={[0, 6, 6, 0]}
+              maxBarSize={18}
+              fill="#10B981"
+            >
+              {chartData.map((_, i) => (
+                <Cell key={i} fill={`${TEAM_COLORS[i % TEAM_COLORS.length]}66`} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ── Team Registered Services Chart ──
+
+function TeamServicesChart({ data }: { data: AggregatedTeamUsage[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
+        팀별 서비스 데이터가 없습니다
+      </div>
+    );
+  }
+
+  // 서비스 수 기준 정렬
+  const sorted = [...data]
+    .sort((a, b) => b.serviceCount - a.serviceCount)
+    .slice(0, 20);
+
+  const chartData = sorted.map(d => ({
+    ...d,
+    displayName: d.deptname.length > 20 ? d.deptname.slice(0, 18) + '…' : d.deptname,
+    fullName: d.deptname,
+  }));
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-card overflow-hidden animate-slide-up">
+      <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-amber-50">
+            <Package className="w-4 h-4 text-amber-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-pastel-800">팀별 등록한 서비스</h3>
+            <p className="text-[11px] text-pastel-400">해당 월에 사용 기록이 있는 서비스 수 기준</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
+          <TrendingUp className="w-3 h-3" />
+          <span>Top {sorted.length}</span>
+        </div>
+      </div>
+
+      <div className="px-4 py-4" style={{ height: Math.max(360, sorted.length * 36 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 4, right: 60, left: 8, bottom: 4 }}
+            barCategoryGap="20%"
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+            <XAxis
+              type="number"
+              allowDecimals={false}
+              tick={{ fontSize: 11, fill: '#9CA3AF' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="displayName"
+              width={200}
+              tick={{ fontSize: 11, fill: '#4B5563' }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload as AggregatedTeamUsage & { fullName: string };
+                return (
+                  <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm max-w-xs">
+                    <p className="font-semibold text-pastel-800 mb-1.5">{d.fullName}</p>
+                    <p className="text-pastel-600 mb-1">
+                      서비스 수: <span className="font-mono font-bold text-amber-600">{d.serviceCount}개</span>
+                    </p>
+                    <div className="text-[11px] text-pastel-400 space-y-0.5">
+                      {d.serviceNames.map(name => (
+                        <p key={name}>• {name}</p>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }}
+              cursor={{ fill: '#F9FAFB' }}
+            />
+            <Bar
+              dataKey="serviceCount"
+              radius={[0, 6, 6, 0]}
+              maxBarSize={28}
+              label={{
+                position: 'right',
+                fontSize: 11,
+                fill: '#6B7280',
+                formatter: (v: number) => `${v}개`,
+              }}
+            >
+              {chartData.map((_, i) => (
+                <Cell key={i} fill={TEAM_COLORS[i % TEAM_COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ──
 
 export default function PublicDashboard() {
@@ -451,6 +708,7 @@ export default function PublicDashboard() {
   const [services, setServices] = useState<ServiceData[]>([]);
   const [overallDAU, setOverallDAU] = useState(0);
   const [dailyDauChart, setDailyDauChart] = useState<Record<string, unknown>[]>([]);
+  const [teamUsage, setTeamUsage] = useState<AggregatedTeamUsage[]>([]);
   const [loading, setLoading] = useState(true);
   const holidayDates = useHolidayDates();
   const { exclude } = useBusinessDayToggle();
@@ -473,10 +731,44 @@ export default function PublicDashboard() {
     try {
       if (!silent) setLoading(true);
       setError('');
-      const res = await publicStatsApi.dauMau(year, month);
-      setServices(res.data.data || []);
-      setOverallDAU(res.data.overallAvgDailyDAU || 0);
-      setDailyDauChart(res.data.dailyDauChart || []);
+
+      // 날짜 범위 계산
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const [dauRes, teamRes] = await Promise.all([
+        publicStatsApi.dauMau(year, month),
+        publicStatsApi.teamUsageAll(startDate, endDate),
+      ]);
+
+      setServices(dauRes.data.data || []);
+      setOverallDAU(dauRes.data.overallAvgDailyDAU || 0);
+      setDailyDauChart(dauRes.data.dailyDauChart || []);
+
+      // 팀별 사용량 집계
+      const rows: TeamUsageRow[] = teamRes.data.data || [];
+      const grouped = new Map<string, AggregatedTeamUsage>();
+      for (const r of rows) {
+        const existing = grouped.get(r.deptname);
+        if (existing) {
+          existing.totalTokens += r.totalTokens;
+          existing.requestCount += r.requestCount;
+          if (!existing.serviceNames.includes(r.serviceDisplayName || r.serviceName)) {
+            existing.serviceNames.push(r.serviceDisplayName || r.serviceName);
+            existing.serviceCount++;
+          }
+        } else {
+          grouped.set(r.deptname, {
+            deptname: r.deptname,
+            totalTokens: r.totalTokens,
+            requestCount: r.requestCount,
+            serviceCount: 1,
+            serviceNames: [r.serviceDisplayName || r.serviceName],
+          });
+        }
+      }
+      setTeamUsage(Array.from(grouped.values()));
     } catch (err) {
       console.error('Failed to load public dashboard:', err);
       if (!silent) setError('데이터를 불러올 수 없습니다.');
@@ -593,6 +885,14 @@ export default function PublicDashboard() {
               rank={i}
             />
           ))}
+        </div>
+      )}
+
+      {/* Team Usage Charts */}
+      {!error && teamUsage.length > 0 && (
+        <div className="space-y-5">
+          <TeamUsageChart data={teamUsage} />
+          <TeamServicesChart data={teamUsage} />
         </div>
       )}
 
