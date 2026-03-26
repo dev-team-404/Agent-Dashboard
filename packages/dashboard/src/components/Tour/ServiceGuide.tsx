@@ -47,6 +47,9 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
     if (step === 0) {
       onOpenCreateWizard();
       setStep(1);
+    } else if (step === 4) {
+      // 등록 스텝: "다음" 클릭 불가 — 저장 성공 이벤트로만 진행
+      return;
     } else if (step === TOTAL_STEPS - 1) {
       onClose();
     } else {
@@ -68,7 +71,8 @@ export default function ServiceGuide({ onClose, onOpenCreateWizard, userId, dept
       onNext={handleNext}
       onPrev={handlePrev}
       onClose={onClose}
-      nextLabel={step === 0 ? '서비스 등록 시작' : step === TOTAL_STEPS - 1 ? '완료' : undefined}
+      nextLabel={step === 0 ? '서비스 등록 시작' : step === 4 ? '등록을 눌러주세요' : step === TOTAL_STEPS - 1 ? '완료' : undefined}
+      nextDisabled={step === 4}
     >
       {/* ── Step 0: 시작 ── */}
       {step === 0 && (

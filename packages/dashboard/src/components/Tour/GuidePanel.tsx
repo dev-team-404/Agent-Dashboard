@@ -80,7 +80,7 @@ export default function GuidePanel({
   showPrev = true, nextLabel, nextDisabled = false, hideFooter = false,
 }: GuidePanelProps) {
   return (
-    <div className="fixed bottom-20 right-6 w-[400px] max-h-[75vh] z-[9998] bg-white rounded-xl shadow-2xl border border-gray-200/80 flex flex-col overflow-hidden animate-slide-up">
+    <div className="fixed bottom-20 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[400px] max-h-[75vh] z-[9998] bg-white rounded-xl shadow-2xl border border-gray-200/80 flex flex-col overflow-hidden animate-slide-up">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-gray-50 to-white shrink-0">
         <div className="flex items-center gap-2">
@@ -132,7 +132,7 @@ export default function GuidePanel({
             className="inline-flex items-center gap-1 px-4 py-1.5 text-[13px] font-semibold text-white bg-samsung-blue rounded-lg hover:bg-samsung-blue-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {nextLabel || (currentStep === totalSteps - 1 ? '완료' : '다음')}
-            {currentStep < totalSteps - 1 && <ChevronRight className="w-3.5 h-3.5" />}
+            {currentStep < totalSteps - 1 && !nextLabel && <ChevronRight className="w-3.5 h-3.5" />}
           </button>
         </div>
       )}

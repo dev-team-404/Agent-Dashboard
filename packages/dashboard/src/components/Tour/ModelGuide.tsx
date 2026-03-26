@@ -47,6 +47,9 @@ export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptNam
     if (step === 0) {
       onOpenCreateModal();
       setStep(1);
+    } else if (step === 6) {
+      // 저장 스텝: "다음" 클릭 불가 — 저장 성공 이벤트로만 진행
+      return;
     } else if (step === TOTAL_STEPS - 1) {
       onClose();
     } else {
@@ -68,7 +71,8 @@ export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptNam
       onNext={handleNext}
       onPrev={handlePrev}
       onClose={onClose}
-      nextLabel={step === 0 ? '모델 추가 창 열기' : step === TOTAL_STEPS - 1 ? '완료' : undefined}
+      nextLabel={step === 0 ? '모델 추가 창 열기' : step === 6 ? '저장을 눌러주세요' : step === TOTAL_STEPS - 1 ? '완료' : undefined}
+      nextDisabled={step === 6}
     >
       {/* ── Step 0: 시작 ── */}
       {step === 0 && (
@@ -257,8 +261,9 @@ export default function ModelGuide({ onClose, onOpenCreateModal, userId, deptNam
             )}
 
             <p className="mt-3 font-semibold text-gray-800">📋 엔드포인트 직접 테스트 (curl)</p>
+            <p className="text-xs text-gray-500 mb-1">브라우저 개발자도구 → Application → localStorage → <code>agent_stats_token</code> 값을 복사하세요.</p>
             <CopyBlock text={`curl -X POST ${origin}/api/admin/models/test \\
-  -H "Authorization: Bearer $(cat <<< localStorage의 토큰)" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify({
     endpointUrl: savedModel?.endpointUrl || 'https://api.example.com/v1',
