@@ -9,6 +9,7 @@
  * Visibility: PUBLIC / BUSINESS_UNIT / TEAM / ADMIN_ONLY
  */
 import { Router } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 export const modelsRoutes = Router();
@@ -41,6 +42,7 @@ modelsRoutes.get('/browse', authenticateToken, async (req, res) => {
             where: {
                 enabled: true,
                 visibility: { notIn: ['ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] },
+                endpointUrl: { not: 'external://auto-created' },
             },
             orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
         });
@@ -76,11 +78,13 @@ modelsRoutes.get('/browse', authenticateToken, async (req, res) => {
 modelsRoutes.get('/', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const models = await prisma.model.findMany({
+            where: {
+                endpointUrl: { not: 'external://auto-created' },
+            },
             orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
         });
         // 권한에 따라 필터링
-        const userDept = req.adminDept || req.user?.deptname || '';
-        const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
+        const userDeptCode = req.adminDeptCode || '';
         const isSuper = req.adminRole === 'SUPER_ADMIN';
         const filtered = isSuper
             ? models // Super Admin은 모든 모델 보임
@@ -88,7 +92,7 @@ modelsRoutes.get('/', authenticateToken, requireAdmin, async (req, res) => {
                 // SUPER_ADMIN_ONLY models are only visible to super admins
                 if (m.visibility === 'SUPER_ADMIN_ONLY')
                     return false;
-                return isModelVisibleTo(m, userDept, userBU, true);
+                return isModelVisibleTo(m, userDeptCode, true);
             });
         res.json({ models: filtered });
     }
@@ -115,9 +119,7 @@ modelsRoutes.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
                 res.status(403).json({ error: 'No access to this model' });
                 return;
             }
-            const userDept = req.adminDept || req.user?.deptname || '';
-            const userBU = req.adminBusinessUnit || extractBusinessUnit(userDept);
-            if (!isModelVisibleTo(model, userDept, userBU, true)) {
+            if (!isModelVisibleTo(model, req.adminDeptCode || '', true)) {
                 res.status(403).json({ error: 'No access to this model' });
                 return;
             }
@@ -142,16 +144,40 @@ modelsRoutes.post('/', authenticateToken, requireAdmin, async (req, res) => {
         }
         const deptname = req.adminDept || req.user?.deptname || '';
         const businessUnit = req.adminBusinessUnit || extractBusinessUnit(deptname);
-        // visibilityScope가 비어있으면 creator의 dept/BU 기준으로 자동 채움
+        const creatorDeptCode = req.adminDeptCode || '';
+        // visibilityScope가 비어있으면 creator의 departmentCode 기준으로 자동 채움
         const effectiveVisibility = visibility || 'PUBLIC';
         let effectiveScope = visibilityScope || [];
-        if (effectiveScope.length === 0) {
-            if (effectiveVisibility === 'TEAM' && deptname) {
-                effectiveScope = [deptname];
+        if (effectiveScope.length === 0 && creatorDeptCode) {
+            if (effectiveVisibility === 'TEAM' || effectiveVisibility === 'BUSINESS_UNIT') {
+                effectiveScope = [creatorDeptCode];
             }
-            else if (effectiveVisibility === 'BUSINESS_UNIT' && businessUnit) {
-                effectiveScope = [businessUnit];
-            }
+        }
+        // 완전 동일한 모델 중복 탐지 (모든 설정 값이 같은 경우)
+        const duplicateWhere = {
+            name,
+            displayName,
+            endpointUrl,
+            apiKey: apiKey || null,
+            maxTokens: maxTokens || 128000,
+            enabled: enabled !== false,
+            supportsVision: supportsVision || false,
+            visibility: effectiveVisibility,
+            sortOrder: sortOrder || 0,
+            type: type || 'CHAT',
+            imageProvider: imageProvider || null,
+            adminVisible: adminVisible || false,
+        };
+        // Prisma JSON 필드: 값이 있으면 equals로, null이면 DbNull로 비교
+        duplicateWhere.extraHeaders = { equals: extraHeaders ? extraHeaders : Prisma.DbNull };
+        duplicateWhere.extraBody = { equals: extraBody ? extraBody : Prisma.DbNull };
+        const existing = await prisma.model.findFirst({ where: duplicateWhere });
+        if (existing) {
+            res.status(409).json({
+                error: '동일한 설정의 모델이 이미 존재합니다.',
+                existingModel: { id: existing.id, name: existing.name, displayName: existing.displayName },
+            });
+            return;
         }
         const model = await prisma.model.create({
             data: {
@@ -210,16 +236,12 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
             }
         }
         const { name, displayName, endpointUrl, apiKey, maxTokens, enabled, extraHeaders, extraBody, supportsVision, visibility, visibilityScope, sortOrder, type, imageProvider, adminVisible } = req.body;
-        // visibility 변경 시 scope가 비어있으면 creator 기준으로 자동 채움
+        // visibility 변경 시 scope가 비어있으면 creator의 departmentCode 기준으로 자동 채움
         let effectiveScope = visibilityScope;
         if (visibility !== undefined && (visibilityScope === undefined || (Array.isArray(visibilityScope) && visibilityScope.length === 0))) {
-            const ownerDept = model.createdByDept || req.adminDept || req.user?.deptname || '';
-            const ownerBU = model.createdByBusinessUnit || req.adminBusinessUnit || extractBusinessUnit(ownerDept);
-            if (visibility === 'TEAM' && ownerDept) {
-                effectiveScope = [ownerDept];
-            }
-            else if (visibility === 'BUSINESS_UNIT' && ownerBU) {
-                effectiveScope = [ownerBU];
+            const ownerDeptCode = req.adminDeptCode || '';
+            if ((visibility === 'TEAM' || visibility === 'BUSINESS_UNIT') && ownerDeptCode) {
+                effectiveScope = [ownerDeptCode];
             }
         }
         const updated = await prisma.model.update({
@@ -242,6 +264,25 @@ modelsRoutes.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
                 ...(adminVisible !== undefined && { adminVisible }),
             },
         });
+        // displayName이 변경된 경우 로그 테이블들의 스냅샷도 일괄 갱신
+        if (displayName && model.displayName !== displayName) {
+            const oldName = model.displayName;
+            await Promise.all([
+                prisma.healthCheckLog.updateMany({
+                    where: { modelId: id },
+                    data: { modelName: displayName },
+                }),
+                prisma.requestLog.updateMany({
+                    where: { modelName: oldName },
+                    data: { modelName: displayName },
+                }),
+                prisma.ratingFeedback.updateMany({
+                    where: { modelName: oldName },
+                    data: { modelName: displayName },
+                }),
+            ]);
+            console.log(`[Model] displayName changed: "${oldName}" → "${displayName}" — updated logs`);
+        }
         recordAudit(req, 'UPDATE_MODEL', updated.id, 'Model', { name: updated.name, changes: Object.keys(req.body) }).catch(() => { });
         res.json({ model: updated });
     }
@@ -287,7 +328,6 @@ modelsRoutes.delete('/:id', authenticateToken, requireAdmin, async (req, res) =>
         await prisma.$transaction([
             prisma.subModel.deleteMany({ where: { parentId: id } }),
             prisma.usageLog.deleteMany({ where: { modelId: id } }),
-            prisma.dailyUsageStat.deleteMany({ where: { modelId: id } }),
             prisma.model.delete({ where: { id } }),
         ]);
         recordAudit(req, 'DELETE_MODEL', id, 'Model', { name: modelName }).catch(() => { });

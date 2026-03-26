@@ -27,11 +27,14 @@ const ERROR_ANALYSIS_LLM_KEY = 'ERROR_ANALYSIS_LLM_MODEL_ID';
 const GPU_CAPACITY_LLM_KEY = 'GPU_CAPACITY_LLM_MODEL_ID';
 const LOGO_MODEL_KEY = 'LOGO_GENERATION_MODEL_ID';
 
+const HELP_CHATBOT_LLM_KEY = 'HELP_CHATBOT_LLM_MODEL_ID';
+
 // 허용된 시스템 LLM 설정 키 목록
 const ALLOWED_LLM_KEYS: Record<string, { label: string; chatOnly: boolean }> = {
   [SYSTEM_LLM_KEY]: { label: 'M/M 추적 (AI 추정)', chatOnly: true },
   [ERROR_ANALYSIS_LLM_KEY]: { label: '에러 초도분석', chatOnly: true },
   [GPU_CAPACITY_LLM_KEY]: { label: 'GPU 수요 예측', chatOnly: true },
+  [HELP_CHATBOT_LLM_KEY]: { label: 'AI 도우미 챗봇', chatOnly: true },
 };
 
 // ── Audit helper ──

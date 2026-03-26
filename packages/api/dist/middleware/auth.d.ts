@@ -26,6 +26,7 @@ export interface AuthenticatedRequest extends Request {
     adminId?: string;
     adminDept?: string;
     adminBusinessUnit?: string;
+    adminDeptCode?: string;
 }
 /**
  * 하드코딩 Super Admin인지 확인
@@ -59,12 +60,16 @@ export declare function requireAdmin(req: AuthenticatedRequest, res: Response, n
 export declare function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void>;
 /**
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
+ *
+ * visibilityScope는 departmentCode 배열:
+ * - TEAM: 사용자의 departmentCode가 scope에 포함되면 허용
+ * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용
  */
 export declare function isModelVisibleTo(model: {
     visibility: string;
     visibilityScope: string[];
     adminVisible?: boolean;
-}, userDept: string, userBU: string, isAdmin: boolean): boolean;
+}, userDeptCode: string, isAdmin: boolean): boolean;
 export declare function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string;
 export declare function verifyInternalToken(token: string): JWTPayload | null;
 //# sourceMappingURL=auth.d.ts.map

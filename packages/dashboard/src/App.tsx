@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import TourProvider from './components/Tour/TourProvider';
 import TourTriggerButton from './components/Tour/TourTriggerButton';
+import HelpChatbot from './components/HelpChatbot/HelpChatbot';
 import { authApi } from './services/api';
 
 // 배포 후 구버전 chunk 404 방지: 실패 시 페이지 자동 새로고침
@@ -189,6 +190,7 @@ function App() {
       </Suspense>
     </Layout>
     <TourTriggerButton />
+    <HelpChatbot adminRole={adminRole} />
     </TourProvider>
   );
 }

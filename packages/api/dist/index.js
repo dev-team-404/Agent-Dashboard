@@ -31,15 +31,26 @@ import { systemSettingsRoutes } from './routes/system-settings.routes.js';
 import { adminRequestRoutes } from './routes/admin-requests.routes.js';
 import { externalUsageRoutes } from './routes/external-usage.routes.js';
 import { errorLogsRoutes } from './routes/error-logs.routes.js';
+import { deptSavedMMRoutes } from './routes/dept-saved-mm.routes.js';
+import { insightRoutes, publicInsightRoutes } from './routes/insight.routes.js';
+import { orgTreeRoutes } from './routes/org-tree.routes.js';
+import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
+import { gpuServerRoutes } from './routes/gpu-server.routes.js';
+import { gpuCapacityRoutes } from './routes/gpu-capacity.routes.js';
+import { internalOrgRoutes } from './routes/internal-org.routes.js';
+import { helpChatbotRoutes } from './routes/help-chatbot.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
+import { internalSwaggerSpec, getInternalSwaggerUiHtml } from './internal-swagger.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { requestLogger } from './middleware/requestLogger.js';
 import { startImageCleanupCron } from './services/imageStorage.service.js';
 import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { startAiEstimationCron } from './services/aiEstimation.service.js';
-import { extractBusinessUnit } from './middleware/auth.js';
-import { getDepartmentHierarchy, lookupEmployee } from './services/knoxEmployee.service.js';
+import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
+import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
+import { lookupEmployee } from './services/knoxEmployee.service.js';
+import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
 import 'dotenv/config';
 const app = express();
 const PORT = process.env['PORT'] || 3000;
@@ -87,13 +98,28 @@ app.use('/rating', ratingRoutes);
 app.use('/holidays', holidaysRoutes);
 app.use('/admin', adminLogsRoutes);
 app.use('/admin', serviceTargetsRoutes);
+app.use('/admin', deptSavedMMRoutes);
+app.use('/admin', insightRoutes);
+app.use('/admin', orgTreeRoutes);
+app.use('/gpu-power', gpuPowerRoutes);
+app.use('/admin/gpu-servers', gpuServerRoutes);
+app.use('/admin/gpu-capacity', gpuCapacityRoutes);
 app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
-// LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
+app.use('/help-chatbot', helpChatbotRoutes);
+// LLM Proxy Routes (Standard: x-service-id + x-user-id, Background: x-service-id + x-dept-name)
 app.use('/v1', proxyRoutes);
+// Internal Organization API (인증 불필요 — 내부 서비스 간 통신용)
+app.use('/internal/org', internalOrgRoutes);
+// Internal API Swagger UI
+app.get('/internal/api-docs', (_req, res) => { res.json(internalSwaggerSpec); });
+app.get('/internal/api-docs/ui', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.send(getInternalSwaggerUiHtml()); });
+// 기존 /internal/docs → Swagger UI로 redirect
+app.get('/internal/docs', (_req, res) => { res.redirect('/internal/api-docs/ui'); });
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
+app.use('/public/stats', publicInsightRoutes);
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
 app.use('/external-usage', externalUsageRoutes);
@@ -113,6 +139,19 @@ app.get('/api-docs/ui', (_req, res) => {
 // Error handling
 app.use((err, _req, res, _next) => {
     console.error('Error:', err);
+    // 글로벌 에러도 request_logs에 기록
+    prisma.requestLog.create({
+        data: {
+            modelName: '-',
+            method: _req.method,
+            path: _req.originalUrl || _req.path,
+            statusCode: 500,
+            errorMessage: (err.message || 'Internal server error').substring(0, 2000),
+            userAgent: _req.headers['user-agent'] || null,
+            ipAddress: _req.ip || _req.headers['x-forwarded-for'] || null,
+            stream: false,
+        },
+    }).catch(() => { });
     if (!res.headersSent) {
         res.status(500).json({
             error: 'Internal server error',
@@ -141,6 +180,24 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+// health_check_logs.model_name 스냅샷을 현재 models.displayName으로 일괄 동기화
+async function syncHealthCheckModelNames() {
+    try {
+        const result = await prisma.$executeRaw `
+      UPDATE health_check_logs h
+      SET model_name = m."displayName"
+      FROM models m
+      WHERE h.model_id = m.id
+        AND h.model_name IS DISTINCT FROM m."displayName"
+    `;
+        if (result > 0) {
+            console.log(`[Sync] health_check_logs.model_name 갱신: ${result}건`);
+        }
+    }
+    catch (err) {
+        console.error('[Sync] health_check_logs model_name sync failed:', err);
+    }
+}
 // 빈 visibilityScope를 가진 TEAM/BUSINESS_UNIT 모델을 owner 기준으로 자동 채움
 async function backfillEmptyVisibilityScope() {
     try {
@@ -154,21 +211,29 @@ async function backfillEmptyVisibilityScope() {
             return;
         console.log(`[Backfill] Found ${models.length} model(s) with empty visibilityScope`);
         for (const model of models) {
-            let scope = [];
-            if (model.visibility === 'TEAM' && model.createdByDept) {
-                scope = [model.createdByDept];
+            // creator의 departmentCode를 User 테이블에서 조회
+            let deptCode = '';
+            if (model.createdBy) {
+                const admin = await prisma.admin.findUnique({ where: { id: model.createdBy }, select: { loginid: true } });
+                if (admin?.loginid) {
+                    const user = await prisma.user.findUnique({ where: { loginid: admin.loginid }, select: { departmentCode: true } });
+                    deptCode = user?.departmentCode || '';
+                }
             }
-            else if (model.visibility === 'BUSINESS_UNIT') {
-                const bu = model.createdByBusinessUnit || extractBusinessUnit(model.createdByDept || '');
-                if (bu)
-                    scope = [bu];
+            // fallback: createdByDept로 OrgNode 조회
+            if (!deptCode && model.createdByDept) {
+                const org = await prisma.orgNode.findFirst({
+                    where: { departmentName: model.createdByDept },
+                    select: { departmentCode: true },
+                });
+                deptCode = org?.departmentCode || '';
             }
-            if (scope.length > 0) {
+            if (deptCode) {
                 await prisma.model.update({
                     where: { id: model.id },
-                    data: { visibilityScope: scope },
+                    data: { visibilityScope: [deptCode] },
                 });
-                console.log(`[Backfill] Updated model "${model.displayName}" (${model.visibility}): scope = [${scope.join(', ')}]`);
+                console.log(`[Backfill] Updated model "${model.displayName}" (${model.visibility}): scope = [${deptCode}]`);
             }
         }
     }
@@ -253,7 +318,7 @@ async function backfillServiceHierarchy() {
                     continue;
                 }
                 // 3. 조직 계층 조회 (캐시 또는 API)
-                const hierarchy = await getDepartmentHierarchy(departmentCode, deptName, enDeptName);
+                const hierarchy = await getHierarchyFromOrgTree(departmentCode);
                 if (hierarchy) {
                     await prisma.service.update({
                         where: { id: svc.id },
@@ -286,11 +351,18 @@ async function main() {
         await backfillEmptyVisibilityScope();
         // departmentCode 미수집 사용자 Knox 인증 리셋 (DB 쿼리만, 빠름)
         await resetKnoxForMissingDeptCode();
+        // OrgNode 조상 캐시 초기화 (visibilityScope/deployScope 매칭용)
+        const { loadOrgAncestorCache } = await import('./services/orgAncestorCache.js');
+        await loadOrgAncestorCache();
         // 만료 이미지 자동 삭제 (1시간마다)
         startImageCleanupCron();
+        // health_check_logs의 model_name 스냅샷을 현재 displayName으로 일괄 갱신
+        await syncHealthCheckModelNames();
         // LLM 헬스체크 (10분마다)
         startHealthCheckCron();
         startAiEstimationCron();
+        startGpuMonitorCron();
+        startGpuCapacityPredictionCron();
         const server = app.listen(PORT, () => {
             console.log(`Agent Registry API server running on port ${PORT}`);
             // 서비스 조직 계층 backfill — 서버 시작 후 비동기 실행

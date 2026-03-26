@@ -386,6 +386,9 @@ const modelSchema = z.object({
 adminRoutes.get('/models', async (req, res) => {
     try {
         const models = await prisma.model.findMany({
+            where: {
+                endpointUrl: { not: 'external://auto-created' },
+            },
             include: {
                 creator: {
                     select: { loginid: true },
@@ -407,7 +410,7 @@ adminRoutes.get('/models', async (req, res) => {
                 // SUPER_ADMIN_ONLY models are only visible to super admins
                 if (m.visibility === 'SUPER_ADMIN_ONLY')
                     return false;
-                return isModelVisibleTo({ visibility: m.visibility, visibilityScope: m.visibilityScope, adminVisible: m.adminVisible }, req.adminDept || '', req.adminBusinessUnit || '', true);
+                return isModelVisibleTo({ visibility: m.visibility, visibilityScope: m.visibilityScope, adminVisible: m.adminVisible }, req.adminDeptCode || '', true);
             });
         }
         // Mask API keys (parent and subModels)
@@ -623,10 +626,6 @@ adminRoutes.delete('/models/:id', requireSuperAdmin, async (req, res) => {
             });
             console.log(`Force deleted ${usageCount} usage logs for model ${id}`);
         }
-        // Also delete daily_usage_stats
-        await prisma.dailyUsageStat.deleteMany({
-            where: { modelId: id },
-        });
         await prisma.model.delete({
             where: { id },
         });
@@ -667,7 +666,7 @@ adminRoutes.get('/models/:modelId/sub-models', async (req, res) => {
         }
         // Check visibility for non-super admins
         if (!req.isSuperAdmin) {
-            if (!isModelVisibleTo({ visibility: model.visibility, visibilityScope: model.visibilityScope, adminVisible: model.adminVisible }, req.adminDept || '', req.adminBusinessUnit || '', true)) {
+            if (!isModelVisibleTo({ visibility: model.visibility, visibilityScope: model.visibilityScope, adminVisible: model.adminVisible }, req.adminDeptCode || '', true)) {
                 res.status(403).json({ error: 'No access to this model' });
                 return;
             }
@@ -2257,7 +2256,7 @@ adminRoutes.get('/stats/overview', async (req, res) => {
                 },
             }),
             prisma.model.count({
-                where: { enabled: true },
+                where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
             }),
         ]);
         // 서비스별 today's usage (DB에서 계산)
@@ -2275,11 +2274,11 @@ adminRoutes.get('/stats/overview', async (req, res) => {
                     inputTokens: true,
                     outputTokens: true,
                     totalTokens: true,
+                    requestCount: true,
                 },
-                _count: true,
             });
             serviceTodayUsage = {
-                requests: todayStats._count,
+                requests: todayStats._sum?.requestCount || 0,
                 inputTokens: todayStats._sum.inputTokens || 0,
                 outputTokens: todayStats._sum.outputTokens || 0,
             };
@@ -2328,7 +2327,7 @@ adminRoutes.get('/stats/daily', async (req, res) => {
         DATE(ul.timestamp) as date,
         COALESCE(SUM(ul."inputTokens"), 0) as total_input,
         COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COUNT(*) as req_count
+        COALESCE(SUM(request_count), 0) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
       ${whereClause}
@@ -2479,7 +2478,7 @@ adminRoutes.get('/stats/by-dept', async (req, res) => {
         COALESCE(u.deptname, 'Unknown') as deptname,
         COALESCE(SUM(ul."inputTokens"), 0) as total_input,
         COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COUNT(*) as req_count
+        COALESCE(SUM(request_count), 0) as req_count
       FROM usage_logs ul
       LEFT JOIN users u ON ul.user_id = u.id
       ${whereClause}
@@ -2950,7 +2949,7 @@ adminRoutes.get('/stats/latency/history', async (req, res) => {
         m.id as model_id,
         m."displayName" as model_name,
         AVG(ul.latency_ms) as avg_latency,
-        COUNT(*) as request_count
+        COALESCE(SUM(request_count), 0) as request_count
       FROM usage_logs ul
       INNER JOIN services s ON ul.service_id = s.id
       INNER JOIN models m ON ul.model_id = m.id
@@ -3013,20 +3012,25 @@ adminRoutes.get('/stats/latency/healthcheck', async (req, res) => {
             where: { checkedAt: { gte: startTime } },
             orderBy: { checkedAt: 'asc' },
             select: {
-                modelName: true,
+                modelId: true,
                 latencyMs: true,
                 success: true,
                 statusCode: true,
                 errorMessage: true,
                 checkedAt: true,
+                model: { select: { displayName: true } },
             },
         });
-        // 모델별로 그룹핑
+        // 모델별로 그룹핑 (현재 displayName 기준)
         const grouped = {};
         for (const c of checks) {
-            if (!grouped[c.modelName])
-                grouped[c.modelName] = [];
-            grouped[c.modelName].push({
+            // 시계 변경 등으로 음수/비정상 latency 필터링
+            if (c.latencyMs != null && c.latencyMs < 0)
+                continue;
+            const displayName = c.model.displayName;
+            if (!grouped[displayName])
+                grouped[displayName] = [];
+            grouped[displayName].push({
                 time: c.checkedAt.toISOString(),
                 latency: c.latencyMs,
                 success: c.success,
@@ -3038,6 +3042,233 @@ adminRoutes.get('/stats/latency/healthcheck', async (req, res) => {
     catch (error) {
         console.error('Get healthcheck history error:', error);
         res.status(500).json({ error: 'Failed to get healthcheck history' });
+    }
+});
+/**
+ * GET /admin/stats/latency/trend
+ * 응답 지연 추이 (일별/주별/월별)
+ * Query: ?granularity=daily|weekly|monthly (기본 daily)
+ *        &days=30 (기본 30, 주별 시 84, 월별 시 180)
+ * 헬스체크(프로빙) + 실사용 데이터 모두 반환
+ */
+adminRoutes.get('/stats/latency/trend', async (req, res) => {
+    try {
+        const granularity = req.query['granularity'] || 'daily';
+        const defaultDays = granularity === 'monthly' ? 180 : granularity === 'weekly' ? 84 : 30;
+        const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || defaultDays));
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        startDate.setHours(0, 0, 0, 0);
+        // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
+        const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
+        // 1. 헬스체크 프로빙 추이 (현재 displayName 기준 JOIN)
+        const hcTrend = await prisma.$queryRawUnsafe(`SELECT
+        date_trunc($1, h.checked_at) as period,
+        m."displayName" as model_name,
+        AVG(h.latency_ms) as avg_latency,
+        COUNT(*) FILTER (WHERE h.success = true) as success_count,
+        COUNT(*) as total_count
+      FROM health_check_logs h
+      INNER JOIN models m ON h.model_id = m.id
+      WHERE h.checked_at >= $2
+      GROUP BY period, m."displayName"
+      ORDER BY period, m."displayName"`, trunc, startDate);
+        // 2. 실사용 기반 추이
+        const usageTrend = await prisma.$queryRawUnsafe(`SELECT
+        date_trunc($1, ul.timestamp) as period,
+        m."displayName" as model_name,
+        AVG(ul.latency_ms) as avg_latency,
+        COUNT(*) as request_count
+      FROM usage_logs ul
+      INNER JOIN models m ON ul.model_id = m.id
+      WHERE ul.latency_ms IS NOT NULL
+        AND ul.timestamp >= $2
+      GROUP BY period, m."displayName"
+      ORDER BY period, m."displayName"`, trunc, startDate);
+        // 그룹핑
+        const formatPeriod = (d) => {
+            if (granularity === 'monthly')
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            return d.toISOString().split('T')[0];
+        };
+        const healthcheck = {};
+        for (const row of hcTrend) {
+            const key = row.model_name;
+            if (!healthcheck[key])
+                healthcheck[key] = [];
+            healthcheck[key].push({
+                period: formatPeriod(row.period),
+                avgLatency: Math.round(row.avg_latency),
+                successRate: Number(row.total_count) > 0 ? Math.round(Number(row.success_count) / Number(row.total_count) * 100) : 0,
+                count: Number(row.total_count),
+            });
+        }
+        const usage = {};
+        for (const row of usageTrend) {
+            const key = row.model_name;
+            if (!usage[key])
+                usage[key] = [];
+            usage[key].push({
+                period: formatPeriod(row.period),
+                avgLatency: Math.round(row.avg_latency),
+                count: Number(row.request_count),
+            });
+        }
+        res.json({ healthcheck, usage, granularity, days });
+    }
+    catch (error) {
+        console.error('Get latency trend error:', error);
+        res.status(500).json({ error: 'Failed to get latency trend' });
+    }
+});
+/**
+ * GET /admin/stats/error-rate
+ * 모델별 일별 에러 빈도 (timeout, 5xx, 기타) — 최근 N 영업일
+ * Query: ?days=10 (기본 10, 영업일 기준 조회를 위해 약 days*2 달력일 조회)
+ */
+adminRoutes.get('/stats/error-rate', async (req, res) => {
+    try {
+        const days = Math.min(60, Math.max(1, parseInt(req.query['days']) || 10));
+        // 영업일 10일 ≈ 달력일 약 14일. 넉넉하게 days*2 달력일 조회
+        const calendarDays = days * 2;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - calendarDays);
+        startDate.setHours(0, 0, 0, 0);
+        // 일별 + 모델별 + 에러유형별 집계
+        const rows = await prisma.$queryRawUnsafe(`SELECT
+        date_trunc('day', r.timestamp) as day,
+        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
+          WHEN r.status_code = 500 THEN '500'
+          WHEN r.status_code = 502 THEN '502'
+          WHEN r.status_code = 503 THEN '503'
+          WHEN r.status_code = 504 THEN '504'
+          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+          ELSE 'Other'
+        END as error_type,
+        COUNT(*) as cnt
+      FROM request_logs r
+      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+      WHERE r.status_code != 200
+        AND r.timestamp >= $1
+      GROUP BY day, COALESCE(m."displayName", r.resolved_model, r.model_name), error_type
+      ORDER BY day, model_name, error_type`, startDate);
+        const dayMap = new Map();
+        for (const row of rows) {
+            const dayStr = row.day.toISOString().split('T')[0]; // YYYY-MM-DD
+            if (!dayMap.has(dayStr))
+                dayMap.set(dayStr, { day: dayStr, byModel: {} });
+            const entry = dayMap.get(dayStr);
+            if (!entry.byModel[row.model_name])
+                entry.byModel[row.model_name] = {};
+            entry.byModel[row.model_name][row.error_type] = Number(row.cnt);
+        }
+        const daily = [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
+        // 모델별 대표 에러 원인 조회
+        const topErrors = await prisma.$queryRawUnsafe(`SELECT
+        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
+          WHEN r.status_code = 500 THEN '500'
+          WHEN r.status_code = 502 THEN '502'
+          WHEN r.status_code = 503 THEN '503'
+          WHEN r.status_code = 504 THEN '504'
+          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+          ELSE 'Other'
+        END as error_type,
+        CASE
+          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'LLM 응답 시간 초과'
+          WHEN r.error_message ILIKE '%ECONNREFUSED%' THEN '엔드포인트 연결 거부'
+          WHEN r.error_message ILIKE '%ECONNRESET%' THEN '연결 초기화됨'
+          WHEN r.error_message ILIKE '%ENOTFOUND%' THEN 'DNS 조회 실패'
+          WHEN r.error_message ILIKE '%fetch failed%' THEN '네트워크 연결 실패'
+          WHEN r.error_message ILIKE '%rate limit%' THEN 'Rate Limit 초과'
+          WHEN r.error_message ILIKE '%unauthorized%' OR r.status_code = 401 THEN '인증 실패'
+          WHEN r.error_message ILIKE '%forbidden%' OR r.status_code = 403 THEN '접근 거부'
+          WHEN r.error_message ILIKE '%not found%' OR r.status_code = 404 THEN '리소스 없음'
+          WHEN r.error_message ILIKE '%bad gateway%' OR r.status_code = 502 THEN 'Bad Gateway'
+          WHEN r.error_message ILIKE '%service unavailable%' OR r.status_code = 503 THEN '서비스 일시 중단'
+          WHEN r.error_message ILIKE '%gateway timeout%' OR r.status_code = 504 THEN 'Gateway Timeout'
+          WHEN r.status_code = 500 THEN 'Internal Server Error'
+          ELSE '기타 에러'
+        END as error_cause,
+        COUNT(*) as cnt
+      FROM request_logs r
+      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+      WHERE r.status_code != 200
+        AND r.timestamp >= $1
+      GROUP BY COALESCE(m."displayName", r.resolved_model, r.model_name), error_type, error_cause
+      ORDER BY COALESCE(m."displayName", r.resolved_model, r.model_name), cnt DESC`, startDate);
+        // 모델별 에러 유형 분류
+        const modelErrorTypes = {};
+        for (const row of topErrors) {
+            const key = row.model_name;
+            if (!modelErrorTypes[key])
+                modelErrorTypes[key] = [];
+            modelErrorTypes[key].push({
+                type: row.error_type,
+                cause: row.error_cause,
+                count: Number(row.cnt),
+            });
+        }
+        // 모델별 총계
+        const modelTotals = {};
+        for (const entry of daily) {
+            for (const [model, types] of Object.entries(entry.byModel)) {
+                if (!modelTotals[model])
+                    modelTotals[model] = {};
+                for (const [type, cnt] of Object.entries(types)) {
+                    modelTotals[model][type] = (modelTotals[model][type] || 0) + cnt;
+                }
+            }
+        }
+        const summary = Object.entries(modelTotals).map(([model, types]) => ({
+            model,
+            totalErrors: Object.values(types).reduce((s, c) => s + c, 0),
+            errorTypes: (modelErrorTypes[model] || []),
+            byType: types,
+        })).sort((a, b) => b.totalErrors - a.totalErrors);
+        res.json({ daily, summary, days });
+    }
+    catch (error) {
+        console.error('Get error rate error:', error);
+        res.status(500).json({ error: 'Failed to get error rate' });
+    }
+});
+/**
+ * GET /admin/stats/health-status
+ * 모델별 최신 헬스체크 결과 (모델 관리 UI + 대시보드용)
+ */
+adminRoutes.get('/stats/health-status', async (req, res) => {
+    try {
+        // PostgreSQL DISTINCT ON: 모델별 최신 1건 (현재 displayName JOIN)
+        const latestChecks = await prisma.$queryRaw `
+      SELECT DISTINCT ON (h.model_id)
+        h.model_id, m."displayName" as model_name,
+        h.latency_ms, h.success, h.error_message, h.checked_at
+      FROM health_check_logs h
+      INNER JOIN models m ON h.model_id = m.id
+      ORDER BY h.model_id, h.checked_at DESC
+    `;
+        const totalEnabled = await prisma.model.count({
+            where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+        });
+        const statuses = {};
+        for (const c of latestChecks) {
+            statuses[c.model_id] = {
+                modelName: c.model_name,
+                success: c.success,
+                latencyMs: c.latency_ms,
+                checkedAt: c.checked_at.toISOString(),
+                errorMessage: c.error_message,
+            };
+        }
+        res.json({ statuses, totalEnabledModels: totalEnabled });
+    }
+    catch (error) {
+        console.error('Get health status error:', error);
+        res.status(500).json({ error: 'Failed to get health status' });
     }
 });
 // ==================== Global Statistics (전체 서비스 통합) ====================
@@ -3074,12 +3305,13 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
                     },
                 }).then((r) => r.length),
                 // Today's requests
-                prisma.usageLog.count({
+                prisma.usageLog.aggregate({
                     where: {
                         serviceId: service.id,
                         timestamp: { gte: todayStart },
                     },
-                }),
+                    _sum: { requestCount: true },
+                }).then((r) => r._sum.requestCount || 0),
                 // Today's active users (distinct)
                 prisma.$queryRaw `
             SELECT COUNT(DISTINCT ul.user_id) as count
@@ -3126,9 +3358,10 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
                     _sum: { totalTokens: true },
                 }).then((r) => r._sum.totalTokens || 0),
                 // Total requests (cumulative)
-                prisma.usageLog.count({
+                prisma.usageLog.aggregate({
                     where: { serviceId: service.id },
-                }),
+                    _sum: { requestCount: true },
+                }).then((r) => r._sum.requestCount || 0),
             ]);
             return {
                 serviceId: service.id,
@@ -3228,7 +3461,7 @@ adminRoutes.get('/stats/global/by-service', async (req, res) => {
         });
         // Get daily stats per service
         const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COUNT(*) as req_count
+      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COALESCE(SUM(request_count), 0) as req_count
       FROM usage_logs
       WHERE timestamp >= ${startDate}
         AND service_id IS NOT NULL
@@ -3363,7 +3596,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
         SELECT
           service_id::text as service_id,
           DATE(timestamp) as log_date,
-          COUNT(*) as call_count
+          COALESCE(SUM(request_count), 0) as call_count
         FROM usage_logs
         WHERE timestamp >= ${startDate}
           AND service_id::text = ANY(${backgroundServiceIds})
@@ -3931,7 +4164,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
         startDate.setHours(0, 0, 0, 0);
         // 1. Get top N dept+service combinations by request count
         const topCombos = await prisma.$queryRaw `
-      SELECT u.business_unit, s.name as service_name, COUNT(*) as request_count
+      SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       INNER JOIN services s ON ul.service_id = s.id
@@ -3948,7 +4181,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
         const topServices = [...new Set(topCombos.map(c => c.service_name))];
         // 2. Get daily requests for top business units and services
         const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COUNT(*) as requests
+      SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       INNER JOIN services s ON ul.service_id = s.id
@@ -4117,16 +4350,16 @@ adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req, res) =
             where: { enabled: true },
             select: { id: true, name: true, displayName: true },
         });
-        // Get daily token sums per service from DailyUsageStat
+        // Get daily token sums per service from usage_logs
         const dailyTokens = await prisma.$queryRaw `
       SELECT
-        date,
+        DATE(timestamp) as date,
         service_id::text as service_id,
-        SUM("totalInputTokens" + "totalOutputTokens") as total_tokens
-      FROM daily_usage_stats
+        SUM("inputTokens" + "outputTokens") as total_tokens
+      FROM usage_logs
       WHERE service_id IS NOT NULL
-      GROUP BY date, service_id
-      ORDER BY date ASC
+      GROUP BY DATE(timestamp), service_id
+      ORDER BY DATE(timestamp) ASC
     `;
         // Build date range
         const dateRange = [];
@@ -4200,40 +4433,40 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
         // STANDARD DAU: Count distinct userIds per (date, service)
         const dauStats = await prisma.$queryRaw `
       SELECT
-        date,
+        DATE(timestamp) as date,
         service_id::text as service_id,
         COUNT(DISTINCT user_id) as dau
-      FROM daily_usage_stats
+      FROM usage_logs
       WHERE service_id IS NOT NULL
         AND user_id IS NOT NULL
-        AND date >= ${startDate}
-      GROUP BY date, service_id
-      ORDER BY date ASC
+        AND timestamp >= ${startDate}
+      GROUP BY DATE(timestamp), service_id
+      ORDER BY DATE(timestamp) ASC
     `;
         // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
         const [baselineDailyRes, baselineDauRes] = await Promise.all([
             prisma.$queryRaw `
         WITH daily_calls AS (
-          SELECT date, SUM("requestCount") as cnt
-          FROM daily_usage_stats
+          SELECT DATE(timestamp) as d, SUM(request_count) as cnt
+          FROM usage_logs
           WHERE service_id::text = ANY(${standardServiceIds})
-            AND date >= ${startDate}
-            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
-          GROUP BY date
+            AND timestamp >= ${startDate}
+            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
+          GROUP BY DATE(timestamp)
         )
         SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
       `,
             prisma.$queryRaw `
         WITH daily_dau AS (
-          SELECT date, COUNT(DISTINCT user_id) as dau
-          FROM daily_usage_stats
+          SELECT DATE(timestamp) as d, COUNT(DISTINCT user_id) as dau
+          FROM usage_logs
           WHERE service_id::text = ANY(${standardServiceIds})
             AND user_id IS NOT NULL
-            AND date >= ${startDate}
-            AND EXTRACT(DOW FROM date) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = daily_usage_stats.date)
-          GROUP BY date
+            AND timestamp >= ${startDate}
+            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
+          GROUP BY DATE(timestamp)
         )
         SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
       `,
@@ -4243,12 +4476,12 @@ adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
         const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
         // BACKGROUND services: daily total calls (all days)
         const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
-      SELECT date, service_id::text as service_id, SUM("requestCount") as total_calls
-      FROM daily_usage_stats
+      SELECT DATE(timestamp) as date, service_id::text as service_id, SUM(request_count) as total_calls
+      FROM usage_logs
       WHERE service_id::text = ANY(${backgroundServiceIds})
-        AND date >= ${startDate}
-      GROUP BY date, service_id
-      ORDER BY date ASC
+        AND timestamp >= ${startDate}
+      GROUP BY DATE(timestamp), service_id
+      ORDER BY DATE(timestamp) ASC
     ` : [];
         // Build date range
         const dateRange = [];
@@ -4321,14 +4554,14 @@ adminRoutes.get('/stats/global/dept-usage-by-service', async (req, res) => {
         d.service_id::text as service_id,
         s."displayName" as service_display_name,
         d.deptname,
-        SUM(d."totalInputTokens" + d."totalOutputTokens") as total_tokens,
-        SUM(d."requestCount") as request_count
-      FROM daily_usage_stats d
+        SUM(d."inputTokens" + d."outputTokens") as total_tokens,
+        SUM(d.request_count) as request_count
+      FROM usage_logs d
       INNER JOIN services s ON d.service_id = s.id
       WHERE d.service_id IS NOT NULL
         AND d.deptname IS NOT NULL
         AND d.deptname != ''
-        AND d.date >= ${startDate}
+        AND d.timestamp >= ${startDate}
       GROUP BY d.service_id, s."displayName", d.deptname
       ORDER BY total_tokens DESC
       LIMIT ${topN}
@@ -4364,17 +4597,17 @@ adminRoutes.get('/stats/global/service-daily-requests', async (req, res) => {
             where: { enabled: true },
             select: { id: true, name: true, displayName: true },
         });
-        // Sum requestCount per (date, service) from DailyUsageStat
+        // Sum request_count per (date, service) from usage_logs
         const requestStats = await prisma.$queryRaw `
       SELECT
-        date,
+        DATE(timestamp) as date,
         service_id::text as service_id,
-        SUM("requestCount") as request_count
-      FROM daily_usage_stats
+        SUM(request_count) as request_count
+      FROM usage_logs
       WHERE service_id IS NOT NULL
-        AND date >= ${startDate}
-      GROUP BY date, service_id
-      ORDER BY date ASC
+        AND timestamp >= ${startDate}
+      GROUP BY DATE(timestamp), service_id
+      ORDER BY DATE(timestamp) ASC
     `;
         // Build date range
         const dateRange = [];
@@ -4477,11 +4710,38 @@ adminRoutes.get('/scope/departments', async (_req, res) => {
         res.status(500).json({ error: 'Failed to get departments' });
     }
 });
+/**
+ * GET /admin/scope/org-tree
+ * 공개범위 설정용 조직도 트리 (ADMIN 이상)
+ */
+adminRoutes.get('/scope/org-tree', async (_req, res) => {
+    try {
+        const nodes = await prisma.orgNode.findMany({
+            select: {
+                departmentCode: true,
+                departmentName: true,
+                enDepartmentName: true,
+                parentDepartmentCode: true,
+                hasChildren: true,
+                userCount: true,
+            },
+            orderBy: [
+                { departmentLevel: 'asc' },
+                { departmentName: 'asc' },
+            ],
+        });
+        res.json({ nodes });
+    }
+    catch (error) {
+        console.error('Failed to get scope org-tree:', error);
+        res.status(500).json({ error: 'Failed to get organization tree for scope' });
+    }
+});
 // ==================== User Deletion (Record Purge) ====================
 /**
  * DELETE /admin/users/:id
  * 사용자 기록 말소 (SUPER_ADMIN only)
- * cascade로 UsageLog, DailyUsageStat, UserService, UserRateLimit 모두 삭제
+ * cascade로 UsageLog, UserService, UserRateLimit 모두 삭제
  */
 adminRoutes.delete('/users/:id', async (req, res) => {
     try {
@@ -4502,7 +4762,7 @@ adminRoutes.delete('/users/:id', async (req, res) => {
         }
         // Admin 레코드도 삭제 (존재하면)
         await prisma.admin.deleteMany({ where: { loginid: user.loginid } });
-        // User 삭제 (cascade: UsageLog, DailyUsageStat, UserService, UserRateLimit)
+        // User 삭제 (cascade: UsageLog, UserService, UserRateLimit)
         await prisma.user.delete({ where: { id } });
         console.log(`[User Delete] ${req.user.loginid} deleted user ${user.loginid} (${user.username})`);
         res.json({

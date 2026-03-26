@@ -11,6 +11,7 @@
  */
 import jwt from 'jsonwebtoken';
 import { prisma } from '../index.js';
+import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 const JWT_SECRET = process.env['JWT_SECRET'] || 'your-jwt-secret-change-in-production';
 // 하드코딩된 Super Admin 목록
 const HARDCODED_SUPER_ADMINS = ['syngha.han', 'young87.kim', 'byeongju.lee'];
@@ -99,6 +100,12 @@ export async function requireAdmin(req, res, next) {
         return;
     }
     try {
+        // 사용자의 departmentCode 조회 (visibilityScope 매칭용)
+        const userRecord = await prisma.user.findUnique({
+            where: { loginid: req.user.loginid },
+            select: { departmentCode: true },
+        });
+        req.adminDeptCode = userRecord?.departmentCode || '';
         // 1. 하드코딩/환경변수 Super Admin 체크
         if (isSuperAdminByEnv(req.user.loginid)) {
             req.isAdmin = true;
@@ -114,6 +121,11 @@ export async function requireAdmin(req, res, next) {
             where: { loginid: req.user.loginid },
         });
         if (!admin) {
+            // /stats/ 경로는 인증된 사용자 누구나 접근 가능 (통계 조회)
+            if (req.path.startsWith('/stats/')) {
+                next();
+                return;
+            }
             res.status(403).json({ error: 'Admin access required' });
             return;
         }
@@ -166,8 +178,12 @@ export async function requireSuperAdmin(req, res, next) {
 }
 /**
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
+ *
+ * visibilityScope는 departmentCode 배열:
+ * - TEAM: 사용자의 departmentCode가 scope에 포함되면 허용
+ * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용
  */
-export function isModelVisibleTo(model, userDept, userBU, isAdmin) {
+export function isModelVisibleTo(model, userDeptCode, isAdmin) {
     // adminVisible: true → 모든 관리자(ADMIN + SUPER_ADMIN) 접근 허용 (scope 무관)
     if (model.adminVisible === true && isAdmin)
         return true;
@@ -175,9 +191,9 @@ export function isModelVisibleTo(model, userDept, userBU, isAdmin) {
         case 'PUBLIC':
             return true;
         case 'BUSINESS_UNIT':
-            return model.visibilityScope.includes(userBU);
+            return isUnderAnyScope(userDeptCode, model.visibilityScope);
         case 'TEAM':
-            return model.visibilityScope.includes(userDept);
+            return model.visibilityScope.includes(userDeptCode);
         case 'ADMIN_ONLY':
             return isAdmin;
         case 'SUPER_ADMIN_ONLY':

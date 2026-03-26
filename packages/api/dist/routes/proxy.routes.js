@@ -12,8 +12,10 @@ import { Router } from 'express';
 import path from 'node:path';
 import multer from 'multer';
 import { prisma, redis } from '../index.js';
+import { logErrorToRequestLog } from '../services/requestLog.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
-import { validateProxyHeaders } from '../middleware/proxyAuth.js';
+import { validateProxyHeaders, checkDeployScope } from '../middleware/proxyAuth.js';
+import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -84,16 +86,19 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
     try {
         const modelName = req.body?.model;
         if (!modelName) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model is required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/audio/transcriptions' }).catch(() => { });
             res.status(400).json({ error: 'model is required' });
             return;
         }
         if (!req.file) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'audio file is required (field: "file")', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/audio/transcriptions' }).catch(() => { });
             res.status(400).json({ error: 'audio file is required (field: "file")' });
             return;
         }
         // 모델 조회: 서비스 alias 기반
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
+            logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/audio/transcriptions' }).catch(() => { });
             res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
@@ -122,14 +127,15 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
-        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
-        let lastError;
+        const cfgRetries = resolved.maxRetries || 0;
+        const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+        const asrFailoverAttempts = [];
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
                 if (isSingleEndpoint) {
-                    console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    console.log(`[Retry] ASR model "${model.name}" retry ${attempt}/${cfgRetries}`);
                     await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
                 }
                 else {
@@ -172,6 +178,7 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
             }
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), ASR_TIMEOUT_MS);
+            const attemptStart = Date.now();
             try {
                 const response = await fetch(url, {
                     method: 'POST',
@@ -180,7 +187,7 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
                     signal: controller.signal,
                 });
                 clearTimeout(timeoutId);
-                const latencyMs = Date.now() - startTime;
+                const latencyMs = Date.now() - attemptStart;
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error(`[LLM-Error] ASR | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
@@ -196,17 +203,26 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
                         return;
                     }
                     console.error(`[Failover] ASR endpoint ${url} returned ${response.status}`);
-                    lastError = errorText;
+                    asrFailoverAttempts.push({
+                        endpoint: url,
+                        attempt: attempt + 1,
+                        statusCode: response.status,
+                        errorType: 'http_5xx',
+                        errorMessage: errorText.substring(0, 1000),
+                        latencyMs,
+                        modelName: model.name,
+                    });
                     continue;
                 }
                 // 성공
                 const responseText = await response.text();
+                const latencyMsTotal = Date.now() - startTime;
                 // Usage: Whisper 호환 API는 토큰 미반환 → 요청 건수 + latency로 추적
-                recordUsage(user?.id || null, user?.loginid || null, model.id, 0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
+                recordUsage(user?.id || null, user?.loginid || null, model.id, 0, 0, proxyReq.serviceId, proxyReq.deptName, latencyMsTotal, model.name, proxyReq.serviceName).catch(console.error);
                 recordRequestLog({
                     serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
                     modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions',
-                    statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
+                    statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs: latencyMsTotal,
                     userAgent, ipAddress, stream: false,
                 }).catch(() => { });
                 res.setHeader('Content-Type', 'application/json');
@@ -215,15 +231,29 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
             }
             catch (error) {
                 clearTimeout(timeoutId);
-                console.error(`[Failover] ASR endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
-                lastError = error instanceof Error ? error.message : 'Connection failed';
+                const latencyMs = Date.now() - attemptStart;
+                const isTimeout = error instanceof Error && error.name === 'AbortError';
+                const errMsg = error instanceof Error ? error.message : 'Connection failed';
+                console.error(`[Failover] ASR endpoint ${url} connection failed:`, errMsg);
+                asrFailoverAttempts.push({
+                    endpoint: url,
+                    attempt: attempt + 1,
+                    statusCode: null,
+                    errorType: isTimeout ? 'timeout' : 'connection',
+                    errorMessage: isTimeout ? `Timeout after ${ASR_TIMEOUT_MS}ms` : errMsg,
+                    latencyMs,
+                    modelName: model.name,
+                });
                 continue;
             }
         }
         // 모든 시도 실패
-        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
         console.error(`[Failover] ${label} failed for ASR model "${model.name}"`);
-        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: `All endpoints failed: ${lastError}`, userAgent, ipAddress, stream: false }).catch(() => { });
+        const asrPrimaryError = asrFailoverAttempts[0];
+        const asrErrorTypeSummary = asrFailoverAttempts.map(a => a.errorType).join(', ');
+        const asrSummaryMessage = `All endpoints failed (${asrErrorTypeSummary}): ${asrPrimaryError?.errorMessage || 'unknown'}`;
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: asrSummaryMessage.substring(0, 2000), errorDetails: { totalAttempts: asrFailoverAttempts.length, attempts: asrFailoverAttempts, timeoutMs: ASR_TIMEOUT_MS }, userAgent, ipAddress, stream: false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
             message: `Failed ${label}. Please try again later.`,
@@ -231,6 +261,7 @@ proxyRoutes.post('/audio/transcriptions', asrUpload.single('file'), validateProx
     }
     catch (error) {
         console.error('ASR transcription proxy error:', error);
+        logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process audio transcription request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/audio/transcriptions', latencyMs: Date.now() - startTime }).catch(() => { });
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to process audio transcription request' });
         }
@@ -251,7 +282,7 @@ proxyRoutes.use('/audio/transcriptions', ((err, _req, res, next) => {
 // 모든 /v1/* 요청에 헤더 검증 미들웨어 적용 (위의 이미지 서빙, 오디오 전사 제외)
 proxyRoutes.use(validateProxyHeaders);
 // 단일 엔드포인트 5xx retry 설정
-const SINGLE_ENDPOINT_MAX_RETRIES = 3;
+// maxRetries는 ServiceModel.maxRetries에서 alias 그룹 단위로 설정 (기본 0)
 const SINGLE_ENDPOINT_RETRY_DELAY_MS = 500; // 500ms → 1000ms → 1500ms (linear backoff)
 async function getModelEndpoints(modelId, parentEndpoint) {
     const subModels = await prisma.subModel.findMany({
@@ -298,13 +329,6 @@ async function getRoundRobinIndex(modelId, endpointCount) {
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-/**
- * Service-level round-robin: aliasName 기반 모델 해석
- * 서비스에 등록된 ServiceModel 중 aliasName이 일치하는 모델들을
- * weight 기반 라운드로빈으로 선택한다.
- *
- * 서비스에 등록된 alias 이름으로만 호출 가능. 전역 fallback 없음.
- */
 async function resolveModelWithServiceRR(serviceId, modelName) {
     // aliasName으로 매칭하는 ServiceModel 조회 (유일한 경로)
     const serviceModels = await prisma.serviceModel.findMany({
@@ -319,11 +343,15 @@ async function resolveModelWithServiceRR(serviceId, modelName) {
     });
     // alias 매칭 없음 → 모델 없음 (전역 fallback 없음)
     if (serviceModels.length === 0) {
-        return { found: false, model: null };
+        return { found: false, model: null, fallbackModelId: null, maxRetries: 0 };
     }
+    // 그룹의 fallbackModelId (첫 번째 non-null 사용)
+    const fallbackModelId = serviceModels.find(sm => sm.fallbackModelId)?.fallbackModelId || null;
+    // 그룹의 maxRetries (첫 번째 값 사용, 기본 0)
+    const maxRetries = serviceModels[0]?.maxRetries ?? 0;
     // 하나만 매칭 → 그대로 사용
     if (serviceModels.length === 1) {
-        return { found: true, model: serviceModels[0].model };
+        return { found: true, model: serviceModels[0].model, fallbackModelId, maxRetries };
     }
     // 여러 개 매칭 → weight 기반 라운드로빈
     const weightedModels = [];
@@ -339,12 +367,20 @@ async function resolveModelWithServiceRR(serviceId, modelName) {
             await redis.expire(rrKey, 3600);
         const selected = weightedModels[(idx - 1) % weightedModels.length];
         console.log(`[ServiceRR] service=${serviceId} alias="${modelName}" → selected model.id=${selected.id} (${serviceModels.length} candidates, ${weightedModels.length} weighted slots, idx=${idx})`);
-        return { found: true, model: selected };
+        return { found: true, model: selected, fallbackModelId, maxRetries };
     }
     catch (error) {
         console.error('[ServiceRR] Redis error, falling back to first model:', error);
-        return { found: true, model: serviceModels[0].model };
+        return { found: true, model: serviceModels[0].model, fallbackModelId, maxRetries };
     }
+}
+/**
+ * Fallback 모델 resolve — 에러 시 fallbackModelId로 모델 조회
+ */
+async function resolveFallbackModel(fallbackModelId) {
+    return prisma.model.findFirst({
+        where: { id: fallbackModelId, enabled: true },
+    });
 }
 /**
  * URL 인코딩된 텍스트 디코딩
@@ -370,33 +406,55 @@ function safeDecodeURIComponent(text) {
  *   - DB에 있고 knoxVerified=false → Knox API 호출 → 인증+부서검증 → 마킹
  *   - DB에 없음 (최초) → Knox API 호출 → 인증+부서검증 → 생성+마킹
  */
+// Knox 부서 정보 재검증 주기 (7일)
+const KNOX_REVERIFY_TTL_SEC = 7 * 24 * 3600;
 async function getOrCreateUser(proxyReq, endpoint) {
     if (proxyReq.isBackground || !proxyReq.userLoginId)
         return { user: null };
     const loginid = proxyReq.userLoginId;
-    const deptname = proxyReq.deptName;
     const ipAddress = proxyReq.ip || proxyReq.headers['x-forwarded-for'] || undefined;
     // 1. DB에서 사용자 조회
     const existingUser = await prisma.user.findUnique({ where: { loginid } });
     if (existingUser && existingUser.knoxVerified) {
-        // ✅ 이미 Knox 인증 완료 → DB deptname vs 헤더 x-dept-name 비교
-        if (deptname && existingUser.deptname && deptname !== existingUser.deptname) {
-            // 팀명 fallback: "팀명(사업부)" 형식에서 팀명만 추출하여 비교
-            const extractTeamName = (d) => d.replace(/\(.*\)$/, '').trim();
-            const claimedTeam = extractTeamName(deptname);
-            const dbTeam = extractTeamName(existingUser.deptname);
-            if (claimedTeam !== dbTeam) {
-                return {
-                    user: null,
-                    error: {
-                        status: 403,
-                        body: {
-                            error: 'Department mismatch',
-                            message: `부서 정보가 등록된 정보와 다릅니다. 등록: "${existingUser.deptname}", 요청: "${deptname}". 부서 변경이 있었다면 관리자에게 재인증을 요청하세요.`,
-                        },
-                    },
-                };
+        // ── 주기적 Knox 재검증: 부서 변경 자동 감지 + 조직도 갱신 ──
+        // Redis TTL로 재검증 주기 관리 (기본 7일)
+        let reverified = false;
+        const reverifyKey = `knox:reverify:${loginid}`;
+        const needsReverification = redis ? !(await redis.get(reverifyKey).catch(() => null)) : false;
+        if (needsReverification) {
+            const result = await verifyAndRegisterUser(loginid, '', 'PROXY', endpoint, ipAddress);
+            if (result.success && result.user) {
+                // ✅ 재검증 성공 → 부서 변경 시 DB 자동 업데이트됨 (verifyAndRegisterUser 내부 upsert)
+                //    새 부서가 조직도에 없으면 discoverDepartment로 자동 등록
+                proxyReq.deptName = result.user.deptname || '';
+                proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+                proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+                // 재검증 후 최신 departmentCode 조회
+                const freshUser = await prisma.user.findUnique({ where: { id: result.user.id }, select: { departmentCode: true } });
+                proxyReq.userDeptCode = freshUser?.departmentCode || '';
+                reverified = true;
             }
+            else if (!result.success) {
+                // Knox 조회 실패: 퇴직/비활성 or API 오류
+                // → 기존 인증 사용자는 즉시 차단하지 않고 경고 로그 (일시적 API 오류일 수 있음)
+                console.warn(`[Knox Re-verify] Failed for ${loginid}: ${result.error}`);
+            }
+            // 재검증 타이머 리셋 (성공/실패 무관, 다음 주기에 재시도)
+            if (redis) {
+                redis.set(reverifyKey, '1', 'EX', KNOX_REVERIFY_TTL_SEC).catch(() => { });
+            }
+        }
+        if (!reverified) {
+            // 재검증 안 했거나 실패 → 기존 DB 부서 정보 사용
+            proxyReq.deptName = existingUser.deptname || '';
+            proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+            proxyReq.businessUnit = existingUser.businessUnit || extractBusinessUnit(proxyReq.deptName);
+            proxyReq.userDeptCode = existingUser.departmentCode || '';
+        }
+        // 배포 범위 접근 제어 (부서 확정 후)
+        const scopeError = checkDeployScope(proxyReq.deployScope, proxyReq.deployScopeValue, proxyReq.userDeptCode, proxyReq.serviceName);
+        if (scopeError) {
+            return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
         }
         // lastActive 업데이트
         const user = await prisma.user.update({
@@ -405,8 +463,8 @@ async function getOrCreateUser(proxyReq, endpoint) {
         });
         return { user };
     }
-    // 2. 미인증 (knoxVerified=false) 또는 최초 사용자 → Knox API 인증
-    const result = await verifyAndRegisterUser(loginid, deptname, 'PROXY', endpoint, ipAddress);
+    // 2. 미인증 또는 최초 사용자 → Knox API 인증 (부서 자동 resolve)
+    const result = await verifyAndRegisterUser(loginid, '', 'PROXY', endpoint, ipAddress);
     if (!result.success) {
         return {
             user: null,
@@ -419,7 +477,24 @@ async function getOrCreateUser(proxyReq, endpoint) {
             },
         };
     }
-    // Knox 인증 성공 → user 리턴
+    // Knox 인증 성공 → proxyReq에 부서 정보 세팅
+    if (result.user) {
+        proxyReq.deptName = result.user.deptname || '';
+        proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+        proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+        // 최초 인증된 사용자의 departmentCode 조회
+        const newUser = await prisma.user.findUnique({ where: { id: result.user.id }, select: { departmentCode: true } });
+        proxyReq.userDeptCode = newUser?.departmentCode || '';
+    }
+    // 배포 범위 접근 제어 (부서 확정 후)
+    const scopeError = checkDeployScope(proxyReq.deployScope, proxyReq.deployScopeValue, proxyReq.userDeptCode, proxyReq.serviceName);
+    if (scopeError) {
+        return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
+    }
+    // Knox 인증 성공 → Redis 재검증 타이머 세팅
+    if (redis) {
+        redis.set(`knox:reverify:${loginid}`, '1', 'EX', KNOX_REVERIFY_TTL_SEC).catch(() => { });
+    }
     const user = result.user ? await prisma.user.findUnique({ where: { id: result.user.id } }) : null;
     return { user };
 }
@@ -547,6 +622,7 @@ async function recordRequestLog(params) {
                 outputTokens: params.outputTokens || null,
                 latencyMs: params.latencyMs || null,
                 errorMessage: params.errorMessage ? params.errorMessage.substring(0, 2000) : null,
+                errorDetails: params.errorDetails ? JSON.parse(JSON.stringify(params.errorDetails)) : undefined,
                 userAgent: params.userAgent || null,
                 ipAddress: params.ipAddress || null,
                 stream: params.stream || false,
@@ -718,14 +794,15 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
             console.log(`[RoundRobin] Model "${model.name}" has ${endpoints.length} endpoints (weighted), starting at index ${startIdx}`);
         }
         const isSingleEndpoint = endpoints.length === 1;
-        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
-        let lastFailoverError;
+        const cfgRetries = resolved.maxRetries || 0;
+        const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+        const failoverAttempts = [];
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
                 if (isSingleEndpoint) {
-                    console.log(`[Retry] Model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}: ${endpoint.endpointUrl}`);
+                    console.log(`[Retry] Model "${model.name}" retry ${attempt}/${cfgRetries}: ${endpoint.endpointUrl}`);
                     await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
                 }
                 else {
@@ -759,24 +836,77 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
                 }
             }
             const effectiveModel = { ...model, endpointUrl: endpoint.endpointUrl, apiKey: endpoint.apiKey };
-            let handled;
+            let result;
             if (stream) {
-                handled = await handleStreamingRequest(res, effectiveModel, llmRequestBody, headers, user, proxyReq);
+                result = await handleStreamingRequest(res, effectiveModel, llmRequestBody, headers, user, proxyReq);
             }
             else {
-                handled = await handleNonStreamingRequest(res, effectiveModel, llmRequestBody, headers, user, proxyReq);
+                result = await handleNonStreamingRequest(res, effectiveModel, llmRequestBody, headers, user, proxyReq);
             }
-            if (handled)
+            if (result === true)
                 return;
-            lastFailoverError = `Endpoint ${endpoint.endpointUrl} failed`;
+            // 실패: 시도 번호 설정 후 기록
+            result.attempt = attempt + 1;
+            failoverAttempts.push(result);
         }
-        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
         console.error(`[Failover] ${label} failed for model "${model.name}"`);
-        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: `All endpoints failed: ${lastFailoverError}`, userAgent, ipAddress, stream: stream || false }).catch(() => { });
+        // ── Fallback 모델 시도 ──
+        if (resolved.fallbackModelId && resolved.fallbackModelId !== model.id) {
+            const fbModel = await resolveFallbackModel(resolved.fallbackModelId);
+            if (fbModel) {
+                console.log(`[Fallback] Trying fallback model "${fbModel.displayName}" (${fbModel.id}) for alias "${modelName}"`);
+                const fbEndpoints = await getModelEndpoints(fbModel.id, {
+                    endpointUrl: fbModel.endpointUrl,
+                    apiKey: fbModel.apiKey,
+                    modelName: fbModel.name,
+                    extraHeaders: fbModel.extraHeaders,
+                    extraBody: fbModel.extraBody,
+                });
+                const fbStartIdx = await getRoundRobinIndex(fbModel.id, fbEndpoints.length);
+                for (let i = 0; i < fbEndpoints.length; i++) {
+                    const ep = fbEndpoints[(fbStartIdx + i) % fbEndpoints.length];
+                    const fbRequestBody = {
+                        ...(ep.extraBody || {}),
+                        model: ep.modelName,
+                        messages,
+                        stream: stream || false,
+                        ...otherParams,
+                    };
+                    // max_tokens 기본값 주입
+                    if (!fbRequestBody.max_tokens && !fbRequestBody.max_completion_tokens && fbModel.maxTokens) {
+                        fbRequestBody.max_tokens = Math.min(Math.floor(fbModel.maxTokens * 0.7), 32768);
+                    }
+                    const fbHeaders = { 'Content-Type': 'application/json', ...(ep.extraHeaders || {}) };
+                    if (ep.apiKey)
+                        fbHeaders['Authorization'] = `Bearer ${ep.apiKey}`;
+                    const fbEffective = { ...fbModel, endpointUrl: ep.endpointUrl, apiKey: ep.apiKey };
+                    let result;
+                    if (stream) {
+                        result = await handleStreamingRequest(res, fbEffective, fbRequestBody, fbHeaders, user, proxyReq);
+                    }
+                    else {
+                        result = await handleNonStreamingRequest(res, fbEffective, fbRequestBody, fbHeaders, user, proxyReq);
+                    }
+                    if (result === true) {
+                        console.log(`[Fallback] Success with fallback model "${fbModel.displayName}"`);
+                        return;
+                    }
+                    result.attempt = maxAttempts + i + 1;
+                    failoverAttempts.push(result);
+                }
+                console.error(`[Fallback] Fallback model "${fbModel.displayName}" also failed`);
+            }
+        }
+        // 실패 요약 메시지 생성
+        const primaryError = failoverAttempts[0];
+        const errorTypeSummary = failoverAttempts.map(a => a.errorType).join(', ');
+        const summaryMessage = `All endpoints failed (${errorTypeSummary}): ${primaryError?.errorMessage || 'unknown'}`;
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: summaryMessage.substring(0, 2000), errorDetails: { totalAttempts: failoverAttempts.length, attempts: failoverAttempts, timeoutMs: REQUEST_TIMEOUT_MS }, userAgent, ipAddress, stream: stream || false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
             message: `Failed ${label}. Please try again later.`,
-            details: lastFailoverError,
+            details: primaryError?.errorMessage || 'All endpoints failed',
         });
     }
     catch (error) {
@@ -789,7 +919,7 @@ proxyRoutes.post('/chat/completions', async (req, res) => {
 // ============================================
 // Request handling
 // ============================================
-const REQUEST_TIMEOUT_MS = 120000;
+const REQUEST_TIMEOUT_MS = 300000; // 5분
 function isMaxTokensError(errorText) {
     return errorText.includes('max_tokens') && errorText.includes('must be at least');
 }
@@ -838,8 +968,8 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
     const url = buildChatCompletionsUrl(model.endpointUrl);
     const loginid = user?.loginid || proxyReq.serviceName;
     console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (non-streaming)`);
+    const attemptStart = Date.now();
     try {
-        const startTime = Date.now();
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
@@ -849,7 +979,7 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);
-            const latencyMs = Date.now() - startTime;
+            const latencyMs = Date.now() - attemptStart;
             if (!response.ok) {
                 const errorText = await response.text();
                 logLLMError('Non-Streaming', url, response.status, errorText, requestBody, loginid, model, proxyReq.serviceId);
@@ -872,7 +1002,7 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
                             signal: retryController.signal,
                         });
                         clearTimeout(retryTimeoutId);
-                        const retryLatencyMs = Date.now() - startTime;
+                        const retryLatencyMs = Date.now() - attemptStart;
                         if (retryResponse.ok) {
                             const data = await retryResponse.json();
                             if (data.usage) {
@@ -898,8 +1028,17 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
                     }
                     return true;
                 }
+                const errorType = response.status >= 500 ? 'http_5xx' : 'http_4xx';
                 console.error(`[Failover] Endpoint ${url} returned ${response.status}`);
-                return false;
+                return {
+                    endpoint: url,
+                    attempt: 0, // caller가 설정
+                    statusCode: response.status,
+                    errorType,
+                    errorMessage: errorText.substring(0, 1000),
+                    latencyMs,
+                    modelName: model.name,
+                };
             }
             const data = await response.json();
             if (data.usage) {
@@ -920,15 +1059,26 @@ async function handleNonStreamingRequest(res, model, requestBody, headers, user,
         }
     }
     catch (error) {
-        console.error(`[Failover] Endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
-        return false;
+        const latencyMs = Date.now() - attemptStart;
+        const isTimeout = error instanceof Error && error.name === 'AbortError';
+        const errMsg = error instanceof Error ? error.message : 'Connection failed';
+        console.error(`[Failover] Endpoint ${url} connection failed:`, errMsg);
+        return {
+            endpoint: url,
+            attempt: 0,
+            statusCode: null,
+            errorType: isTimeout ? 'timeout' : 'connection',
+            errorMessage: isTimeout ? `Timeout after ${REQUEST_TIMEOUT_MS}ms` : errMsg,
+            latencyMs,
+            modelName: model.name,
+        };
     }
 }
 async function handleStreamingRequest(res, model, requestBody, headers, user, proxyReq) {
     const url = buildChatCompletionsUrl(model.endpointUrl);
     const loginid = user?.loginid || proxyReq.serviceName;
     console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${url} (streaming)`);
-    const startTime = Date.now();
+    const attemptStart = Date.now();
     let sseStarted = false;
     try {
         let contextWindowRetried = false;
@@ -1028,8 +1178,17 @@ async function handleStreamingRequest(res, model, requestBody, headers, user, pr
                     }
                     return true;
                 }
+                const errorType = response.status >= 500 ? 'http_5xx' : 'http_4xx';
                 console.error(`[Failover] Endpoint ${url} returned ${response.status}`);
-                return false;
+                return {
+                    endpoint: url,
+                    attempt: 0,
+                    statusCode: response.status,
+                    errorType,
+                    errorMessage: errorText.substring(0, 1000),
+                    latencyMs: Date.now() - attemptStart,
+                    modelName: model.name,
+                };
             }
         }
         // SSE 스트리밍 시작
@@ -1080,7 +1239,7 @@ async function handleStreamingRequest(res, model, requestBody, headers, user, pr
         finally {
             reader.releaseLock();
         }
-        const latencyMs = Date.now() - startTime;
+        const latencyMs = Date.now() - attemptStart;
         if (usageData) {
             recordUsage(user?.id || null, user?.loginid || null, model.id, usageData.prompt_tokens || 0, usageData.completion_tokens || 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
         }
@@ -1102,8 +1261,19 @@ async function handleStreamingRequest(res, model, requestBody, headers, user, pr
             catch { }
             return true;
         }
-        console.error(`[Failover] Endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
-        return false;
+        const latencyMs = Date.now() - attemptStart;
+        const isTimeout = error instanceof Error && error.name === 'AbortError';
+        const errMsg = error instanceof Error ? error.message : 'Connection failed';
+        console.error(`[Failover] Endpoint ${url} connection failed:`, errMsg);
+        return {
+            endpoint: url,
+            attempt: 0,
+            statusCode: null,
+            errorType: isTimeout ? 'timeout' : 'connection',
+            errorMessage: isTimeout ? `Timeout after ${REQUEST_TIMEOUT_MS}ms` : errMsg,
+            latencyMs,
+            modelName: model.name,
+        };
     }
 }
 // ============================================
@@ -1129,25 +1299,31 @@ proxyRoutes.post('/embeddings', async (req, res) => {
     try {
         const { model: modelName, input, ...otherParams } = req.body;
         if (!modelName || !input) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model and input are required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/embeddings' }).catch(() => { });
             res.status(400).json({ error: 'model and input are required' });
             return;
         }
         // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
+            logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/embeddings' }).catch(() => { });
             res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
+        const userAgent = proxyReq.headers?.['user-agent'] || null;
+        const ipAddress = proxyReq.ip || null;
         // 사용자 upsert + Knox 인증
         const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/embeddings');
         if (knoxError) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: knoxError.status, latencyMs: Date.now() - startTime, errorMessage: knoxError.body.message, userAgent, ipAddress, stream: false }).catch(() => { });
             res.status(knoxError.status).json(knoxError.body);
             return;
         }
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: false }).catch(() => { });
             res.status(rateLimitResult.status).json(rateLimitResult.body);
             return;
         }
@@ -1161,14 +1337,15 @@ proxyRoutes.post('/embeddings', async (req, res) => {
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
-        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
-        let lastError;
+        const cfgRetries = resolved.maxRetries || 0;
+        const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+        const embFailoverAttempts = [];
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
                 if (isSingleEndpoint) {
-                    console.log(`[Retry] Embeddings model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    console.log(`[Retry] Embeddings model "${model.name}" retry ${attempt}/${cfgRetries}`);
                     await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
                 }
                 else {
@@ -1195,6 +1372,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                     }
                 }
             }
+            const attemptStart = Date.now();
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), EMBEDDING_TIMEOUT_MS);
@@ -1210,6 +1388,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                     const errorText = await response.text();
                     console.error(`[LLM-Error] Embeddings | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
                     if (response.status >= 400 && response.status < 500) {
+                        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent, ipAddress, stream: false }).catch(() => { });
                         try {
                             const errorJson = JSON.parse(errorText);
                             res.status(response.status).json(errorJson);
@@ -1220,7 +1399,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                         return;
                     }
                     console.error(`[Failover] Embeddings endpoint ${url} returned ${response.status}`);
-                    lastError = errorText;
+                    embFailoverAttempts.push({ endpoint: url, attempt: attempt + 1, statusCode: response.status, errorType: 'http_5xx', errorMessage: errorText.substring(0, 1000), latencyMs: Date.now() - attemptStart, modelName: model.name });
                     continue;
                 }
                 // 성공 — raw text 그대로 전달 (대용량 임베딩 응답 JSON 재파싱 방지)
@@ -1243,21 +1422,28 @@ proxyRoutes.post('/embeddings', async (req, res) => {
                     serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
                     modelName: embeddingsBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings',
                     statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
-                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    userAgent, ipAddress, stream: false,
                 }).catch(() => { });
                 res.setHeader('Content-Type', 'application/json');
                 res.status(200).send(responseText);
                 return;
             }
             catch (error) {
-                console.error(`[Failover] Embeddings endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
-                lastError = error instanceof Error ? error.message : 'Connection failed';
+                const attemptLatency = Date.now() - attemptStart;
+                const isTimeout = error instanceof Error && error.name === 'AbortError';
+                const errMsg = error instanceof Error ? error.message : 'Connection failed';
+                console.error(`[Failover] Embeddings endpoint ${url} connection failed:`, errMsg);
+                embFailoverAttempts.push({ endpoint: url, attempt: attempt + 1, statusCode: null, errorType: isTimeout ? 'timeout' : 'connection', errorMessage: isTimeout ? `Timeout after ${EMBEDDING_TIMEOUT_MS}ms` : errMsg, latencyMs: attemptLatency, modelName: model.name });
                 continue;
             }
         }
         // 모든 시도 실패
-        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
         console.error(`[Failover] ${label} failed for embeddings model "${model.name}"`);
+        const embPrimary = embFailoverAttempts[0];
+        const embTypeSummary = embFailoverAttempts.map(a => a.errorType).join(', ');
+        const embSummary = `All endpoints failed (${embTypeSummary}): ${embPrimary?.errorMessage || 'unknown'}`;
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: embSummary.substring(0, 2000), errorDetails: { totalAttempts: embFailoverAttempts.length, attempts: embFailoverAttempts, timeoutMs: EMBEDDING_TIMEOUT_MS }, userAgent, ipAddress, stream: false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
             message: `Failed ${label}. Please try again later.`,
@@ -1265,6 +1451,7 @@ proxyRoutes.post('/embeddings', async (req, res) => {
     }
     catch (error) {
         console.error('Embeddings proxy error:', error);
+        logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process embeddings request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/embeddings', latencyMs: Date.now() - startTime }).catch(() => { });
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to process embeddings request' });
         }
@@ -1295,33 +1482,41 @@ proxyRoutes.post('/rerank', async (req, res) => {
     try {
         const { model: modelName, query, documents, top_n, return_documents, ...otherParams } = req.body;
         if (!modelName) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model is required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/rerank' }).catch(() => { });
             res.status(400).json({ error: 'model is required' });
             return;
         }
         if (!query || typeof query !== 'string') {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'query is required and must be a string', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => { });
             res.status(400).json({ error: 'query is required and must be a string' });
             return;
         }
         if (!documents || !Array.isArray(documents) || documents.length === 0) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'documents is required and must be a non-empty array', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => { });
             res.status(400).json({ error: 'documents is required and must be a non-empty array' });
             return;
         }
         // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
+            logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/rerank' }).catch(() => { });
             res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
+        const rrUserAgent = proxyReq.headers?.['user-agent'] || null;
+        const rrIpAddress = proxyReq.ip || null;
         // 사용자 upsert + Knox 인증
         const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/rerank');
         if (knoxError) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: knoxError.status, latencyMs: Date.now() - startTime, errorMessage: knoxError.body.message, userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => { });
             res.status(knoxError.status).json(knoxError.body);
             return;
         }
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => { });
             res.status(rateLimitResult.status).json(rateLimitResult.body);
             return;
         }
@@ -1335,14 +1530,15 @@ proxyRoutes.post('/rerank', async (req, res) => {
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
-        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
-        let lastError = null;
+        const cfgRetries = resolved.maxRetries || 0;
+        const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+        const rrFailoverAttempts = [];
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
                 if (isSingleEndpoint) {
-                    console.log(`[Retry] Rerank model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    console.log(`[Retry] Rerank model "${model.name}" retry ${attempt}/${cfgRetries}`);
                     await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
                 }
                 else {
@@ -1377,6 +1573,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
                     }
                 }
             }
+            const attemptStart = Date.now();
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -1392,6 +1589,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
                     const errorText = await response.text();
                     console.error(`[LLM-Error] Rerank | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
                     if (response.status >= 400 && response.status < 500) {
+                        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => { });
                         try {
                             const errorJson = JSON.parse(errorText);
                             res.status(response.status).json(errorJson);
@@ -1402,7 +1600,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
                         return;
                     }
                     console.error(`[Failover] Rerank endpoint ${url} returned ${response.status}`);
-                    lastError = errorText;
+                    rrFailoverAttempts.push({ endpoint: url, attempt: attempt + 1, statusCode: response.status, errorType: 'http_5xx', errorMessage: errorText.substring(0, 1000), latencyMs: Date.now() - attemptStart, modelName: model.name });
                     continue;
                 }
                 // 성공 — raw text 그대로 전달
@@ -1425,21 +1623,28 @@ proxyRoutes.post('/rerank', async (req, res) => {
                     serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
                     modelName: rerankBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/rerank',
                     statusCode: 200, inputTokens, outputTokens: 0, latencyMs,
-                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false,
                 }).catch(() => { });
                 res.setHeader('Content-Type', 'application/json');
                 res.status(200).send(responseText);
                 return;
             }
             catch (error) {
-                console.error(`[Failover] Rerank endpoint ${url} connection failed:`, error instanceof Error ? error.message : error);
-                lastError = error instanceof Error ? error.message : 'Connection failed';
+                const attemptLatency = Date.now() - attemptStart;
+                const isTimeout = error instanceof Error && error.name === 'AbortError';
+                const errMsg = error instanceof Error ? error.message : 'Connection failed';
+                console.error(`[Failover] Rerank endpoint ${url} connection failed:`, errMsg);
+                rrFailoverAttempts.push({ endpoint: url, attempt: attempt + 1, statusCode: null, errorType: isTimeout ? 'timeout' : 'connection', errorMessage: isTimeout ? `Timeout after ${REQUEST_TIMEOUT_MS}ms` : errMsg, latencyMs: attemptLatency, modelName: model.name });
                 continue;
             }
         }
         // 모든 시도 실패
-        const label = isSingleEndpoint ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries` : `all ${endpoints.length} endpoints`;
+        const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
         console.error(`[Failover] ${label} failed for rerank model "${model.name}"`);
+        const rrPrimary = rrFailoverAttempts[0];
+        const rrTypeSummary = rrFailoverAttempts.map(a => a.errorType).join(', ');
+        const rrSummary = `All endpoints failed (${rrTypeSummary}): ${rrPrimary?.errorMessage || 'unknown'}`;
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: rrSummary.substring(0, 2000), errorDetails: { totalAttempts: rrFailoverAttempts.length, attempts: rrFailoverAttempts, timeoutMs: REQUEST_TIMEOUT_MS }, userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
             message: `Failed ${label}. Please try again later.`,
@@ -1447,6 +1652,7 @@ proxyRoutes.post('/rerank', async (req, res) => {
     }
     catch (error) {
         console.error('Rerank proxy error:', error);
+        logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process rerank request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/rerank', latencyMs: Date.now() - startTime }).catch(() => { });
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to process rerank request' });
         }
@@ -1461,29 +1667,36 @@ proxyRoutes.post('/images/generations', async (req, res) => {
     try {
         const { model: modelName, prompt, n, size, quality, style, ...otherParams } = req.body;
         if (!modelName || !prompt) {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: 'model and prompt are required', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/images/generations' }).catch(() => { });
             res.status(400).json({ error: 'model and prompt are required' });
             return;
         }
         // 모델 조회: 서비스 alias 기반 (전역 fallback 없음)
         const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
         if (!resolved.found || !resolved.model) {
+            logErrorToRequestLog({ req, statusCode: 404, errorMessage: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/images/generations' }).catch(() => { });
             res.status(404).json({ error: `Model '${modelName}' not found. Use a registered alias name from GET /v1/models` });
             return;
         }
         const model = resolved.model;
         if (model.type !== 'IMAGE') {
+            logErrorToRequestLog({ req, statusCode: 400, errorMessage: `Model '${modelName}' is not an IMAGE model`, serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, path: '/v1/images/generations' }).catch(() => { });
             res.status(400).json({ error: `Model '${modelName}' is not an IMAGE model` });
             return;
         }
+        const imgUserAgent = proxyReq.headers?.['user-agent'] || null;
+        const imgIpAddress = proxyReq.ip || null;
         // 사용자 upsert + Knox 인증
         const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/images/generations');
         if (knoxError) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations', statusCode: knoxError.status, latencyMs: Date.now() - startTime, errorMessage: knoxError.body.message, userAgent: imgUserAgent, ipAddress: imgIpAddress, stream: false }).catch(() => { });
             res.status(knoxError.status).json(knoxError.body);
             return;
         }
         // Rate limit 체크
         const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
         if (rateLimitResult) {
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations', statusCode: rateLimitResult.status, latencyMs: Date.now() - startTime, errorMessage: 'Rate limit exceeded', userAgent: imgUserAgent, ipAddress: imgIpAddress, stream: false }).catch(() => { });
             res.status(rateLimitResult.status).json(rateLimitResult.body);
             return;
         }
@@ -1499,14 +1712,15 @@ proxyRoutes.post('/images/generations', async (req, res) => {
         });
         const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
         const isSingleEndpoint = endpoints.length === 1;
-        const maxAttempts = isSingleEndpoint ? SINGLE_ENDPOINT_MAX_RETRIES : endpoints.length;
-        let lastError;
+        const cfgRetries = resolved.maxRetries || 0;
+        const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+        const imgFailoverAttempts = [];
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
             const endpoint = endpoints[idx];
             if (attempt > 0) {
                 if (isSingleEndpoint) {
-                    console.log(`[Retry] Image model "${model.name}" retry ${attempt}/${SINGLE_ENDPOINT_MAX_RETRIES - 1}`);
+                    console.log(`[Retry] Image model "${model.name}" retry ${attempt}/${cfgRetries}`);
                     await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
                 }
                 else {
@@ -1516,6 +1730,7 @@ proxyRoutes.post('/images/generations', async (req, res) => {
             const provider = model.imageProvider || 'OPENAI';
             const loginid = user?.loginid || proxyReq.serviceName;
             console.log(`[Proxy] user=${loginid} model=${model.name} endpoint=${endpoint.endpointUrl} (image/${provider})`);
+            const attemptStart = Date.now();
             try {
                 const providerResults = await generateImages(provider, {
                     endpointUrl: endpoint.endpointUrl,
@@ -1559,28 +1774,35 @@ proxyRoutes.post('/images/generations', async (req, res) => {
                     serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName,
                     modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations',
                     statusCode: 200, inputTokens: 0, outputTokens: 0, latencyMs,
-                    userAgent: proxyReq.headers?.['user-agent'], ipAddress: proxyReq.ip, stream: false,
+                    userAgent: imgUserAgent, ipAddress: imgIpAddress, stream: false,
                 }).catch(() => { });
                 return;
             }
             catch (fetchError) {
+                const attemptLatency = Date.now() - attemptStart;
                 const errMsg = fetchError.message || 'Unknown error';
+                const isTimeout = fetchError.name === 'AbortError';
                 console.error(`[ImageProxy] Provider ${model.imageProvider || 'OPENAI'} failed for ${endpoint.endpointUrl}: ${errMsg}`);
-                lastError = errMsg;
+                imgFailoverAttempts.push({ endpoint: endpoint.endpointUrl, attempt: attempt + 1, statusCode: null, errorType: isTimeout ? 'timeout' : 'connection', errorMessage: errMsg.substring(0, 1000), latencyMs: attemptLatency, modelName: model.name });
                 continue;
             }
         }
         // 모든 엔드포인트 실패
         const label = isSingleEndpoint
-            ? `after ${SINGLE_ENDPOINT_MAX_RETRIES} retries`
+            ? `after ${cfgRetries} retries`
             : `all ${endpoints.length} endpoints`;
+        const imgPrimary = imgFailoverAttempts[0];
+        const imgTypeSummary = imgFailoverAttempts.map(a => a.errorType).join(', ');
+        const imgSummary = `All endpoints failed (${imgTypeSummary}): ${imgPrimary?.errorMessage || 'unknown'}`;
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/images/generations', statusCode: 503, latencyMs: Date.now() - startTime, errorMessage: imgSummary.substring(0, 2000), errorDetails: { totalAttempts: imgFailoverAttempts.length, attempts: imgFailoverAttempts, timeoutMs: REQUEST_TIMEOUT_MS }, userAgent: imgUserAgent, ipAddress: imgIpAddress, stream: false }).catch(() => { });
         res.status(503).json({
             error: 'Service temporarily unavailable',
-            message: `Failed ${label}. Last error: ${lastError || 'unknown'}`,
+            message: `Failed ${label}. Last error: ${imgPrimary?.errorMessage || 'unknown'}`,
         });
     }
     catch (error) {
         console.error('Image generation proxy error:', error);
+        logErrorToRequestLog({ req, statusCode: 500, errorMessage: error instanceof Error ? error.message : 'Failed to process image generation request', serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, path: '/v1/images/generations', latencyMs: Date.now() - startTime }).catch(() => { });
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to process image generation request' });
         }

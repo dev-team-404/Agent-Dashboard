@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle } from 'lucide-react';
+import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle, MessageCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 interface Model {
@@ -42,6 +42,12 @@ export default function SystemLlmSettings() {
   const [gpuSaving, setGpuSaving] = useState(false);
   const [gpuLlmSuccess, setGpuLlmSuccess] = useState(false);
 
+  // Help Chatbot LLM
+  const [chatbotLlm, setChatbotLlm] = useState<CurrentSetting>({ modelId: null, model: null });
+  const [chatbotSelectedId, setChatbotSelectedId] = useState('');
+  const [chatbotSaving, setChatbotSaving] = useState(false);
+  const [chatbotSuccess, setChatbotSuccess] = useState(false);
+
   // Logo model states
   const [logoModel, setLogoModel] = useState<CurrentSetting>({ modelId: null, model: null });
   const [imageModels, setImageModels] = useState<Model[]>([]);
@@ -74,6 +80,11 @@ export default function SystemLlmSettings() {
       if (gpuSetting) {
         setGpuLlm({ modelId: gpuSetting.modelId, model: gpuSetting.model, updatedBy: gpuSetting.updatedBy });
         setGpuSelectedId(gpuSetting.modelId || '');
+      }
+      const chatbotSetting = allSettings.find((s: { key: string }) => s.key === 'HELP_CHATBOT_LLM_MODEL_ID');
+      if (chatbotSetting) {
+        setChatbotLlm({ modelId: chatbotSetting.modelId, model: chatbotSetting.model, updatedBy: chatbotSetting.updatedBy });
+        setChatbotSelectedId(chatbotSetting.modelId || '');
       }
 
       const allModels = modelsRes.data.models || [];
@@ -127,6 +138,13 @@ export default function SystemLlmSettings() {
       return () => clearTimeout(t);
     }
   }, [gpuLlmSuccess]);
+
+  useEffect(() => {
+    if (chatbotSuccess) {
+      const t = setTimeout(() => setChatbotSuccess(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [chatbotSuccess]);
 
   const handleSave = async () => {
     if (!selectedId) return;
@@ -188,6 +206,22 @@ export default function SystemLlmSettings() {
       setError(msg || 'AI 추정 실행에 실패했습니다.');
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleChatbotLlmSave = async () => {
+    if (!chatbotSelectedId) return;
+    setChatbotSaving(true);
+    setError(null);
+    try {
+      const res = await api.put('/admin/system-settings/system-llm', { key: 'HELP_CHATBOT_LLM_MODEL_ID', modelId: chatbotSelectedId });
+      setChatbotLlm({ modelId: chatbotSelectedId, model: res.data.model, updatedBy: res.data.updatedBy });
+      setChatbotSuccess(true);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg || '저장에 실패했습니다.');
+    } finally {
+      setChatbotSaving(false);
     }
   };
 
@@ -426,6 +460,43 @@ export default function SystemLlmSettings() {
           </button>
         </div>
         {gpuLlmSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> GPU 예측 LLM이 변경되었습니다.</div>}
+      </div>
+
+      {/* AI 도우미 챗봇 LLM */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageCircle className="w-4 h-4 text-cyan-500" />
+          <h2 className="text-sm font-semibold text-pastel-700">AI 도우미 챗봇 LLM</h2>
+        </div>
+        <p className="text-xs text-pastel-400 mb-4">
+          플랫폼 사용법/기능 안내 AI 챗봇이 사용할 CHAT 모델을 선택합니다. 우하단 도우미 아이콘에서 접근할 수 있습니다.
+        </p>
+        {chatbotLlm.model && (
+          <div className="mb-4 p-3 bg-cyan-50 rounded-lg border border-cyan-100">
+            <div className="flex items-center gap-2 text-sm">
+              <Cpu className="w-4 h-4 text-cyan-600" />
+              <span className="font-medium text-cyan-800">현재 설정:</span>
+              <span className="text-cyan-700">{chatbotLlm.model.displayName}</span>
+              <span className="text-cyan-400 font-mono text-xs">({chatbotLlm.model.name})</span>
+            </div>
+            {chatbotLlm.updatedBy && <p className="text-xs text-cyan-400 mt-1 ml-6">{chatbotLlm.updatedBy} 설정</p>}
+          </div>
+        )}
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <select value={chatbotSelectedId} onChange={e => setChatbotSelectedId(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/15 focus:border-cyan-500/30">
+              <option value="">모델을 선택하세요</option>
+              {models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
+            </select>
+          </div>
+          <button onClick={handleChatbotLlmSave} disabled={chatbotSaving || !chatbotSelectedId || chatbotSelectedId === chatbotLlm.modelId}
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            {chatbotSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} 저장
+          </button>
+        </div>
+        {chatbotSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> AI 도우미 챗봇 LLM이 변경되었습니다.</div>}
       </div>
 
       {/* Logo Generation Model Setting */}

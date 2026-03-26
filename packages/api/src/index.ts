@@ -40,6 +40,7 @@ import { gpuPowerRoutes } from './routes/gpu-power.routes.js';
 import { gpuServerRoutes } from './routes/gpu-server.routes.js';
 import { gpuCapacityRoutes } from './routes/gpu-capacity.routes.js';
 import { internalOrgRoutes } from './routes/internal-org.routes.js';
+import { helpChatbotRoutes } from './routes/help-chatbot.routes.js';
 import { swaggerSpec, getSwaggerUiHtml } from './swagger.js';
 import { internalSwaggerSpec, getInternalSwaggerUiHtml } from './internal-swagger.js';
 import { fileURLToPath } from 'url';
@@ -117,6 +118,7 @@ app.use('/admin/gpu-capacity', gpuCapacityRoutes);
 app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
+app.use('/help-chatbot', helpChatbotRoutes);
 
 // LLM Proxy Routes (Standard: x-service-id + x-user-id, Background: x-service-id + x-dept-name)
 app.use('/v1', proxyRoutes);

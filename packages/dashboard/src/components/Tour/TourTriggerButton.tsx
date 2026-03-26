@@ -11,7 +11,7 @@ export default function TourTriggerButton() {
       onClick={startTour}
       title="가이드 투어 시작"
       className={`
-        fixed bottom-6 right-6 z-[9999]
+        fixed bottom-6 right-20 z-[9999]
         w-12 h-12 rounded-full
         bg-samsung-blue text-white
         shadow-lg hover:shadow-xl
