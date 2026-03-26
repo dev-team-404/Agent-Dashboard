@@ -123,9 +123,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
     const perLlmKv: Record<string, number> = {};
     ls.slice(0, 5).forEach((l: any, i: number) => {
       const label = l.modelNames?.[0] || l.containerName || `LLM${i}`;
-      const short = label.length > 15 ? label.slice(-15) : label;
+      const short = label.length > 20 ? label.slice(-20) : label;
       const ltps = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
-      if (ltps > 0) perLlm[short] = Math.round(ltps * 10) / 10;
+      perLlm[short] = Math.round(ltps * 10) / 10; // 항상 넣음 (0이어도)
       if (l.kvCacheUsagePct != null) perLlmKv[`${short}_kv`] = Math.round(l.kvCacheUsagePct * 10) / 10;
     });
     return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0, ...perLlm, ...perLlmKv };
@@ -269,16 +269,18 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               {/* tok/s 처리량 (합산 + LLM별) */}
               {(() => {
                 const llmColors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
-                const llmKeys = dd.length > 0 ? Object.keys(dd[dd.length - 1]).filter(k => !['time','fullTime','gpuUtil','memPct','llmPct','kvCache','throughput','effUtil','cpuLoad','ramPct'].includes(k) && !k.endsWith('_kv')) : [];
-                const kvKeys = dd.length > 0 ? Object.keys(dd[dd.length - 1]).filter(k => k.endsWith('_kv')) : [];
+                const reserved = new Set(['time','fullTime','gpuUtil','memPct','llmPct','kvCache','throughput','effUtil','cpuLoad','ramPct']);
+                const allKeys = new Set<string>(); dd.forEach((d: any) => Object.keys(d).forEach(k => allKeys.add(k)));
+                const llmKeys = [...allKeys].filter(k => !reserved.has(k) && !k.endsWith('_kv'));
+                const kvKeys = [...allKeys].filter(k => k.endsWith('_kv'));
                 return (<>
-                  <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s){llmKeys.length > 0 && <span className="ml-1 text-blue-500">— LLM별 분리</span>}</p>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s){llmKeys.length > 1 && <span className="ml-1 text-blue-500">— LLM별 분리</span>}</p>
                   <ResponsiveContainer width="100%" height={llmKeys.length > 1 ? 130 : 100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
-                    <Line type="monotone" dataKey="throughput" name="합산" stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 2" />
-                    {llmKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k} stroke={llmColors[i % llmColors.length]} strokeWidth={1.5} dot={false} />)}
+                    {llmKeys.length > 1 && <Line type="monotone" dataKey="throughput" name="합산" stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 2" />}
+                    {llmKeys.length > 0 ? llmKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k} stroke={llmColors[i % llmColors.length]} strokeWidth={2} dot={false} />) : <Line type="monotone" dataKey="throughput" name="tok/s" stroke="#3b82f6" strokeWidth={2} dot={false} />}
                   </LineChart></ResponsiveContainer></div>
                   {/* LLM별 KV Cache */}
-                  {kvKeys.length > 1 && (
+                  {kvKeys.length >= 1 && (
                     <div><p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) — LLM별</p>
                     <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
                       {kvKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k.replace('_kv', '')} stroke={llmColors[i % llmColors.length]} strokeWidth={1.5} dot={false} />)}
