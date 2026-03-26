@@ -15,7 +15,7 @@ import multer from 'multer';
 import { prisma, redis } from '../index.js';
 import { logErrorToRequestLog } from '../services/requestLog.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
-import { validateProxyHeaders, ProxyAuthRequest } from '../middleware/proxyAuth.js';
+import { validateProxyHeaders, ProxyAuthRequest, checkDeployScope } from '../middleware/proxyAuth.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
@@ -486,6 +486,9 @@ function safeDecodeURIComponent(text: string): string {
  *   - DB에 있고 knoxVerified=false → Knox API 호출 → 인증+부서검증 → 마킹
  *   - DB에 없음 (최초) → Knox API 호출 → 인증+부서검증 → 생성+마킹
  */
+// Knox 부서 정보 재검증 주기 (7일)
+const KNOX_REVERIFY_TTL_SEC = 7 * 24 * 3600;
+
 async function getOrCreateUser(
   proxyReq: ProxyAuthRequest,
   endpoint?: string,
@@ -493,33 +496,55 @@ async function getOrCreateUser(
   if (proxyReq.isBackground || !proxyReq.userLoginId) return { user: null };
 
   const loginid = proxyReq.userLoginId;
-  const deptname = proxyReq.deptName;
   const ipAddress = proxyReq.ip || (proxyReq.headers['x-forwarded-for'] as string) || undefined;
 
   // 1. DB에서 사용자 조회
   const existingUser = await prisma.user.findUnique({ where: { loginid } });
 
   if (existingUser && existingUser.knoxVerified) {
-    // ✅ 이미 Knox 인증 완료 → DB deptname vs 헤더 x-dept-name 비교
-    if (deptname && existingUser.deptname && deptname !== existingUser.deptname) {
-      // 팀명 fallback: "팀명(사업부)" 형식에서 팀명만 추출하여 비교
-      const extractTeamName = (d: string) => d.replace(/\(.*\)$/, '').trim();
-      const claimedTeam = extractTeamName(deptname);
-      const dbTeam = extractTeamName(existingUser.deptname);
+    // ── 주기적 Knox 재검증: 부서 변경 자동 감지 + 조직도 갱신 ──
+    // Redis TTL로 재검증 주기 관리 (기본 7일)
+    let reverified = false;
+    const reverifyKey = `knox:reverify:${loginid}`;
+    const needsReverification = redis ? !(await redis.get(reverifyKey).catch(() => null)) : false;
 
-      if (claimedTeam !== dbTeam) {
-        return {
-          user: null,
-          error: {
-            status: 403,
-            body: {
-              error: 'Department mismatch',
-              message: `부서 정보가 등록된 정보와 다릅니다. 등록: "${existingUser.deptname}", 요청: "${deptname}". 부서 변경이 있었다면 관리자에게 재인증을 요청하세요.`,
-            },
-          },
-        };
+    if (needsReverification) {
+      const result = await verifyAndRegisterUser(loginid, '', 'PROXY', endpoint, ipAddress);
+
+      if (result.success && result.user) {
+        // ✅ 재검증 성공 → 부서 변경 시 DB 자동 업데이트됨 (verifyAndRegisterUser 내부 upsert)
+        //    새 부서가 조직도에 없으면 discoverDepartment로 자동 등록
+        proxyReq.deptName = result.user.deptname || '';
+        proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+        proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+        reverified = true;
+      } else if (!result.success) {
+        // Knox 조회 실패: 퇴직/비활성 or API 오류
+        // → 기존 인증 사용자는 즉시 차단하지 않고 경고 로그 (일시적 API 오류일 수 있음)
+        console.warn(`[Knox Re-verify] Failed for ${loginid}: ${result.error}`);
+      }
+      // 재검증 타이머 리셋 (성공/실패 무관, 다음 주기에 재시도)
+      if (redis) {
+        redis.set(reverifyKey, '1', 'EX', KNOX_REVERIFY_TTL_SEC).catch(() => {});
       }
     }
+
+    if (!reverified) {
+      // 재검증 안 했거나 실패 → 기존 DB 부서 정보 사용
+      proxyReq.deptName = existingUser.deptname || '';
+      proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+      proxyReq.businessUnit = existingUser.businessUnit || extractBusinessUnit(proxyReq.deptName);
+    }
+
+    // 배포 범위 접근 제어 (부서 확정 후)
+    const scopeError = checkDeployScope(
+      proxyReq.deployScope, proxyReq.deployScopeValue,
+      proxyReq.deptName, proxyReq.teamName, proxyReq.businessUnit, proxyReq.serviceName,
+    );
+    if (scopeError) {
+      return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
+    }
+
     // lastActive 업데이트
     const user = await prisma.user.update({
       where: { id: existingUser.id },
@@ -528,8 +553,8 @@ async function getOrCreateUser(
     return { user };
   }
 
-  // 2. 미인증 (knoxVerified=false) 또는 최초 사용자 → Knox API 인증
-  const result = await verifyAndRegisterUser(loginid, deptname, 'PROXY', endpoint, ipAddress);
+  // 2. 미인증 또는 최초 사용자 → Knox API 인증 (부서 자동 resolve)
+  const result = await verifyAndRegisterUser(loginid, '', 'PROXY', endpoint, ipAddress);
 
   if (!result.success) {
     return {
@@ -544,7 +569,27 @@ async function getOrCreateUser(
     };
   }
 
-  // Knox 인증 성공 → user 리턴
+  // Knox 인증 성공 → proxyReq에 부서 정보 세팅
+  if (result.user) {
+    proxyReq.deptName = result.user.deptname || '';
+    proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+    proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
+  }
+
+  // 배포 범위 접근 제어 (부서 확정 후)
+  const scopeError = checkDeployScope(
+    proxyReq.deployScope, proxyReq.deployScopeValue,
+    proxyReq.deptName, proxyReq.teamName, proxyReq.businessUnit, proxyReq.serviceName,
+  );
+  if (scopeError) {
+    return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
+  }
+
+  // Knox 인증 성공 → Redis 재검증 타이머 세팅
+  if (redis) {
+    redis.set(`knox:reverify:${loginid}`, '1', 'EX', KNOX_REVERIFY_TTL_SEC).catch(() => {});
+  }
+
   const user = result.user ? await prisma.user.findUnique({ where: { id: result.user.id } }) : null;
   return { user };
 }

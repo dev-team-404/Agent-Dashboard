@@ -83,7 +83,7 @@ ab               (3자 미만)
 
 | 타입 | 설명 | 필수 헤더 | 적합한 경우 |
 |------|------|-----------|-------------|
-| **STANDARD** | 사용자 식별 API 호출 | `x-service-id`, `x-user-id`, `x-dept-name` | 챗봇, 웹 앱 등 사용자 인터랙션이 있는 서비스 |
+| **STANDARD** | 사용자 식별 API 호출 | `x-service-id`, `x-user-id` | 챗봇, 웹 앱 등 사용자 인터랙션이 있는 서비스 |
 | **BACKGROUND** | 서비스 단위 API 호출 | `x-service-id`, `x-dept-name` | 배치 작업, 자동화 파이프라인, 크론 잡 |
 
 ---
@@ -250,7 +250,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"안녕하세요"}]}'
 ```
 
@@ -269,8 +268,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-chatbot" \
-  -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong"
 ```
 
 ---

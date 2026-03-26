@@ -72,7 +72,7 @@ LLM 등록이 완료되면 팀원들에게 아래 정보를 안내합니다.
 
 - 사용 가능한 **LLM 모델 목록**
 - **서비스 생성 방법**: 서비스 관리 → 새 서비스 만들기
-- **인증 헤더 형식**: `x-service-id`, `x-user-id`, `x-dept-name`
+- **인증 헤더 형식**: `x-service-id` + `x-user-id` (부서 정보는 Knox에서 자동 등록)
 
 ```bash
 # 팀원이 사용할 API 호출 예시
@@ -80,7 +80,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [{"role": "user", "content": "안녕하세요"}]

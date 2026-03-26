@@ -15,8 +15,7 @@ GET /v1/models
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-service" \
-  -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong"
 ```
 
 > **참고**: Background 서비스의 경우 `x-user-id` 헤더를 생략합니다.
@@ -95,8 +94,7 @@ GET /v1/models/:name
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models/gpt-4o \
   -H "x-service-id: my-service" \
-  -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong"
 ```
 
 ### 응답
@@ -146,7 +144,6 @@ response = requests.get(
     headers={
         "x-service-id": "my-service",
         "x-user-id": "gildong.hong",
-        "x-dept-name": "S/W혁신팀(S.LSI)",
     }
 )
 
@@ -162,7 +159,6 @@ const response = await fetch('http://a2g.samsungds.net:8090/v1/models', {
   headers: {
     'x-service-id': 'my-service',
     'x-user-id': 'gildong.hong',
-    'x-dept-name': 'S/W혁신팀(S.LSI)',
   },
 });
 
@@ -189,7 +185,6 @@ def is_model_available(model_name):
         headers={
             "x-service-id": "my-service",
             "x-user-id": "gildong.hong",
-            "x-dept-name": "S/W혁신팀(S.LSI)",
         }
     )
     return response.status_code == 200

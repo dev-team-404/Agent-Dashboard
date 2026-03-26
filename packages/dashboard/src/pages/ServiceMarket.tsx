@@ -126,7 +126,7 @@ export default function ServiceMarket() {
       {/* Help banner */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
         <p className="text-xs text-gray-400 leading-relaxed">
-          공개된 서비스를 확인하고 모델을 사용할 수 있습니다. 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-dept-name</code> 헤더를 포함하세요. 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
+          공개된 서비스를 확인하고 모델을 사용할 수 있습니다. Standard 서비스 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code> 헤더를 포함하세요 (부서 정보는 자동 등록). 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
         </p>
       </div>
 

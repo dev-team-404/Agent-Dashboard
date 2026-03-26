@@ -81,7 +81,8 @@ ab               (3자 미만)
 
 사용자를 식별하여 API를 호출하는 일반적인 서비스입니다.
 
-- 인증 헤더: `x-service-id`, `x-user-id`, `x-dept-name` 모두 필수
+- 인증 헤더: `x-service-id`, `x-user-id` 필수
+- **부서 정보 자동 처리**: 최초 호출 시 Knox 임직원 API를 통해 부서가 자동 등록되며, 이후 DB에서 자동 조회
 - 사용자별 사용량 추적 가능
 - 사용자별 Rate Limit 설정 가능
 - 챗봇, 코드 리뷰 도구 등 **사용자 인터랙션이 있는 서비스**에 적합
@@ -92,7 +93,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"안녕하세요"}]}'
 ```
 
@@ -100,7 +100,8 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 
 사용자 식별 없이 서비스 단위로 API를 호출하는 자동화 서비스입니다.
 
-- 인증 헤더: `x-service-id`, `x-dept-name`만 필수
+- 인증 헤더: `x-service-id`, `x-dept-name` 필수
+- `x-dept-name`은 시스템에 등록된 부서명(한글/영문)만 허용
 - `x-user-id` 불필요 (전달해도 무시됨)
 - 서비스 단위 사용량만 추적
 - 배치 작업, 자동화 파이프라인, 크론 잡 등에 적합

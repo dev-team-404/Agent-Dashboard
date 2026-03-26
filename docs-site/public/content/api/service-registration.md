@@ -44,21 +44,21 @@ ab               # 3자 미만
 
 ## 2단계: 서비스 타입 선택
 
-### 일반 서비스
+### Standard 서비스
 
 사용자별로 API 호출을 추적하는 일반적인 서비스입니다.
 
 - 사용자가 직접 사용하는 챗봇, 코딩 도구 등에 적합
-- API 호출 시 `x-user-id` 헤더가 **필수**
+- API 호출 시 `x-service-id` + `x-user-id` 헤더 **필수**
+- 부서 정보는 최초 호출 시 Knox에서 자동 등록
 - 사용자별 사용량 추적 가능
 
 ```bash
-# 일반 서비스 API 호출
+# Standard 서비스 API 호출
 curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"안녕하세요"}]}'
 ```
 
@@ -67,7 +67,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 사용자 식별 없이 서비스 단위로 동작하는 자동화 서비스입니다.
 
 - 배치 작업, 크론 잡, 자동화 파이프라인에 적합
-- API 호출 시 `x-user-id` 헤더가 **불필요**
+- `x-service-id` + `x-dept-name` 헤더 **필수** (시스템에 등록된 부서명 한글/영문)
 - 서비스 단위로 사용량 추적
 
 ```bash
@@ -101,8 +101,7 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 ```bash
 curl -X GET http://a2g.samsungds.net:8090/v1/models \
   -H "x-service-id: my-chatbot" \
-  -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)"
+  -H "x-user-id: gildong.hong"
 ```
 
 ### 첫 번째 API 호출
@@ -112,7 +111,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-chatbot" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -174,8 +172,8 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
 ### 서비스를 등록했는데 API 호출이 안 됩니다
 
 - `x-service-id` 헤더 값이 등록한 Service ID와 정확히 일치하는지 확인하세요.
-- `x-dept-name` 헤더 값이 올바른 형식(`팀명(사업부)`)인지 확인하세요.
-- 일반 서비스인 경우 `x-user-id` 헤더가 포함되어 있는지 확인하세요.
+- Standard 서비스인 경우 `x-user-id` 헤더가 포함되어 있는지 확인하세요.
+- Background 서비스인 경우 `x-dept-name` 헤더가 시스템에 등록된 부서명인지 확인하세요.
 
 ### 모델 목록이 비어 있습니다
 

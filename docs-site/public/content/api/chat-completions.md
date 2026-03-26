@@ -15,11 +15,10 @@ POST /v1/chat/completions
 ```
 Content-Type: application/json
 x-service-id: <서비스 ID>
-x-user-id: <사용자 ID>          # 일반 서비스만 필수
-x-dept-name: <부서명>
+x-user-id: <사용자 ID>          # Standard 서비스 필수
 ```
 
-> 인증 헤더에 대한 자세한 내용은 [API 인증 가이드](/docs/api/authentication)를 참고하세요.
+> 부서 정보는 최초 호출 시 Knox에서 자동 등록됩니다. 자세한 내용은 [API 인증 가이드](/docs/api/authentication)를 참고하세요.
 
 ### 요청 본문
 
@@ -51,7 +50,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -80,7 +78,6 @@ response = requests.post(
         "Content-Type": "application/json",
         "x-service-id": "my-service",
         "x-user-id": "gildong.hong",
-        "x-dept-name": "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -149,7 +146,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [
@@ -186,7 +182,6 @@ response = requests.post(
         "Content-Type": "application/json",
         "x-service-id": "my-service",
         "x-user-id": "gildong.hong",
-        "x-dept-name": "S/W혁신팀(S.LSI)",
     },
     json={
         "model": "gpt-4o",
@@ -218,7 +213,6 @@ const response = await fetch('http://a2g.samsungds.net:8090/v1/chat/completions'
     'Content-Type': 'application/json',
     'x-service-id': 'my-service',
     'x-user-id': 'gildong.hong',
-    'x-dept-name': 'S/W혁신팀(S.LSI)',
   },
   body: JSON.stringify({
     model: 'gpt-4o',
@@ -255,7 +249,6 @@ curl -X POST http://a2g.samsungds.net:8090/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-service-id: my-service" \
   -H "x-user-id: gildong.hong" \
-  -H "x-dept-name: S/W혁신팀(S.LSI)" \
   -d '{
     "model": "gpt-4o",
     "messages": [

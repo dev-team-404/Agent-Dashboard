@@ -116,7 +116,7 @@ app.use('/admin', systemSettingsRoutes);
 app.use('/admin', errorLogsRoutes);
 app.use('/', adminRequestRoutes);
 
-// LLM Proxy Routes (Header-based auth: x-service-id, x-user-id, x-dept-name)
+// LLM Proxy Routes (Standard: x-service-id + x-user-id, Background: x-service-id + x-dept-name)
 app.use('/v1', proxyRoutes);
 
 // Internal Organization API (인증 불필요 — 내부 서비스 간 통신용)
