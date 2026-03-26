@@ -21,7 +21,7 @@ const INSIGHT_BUSINESS_UNIT = 'S.LSI';
 const BUSINESS_TEAM_CENTERS = new Set(['SOC Business Team', 'LSI Business Team', 'Sensor Business Team']);
 
 // ── 해외 R&D 센터 루트 노드 (org_nodes.enDepartmentName 기준) ──
-const OVERSEAS_CENTER_NAMES = ['DSC(DS)', 'DSRA-S.LSI(DS)', 'DSRJ(DS)', 'SSIR(DS)'];
+const OVERSEAS_CENTER_NAMES = ['DSC(DS)', 'DSRA-S.LSI(DS)', 'DSRJ(DS)', 'SSIR(DS)', 'SSCR'];
 
 /**
  * 국내 센터 그룹 결정 (org_nodes 계층 기반)
