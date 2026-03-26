@@ -300,13 +300,27 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   const loadData = async () => {
     try {
-      const [
-        globalRes, serviceDailyRes, deptRes,
-        deptDailyRes, deptUsersDailyRes, deptServiceReqsRes,
-        latencyRes, latencyHistoryRes, healthcheckRes,
-        mauRes, healthStatusRes, errorRateRes,
-      ] = await Promise.all([
+      // Phase 1: 핵심 데이터 (Hero Stats + 모델 상태 + GPU)
+      const [globalRes, healthStatusRes] = await Promise.all([
         statsApi.globalOverview(),
+        statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
+      ]);
+
+      setGlobalOverview(globalRes.data.services || []);
+      setGlobalTotals(globalRes.data.totals || null);
+      setHealthStatuses(healthStatusRes.data.statuses || {});
+      setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
+
+      // Phase 2: GPU + 나머지 데이터 (백그라운드 로드 — UI 먼저 보여줌)
+      Promise.all([
+        gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
+        gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
+      ]).then(([gpuRes, predRes]) => {
+        setGpuData(gpuRes.data.data || []);
+        setGpuPrediction(predRes.data.prediction);
+      }).catch(() => {});
+
+      Promise.all([
         statsApi.globalByService(30),
         statsApi.globalByDept(30),
         statsApi.globalByDeptDaily(30, 5),
@@ -316,50 +330,33 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         statsApi.latencyHistory(24, 10),
         statsApi.latencyHealthcheck(24),
         statsApi.globalMauByService(6).catch(() => ({ data: { services: [], monthlyData: [], estimationMeta: null } })),
-        statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
         statsApi.errorRate(10).catch(() => ({ data: { daily: [], summary: [], days: 10 } })),
-      ]);
-
-      setGlobalOverview(globalRes.data.services || []);
-      setGlobalTotals(globalRes.data.totals || null);
-      setServiceDaily(serviceDailyRes.data.dailyData || []);
-      setDeptStats(deptRes.data.deptStats || []);
-      setDeptDailyData(deptDailyRes.data.chartData || []);
-      setDeptBusinessUnits(deptDailyRes.data.businessUnits || []);
-      setDeptUsersDailyData(deptUsersDailyRes.data.chartData || []);
-      setDeptUsersBUs(deptUsersDailyRes.data.businessUnits || []);
-      setDeptServiceRequestsData(deptServiceReqsRes.data.chartData || []);
-      setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
-      setMauServices(mauRes.data.services || []);
-      setMauMonthlyData(mauRes.data.monthlyData || []);
-      setMauEstimationMeta(mauRes.data.estimationMeta || null);
-      // Calculate avg MAU from last 3 months
-      const mData = mauRes.data.monthlyData || [];
-      if (mData.length > 0) {
-        const recentMonths = mData.slice(-3);
-        const allServiceIds = (mauRes.data.services || []).map((s: { id: string }) => s.id);
-        const monthTotals = recentMonths.map((m: Record<string, unknown>) =>
-          allServiceIds.reduce((sum: number, sid: string) => sum + ((m[sid] as number) || 0), 0)
-        );
-        const avg = monthTotals.reduce((a: number, b: number) => a + b, 0) / monthTotals.length;
-        setAvgMau(Math.round(avg));
-      }
-      setLatencyStats((latencyRes.data.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
-      setLatencyHistory(latencyHistoryRes.data.history || {});
-      setHealthCheckHistory(healthcheckRes.data.history || {});
-      setHealthStatuses(healthStatusRes.data.statuses || {});
-      setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
-      setErrorRateDaily(errorRateRes.data.daily || []);
-
-      // GPU 리소스 데이터 (별도 fetch — 실패해도 대시보드 동작)
-      try {
-        const [gpuRes, predRes] = await Promise.all([
-          gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
-          gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
-        ]);
-        setGpuData(gpuRes.data.data || []);
-        setGpuPrediction(predRes.data.prediction);
-      } catch {}
+      ]).then(([serviceDailyRes, deptRes, deptDailyRes, deptUsersDailyRes, deptServiceReqsRes, latencyRes, latencyHistoryRes, healthcheckRes, mauRes, errorRateRes]) => {
+        setServiceDaily(serviceDailyRes.data.dailyData || []);
+        setDeptStats(deptRes.data.deptStats || []);
+        setDeptDailyData(deptDailyRes.data.chartData || []);
+        setDeptBusinessUnits(deptDailyRes.data.businessUnits || []);
+        setDeptUsersDailyData(deptUsersDailyRes.data.chartData || []);
+        setDeptUsersBUs(deptUsersDailyRes.data.businessUnits || []);
+        setDeptServiceRequestsData(deptServiceReqsRes.data.chartData || []);
+        setDeptServiceCombos(deptServiceReqsRes.data.combinations || []);
+        setMauServices(mauRes.data.services || []);
+        setMauMonthlyData(mauRes.data.monthlyData || []);
+        setMauEstimationMeta(mauRes.data.estimationMeta || null);
+        const mData = mauRes.data.monthlyData || [];
+        if (mData.length > 0) {
+          const recentMonths = mData.slice(-3);
+          const allServiceIds = (mauRes.data.services || []).map((s: { id: string }) => s.id);
+          const monthTotals = recentMonths.map((m: Record<string, unknown>) =>
+            allServiceIds.reduce((sum: number, sid: string) => sum + ((m[sid] as number) || 0), 0)
+          );
+          setAvgMau(Math.round(monthTotals.reduce((a: number, b: number) => a + b, 0) / monthTotals.length));
+        }
+        setLatencyStats((latencyRes.data.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
+        setLatencyHistory(latencyHistoryRes.data.history || {});
+        setHealthCheckHistory(healthcheckRes.data.history || {});
+        setErrorRateDaily(errorRateRes.data.daily || []);
+      }).catch(() => {});
 
       // M/M 목표 관리 데이터 (별도 fetch — 실패해도 대시보드 동작)
       try {

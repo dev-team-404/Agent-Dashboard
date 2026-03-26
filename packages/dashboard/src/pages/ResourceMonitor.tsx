@@ -91,10 +91,8 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const ok = m && !m.error;
   const gc = m?.gpus?.length || 0;
   const spec = m?.gpus?.[0]?.spec;
-  const avgGpu = gc > 0 ? Math.round(m!.gpus.reduce((a, g) => a + g.utilGpu, 0) / gc) : 0;
-  const totMem = gc > 0 ? m!.gpus.reduce((a, g) => a + g.memTotalMb, 0) : 0;
-  const usedMem = gc > 0 ? m!.gpus.reduce((a, g) => a + g.memUsedMb, 0) : 0;
-  const memPct = totMem > 0 ? (usedMem / totMem) * 100 : 0;
+  // VRAM 정보 (GPU 상세 펼침에서 사용)
+  void gc; // gc는 spec 표시에서 사용
   const eps = m?.llmEndpoints || [];
   const avgKv = eps.filter(e => e.kvCacheUsagePct != null);
   const kvPct = avgKv.length > 0 ? avgKv.reduce((a, e) => a + e.kvCacheUsagePct!, 0) / avgKv.length : null;
@@ -102,7 +100,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const ramPct = m?.memoryTotalMb && m?.memoryUsedMb ? Math.round((m.memoryUsedMb / m.memoryTotalMb) * 100) : null;
   const diskPct = m?.diskTotalGb && m?.diskUsedGb ? Math.round((m.diskUsedGb / m.diskTotalGb) * 100) : null;
   const currentTps = eps.reduce((a, e) => a + (e.promptThroughputTps || 0) + (e.genThroughputTps || 0), 0);
-  const capacityPct = Math.max(avgGpu, kvPct || 0, memPct);
+  // 서버별 핵심 지표
+  const serverEffUtil = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct && ta.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || null;
+  const serverHeadroom = serverEffUtil != null ? 100 - serverEffUtil : null;
 
   const loadHist = useCallback(async () => { try { const r = await gpuServerApi.history(s.id, hrs); setHist(r.data); } catch {} }, [s.id, hrs]);
   useEffect(() => { if (open) loadHist(); }, [open, loadHist]);
@@ -137,19 +137,23 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
         </div>
 
         {m?.error ? <p className="text-[10px] text-red-500"><WifiOff className="w-3 h-3 inline mr-0.5" />{m.error}</p> : ok ? (<>
-          {/* ── 1) LLM 용량 사용률 (핵심 게이지) ── */}
+          {/* ── 1) 핵심: 실효 사용률 + 건강도 + 여유 ── */}
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-[10px] text-gray-500 w-14 shrink-0">LLM 용량</span>
-            <div className="flex-1"><MiniBar pct={capacityPct} color={utilCls(capacityPct)} h="h-2" /></div>
-            <span className={`text-xs font-bold w-8 text-right ${utilTxt(capacityPct)}`}>{Math.round(capacityPct)}%</span>
+            <span className="text-[10px] text-blue-600 font-semibold w-12 shrink-0">실효</span>
+            <div className="flex-1"><MiniBar pct={serverEffUtil || 0} color={utilCls(serverEffUtil || 0)} h="h-2.5" /></div>
+            <span className={`text-xs font-bold w-8 text-right ${serverEffUtil != null ? utilTxt(serverEffUtil) : 'text-gray-300'}`}>{serverEffUtil ?? '-'}%</span>
+          </div>
+          <div className="flex items-center gap-3 mb-1.5 text-[10px]">
+            {ta?.theoreticalUtilPct != null && <span className="text-gray-500">이론대비 <b className={utilTxt(ta.theoreticalUtilPct)}>{ta.theoreticalUtilPct}%</b></span>}
+            {ta?.gpuHealthPct != null && <span>건강도 <b className={healthTxt(ta.gpuHealthPct)}>{ta.gpuHealthPct}%</b></span>}
+            {serverHeadroom != null && <span>여유 <b className={serverHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600'}>{serverHeadroom}%</b></span>}
           </div>
 
-          {/* ── 2) 건강도 + 처리량 ── */}
+          {/* ── 2) 처리량 + 모델 ── */}
           {ta && (
             <div className="flex items-center gap-3 mb-1.5 text-[10px]">
-              {ta.gpuHealthPct != null && <span className="flex items-center gap-0.5"><Activity className="w-3 h-3 text-gray-400" />건강도 <b className={healthTxt(ta.gpuHealthPct)}>{ta.gpuHealthPct}%</b></span>}
-              {ta.currentTps > 0 && <span className="text-blue-600">{ta.currentTps.toFixed(1)} tok/s</span>}
-              {ta.theoreticalMaxTps && <span className="text-gray-400">/ {ta.theoreticalMaxTps.toFixed(0)} 이론</span>}
+              {ta.currentTps > 0 && <span className="text-blue-600 font-semibold">{ta.currentTps.toFixed(1)} tok/s</span>}
+              {ta.theoreticalMaxTps && <span className="text-gray-400">/ {ta.theoreticalMaxTps.toFixed(0)} max</span>}
               {ta.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 {ta.peakTps.toFixed(1)}</span>}
               {ta.modelParams && <span className="text-gray-400">({ta.modelParams})</span>}
             </div>
