@@ -89,12 +89,18 @@ export default function DeptSavedMM() {
            s.name.toLowerCase().includes(q);
   });
 
+  // 한번도 입력 안 한 서비스: savedMM=null + updatedBy=null → AI 추정치 폴백
+  const effectiveMM = (s: ServiceEntry): number | null =>
+    s.savedMM ?? (s.updatedBy == null ? s.aiEstimatedMM : null);
+  const isAiFallback = (s: ServiceEntry): boolean =>
+    s.savedMM == null && s.updatedBy == null && s.aiEstimatedMM != null;
+
   const sorted = [...filtered].sort((a, b) => {
     let valA: number, valB: number;
     switch (sortKey) {
       case 'savedMM':
-        valA = a.savedMM ?? -Infinity;
-        valB = b.savedMM ?? -Infinity;
+        valA = effectiveMM(a) ?? -Infinity;
+        valB = effectiveMM(b) ?? -Infinity;
         break;
       case 'mau':
         valA = a.lastMonth.mau;
@@ -128,8 +134,9 @@ export default function DeptSavedMM() {
 
   const startEdit = (s: ServiceEntry) => {
     setEditingId(s.id);
+    const eff = effectiveMM(s);
     setEditState({
-      savedMM: s.savedMM != null ? String(s.savedMM) : '',
+      savedMM: eff != null ? String(eff) : '',
       reason: s.reason || '',
     });
     setError(null);
@@ -170,9 +177,11 @@ export default function DeptSavedMM() {
   // Summary calculations
   const totalServiceCount = services.length;
   const totalDeptUsers = services.reduce((sum, s) => sum + s.deptUserCount, 0);
-  const totalSavedMM = services.reduce((sum, s) => sum + (s.savedMM || 0), 0);
+  const totalEffectiveMM = services.reduce((sum, s) => sum + (effectiveMM(s) || 0), 0);
+  const totalManualMM = services.reduce((sum, s) => sum + (s.savedMM || 0), 0);
   const totalAiEstimated = services.reduce((sum, s) => sum + (s.aiEstimatedMM || 0), 0);
   const totalDeptUserCount = services.reduce((sum, s) => sum + s.deptUserCount, 0);
+  const hasAnyAiFallback = services.some(s => isAiFallback(s));
 
   if (loading) {
     return (
@@ -233,14 +242,31 @@ export default function DeptSavedMM() {
           <p className="text-2xl font-bold text-blue-600 mt-1">{totalDeptUserCount || totalDeptUsers}명</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">총 Saved M/M</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">{totalSavedMM.toFixed(1)}</p>
+          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">
+            총 Saved M/M
+            {hasAnyAiFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal normal-case">(AI 포함)</span>}
+          </p>
+          <p className={`text-2xl font-bold mt-1 ${hasAnyAiFallback ? 'text-amber-600' : 'text-emerald-600'}`}>{totalEffectiveMM.toFixed(1)}</p>
+          {hasAnyAiFallback && totalManualMM > 0 && (
+            <p className="text-[10px] text-pastel-400 mt-0.5">수기 {totalManualMM.toFixed(1)}</p>
+          )}
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
           <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">총 AI 추정</p>
           <p className="text-2xl font-bold text-violet-600 mt-1">{totalAiEstimated.toFixed(1)}</p>
         </div>
       </div>
+
+      {/* AI fallback info banner */}
+      {hasAnyAiFallback && (
+        <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200/60 rounded-lg">
+          <Sparkles className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-amber-700 leading-relaxed">
+            사용자가 입력한 Saved M/M 값이 없는 서비스에는 <span className="font-semibold">AI 추정치가 자동 적용</span>되어 있습니다.
+            수정 버튼을 눌러 직접 입력하면 AI 추정치 대신 입력값이 반영됩니다.
+          </p>
+        </div>
+      )}
 
       {/* Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
@@ -340,6 +366,14 @@ export default function DeptSavedMM() {
                             className="w-20 px-2 py-1.5 text-sm text-center bg-white border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                             placeholder="-"
                           />
+                        ) : isAiFallback(s) ? (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="text-sm font-medium text-amber-600 tabular-nums">
+                              {s.aiEstimatedMM!.toFixed(1)}
+                              <span className="ml-1 text-[10px] text-amber-500 font-normal">AI</span>
+                            </span>
+                            <span className="text-[9px] text-amber-500/80 leading-tight">추정치 적용 중</span>
+                          </div>
                         ) : (
                           <span className={`text-sm font-medium ${s.savedMM != null ? 'text-emerald-700' : 'text-pastel-300'}`}>
                             {s.savedMM != null ? s.savedMM.toFixed(1) : '-'}
