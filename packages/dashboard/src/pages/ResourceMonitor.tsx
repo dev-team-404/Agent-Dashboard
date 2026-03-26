@@ -174,13 +174,14 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             </div>
           </div>
 
-          {/* ── 2) 처리량 + 모델 ── */}
-          <div className="flex items-center gap-3 mb-1.5 text-[10px]">
-            <span className="text-blue-600 font-semibold">{currentTps > 0 ? currentTps.toFixed(1) : '-'} tok/s</span>
-            {ta?.theoreticalMaxTps && <span className="text-gray-400">/ {ta.theoreticalMaxTps.toFixed(0)} max</span>}
-            {ta?.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 {ta.peakTps.toFixed(1)}</span>}
-            {ta?.modelParams && <span className="text-gray-400">({ta.modelParams})</span>}
-            {!ta && <span className="text-gray-300">처리량 데이터 수집 중</span>}
+          {/* ── 2) 처리량 + 이론 최대 + KV Cache ── */}
+          <div className="flex items-center gap-2 mb-1.5 text-[10px] flex-wrap">
+            <span className="text-blue-600 font-semibold">{currentTps > 0 ? currentTps.toFixed(1) : '-'} <span className="font-normal">tok/s</span></span>
+            {ta?.theoreticalMaxTps && <span className="text-gray-400">이론max <b className="text-gray-600">{ta.theoreticalMaxTps.toFixed(0)}</b></span>}
+            {ta?.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 <b className="text-purple-600">{ta.peakTps.toFixed(1)}</b></span>}
+            {kvPct != null && <span className="text-gray-400">KV <b className={utilTxt(kvPct)}>{kvPct.toFixed(0)}%</b><span className="text-gray-300">/100%</span></span>}
+            {ta?.modelParams && <span className="text-gray-400">{ta.modelParams}</span>}
+            {!ta && !kvPct && <span className="text-gray-300">데이터 수집 중</span>}
           </div>
 
           {/* ── 3) 영업시간 평균 (9-18 KST) ── */}
@@ -405,6 +406,14 @@ export default function ResourceMonitor() {
           <div><p className="text-[10px] text-gray-500">현재 GPU VRAM</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
           <div><p className="text-[10px] text-gray-500">예상 필요 VRAM</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
           <div><p className="text-[10px] text-gray-500">부족분</p><p className={`text-lg font-bold ${pred.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{pred.gapVramGb > 0 ? `+${Math.round(pred.gapVramGb)}` : '0'}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
+          {/* 소진 시점 */}
+          {pred.calculationDetails?.scaling?.weeksUntilSaturated && (
+            <div className="bg-red-50 rounded-lg p-2 border border-red-200">
+              <p className="text-[10px] text-red-600 font-semibold">포화 예상</p>
+              <p className="text-lg font-black text-red-700">{pred.calculationDetails.scaling.weeksUntilSaturated}<span className="text-xs font-normal ml-0.5">주 후</span></p>
+              <p className="text-[9px] text-red-500">현재 성장률 유지 시</p>
+            </div>
+          )}
           <div className="sm:col-span-2 bg-white/60 rounded-lg p-2 border border-indigo-100">
             <p className="text-[10px] text-gray-500">추가 필요 GPU</p>
             <p className="text-2xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-sm font-normal text-gray-500 ml-1">B300</span></p>
