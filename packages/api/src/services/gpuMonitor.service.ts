@@ -95,18 +95,17 @@ const METRICS_CMD = [
   "free -m | awk '/Mem:/{print $2,$3}'",
   'nproc',
   'hostname',
-  // LLM 탐지: 포트별로 /v1/models + /metrics + 컨테이너 정보 전부 수집
+  // LLM 탐지: vllm/sglang/tgi/lmdeploy 이미지 컨테이너만 스캔
   'echo "==LLM=="',
-  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -o "0\\.0\\.0\\.0:[0-9]*" | sed "s/0\\.0\\.0\\.0://" | sort -u); do'
+  'docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep -iE "vllm|sglang|tgi|text-generation|lmdeploy|aphrodite" | while IFS="|" read PORTS CNAME CIMAGE; do'
+  + ' port=$(echo "$PORTS" | grep -o "0\\.0\\.0\\.0:[0-9]*" | head -1 | sed "s/0\\.0\\.0\\.0://");'
+  + ' [ -z "$port" ] && continue;'
   + ' MODELS=$(curl -s --max-time 2 "http://localhost:$port/v1/models" 2>/dev/null);'
   + ' METRICS=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null);'
-  + ' if [ -n "$MODELS" ] || echo "$METRICS" | grep -qiE "vllm|sglang|tgi|request|cache|throughput" 2>/dev/null; then'
-  + '   CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1);'
-  + '   echo "PORT:$port|CONTAINER:$CNAME";'
-  + '   echo "MODELS_JSON:$MODELS";'
-  + '   echo "$METRICS" | grep -vE "^#|^$" | head -200;'
-  + '   echo "---ENDPORT---";'
-  + ' fi;'
+  + ' echo "PORT:$port|CONTAINER:$PORTS|$CNAME|$CIMAGE";'
+  + ' echo "MODELS_JSON:$MODELS";'
+  + ' echo "$METRICS" | grep -vE "^#|^$" | head -200;'
+  + ' echo "---ENDPORT---";'
   + ' done',
   // Ollama 탐지 (기본 포트 11434)
   'OLLAMA_PS=$(ollama ps 2>/dev/null); if [ -n "$OLLAMA_PS" ]; then echo "OLLAMA_CLI:$OLLAMA_PS"; fi',
