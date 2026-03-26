@@ -85,8 +85,28 @@ function renderMarkdown(text: string): string {
   processed = processed.replace(/__CODE_BLOCK_(\d+)__/g, (_m, i) => codeBlocks[parseInt(i)]);
   processed = processed.replace(/__INLINE_CODE_(\d+)__/g, (_m, i) => inlineCodes[parseInt(i)]);
 
-  // 5. 마크다운 변환 (순서 중요)
+  // 5. 테이블 변환 (이스케이프 후이므로 | 는 그대로)
+  processed = processed.replace(/(^\|.+\|$\n?)+/gm, (block) => {
+    const rows = block.trim().split('\n').filter(r => r.trim());
+    if (rows.length < 2) return block;
+    // 구분선 행 (|---|---| 또는 |:---|:---:|) 제거
+    const dataRows = rows.filter(r => !/^\|[\s:]*-+[\s:]*(\|[\s:]*-+[\s:]*)*\|?$/.test(r));
+    if (dataRows.length === 0) return block;
+    const parseRow = (row: string) => row.split('|').slice(1, -1).map(c => c.trim());
+    const headerCells = parseRow(dataRows[0]);
+    const thead = `<thead><tr>${headerCells.map(c => `<th class="px-2 py-1 text-left text-[11px] font-semibold text-gray-600 border-b border-gray-200 bg-gray-50">${c}</th>`).join('')}</tr></thead>`;
+    const bodyRows = dataRows.slice(1).map(row => {
+      const cells = parseRow(row);
+      return `<tr>${cells.map(c => `<td class="px-2 py-1 text-[11px] text-gray-700 border-b border-gray-100">${c}</td>`).join('')}</tr>`;
+    }).join('');
+    const tbody = bodyRows ? `<tbody>${bodyRows}</tbody>` : '';
+    return `<table class="w-full border-collapse my-2 text-[11px]">${thead}${tbody}</table>`;
+  });
+
+  // 6. 마크다운 변환 (순서 중요)
   return processed
+    // horizontal rule
+    .replace(/^-{3,}$/gm, '<hr class="my-3 border-gray-200"/>')
     // bold (** **)
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-gray-800">$1</strong>')
     // italic (* *)
@@ -112,118 +132,88 @@ function renderMarkdown(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-// ── 스포트라이트 오버레이 + 하이라이팅 ──
+// ── 스포트라이트 오버레이 (box-shadow 방식) ──
 let spotlightCleanup: (() => void) | null = null;
 
 function showSpotlight(tourId: string, showTourHint = false) {
-  // 기존 스포트라이트 제거
   if (spotlightCleanup) spotlightCleanup();
 
-  const el = document.querySelector(`[data-tour="${tourId}"]`) as HTMLElement | null;
-  if (!el) return;
+  // 요소가 렌더링될 때까지 최대 3초 재시도
+  let attempts = 0;
+  const maxAttempts = 15;
+  const tryFind = () => {
+    const el = document.querySelector(`[data-tour="${tourId}"]`) as HTMLElement | null;
+    if (!el) {
+      attempts++;
+      if (attempts < maxAttempts) { setTimeout(tryFind, 200); }
+      return;
+    }
+    applySpotlight(el, showTourHint);
+  };
+  tryFind();
+}
 
+function applySpotlight(el: HTMLElement, showTourHint: boolean) {
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-  // 약간 딜레이 후 오버레이 (스크롤 완료 대기)
   setTimeout(() => {
-    const rect = el.getBoundingClientRect();
-
-    // 오버레이 생성
+    // 오버레이 (클릭 가능한 배경)
     const overlay = document.createElement('div');
     overlay.id = 'chatbot-spotlight-overlay';
-    overlay.style.cssText = `
-      position: fixed; inset: 0; z-index: 10000;
-      background: rgba(0,0,0,0);
-      transition: background 0.3s ease;
-      cursor: pointer;
-    `;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0);transition:background 0.3s ease;cursor:pointer;';
     document.body.appendChild(overlay);
 
-    // 스포트라이트 구멍 (clip-path)
-    const pad = 8;
-    const r = 8;
-    const x1 = rect.left - pad, y1 = rect.top - pad;
-    const x2 = rect.right + pad, y2 = rect.bottom + pad;
-    overlay.style.clipPath = `polygon(
-      evenodd,
-      0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%,
-      ${x1 + r}px ${y1}px,
-      ${x2 - r}px ${y1}px,
-      ${x2}px ${y1 + r}px,
-      ${x2}px ${y2 - r}px,
-      ${x2 - r}px ${y2}px,
-      ${x1 + r}px ${y2}px,
-      ${x1}px ${y2 - r}px,
-      ${x1}px ${y1 + r}px,
-      ${x1 + r}px ${y1}px
-    )`;
+    // 대상 요소에 거대한 box-shadow로 어둡게 (가장 안정적인 방식)
+    const prevPosition = el.style.position;
+    const prevZIndex = el.style.zIndex;
+    const prevBoxShadow = el.style.boxShadow;
+    const prevBorderRadius = el.style.borderRadius;
 
-    // 대상 요소 강조 보더
     el.style.position = 'relative';
     el.style.zIndex = '10001';
-    el.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.7), 0 0 20px rgba(6,182,212,0.3)';
     el.style.borderRadius = '8px';
+    el.style.boxShadow = '0 0 0 4px rgba(6,182,212,0.8), 0 0 0 9999px rgba(0,0,0,0.5)';
     el.style.transition = 'box-shadow 0.3s ease';
 
-    // 투어 가이드 힌트 (해당 페이지에 투어가 있으면)
+    // 투어 가이드 힌트
     let tourHint: HTMLElement | null = null;
     const tourBtn = document.querySelector('[title="가이드 투어 시작"]') as HTMLElement | null;
     if (showTourHint && tourBtn) {
-      tourBtn.style.zIndex = '10001';
       tourBtn.style.position = 'relative';
-      tourBtn.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.7), 0 0 20px rgba(6,182,212,0.3)';
+      tourBtn.style.zIndex = '10001';
+      tourBtn.style.boxShadow = '0 0 0 3px rgba(6,182,212,0.8), 0 0 0 9999px transparent';
+      tourBtn.style.borderRadius = '9999px';
 
       tourHint = document.createElement('div');
       const btnRect = tourBtn.getBoundingClientRect();
-      tourHint.style.cssText = `
-        position: fixed;
-        left: ${btnRect.left - 200}px;
-        top: ${btnRect.top - 8}px;
-        z-index: 10002;
-        background: white;
-        border-radius: 10px;
-        padding: 8px 14px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        font-size: 12px;
-        color: #334155;
-        white-space: nowrap;
-        animation: fadeIn 0.3s ease;
-      `;
-      tourHint.innerHTML = `<span style="margin-right:4px">📖</span> 상세 가이드 투어도 이용해보세요!`;
+      tourHint.style.cssText = `position:fixed;right:${window.innerWidth - btnRect.left + 8}px;top:${btnRect.top + btnRect.height / 2 - 16}px;z-index:10002;background:white;border-radius:10px;padding:8px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.15);font-size:12px;color:#334155;white-space:nowrap;opacity:0;transition:opacity 0.3s ease;`;
+      tourHint.textContent = '상세 가이드 투어도 이용해보세요!';
       document.body.appendChild(tourHint);
+      requestAnimationFrame(() => { tourHint!.style.opacity = '1'; });
     }
 
-    // fade in
-    requestAnimationFrame(() => {
-      overlay.style.background = 'rgba(0,0,0,0.5)';
-    });
-
-    // 클릭 또는 4초 후 자동 제거
     const cleanup = () => {
-      overlay.style.background = 'rgba(0,0,0,0)';
-      el.style.boxShadow = '';
-      el.style.zIndex = '';
-      el.style.position = '';
-      el.style.borderRadius = '';
+      el.style.position = prevPosition;
+      el.style.zIndex = prevZIndex;
+      el.style.boxShadow = prevBoxShadow;
+      el.style.borderRadius = prevBorderRadius;
       el.style.transition = '';
       if (tourBtn) {
-        tourBtn.style.zIndex = '';
         tourBtn.style.position = '';
+        tourBtn.style.zIndex = '';
         tourBtn.style.boxShadow = '';
+        tourBtn.style.borderRadius = '';
       }
       if (tourHint) tourHint.remove();
-      setTimeout(() => overlay.remove(), 300);
+      overlay.remove();
       spotlightCleanup = null;
     };
 
     overlay.addEventListener('click', cleanup, { once: true });
     const timer = setTimeout(cleanup, 4500);
 
-    spotlightCleanup = () => {
-      clearTimeout(timer);
-      cleanup();
-    };
-  }, 350);
+    spotlightCleanup = () => { clearTimeout(timer); cleanup(); };
+  }, 400);
 }
 
 interface Props {
