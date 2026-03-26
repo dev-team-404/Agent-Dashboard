@@ -104,7 +104,7 @@ const METRICS_CMD = [
   + ' METRICS=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null);'
   + ' echo "PORT:$port|CONTAINER:$PORTS|$CNAME|$CIMAGE";'
   + ' echo "MODELS_JSON:$MODELS";'
-  + ' echo "$METRICS" | grep -vE "^#|^$" | head -200;'
+  + ' echo "$METRICS" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|latency|flops|bytes|sleep|model_name|prompt|generation|batch|kv_" | head -100;'
   + ' echo "---ENDPORT---";'
   + ' done',
   // Ollama 탐지 (기본 포트 11434)
@@ -288,10 +288,11 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string): Par
   if (type === 'vllm' || type === 'unknown') {
     const running = promGet(prom, 'num_requests_running');
     const waiting = promGet(prom, 'num_requests_waiting');
-    const kvRaw = promGet(prom, 'gpu_cache_usage_perc', 'gpu_cache_usage', 'cache_usage');
-    const kv = kvRaw != null ? (kvRaw <= 1 ? kvRaw * 100 : kvRaw) : null; // 0.xx → %, xx → %
-    const promptTps = promGet(prom, 'avg_prompt_throughput_toks_per_s', 'prompt_throughput');
-    const genTps = promGet(prom, 'avg_generation_throughput_toks_per_s', 'generation_throughput');
+    // v0.17: kv_cache_usage_perc, 이전: gpu_cache_usage_perc
+    const kvRaw = promGet(prom, 'kv_cache_usage_perc', 'gpu_cache_usage_perc');
+    const kv = kvRaw != null ? (kvRaw <= 1 ? kvRaw * 100 : kvRaw) : null;
+    const promptTps = promGet(prom, 'avg_prompt_throughput_toks_per_s', 'prompt_tokens_per_second');
+    const genTps = promGet(prom, 'avg_generation_throughput_toks_per_s', 'generation_tokens_per_second');
     if (running != null || kv != null || promptTps != null) {
       return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, promptThroughputTps: promptTps, genThroughputTps: genTps };
     }
@@ -299,7 +300,7 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string): Par
   if (type === 'sglang' || type === 'unknown') {
     const running = promGet(prom, 'num_running_reqs', 'running_req');
     const waiting = promGet(prom, 'num_waiting_reqs', 'waiting_req');
-    const kvRaw = promGet(prom, 'token_usage', 'cache_usage');
+    const kvRaw = promGet(prom, 'kv_cache_usage_perc', 'token_usage');
     const kv = kvRaw != null ? (kvRaw <= 1 ? kvRaw * 100 : kvRaw) : null;
     const genTps = promGet(prom, 'gen_throughput', 'generation_throughput');
     if (running != null || kv != null || genTps != null) {
