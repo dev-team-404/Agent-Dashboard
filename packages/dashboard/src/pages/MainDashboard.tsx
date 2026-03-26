@@ -1756,17 +1756,30 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
       </>}
 
-      {/* ── 사용량 분석 탭 (이미 usage로 매핑) ── */}
+      {/* ── 사용량 분석 탭 ── */}
+      {activeTab === 'usage' && <>
+      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">사업부별 토큰 사용량</h2>
+        {renderChartContent()}
+      </div>
+      <UsageAnalytics />
+      </>}
 
       {/* ── 상세분석 탭 ── */}
       {activeTab === 'analysis' && <>
-      {/* Usage Analytics (Global) */}
-      <UsageAnalytics />
+      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">서비스별 일일 요청 추이</h2>
+        {renderChartContent()}
+      </div>
 
       </>}
 
       {/* ── 사업부별 통계 탭 ── */}
       {activeTab === 'bu-stats' && <>
+      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">사업부별 사용자 추이</h2>
+        {renderChartContent()}
+      </div>
       {/* Department Token Table */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">

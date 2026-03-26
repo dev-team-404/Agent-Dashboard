@@ -121,6 +121,13 @@ export default function SystemLlmSettings() {
     }
   }, [logoSuccess]);
 
+  useEffect(() => {
+    if (gpuLlmSuccess) {
+      const t = setTimeout(() => setGpuLlmSuccess(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [gpuLlmSuccess]);
+
   const handleSave = async () => {
     if (!selectedId) return;
     setSaving(true);
