@@ -141,36 +141,45 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
         </div>
 
         {m?.error ? <p className="text-[10px] text-red-500"><WifiOff className="w-3 h-3 inline mr-0.5" />{m.error}</p> : ok ? (<>
-          {/* ── 1) 핵심: 실효 사용률 + 건강도 + 여유 ── */}
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-[10px] text-blue-600 font-semibold w-12 shrink-0">실효</span>
-            <div className="flex-1"><MiniBar pct={serverEffUtil || 0} color={utilCls(serverEffUtil || 0)} h="h-2.5" /></div>
-            <span className={`text-xs font-bold w-8 text-right ${serverEffUtil != null ? utilTxt(serverEffUtil) : 'text-gray-300'}`}>{serverEffUtil ?? '-'}%</span>
-          </div>
-          <div className="flex items-center gap-3 mb-1.5 text-[10px]">
-            {ta?.theoreticalUtilPct != null && <span className="text-gray-500">이론대비 <b className={utilTxt(ta.theoreticalUtilPct)}>{ta.theoreticalUtilPct}%</b></span>}
-            {ta?.gpuHealthPct != null && <span>건강도 <b className={healthTxt(ta.gpuHealthPct)}>{ta.gpuHealthPct}%</b></span>}
-            {serverHeadroom != null && <span>여유 <b className={serverHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600'}>{serverHeadroom}%</b></span>}
+          {/* ── 1) 핵심 4개 게이지 ── */}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1.5">
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="text-gray-500 w-10 shrink-0">실효</span>
+              <div className="flex-1"><MiniBar pct={serverEffUtil || 0} color={utilCls(serverEffUtil || 0)} h="h-2" /></div>
+              <b className={`w-7 text-right ${serverEffUtil != null ? utilTxt(serverEffUtil) : 'text-gray-300'}`}>{serverEffUtil ?? '-'}%</b>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="text-gray-500 w-10 shrink-0">이론대비</span>
+              <div className="flex-1"><MiniBar pct={ta?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
+              <b className={`w-7 text-right ${ta?.theoreticalUtilPct != null ? utilTxt(ta.theoreticalUtilPct) : 'text-gray-300'}`}>{ta?.theoreticalUtilPct ?? '-'}%</b>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="text-gray-500 w-10 shrink-0">건강도</span>
+              <div className="flex-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
+              <b className={`w-7 text-right ${ta?.gpuHealthPct != null ? healthTxt(ta.gpuHealthPct) : 'text-gray-300'}`}>{ta?.gpuHealthPct ?? '-'}%</b>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="text-gray-500 w-10 shrink-0">여유</span>
+              <div className="flex-1"><MiniBar pct={serverHeadroom || 0} color={serverHeadroom != null && serverHeadroom <= 20 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
+              <b className={`w-7 text-right ${serverHeadroom != null ? (serverHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{serverHeadroom ?? '-'}%</b>
+            </div>
           </div>
 
           {/* ── 2) 처리량 + 모델 ── */}
-          {ta && (
-            <div className="flex items-center gap-3 mb-1.5 text-[10px]">
-              {ta.currentTps > 0 && <span className="text-blue-600 font-semibold">{ta.currentTps.toFixed(1)} tok/s</span>}
-              {ta.theoreticalMaxTps && <span className="text-gray-400">/ {ta.theoreticalMaxTps.toFixed(0)} max</span>}
-              {ta.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 {ta.peakTps.toFixed(1)}</span>}
-              {ta.modelParams && <span className="text-gray-400">({ta.modelParams})</span>}
-            </div>
-          )}
+          <div className="flex items-center gap-3 mb-1.5 text-[10px]">
+            <span className="text-blue-600 font-semibold">{currentTps > 0 ? currentTps.toFixed(1) : '-'} tok/s</span>
+            {ta?.theoreticalMaxTps && <span className="text-gray-400">/ {ta.theoreticalMaxTps.toFixed(0)} max</span>}
+            {ta?.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 {ta.peakTps.toFixed(1)}</span>}
+            {ta?.modelParams && <span className="text-gray-400">({ta.modelParams})</span>}
+            {!ta && <span className="text-gray-300">처리량 데이터 수집 중</span>}
+          </div>
 
           {/* ── 3) 영업시간 평균 (9-18 KST) ── */}
-          {hist?.businessHoursAvg && (
-            <div className="grid grid-cols-3 gap-1.5 mb-1.5">
-              <div className="text-[9px]"><span className="text-gray-400">영업시간 실효</span><div className="flex items-center gap-1"><MiniBar pct={hist.businessHoursAvg.avgGpuUtil || 0} color={utilCls(hist.businessHoursAvg.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist.businessHoursAvg.avgGpuUtil || 0)}>{hist.businessHoursAvg.avgGpuUtil || 0}%</b></div></div>
-              <div className="text-[9px]"><span className="text-gray-400">영업시간 이론대비</span><div className="flex items-center gap-1"><MiniBar pct={hist.businessHoursAvg.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist.businessHoursAvg.avgMemUtil || 0}%</b></div></div>
-              <div className="text-[9px]"><span className="text-gray-400">영업시간 건강도</span><div className="flex items-center gap-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-1.5" /><b className={healthTxt(ta?.gpuHealthPct || 0)}>{ta?.gpuHealthPct ?? '-'}%</b></div></div>
-            </div>
-          )}
+          <div className="grid grid-cols-3 gap-1.5 mb-1.5 p-1.5 bg-blue-50/50 rounded">
+            <div className="text-[9px]"><span className="text-blue-500">영업시간 GPU</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgGpuUtil || 0} color={utilCls(hist?.businessHoursAvg?.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist?.businessHoursAvg?.avgGpuUtil || 0)}>{hist?.businessHoursAvg?.avgGpuUtil ?? '-'}%</b></div></div>
+            <div className="text-[9px]"><span className="text-blue-500">영업시간 VRAM</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist?.businessHoursAvg?.avgMemUtil ?? '-'}%</b></div></div>
+            <div className="text-[9px]"><span className="text-blue-500">건강도</span><div className="flex items-center gap-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-1.5" /><b className={healthTxt(ta?.gpuHealthPct || 0)}>{ta?.gpuHealthPct ?? '-'}%</b></div></div>
+          </div>
 
           {/* ── 4) 시스템 리소스 한 줄 ── */}
           <div className="flex items-center gap-3 text-[10px] text-gray-500">
