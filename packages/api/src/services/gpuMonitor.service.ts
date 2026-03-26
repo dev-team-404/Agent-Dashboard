@@ -115,6 +115,37 @@ function isLlmProcess(processName: string): boolean {
 }
 
 // ================================================================
+// GPU 스펙 테이블 (H200/H100/L40S + 기타)
+// ================================================================
+interface GpuSpec {
+  fp16Tflops: number;      // FP16 이론 성능 (TFLOPS)
+  memBandwidthGBs: number; // 메모리 대역폭 (GB/s)
+  tdpW: number;            // TDP (W)
+  vramGb: number;          // VRAM (GB)
+  label: string;           // 표시 이름
+}
+
+const GPU_SPECS: Array<{ pattern: RegExp; spec: GpuSpec }> = [
+  { pattern: /H200.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200 SXM' } },
+  { pattern: /H200/i,       spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200' } },
+  { pattern: /H100.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100 SXM' } },
+  { pattern: /H100.*PCIe/i, spec: { fp16Tflops: 756, memBandwidthGBs: 2000, tdpW: 350, vramGb: 80, label: 'H100 PCIe' } },
+  { pattern: /H100/i,       spec: { fp16Tflops: 989, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100' } },
+  { pattern: /L40S/i,       spec: { fp16Tflops: 362, memBandwidthGBs: 864, tdpW: 350, vramGb: 48, label: 'L40S' } },
+  { pattern: /A100.*80/i,   spec: { fp16Tflops: 312, memBandwidthGBs: 2039, tdpW: 400, vramGb: 80, label: 'A100 80GB' } },
+  { pattern: /A100/i,       spec: { fp16Tflops: 312, memBandwidthGBs: 1555, tdpW: 400, vramGb: 40, label: 'A100 40GB' } },
+  { pattern: /RTX.*4090/i,  spec: { fp16Tflops: 165, memBandwidthGBs: 1008, tdpW: 450, vramGb: 24, label: 'RTX 4090' } },
+  { pattern: /RTX.*4070/i,  spec: { fp16Tflops: 73,  memBandwidthGBs: 504,  tdpW: 200, vramGb: 12, label: 'RTX 4070' } },
+];
+
+export function lookupGpuSpec(gpuName: string): GpuSpec | null {
+  for (const entry of GPU_SPECS) {
+    if (entry.pattern.test(gpuName)) return entry.spec;
+  }
+  return null;
+}
+
+// ================================================================
 // 타입 정의
 // ================================================================
 export interface GpuInfo {
@@ -122,6 +153,7 @@ export interface GpuInfo {
   memTotalMb: number; memUsedMb: number;
   utilGpu: number; utilMem: number;
   temp: number; powerW: number; powerMaxW: number;
+  spec: GpuSpec | null; // 자동 매칭된 GPU 스펙
 }
 
 export interface GpuProcess {
@@ -237,6 +269,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
           memTotalMb: parseFloat(parts[3]) || 0, memUsedMb: parseFloat(parts[4]) || 0,
           utilGpu: parseFloat(parts[5]) || 0, utilMem: parseFloat(parts[6]) || 0,
           temp: parseFloat(parts[7]) || 0, powerW: parseFloat(parts[8]) || 0, powerMaxW: parseFloat(parts[9]) || 0,
+          spec: lookupGpuSpec(parts[2]),
         });
       }
     }

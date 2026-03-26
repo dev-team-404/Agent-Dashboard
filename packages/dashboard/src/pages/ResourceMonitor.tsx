@@ -11,7 +11,8 @@ import {
 } from 'recharts';
 
 // ── Types ──
-interface GpuInfo { index: number; uuid: string; name: string; memTotalMb: number; memUsedMb: number; utilGpu: number; utilMem: number; temp: number; powerW: number; powerMaxW: number; }
+interface GpuSpec { fp16Tflops: number; memBandwidthGBs: number; tdpW: number; vramGb: number; label: string; }
+interface GpuInfo { index: number; uuid: string; name: string; memTotalMb: number; memUsedMb: number; utilGpu: number; utilMem: number; temp: number; powerW: number; powerMaxW: number; spec: GpuSpec | null; }
 interface GpuProcess { gpuIndex: number; pid: number; name: string; memMb: number; isLlm: boolean; }
 interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelName: string | null; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; }
 interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; hostname: string | null; }
@@ -156,6 +157,15 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
   const llmEps = m?.llmEndpoints || [];
   const totalTps = llmEps.reduce((s, e) => s + (e.promptThroughputTps || 0) + (e.genThroughputTps || 0), 0);
 
+  // GPU 스펙 기반 용량 계산
+  const spec = m?.gpus?.[0]?.spec;
+  const totalFp16 = spec ? spec.fp16Tflops * gpuCount : null;
+  const totalBw = spec ? spec.memBandwidthGBs * gpuCount : null;
+  const avgKvCache = llmEps.filter(e => e.kvCacheUsagePct != null).reduce((s, e) => s + e.kvCacheUsagePct!, 0) / (llmEps.filter(e => e.kvCacheUsagePct != null).length || 1) || null;
+  const totalWaiting = llmEps.reduce((s, e) => s + (e.waitingRequests || 0), 0);
+  // 종합 용량 사용률: max(GPU연산%, KV캐시%, VRAM%)
+  const capacityPct = Math.max(avgGpuUtil, avgKvCache || 0, memPct);
+
   const loadHistory = useCallback(async () => { try { const res = await gpuServerApi.history(server.id, historyHours); setHistoryData(res.data); } catch {} }, [server.id, historyHours]);
   useEffect(() => { if (expanded) loadHistory(); }, [expanded, loadHistory]);
 
@@ -189,12 +199,29 @@ function ServerCard({ entry, onEdit, onDelete, onToggle }: { entry: RealtimeEntr
           </div>
         </div>
         {m?.error ? (<div className="p-3 bg-red-50 rounded-lg text-xs text-red-700"><WifiOff className="w-4 h-4 inline mr-1" />연결 실패: {m.error}</div>) : isOnline ? (<>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3">
-            <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">GPU</p><p className="text-lg font-bold text-gray-900">{gpuCount}<span className="text-xs font-normal text-gray-400 ml-0.5">장</span></p></div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+            <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">GPU{spec ? ` (${spec.label})` : ''}</p><p className="text-lg font-bold text-gray-900">{gpuCount}<span className="text-xs font-normal text-gray-400 ml-0.5">장</span></p>{totalFp16 && <p className="text-[10px] text-gray-400">{totalFp16} TFLOPS FP16</p>}</div>
             <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">GPU 사용률</p><p className={`text-lg font-bold ${utilTxt(avgGpuUtil)}`}>{avgGpuUtil}<span className="text-xs font-normal">%</span></p></div>
-            <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">VRAM</p><p className="text-sm font-semibold text-gray-900">{fmt(usedMemMb)} <span className="text-xs font-normal text-gray-400">/ {fmt(totalMemMb)}</span></p></div>
-            <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">LLM 비중</p><p className="text-lg font-bold text-blue-600">{Math.round(llmPct)}<span className="text-xs font-normal">%</span></p></div>
+            <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">VRAM</p><p className="text-sm font-semibold text-gray-900">{fmt(usedMemMb)} <span className="text-xs font-normal text-gray-400">/ {fmt(totalMemMb)}</span></p><p className="text-[10px] text-gray-500">{Math.round(memPct)}% 사용</p></div>
             <div className="bg-gray-50 rounded-lg p-2"><p className="text-[10px] text-gray-500">LLM 인스턴스</p><p className="text-lg font-bold text-purple-600">{llmEps.length}<span className="text-xs font-normal text-gray-400 ml-0.5">개</span></p></div>
+          </div>
+          {/* 용량 사용률 게이지 */}
+          <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg p-3 mb-3 border border-blue-100">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-700">종합 용량 사용률</p>
+              <p className={`text-xl font-bold ${utilTxt(capacityPct)}`}>{Math.round(capacityPct)}%</p>
+            </div>
+            <div className="h-3 bg-white rounded-full overflow-hidden mb-2 shadow-inner">
+              <div className={`h-full rounded-full transition-all duration-700 ${utilCls(capacityPct)}`} style={{ width: `${capacityPct}%` }} />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px]">
+              <div><span className="text-gray-500">GPU 연산</span><p className={`font-bold ${utilTxt(avgGpuUtil)}`}>{avgGpuUtil}%</p></div>
+              <div><span className="text-gray-500">VRAM</span><p className="font-bold text-gray-800">{Math.round(memPct)}%</p></div>
+              <div><span className="text-gray-500">KV Cache</span><p className={`font-bold ${avgKvCache != null ? utilTxt(avgKvCache) : 'text-gray-400'}`}>{avgKvCache != null ? `${Math.round(avgKvCache)}%` : '-'}</p></div>
+              <div><span className="text-gray-500">대기 큐</span><p className={`font-bold ${totalWaiting > 0 ? 'text-amber-600' : 'text-gray-800'}`}>{totalWaiting}건</p></div>
+              <div><span className="text-gray-500">처리량</span><p className="font-bold text-blue-600">{totalTps > 0 ? `${totalTps.toFixed(1)} tok/s` : '-'}</p></div>
+            </div>
+            {totalBw && <p className="text-[9px] text-gray-400 mt-1.5">이론적 메모리 대역폭: {(totalBw / 1000).toFixed(1)} TB/s | LLM 추론 병목 = 메모리 대역폭</p>}
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-600 mb-2">
             {m.hostname && <span className="flex items-center gap-1"><Monitor className="w-3 h-3" />{m.hostname}</span>}
