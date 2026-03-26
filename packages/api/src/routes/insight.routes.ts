@@ -189,8 +189,11 @@ async function handleUsageRate(req: Request, res: Response) {
     `;
 
     // 4. DeptServiceSavedMM grouped by deptname
-    const savedMMRows = await prisma.$queryRaw<Array<{ deptname: string; total_saved: number | null }>>`
-      SELECT dsm.deptname, COALESCE(SUM(dsm.saved_mm), 0)::float as total_saved
+    //    saved_mm가 없으면 ai_estimated_mm 폴백
+    const savedMMRows = await prisma.$queryRaw<Array<{ deptname: string; total_saved: number | null; has_manual: boolean }>>`
+      SELECT dsm.deptname,
+             COALESCE(SUM(COALESCE(dsm.saved_mm, dsm.ai_estimated_mm)), 0)::float as total_saved,
+             bool_or(dsm.saved_mm IS NOT NULL) as has_manual
       FROM dept_service_saved_mm dsm
       GROUP BY dsm.deptname
     `;
@@ -199,6 +202,7 @@ async function handleUsageRate(req: Request, res: Response) {
     const targetMauMap = new Map(targetMauRows.map(r => [r.deptname, Number(r.mau)]));
     const prevMauMap = new Map(prevMonthMauRows.map(r => [r.deptname, Number(r.mau)]));
     const savedMMMap = new Map(savedMMRows.map(r => [r.deptname, r.total_saved || 0]));
+    const savedMMManualMap = new Map(savedMMRows.map(r => [r.deptname, r.has_manual]));
 
     // 5. Determine center group for each deptname
     const allDeptnames = new Set<string>();
@@ -211,6 +215,7 @@ async function handleUsageRate(req: Request, res: Response) {
         deptname: string;
         mau: number;
         savedMM: number;
+        hasManual: boolean;
       }>;
     }>();
 
@@ -241,6 +246,7 @@ async function handleUsageRate(req: Request, res: Response) {
         deptname,
         mau: targetMauMap.get(deptname) || 0,
         savedMM: savedMMMap.get(deptname) || 0,
+        hasManual: savedMMManualMap.get(deptname) || false,
       });
     }
 
@@ -265,11 +271,16 @@ async function handleUsageRate(req: Request, res: Response) {
         teamCount = subgroups.size;
       }
 
+      // 센터 내 모든 부서가 수기 입력 없으면 → AI 추정치
+      const allManual = group.teams.every(t => t.hasManual);
+      const someManual = group.teams.some(t => t.hasManual);
+
       return {
         name,
         totalMau,
         mauChangePercent,
         totalSavedMM: Math.round(totalSavedMM * 100) / 100,
+        savedMMSource: allManual ? 'manual' : someManual ? 'mixed' : 'ai_estimate',
         teamCount,
       };
     });
@@ -482,7 +493,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       : [];
     const svcMap = new Map(services.map(s => [s.id, s]));
 
-    // Get savedMM per dept+service
+    // Get savedMM per dept+service (saved_mm 없으면 ai_estimated_mm 폴백)
     const savedMMEntries = svcIds.length > 0
       ? await prisma.deptServiceSavedMM.findMany({
           where: {
@@ -492,18 +503,23 @@ async function handleUsageRateDetail(req: Request, res: Response) {
         })
       : [];
     const savedMMKey = (serviceId: string, deptname: string) => `${serviceId}:${deptname}`;
-    const savedMMMap = new Map(savedMMEntries.map(e => [savedMMKey(e.serviceId, e.deptname), e.savedMM]));
+    const savedMMMap = new Map(savedMMEntries.map(e => [
+      savedMMKey(e.serviceId, e.deptname),
+      { value: e.savedMM ?? e.aiEstimatedMM, isAiEstimate: e.savedMM == null && e.aiEstimatedMM != null },
+    ]));
 
     // Unknown 서비스 제외: svcMap에 존재하는 것만 포함
     const teamServices = teamServiceRows
       .filter(r => svcMap.has(r.service_id))
       .map(r => {
         const svc = svcMap.get(r.service_id)!;
+        const mmEntry = savedMMMap.get(savedMMKey(r.service_id, r.deptname));
         return {
           team: deptGroupMap.get(r.deptname) || r.deptname,
           serviceDisplayName: svc.displayName,
           serviceType: svc.type || 'STANDARD',
-          savedMM: savedMMMap.get(savedMMKey(r.service_id, r.deptname)) ?? null,
+          savedMM: mmEntry?.value ?? null,
+          savedMMSource: mmEntry ? (mmEntry.isAiEstimate ? 'ai_estimate' : 'manual') : null,
           mau: Number(r.mau),
           llmCallCount: Number(r.llm_call_count),
         };

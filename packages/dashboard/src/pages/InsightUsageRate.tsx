@@ -28,6 +28,7 @@ interface Center {
   totalMau: number;
   mauChangePercent: number;
   totalSavedMM: number;
+  savedMMSource?: 'manual' | 'mixed' | 'ai_estimate';
   teamCount: number;
 }
 
@@ -40,7 +41,8 @@ interface TeamService {
   team: string;
   serviceDisplayName: string;
   serviceType: string;
-  savedMM: number;
+  savedMM: number | null;
+  savedMMSource?: 'manual' | 'ai_estimate' | null;
   mau: number;
   llmCallCount: number;
 }
@@ -230,8 +232,15 @@ export default function InsightUsageRate() {
                   <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatNumber(center.totalMau)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">Saved M/M</p>
-                  <p className="text-2xl font-bold text-emerald-700 tabular-nums">{center.totalSavedMM.toFixed(1)}</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">
+                    Saved M/M
+                    {center.savedMMSource && center.savedMMSource !== 'manual' && (
+                      <span className="ml-1 text-[9px] text-amber-600 font-normal" title="AI 추정치 포함">
+                        {center.savedMMSource === 'ai_estimate' ? '(AI 추정)' : '(일부 AI)'}
+                      </span>
+                    )}
+                  </p>
+                  <p className={`text-2xl font-bold tabular-nums ${center.savedMMSource === 'ai_estimate' ? 'text-amber-600' : 'text-emerald-700'}`}>{center.totalSavedMM.toFixed(1)}</p>
                 </div>
               </div>
 
@@ -405,7 +414,16 @@ export default function InsightUsageRate() {
                                 {ts.serviceType === 'STANDARD' ? '표준' : '백그라운드'}
                               </span>
                             </td>
-                            <td className="text-right py-3 px-4 font-medium text-emerald-700 tabular-nums">{ts.savedMM != null ? ts.savedMM.toFixed(1) : '-'}</td>
+                            <td className="text-right py-3 px-4 font-medium tabular-nums">
+                              {ts.savedMM != null ? (
+                                <span className={ts.savedMMSource === 'ai_estimate' ? 'text-amber-600' : 'text-emerald-700'}>
+                                  {ts.savedMM.toFixed(1)}
+                                  {ts.savedMMSource === 'ai_estimate' && (
+                                    <span className="ml-1 text-[10px] text-amber-500 font-normal" title="AI 추정치">AI</span>
+                                  )}
+                                </span>
+                              ) : '-'}
+                            </td>
                             <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.mau)}</td>
                             <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.llmCallCount)}</td>
                           </tr>
