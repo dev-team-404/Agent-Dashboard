@@ -239,8 +239,17 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   // 에러율 보정 (에러 5% 이상이면 추가 여유 필요)
   const errorMargin = errorRate > 0.05 ? 1 + errorRate : 1;
 
-  // 보수적: max × 안전마진 × 에러보정
-  const predictedTotalVram = Math.max(totalVramA, totalVramB, totalVramGb) * SAFETY_MARGIN * errorMargin;
+  // GPU 건강도 보정: 평균 건강도가 100% 미만이면 실제 성능이 이론 대비 낮음
+  // 예: 건강도 80% → 실효 성능 80% → 필요 GPU 25% 더 많음 (1/0.8 = 1.25)
+  const avgHealthPct = avgThroughput > 0 && weightedMaxTps > 0
+    ? Math.min((avgThroughput / weightedMaxTps) * 100 * (growthAdjustedScaling / scalingFactor), 100) // 피크 기반 건강도 추정
+    : null;
+  const healthMargin = avgHealthPct != null && avgHealthPct > 0 && avgHealthPct < 95
+    ? 1 / (avgHealthPct / 100)  // 건강도 80% → 1.25배 필요
+    : 1;
+
+  // 보수적: max × 안전마진 × 에러보정 × 건강도보정
+  const predictedTotalVram = Math.max(totalVramA, totalVramB, totalVramGb) * SAFETY_MARGIN * errorMargin * Math.min(healthMargin, 1.5);
   const gapVram = Math.max(0, predictedTotalVram - totalVramGb);
   const b300Units = Math.ceil(gapVram / B300_SPEC.vramGb);
 
@@ -267,7 +276,7 @@ export async function runGpuCapacityPrediction(): Promise<any> {
       growthMultiplier6mo: Math.round(growthMultiplier * 100) / 100,
       growthAdjustedScaling: Math.round(growthAdjustedScaling * 100) / 100,
     },
-    scaling: { targetDau: Math.round(targetDau), scalingFactor: Math.round(scalingFactor * 100) / 100, safetyMargin: SAFETY_MARGIN, errorMargin: Math.round(errorMargin * 100) / 100 },
+    scaling: { targetDau: Math.round(targetDau), scalingFactor: Math.round(scalingFactor * 100) / 100, safetyMargin: SAFETY_MARGIN, errorMargin: Math.round(errorMargin * 100) / 100, healthMargin: Math.round(healthMargin * 100) / 100, avgHealthPct: avgHealthPct ? Math.round(avgHealthPct * 10) / 10 : null },
     methodA: { modelWeightVram: Math.round(modelWeightVram), kvVramCurrent: Math.round(kvVramCurrent), kvVramPredicted: Math.round(kvVramPredicted), totalVramA: Math.round(totalVramA) },
     methodB: { currentTps: Math.round(avgThroughput * 10) / 10, predictedTps: Math.round(predictedThroughput * 10) / 10, weightedMaxTps: Math.round(weightedMaxTps * 10) / 10, totalVramB: Math.round(totalVramB) },
     result: { predictedTotalVram: Math.round(predictedTotalVram), gapVram: Math.round(gapVram), b300Units },
@@ -280,7 +289,9 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   let modelId = '';
 
   try {
-    const llmSetting = await prisma.systemSetting.findUnique({ where: { key: 'SYSTEM_LLM_MODEL_ID' } });
+    // GPU 예측 전용 LLM → 없으면 시스템 LLM fallback
+    const gpuLlmSetting = await prisma.systemSetting.findUnique({ where: { key: 'GPU_CAPACITY_LLM_MODEL_ID' } });
+    const llmSetting = gpuLlmSetting || await prisma.systemSetting.findUnique({ where: { key: 'SYSTEM_LLM_MODEL_ID' } });
     if (llmSetting?.value) {
       const model = await prisma.model.findUnique({ where: { id: llmSetting.value } });
       if (model) {

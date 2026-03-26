@@ -631,6 +631,11 @@ model GpuMetricSnapshot {
   // GPU 프로세스 (JSON 배열: [{gpuIndex, pid, name, memMb, isLlm}])
   gpuProcesses     Json?    @map("gpu_processes")
 
+  // 디스크 메트릭
+  diskTotalGb      Float?   @map("disk_total_gb")
+  diskUsedGb       Float?   @map("disk_used_gb")
+  diskFreeGb       Float?   @map("disk_free_gb")
+
   // LLM 서빙 메트릭 (JSON 배열: [{endpointId, name, type, modelName, running, waiting, kvCachePct, promptTps, genTps, error?}])
   llmMetrics       Json?    @map("llm_metrics")
 

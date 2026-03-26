@@ -186,7 +186,7 @@ function StatCard({
 }
 
 // ── Chart Tabs ──
-type ChartTab = 'service' | 'dept-users' | 'dept-requests' | 'dept-tokens';
+type ChartTab = 'gpu' | 'latency' | 'dept' | 'mm' | 'analysis' | 'dau-mau' | 'service-metrics' | 'usage' | 'bu-stats';
 
 // ── Color palette ──
 const CHART_COLORS = [
@@ -245,7 +245,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyHistory, setLatencyHistory] = useState<LatencyHistory>({});
   const [healthCheckHistory, setHealthCheckHistory] = useState<HealthCheckHistory>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<ChartTab>('service');
+  const [activeTab, setActiveTab] = useState<ChartTab>('gpu');
   const holidayDates = useHolidayDates();
   const [gpuData, setGpuData] = useState<any[]>([]);
   const [gpuPrediction, setGpuPrediction] = useState<any>(null);
@@ -568,7 +568,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   // ── Chart tab rendering ──
   const renderChartContent = () => {
     switch (activeTab) {
-      case 'service':
+      case 'analysis':
         return serviceRechartsData.length > 0 ? (
           <>
             <ResponsiveContainer width="100%" height={320}>
@@ -625,7 +625,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
         );
 
-      case 'dept-users':
+      case 'bu-stats':
         return deptUsersRechartsData.length > 0 ? (
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart data={deptUsersRechartsData}>
@@ -647,7 +647,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
         );
 
-      case 'dept-requests':
+      case 'dept':
         return deptServiceRechartsData.length > 0 ? (
           <>
             <ResponsiveContainer width="100%" height={320}>
@@ -696,7 +696,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
         );
 
-      case 'dept-tokens':
+      case 'usage':
         return deptTokenRechartsData.length > 0 ? (
           <ResponsiveContainer width="100%" height={320}>
             <AreaChart data={deptTokenRechartsData}>
@@ -728,10 +728,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   };
 
   const chartTabs: { key: ChartTab; label: string; icon: React.ElementType }[] = [
-    { key: 'service', label: '서비스별 요청', icon: BarChart3 },
-    { key: 'dept-users', label: '사업부 사용자', icon: Users },
-    { key: 'dept-requests', label: '사업부 API 요청', icon: Zap },
-    { key: 'dept-tokens', label: '사업부 토큰', icon: Layers },
+    { key: 'gpu', label: 'GPU', icon: Cpu },
+    { key: 'latency', label: '응답지연', icon: Clock },
+    { key: 'dept', label: '부서별', icon: Users },
+    { key: 'mm', label: '연간 M/M', icon: TrendingUp },
+    { key: 'analysis', label: '상세분석', icon: BarChart3 },
+    { key: 'dau-mau', label: 'DAU+MAU', icon: Activity },
+    { key: 'service-metrics', label: '서비스 메트릭', icon: Layers },
+    { key: 'usage', label: '사용량 분석', icon: Zap },
+    { key: 'bu-stats', label: '사업부 통계', icon: Users },
   ];
 
   return (
@@ -881,6 +886,76 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         );
       })()}
 
+      {/* ── 탭 내비게이션 ── */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+        <div className="px-4 pt-3 pb-0 flex gap-1 overflow-x-auto scrollbar-hide -mb-px">
+          {chartTabs.map(({ key, label, icon: TabIcon }) => (
+            <button key={key} onClick={() => setActiveTab(key)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border border-b-0 whitespace-nowrap transition-all ${
+                activeTab === key ? 'bg-white text-samsung-blue border-gray-200 shadow-sm' : 'text-pastel-500 hover:text-pastel-700 border-transparent hover:bg-pastel-50'
+              }`}>
+              <TabIcon className="w-3.5 h-3.5" />{label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── GPU 탭 ── */}
+      {activeTab === 'gpu' && gpuData.length > 0 && (() => {
+        const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
+          const avg = e.metrics.gpus.reduce((s: number, g: any) => s + g.utilGpu, 0) / e.metrics.gpus.length;
+          return { name: e.server.name, util: Math.round(avg), health: e.throughputAnalysis?.gpuHealthPct, tps: e.throughputAnalysis?.currentTps || 0, gpuCount: e.metrics.gpus.length, spec: e.metrics.gpus[0]?.spec?.label || '?' };
+        }).sort((a: any, b: any) => b.util - a.util);
+        return (
+          <div className="space-y-4">
+            {/* 서버별 비교 */}
+            <div className="bg-white rounded-lg border p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">서버별 GPU 사용률 / 건강도 비교</h3>
+              <div className="space-y-2">
+                {serverUtils.map((s: any) => (
+                  <div key={s.name} className="flex items-center gap-3">
+                    <span className="text-xs text-gray-600 w-32 truncate">{s.name}</span>
+                    <span className="text-[10px] text-gray-400 w-16">{s.spec} x{s.gpuCount}</span>
+                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden relative">
+                      <div className={`h-full rounded-full ${s.util >= 80 ? 'bg-red-500' : s.util >= 50 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${s.util}%` }} />
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white mix-blend-difference">{s.util}%</span>
+                    </div>
+                    {s.health != null && <span className={`text-xs font-bold w-12 text-right ${s.health >= 85 ? 'text-emerald-600' : s.health >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{s.health}%</span>}
+                    {s.tps > 0 && <span className="text-xs text-blue-600 w-16 text-right">{s.tps.toFixed(1)} t/s</span>}
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${s.util > 70 ? 'bg-red-100 text-red-600' : s.util < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{s.util > 70 ? '과부하' : s.util < 20 ? '여유' : '정상'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* 예측 */}
+            {gpuPrediction && (
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-gray-800">GPU 수요 예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명 기준)</h3>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${gpuPrediction.aiConfidence === 'HIGH' ? 'bg-emerald-100 text-emerald-700' : gpuPrediction.aiConfidence === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{gpuPrediction.aiConfidence}</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                  <div><span className="text-gray-500">현재 사용자</span><p className="text-lg font-bold">{gpuPrediction.currentUsers?.toLocaleString()}명</p></div>
+                  <div><span className="text-gray-500">현재 VRAM</span><p className="text-lg font-bold">{Math.round(gpuPrediction.currentTotalVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">예상 필요</span><p className="text-lg font-bold text-indigo-700">{Math.round(gpuPrediction.predictedTotalVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">부족분</span><p className={`text-lg font-bold ${gpuPrediction.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{gpuPrediction.gapVramGb > 0 ? '+' : ''}{Math.round(gpuPrediction.gapVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">추가 필요</span><p className="text-2xl font-black text-indigo-700">{gpuPrediction.predictedB300Units} <span className="text-sm font-normal">B300</span></p></div>
+                </div>
+                {gpuPrediction.aiAnalysis && gpuPrediction.modelId !== 'none' && (
+                  <details className="mt-3 text-[10px]"><summary className="cursor-pointer text-indigo-600 font-medium">AI 분석 리포트</summary><div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 whitespace-pre-wrap leading-relaxed">{gpuPrediction.aiAnalysis}</div></details>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-gray-400 text-center"><a href="/resource-monitor" className="text-blue-600 hover:underline">리소스 모니터링에서 상세 보기 →</a></p>
+          </div>
+        );
+      })()}
+      {activeTab === 'gpu' && gpuData.length === 0 && (
+        <div className="bg-white rounded-lg border p-10 text-center text-sm text-gray-400">등록된 GPU 서버가 없습니다. <a href="/resource-monitor" className="text-blue-600 hover:underline">리소스 모니터링</a>에서 서버를 추가하세요.</div>
+      )}
+
+      {/* ── 응답지연 탭 ── */}
+      {activeTab === 'latency' && <>
       {/* ── 응답 지연 (독립 섹션) ── */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
@@ -1255,34 +1330,18 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         </div>
       </div>
 
-      {/* Charts Section with Tabs */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
-        <div className="px-6 pt-5 pb-0">
-          <h2 className="text-lg font-bold text-pastel-800 mb-4">상세 분석</h2>
-          <div className="flex gap-1 overflow-x-auto pb-0 -mb-px scrollbar-hide">
-            {chartTabs.map(({ key, label, icon: TabIcon }) => (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-t-xl border border-b-0 whitespace-nowrap transition-all ${
-                  activeTab === key
-                    ? 'bg-white text-samsung-blue border-gray-200 shadow-card'
-                    : 'text-pastel-500 hover:text-pastel-700 border-transparent hover:bg-pastel-50'
-                }`}
-              >
-                <TabIcon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+      </>}
 
-        <div className="p-6 border-t border-pastel-100">
+      {/* ── 부서별 탭 ── */}
+      {activeTab === 'dept' && <>
+      <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
+        <div className="p-6">
+          <h2 className="text-sm font-bold text-pastel-800 mb-4">부서별 상세</h2>
           {renderChartContent()}
         </div>
 
         {/* Data tables */}
-        {activeTab === 'dept-users' && deptUsersBUs.length > 0 && (
+        {deptUsersBUs.length > 0 && (
           <div className="px-6 pb-6">
             <div className="overflow-x-auto rounded-lg border border-pastel-100">
               <table className="w-full text-sm">
@@ -1313,7 +1372,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           </div>
         )}
 
-        {activeTab === 'dept-requests' && deptServiceCombos.length > 0 && (
+        {deptServiceCombos.length > 0 && (
           <div className="px-6 pb-6">
             <div className="overflow-x-auto rounded-lg border border-pastel-100">
               <table className="w-full text-sm">
@@ -1343,7 +1402,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         )}
 
       </div>
+      </>}
 
+      {/* ── 연간 M/M 탭 ── */}
+      {activeTab === 'mm' && <>
       {/* M/M 목표 달성 현황 */}
       {(mmTargetData.totalTargetMM > 0 || mmTargetData.byDept.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1473,6 +1535,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         </div>
       )}
 
+      </>}
+
+      {/* ── DAU+MAU 탭 ── */}
+      {activeTab === 'dau-mau' && <>
       {/* Weekly Business DAU */}
       <WeeklyBusinessDAUChart />
 
@@ -1681,12 +1747,26 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         </div>
       )}
 
+      </>}
+
+      {/* ── 서비스 메트릭 탭 ── */}
+      {activeTab === 'service-metrics' && <>
       {/* Enhanced Service Metrics */}
       <EnhancedServiceCharts />
 
+      </>}
+
+      {/* ── 사용량 분석 탭 (이미 usage로 매핑) ── */}
+
+      {/* ── 상세분석 탭 ── */}
+      {activeTab === 'analysis' && <>
       {/* Usage Analytics (Global) */}
       <UsageAnalytics />
 
+      </>}
+
+      {/* ── 사업부별 통계 탭 ── */}
+      {activeTab === 'bu-stats' && <>
       {/* Department Token Table */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="flex items-center gap-3 px-6 py-5 border-b border-pastel-100/80">
@@ -1747,6 +1827,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           )}
         </div>
       </div>
+      </>}
     </div>
   );
 }

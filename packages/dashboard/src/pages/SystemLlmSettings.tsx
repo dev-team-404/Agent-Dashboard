@@ -36,6 +36,12 @@ export default function SystemLlmSettings() {
   const [errorSaving, setErrorSaving] = useState(false);
   const [errorLlmSuccess, setErrorLlmSuccess] = useState(false);
 
+  // GPU Capacity Prediction LLM
+  const [gpuLlm, setGpuLlm] = useState<CurrentSetting>({ modelId: null, model: null });
+  const [gpuSelectedId, setGpuSelectedId] = useState('');
+  const [gpuSaving, setGpuSaving] = useState(false);
+  const [gpuLlmSuccess, setGpuLlmSuccess] = useState(false);
+
   // Logo model states
   const [logoModel, setLogoModel] = useState<CurrentSetting>({ modelId: null, model: null });
   const [imageModels, setImageModels] = useState<Model[]>([]);
@@ -63,6 +69,11 @@ export default function SystemLlmSettings() {
       if (errSetting) {
         setErrorLlm({ modelId: errSetting.modelId, model: errSetting.model, updatedBy: errSetting.updatedBy });
         setErrorSelectedId(errSetting.modelId || '');
+      }
+      const gpuSetting = allSettings.find((s: { key: string }) => s.key === 'GPU_CAPACITY_LLM_MODEL_ID');
+      if (gpuSetting) {
+        setGpuLlm({ modelId: gpuSetting.modelId, model: gpuSetting.model, updatedBy: gpuSetting.updatedBy });
+        setGpuSelectedId(gpuSetting.modelId || '');
       }
 
       const allModels = modelsRes.data.models || [];
@@ -139,6 +150,22 @@ export default function SystemLlmSettings() {
       setError(msg || '저장에 실패했습니다.');
     } finally {
       setErrorSaving(false);
+    }
+  };
+
+  const handleGpuLlmSave = async () => {
+    if (!gpuSelectedId) return;
+    setGpuSaving(true);
+    setError(null);
+    try {
+      const res = await api.put('/admin/system-settings/system-llm', { key: 'GPU_CAPACITY_LLM_MODEL_ID', modelId: gpuSelectedId });
+      setGpuLlm({ modelId: gpuSelectedId, model: res.data.model, updatedBy: res.data.updatedBy });
+      setGpuLlmSuccess(true);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg || '저장에 실패했습니다.');
+    } finally {
+      setGpuSaving(false);
     }
   };
 
@@ -355,6 +382,43 @@ export default function SystemLlmSettings() {
             <Check className="w-4 h-4" /> 에러 분석 LLM이 변경되었습니다.
           </div>
         )}
+      </div>
+
+      {/* GPU 수요 예측 LLM */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Cpu className="w-4 h-4 text-indigo-500" />
+          <h2 className="text-sm font-semibold text-pastel-700">GPU 수요 예측용 LLM</h2>
+        </div>
+        <p className="text-xs text-pastel-400 mb-4">
+          리소스 모니터링에서 GPU 수요 예측 분석 리포트를 생성할 CHAT 모델을 선택합니다. 미설정 시 M/M 추적 LLM을 사용합니다.
+        </p>
+        {gpuLlm.model && (
+          <div className="mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+            <div className="flex items-center gap-2 text-sm">
+              <Cpu className="w-4 h-4 text-indigo-600" />
+              <span className="font-medium text-indigo-800">현재 설정:</span>
+              <span className="text-indigo-700">{gpuLlm.model.displayName}</span>
+              <span className="text-indigo-400 font-mono text-xs">({gpuLlm.model.name})</span>
+            </div>
+            {gpuLlm.updatedBy && <p className="text-xs text-indigo-400 mt-1 ml-6">{gpuLlm.updatedBy} 설정</p>}
+          </div>
+        )}
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <select value={gpuSelectedId} onChange={e => setGpuSelectedId(e.target.value)}
+              className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500/30">
+              <option value="">모델을 선택하세요 (미설정 시 M/M 추적 LLM 사용)</option>
+              {models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
+            </select>
+          </div>
+          <button onClick={handleGpuLlmSave} disabled={gpuSaving || !gpuSelectedId || gpuSelectedId === gpuLlm.modelId}
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            {gpuSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} 저장
+          </button>
+        </div>
+        {gpuLlmSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> GPU 예측 LLM이 변경되었습니다.</div>}
       </div>
 
       {/* Logo Generation Model Setting */}
