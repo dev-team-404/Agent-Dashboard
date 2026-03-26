@@ -109,7 +109,7 @@ internalOrgRoutes.get('/user/:loginId', async (req, res) => {
     if (user.departmentCode) {
       let currentCode: string | null = user.departmentCode;
       while (currentCode) {
-        const node = await prisma.orgNode.findUnique({
+        const node: { departmentCode: string; departmentName: string; enDepartmentName: string | null; parentDepartmentCode: string | null } | null = await prisma.orgNode.findUnique({
           where: { departmentCode: currentCode },
         });
         if (!node) break;
