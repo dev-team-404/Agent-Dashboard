@@ -74,8 +74,8 @@ export async function runGpuCapacityPrediction(): Promise<any> {
 
   // ── 일별 통계 (14일) — 성장률 계산용 ──
   const dailyStats = await prisma.$queryRaw<Array<{ day: string; dau: bigint; total_tokens: bigint; total_requests: bigint }>>`
-    SELECT DATE(timestamp) as day, COUNT(DISTINCT user_id) as dau,
-           SUM(COALESCE(input_tokens,0) + COALESCE(output_tokens,0)) as total_tokens,
+    SELECT DATE(timestamp)::text as day, COUNT(DISTINCT user_id) as dau,
+           SUM(COALESCE("inputTokens",0) + COALESCE("outputTokens",0)) as total_tokens,
            COUNT(*) as total_requests
     FROM usage_logs WHERE timestamp >= ${fourteenDaysAgo} AND user_id IS NOT NULL
     GROUP BY DATE(timestamp) ORDER BY day`;
@@ -113,7 +113,7 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   // ── 서비스별 토큰 소비 Top 5 ──
   const serviceBreakdown = await prisma.$queryRaw<Array<{ service_id: string; name: string; tokens: bigint; reqs: bigint }>>`
     SELECT u.service_id, COALESCE(s.name, u.service_id) as name,
-           SUM(COALESCE(u.input_tokens,0) + COALESCE(u.output_tokens,0)) as tokens, COUNT(*) as reqs
+           SUM(COALESCE(u."inputTokens",0) + COALESCE(u."outputTokens",0)) as tokens, COUNT(*) as reqs
     FROM usage_logs u LEFT JOIN services s ON u.service_id = s.id
     WHERE u.timestamp >= ${sevenDaysAgo} AND u.service_id IS NOT NULL
     GROUP BY u.service_id, s.name ORDER BY tokens DESC LIMIT 5`;
