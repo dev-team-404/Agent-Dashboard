@@ -237,7 +237,7 @@ export function getInternalSwaggerUiHtml(): string {
         SwaggerUIBundle.presets.apis,
         SwaggerUIBundle.SwaggerUIStandalonePreset,
       ],
-      layout: 'StandaloneLayout',
+      layout: 'BaseLayout',
       defaultModelsExpandDepth: 1,
       docExpansion: 'list',
     });
