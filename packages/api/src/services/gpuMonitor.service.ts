@@ -94,7 +94,7 @@ const METRICS_CMD = [
   'nproc',
   'hostname',
   'echo "==LLM=="',
-  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -oP "0\\.0\\.0\\.0:\\K[0-9]+" | sort -u); do RESP=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null); if echo "$RESP" | grep -qE "vllm:|sglang:|tgi_"; then CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1); echo "PORT:$port|CONTAINER:$CNAME"; echo "$RESP" | grep -E "^(vllm:|sglang:|tgi_)[a-zA-Z_:]+ "; echo "---ENDPORT---"; fi; done',
+  'for port in $(docker ps --format "{{.Ports}}" 2>/dev/null | grep -oP "0\\.0\\.0\\.0:\\K[0-9]+" | sort -u); do RESP=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null); if echo "$RESP" | grep -qE "vllm[_:]|sglang[_:]|tgi[_:]"; then CNAME=$(docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep "0\\.0\\.0\\.0:$port->" | head -1); echo "PORT:$port|CONTAINER:$CNAME"; echo "$RESP" | grep -E "^(vllm[_:]|sglang[_:]|tgi[_:])[a-zA-Z0-9_:]+ "; echo "---ENDPORT---"; fi; done',
   'OLLAMA_OUT=$(curl -s --max-time 3 http://localhost:11434/api/ps 2>/dev/null); if [ -n "$OLLAMA_OUT" ] && echo "$OLLAMA_OUT" | grep -q \'"models"\'; then echo "OLLAMA_PS:$OLLAMA_OUT"; fi',
   'echo "==ENDLLM=="',
 ].join('\n');
@@ -172,9 +172,9 @@ function parsePrometheusLines(lines: string[]): Map<string, number> {
 
 function extractLlmType(prom: Map<string, number>): 'vllm' | 'sglang' | 'tgi' | 'unknown' {
   for (const key of prom.keys()) {
-    if (key.startsWith('vllm:')) return 'vllm';
-    if (key.startsWith('sglang:')) return 'sglang';
-    if (key.startsWith('tgi_')) return 'tgi';
+    if (key.startsWith('vllm:') || key.startsWith('vllm_')) return 'vllm';
+    if (key.startsWith('sglang:') || key.startsWith('sglang_')) return 'sglang';
+    if (key.startsWith('tgi_') || key.startsWith('tgi:')) return 'tgi';
   }
   return 'unknown';
 }
@@ -183,18 +183,20 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string): Par
   switch (type) {
     case 'vllm':
       return {
-        runningRequests: prom.get('vllm:num_requests_running') ?? null,
-        waitingRequests: prom.get('vllm:num_requests_waiting') ?? null,
-        kvCacheUsagePct: prom.has('vllm:gpu_cache_usage_perc') ? (prom.get('vllm:gpu_cache_usage_perc')! * 100) : null,
-        promptThroughputTps: prom.get('vllm:avg_prompt_throughput_toks_per_s') ?? null,
-        genThroughputTps: prom.get('vllm:avg_generation_throughput_toks_per_s') ?? null,
+        runningRequests: prom.get('vllm:num_requests_running') ?? prom.get('vllm_num_requests_running') ?? null,
+        waitingRequests: prom.get('vllm:num_requests_waiting') ?? prom.get('vllm_num_requests_waiting') ?? null,
+        kvCacheUsagePct: prom.has('vllm:gpu_cache_usage_perc') ? (prom.get('vllm:gpu_cache_usage_perc')! * 100)
+          : prom.has('vllm_gpu_cache_usage_perc') ? (prom.get('vllm_gpu_cache_usage_perc')! * 100) : null,
+        promptThroughputTps: prom.get('vllm:avg_prompt_throughput_toks_per_s') ?? prom.get('vllm_avg_prompt_throughput_toks_per_s') ?? null,
+        genThroughputTps: prom.get('vllm:avg_generation_throughput_toks_per_s') ?? prom.get('vllm_avg_generation_throughput_toks_per_s') ?? null,
       };
     case 'sglang':
       return {
-        runningRequests: prom.get('sglang:num_running_reqs') ?? null,
-        waitingRequests: prom.get('sglang:num_waiting_reqs') ?? null,
-        kvCacheUsagePct: prom.has('sglang:token_usage') ? (prom.get('sglang:token_usage')! * 100) : null,
-        genThroughputTps: prom.get('sglang:gen_throughput') ?? null,
+        runningRequests: prom.get('sglang:num_running_reqs') ?? prom.get('sglang_num_running_reqs') ?? null,
+        waitingRequests: prom.get('sglang:num_waiting_reqs') ?? prom.get('sglang_num_waiting_reqs') ?? null,
+        kvCacheUsagePct: prom.has('sglang:token_usage') ? (prom.get('sglang:token_usage')! * 100)
+          : prom.has('sglang_token_usage') ? (prom.get('sglang_token_usage')! * 100) : null,
+        genThroughputTps: prom.get('sglang:gen_throughput') ?? prom.get('sglang_gen_throughput') ?? null,
       };
     case 'tgi':
       return {
