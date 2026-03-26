@@ -82,10 +82,11 @@ function sshExec(host: string, port: number, username: string, password: string,
 // SSH 명령어: GPU + 시스템 + LLM 자동 탐지 전부 한 번에
 // ================================================================
 const METRICS_CMD = `
+NSMI=$(which nvidia-smi 2>/dev/null || echo /usr/lib/wsl/lib/nvidia-smi || echo /usr/bin/nvidia-smi)
 echo "==GPU=="
-nvidia-smi --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"
+$NSMI --query-gpu=index,uuid,name,memory.total,memory.used,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit --format=csv,noheader,nounits 2>/dev/null || echo "NO_GPU"
 echo "==PROC=="
-nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null || echo "NO_PROC"
+$NSMI --query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory --format=csv,noheader,nounits 2>/dev/null || echo "NO_PROC"
 echo "==SYS=="
 awk '{print $1}' /proc/loadavg
 free -m | awk '/Mem:/{print $2,$3}'
