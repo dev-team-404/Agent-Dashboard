@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BarChart3, TrendingUp, Calendar, Zap, Clock, Activity } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Legend, PieChart, Pie, Cell
@@ -112,18 +113,7 @@ export default function MyUsage() {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="text-center">
-          <div className="w-14 h-14 mx-auto mb-4">
-            <div className="w-14 h-14 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
-          </div>
-          <p className="text-sm font-medium text-pastel-500">데이터 불러오는 중...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   const summaryCards = summary ? [
     { label: '오늘', icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },

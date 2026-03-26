@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuServerApi, gpuCapacityApi } from '../services/api';
 import {
   Server, Plus, Trash2, RefreshCw, WifiOff, Cpu, MemoryStick,
@@ -378,7 +379,7 @@ export default function ResourceMonitor() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) return <LoadingSpinner />;
 
   return (<div className="space-y-4">
     {/* Header */}

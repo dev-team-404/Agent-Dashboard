@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { modelsApi, statsApi } from '../services/api';
 import OrgTreeSelector from '../components/OrgTreeSelector';
+import LoadingSpinner from '../components/LoadingSpinner';
 import ModelGuide from '../components/Tour/ModelGuide';
 import { BookOpen } from 'lucide-react';
 
@@ -674,13 +675,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
   const getToolCallPassCount = (result: TestEndpointResult) =>
     [result.toolCallA, result.toolCallB, result.toolCallC, result.toolCallD].filter(Boolean).length;
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6 animate-fade-in">

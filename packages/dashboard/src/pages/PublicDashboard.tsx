@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info, Building2, Package } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { publicStatsApi } from '../services/api';
 import { useHolidayDates } from '../hooks/useHolidayDates';
@@ -805,16 +806,7 @@ export default function PublicDashboard() {
   const totalTokens = enabledServices.reduce((s, d) => s + d.totalTokens, 0);
   const totalCalls = enabledServices.reduce((s, d) => s + d.totalCallCount, 0);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-3 text-sm text-pastel-500">데이터 로딩 중...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6 max-w-[1200px] mx-auto">

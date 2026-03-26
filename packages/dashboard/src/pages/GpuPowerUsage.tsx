@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Zap, TrendingUp, Calendar, Plus, Loader2 } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuPowerApi } from '../services/api';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -76,13 +77,7 @@ export default function GpuPowerUsage() {
     dateLabel: d.date.slice(5), // MM-DD
   }));
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6">

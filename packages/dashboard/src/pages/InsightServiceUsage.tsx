@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../services/api';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -103,7 +103,7 @@ export default function InsightServiceUsage() {
             disabled={year === now.getFullYear() && month === now.getMonth() + 1}>
             <ChevronRight className={`w-4 h-4 ${year === now.getFullYear() && month === now.getMonth() + 1 ? 'text-gray-300' : 'text-gray-500'}`} />
           </button>
-          {loading && <Loader2 className="w-4 h-4 text-violet-500 animate-spin ml-2" />}
+          {loading && <div className="w-4 h-4 border-2 border-samsung-blue border-t-transparent rounded-full animate-spin ml-2" />}
         </div>
       </div>
 

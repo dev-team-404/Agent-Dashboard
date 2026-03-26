@@ -6,6 +6,7 @@ import TourProvider from './components/Tour/TourProvider';
 import TourTriggerButton from './components/Tour/TourTriggerButton';
 import HelpChatbot from './components/HelpChatbot/HelpChatbot';
 import { authApi } from './services/api';
+import LoadingSpinner from './components/LoadingSpinner';
 
 // 배포 후 구버전 chunk 404 방지: 실패 시 페이지 자동 새로고침
 function lazyWithRetry(importFn: () => Promise<{ default: React.ComponentType<any> }>) {
@@ -59,14 +60,7 @@ interface User {
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 function PageLoader() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-center">
-        <div className="w-10 h-10 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto" />
-        <p className="mt-3 text-sm text-pastel-500">로딩 중...</p>
-      </div>
-    </div>
-  );
+  return <LoadingSpinner message="로딩 중..." />;
 }
 
 function ServiceDashboardWrapper({ adminRole }: { adminRole: AdminRole }) {
@@ -125,10 +119,7 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-pastel-50">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-samsung-blue border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-sm text-pastel-600">Loading...</p>
-        </div>
+        <LoadingSpinner fullPage={false} size="lg" />
       </div>
     );
   }

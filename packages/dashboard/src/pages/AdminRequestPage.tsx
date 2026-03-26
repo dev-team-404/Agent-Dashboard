@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Send, Loader2, Check, X, Clock, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface AdminRequest {
   id: string;
@@ -81,13 +82,7 @@ export default function AdminRequestPage({ isAdmin }: Props) {
     return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200/80"><Clock className="w-3 h-3" />대기중</span>;
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6 animate-fade-in">

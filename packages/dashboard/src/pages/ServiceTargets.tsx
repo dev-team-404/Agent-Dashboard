@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Target, Search, Sparkles, BookOpen } from 'lucide-react';
 import { api } from '../services/api';
+import { TableLoadingRow } from '../components/LoadingSpinner';
 import DeptSavedMM from './DeptSavedMM';
 import SavedMMGuide from '../components/Tour/SavedMMGuide';
 
@@ -209,17 +210,7 @@ export default function ServiceTargets() {
                 </thead>
                 <tbody className="divide-y divide-gray-100/60">
                   {loading ? (
-                    <tr>
-                      <td colSpan={6} className="px-5 py-20 text-center">
-                        <div className="flex flex-col items-center gap-4">
-                          <div className="relative">
-                            <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200"></div>
-                            <div className="absolute inset-0 w-12 h-12 rounded-full border-[3px] border-indigo-500 border-t-transparent animate-spin"></div>
-                          </div>
-                          <p className="text-sm font-medium text-pastel-500">데이터를 불러오는 중...</p>
-                        </div>
-                      </td>
-                    </tr>
+                    <TableLoadingRow colSpan={6} />
                   ) : filtered.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-5 py-20 text-center">

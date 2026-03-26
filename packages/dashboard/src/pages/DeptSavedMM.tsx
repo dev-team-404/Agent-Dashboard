@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, Save, Loader2, AlertCircle, Check, Sparkles, ChevronDown, ChevronUp, Users } from 'lucide-react';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { api } from '../services/api';
 
 interface ServiceEntry {
@@ -183,17 +184,7 @@ export default function DeptSavedMM() {
   const totalDeptUserCount = services.reduce((sum, s) => sum + s.deptUserCount, 0);
   const hasAnyAiFallback = services.some(s => isAiFallback(s));
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-        <div className="relative">
-          <div className="w-12 h-12 rounded-full border-[3px] border-pastel-200"></div>
-          <div className="absolute inset-0 w-12 h-12 rounded-full border-[3px] border-indigo-500 border-t-transparent animate-spin"></div>
-        </div>
-        <p className="text-sm font-medium text-pastel-500 mt-4">데이터를 불러오는 중...</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   if (!data) {
     return (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle, MessageCircle } from 'lucide-react';
 import { api } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface Model {
   id: string;
@@ -256,13 +257,7 @@ export default function SystemLlmSettings() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6 animate-fade-in" data-tour="system-llm-settings">

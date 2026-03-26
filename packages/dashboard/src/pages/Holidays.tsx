@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, Sun, Building2, Tag, X, Upload, CalendarDays, AlertCircle } from 'lucide-react';
 import { holidaysApi, Holiday, CreateHolidayData } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // 한국 공휴일 프리셋 (2024-2027)
 const KOREAN_HOLIDAYS_PRESET: Record<number, CreateHolidayData[]> = {
@@ -405,7 +406,7 @@ export default function Holidays() {
         {/* Calendar Grid */}
         {loading ? (
           <div className="h-96 flex items-center justify-center">
-            <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-900 rounded-full animate-spin" />
+            <LoadingSpinner fullPage={false} />
           </div>
         ) : (
           <div className="grid grid-cols-7">

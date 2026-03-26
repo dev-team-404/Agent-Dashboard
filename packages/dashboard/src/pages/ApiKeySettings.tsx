@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Check, Loader2, Copy, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ApiKeySettings() {
   const [apiKey, setApiKey] = useState<string | null>(null);
@@ -69,13 +70,7 @@ export default function ApiKeySettings() {
     setApiKeyInput(result);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6 animate-fade-in">

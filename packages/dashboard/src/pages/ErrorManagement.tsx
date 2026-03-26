@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import { AlertTriangle, Filter, ChevronDown, ChevronRight, X, Clock, Sparkles, Loader2, Tag, User, Zap, Wifi, WifiOff, Server, Timer } from 'lucide-react';
 import { api } from '../services/api';
+import { TableLoadingRow } from '../components/LoadingSpinner';
 
 interface FailoverAttempt {
   endpoint: string;
@@ -297,12 +298,7 @@ export default function ErrorManagement() {
             </thead>
             <tbody className="divide-y divide-gray-100/60">
               {loading ? (
-                <tr><td colSpan={8} className="px-5 py-16 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-10 h-10 rounded-full border-[3px] border-red-500 border-t-transparent animate-spin" />
-                    <p className="text-sm text-pastel-500">에러 로그 불러오는 중...</p>
-                  </div>
-                </td></tr>
+                <TableLoadingRow colSpan={8} message="에러 로그 불러오는 중..." />
               ) : logs.length === 0 ? (
                 <tr><td colSpan={8} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-2">

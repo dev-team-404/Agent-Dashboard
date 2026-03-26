@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Loader2, AlertCircle, ChevronDown, ChevronRight, Users, Building2, Search, FolderTree } from 'lucide-react';
 import { orgTreeApi } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface OrgTreeNode {
   id: string;
@@ -374,14 +375,7 @@ export default function OrgTree() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tree]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-        <span className="ml-2 text-gray-500 text-sm">조직도 로딩 중...</span>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner message="조직도 로딩 중..." />;
 
   return (
     <div className="space-y-4">

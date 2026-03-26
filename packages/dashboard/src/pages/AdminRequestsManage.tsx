@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Check, X, Clock, Loader2, Search } from 'lucide-react';
 import { api } from '../services/api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 interface AdminRequest {
   id: string;
@@ -119,7 +120,7 @@ export default function AdminRequestsManage() {
       <div className="space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <LoadingSpinner fullPage={false} />
           </div>
         ) : requests.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-lg border border-gray-100/80">
