@@ -647,6 +647,9 @@ model GpuMetricSnapshot {
   // GPU 프로세스 (JSON 배열: [{gpuIndex, pid, name, memMb, isLlm}])
   gpuProcesses     Json?    @map("gpu_processes")
 
+  // LLM 서빙 메트릭 (JSON 배열: [{endpointId, name, type, modelName, running, waiting, kvCachePct, promptTps, genTps, error?}])
+  llmMetrics       Json?    @map("llm_metrics")
+
   server GpuServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
   @@index([serverId, timestamp])

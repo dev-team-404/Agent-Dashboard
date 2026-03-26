@@ -292,6 +292,7 @@ gpuServerRoutes.get('/:id/history', async (req: Request, res: Response) => {
         memoryTotalMb: true,
         memoryUsedMb: true,
         gpuProcesses: true,
+        llmMetrics: true,
       },
     });
 
@@ -335,5 +336,151 @@ gpuServerRoutes.get('/:id/history', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('History metrics error:', error);
     res.status(500).json({ error: 'Failed to get history' });
+  }
+});
+
+// ── 종합 분석 (피크타임 히트맵 + 비즈니스시간 분석) ──
+
+gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    // 휴일 목록 조회
+    const holidays = await prisma.holiday.findMany({
+      where: { date: { gte: since } },
+      select: { date: true },
+    });
+    const holidaySet = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
+
+    // 전체 서버 스냅샷
+    const snapshots = await prisma.gpuMetricSnapshot.findMany({
+      where: { timestamp: { gte: since } },
+      orderBy: { timestamp: 'asc' },
+      select: {
+        serverId: true,
+        timestamp: true,
+        gpuMetrics: true,
+        cpuLoadAvg: true,
+        cpuCores: true,
+        memoryTotalMb: true,
+        memoryUsedMb: true,
+        gpuProcesses: true,
+        llmMetrics: true,
+      },
+    });
+
+    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+    // 시간대별 히트맵 데이터 (0-23시 x 0-6요일)
+    // heatmap[hour][dayOfWeek] = { totalUtil, count }
+    const heatmap: Array<Array<{ totalUtil: number; count: number }>> = Array.from({ length: 24 }, () =>
+      Array.from({ length: 7 }, () => ({ totalUtil: 0, count: 0 }))
+    );
+
+    // 비즈니스시간 vs 비영업시간 집계
+    let bizGpuUtil = 0, bizMemUtil = 0, bizCount = 0;
+    let offGpuUtil = 0, offMemUtil = 0, offCount = 0;
+    let bizLlmKvCache = 0, bizLlmCount = 0;
+    let bizLlmRunning = 0, bizLlmWaiting = 0, bizLlmThroughput = 0, bizLlmTpCount = 0;
+
+    // 시간대별 LLM throughput 추이
+    const hourlyThroughput: Array<{ totalTps: number; count: number }> = Array.from({ length: 24 }, () => ({ totalTps: 0, count: 0 }));
+
+    for (const snap of snapshots) {
+      const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET_MS);
+      const kstHour = kstDate.getUTCHours();
+      const kstDow = kstDate.getUTCDay(); // 0=Sun
+      const dateStr = new Date(snap.timestamp.getTime() + KST_OFFSET_MS).toISOString().split('T')[0];
+      const isHoliday = holidaySet.has(dateStr);
+      const isWeekend = kstDow === 0 || kstDow === 6;
+      const isBusinessHour = kstHour >= 9 && kstHour < 18 && !isHoliday && !isWeekend;
+
+      const gpus = snap.gpuMetrics as any[];
+      if (!Array.isArray(gpus) || gpus.length === 0) continue;
+
+      const avgUtil = gpus.reduce((s: number, g: any) => s + (g.utilGpu || 0), 0) / gpus.length;
+      const totalMem = gpus.reduce((s: number, g: any) => s + (g.memTotalMb || 0), 0);
+      const usedMem = gpus.reduce((s: number, g: any) => s + (g.memUsedMb || 0), 0);
+      const memUtil = totalMem > 0 ? (usedMem / totalMem) * 100 : 0;
+
+      // 히트맵 집계
+      heatmap[kstHour][kstDow].totalUtil += avgUtil;
+      heatmap[kstHour][kstDow].count++;
+
+      // 비즈니스시간 집계
+      if (isBusinessHour) {
+        bizGpuUtil += avgUtil; bizMemUtil += memUtil; bizCount++;
+      } else {
+        offGpuUtil += avgUtil; offMemUtil += memUtil; offCount++;
+      }
+
+      // LLM 메트릭 집계
+      const llms = snap.llmMetrics as any[];
+      if (Array.isArray(llms)) {
+        for (const llm of llms) {
+          if (llm.kvCacheUsagePct != null && isBusinessHour) {
+            bizLlmKvCache += llm.kvCacheUsagePct; bizLlmCount++;
+          }
+          if (isBusinessHour) {
+            bizLlmRunning += llm.runningRequests || 0;
+            bizLlmWaiting += llm.waitingRequests || 0;
+          }
+          const tps = (llm.promptThroughputTps || 0) + (llm.genThroughputTps || 0);
+          if (tps > 0) {
+            hourlyThroughput[kstHour].totalTps += tps;
+            hourlyThroughput[kstHour].count++;
+            if (isBusinessHour) { bizLlmThroughput += tps; bizLlmTpCount++; }
+          }
+        }
+      }
+    }
+
+    // 히트맵 → 평균으로 변환
+    const heatmapData = heatmap.map((hours, hour) =>
+      hours.map((cell, dow) => ({
+        hour, dow,
+        avgUtil: cell.count > 0 ? Math.round((cell.totalUtil / cell.count) * 10) / 10 : null,
+        sampleCount: cell.count,
+      }))
+    ).flat();
+
+    // 피크타임 탐지 (상위 5개 시간대)
+    const peakHours = heatmapData
+      .filter(h => h.avgUtil !== null && h.sampleCount >= 3)
+      .sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0))
+      .slice(0, 5);
+
+    // 시간대별 throughput 평균
+    const throughputByHour = hourlyThroughput.map((h, hour) => ({
+      hour,
+      avgTps: h.count > 0 ? Math.round((h.totalTps / h.count) * 10) / 10 : 0,
+    }));
+
+    res.json({
+      period: { days, since: since.toISOString(), holidayCount: holidays.length },
+      businessHours: {
+        avgGpuUtil: bizCount > 0 ? Math.round((bizGpuUtil / bizCount) * 10) / 10 : null,
+        avgMemUtil: bizCount > 0 ? Math.round((bizMemUtil / bizCount) * 10) / 10 : null,
+        avgKvCache: bizLlmCount > 0 ? Math.round((bizLlmKvCache / bizLlmCount) * 10) / 10 : null,
+        avgRunningReqs: bizCount > 0 ? Math.round((bizLlmRunning / bizCount) * 10) / 10 : null,
+        avgWaitingReqs: bizCount > 0 ? Math.round((bizLlmWaiting / bizCount) * 10) / 10 : null,
+        avgThroughputTps: bizLlmTpCount > 0 ? Math.round((bizLlmThroughput / bizLlmTpCount) * 10) / 10 : null,
+        sampleCount: bizCount,
+      },
+      offHours: {
+        avgGpuUtil: offCount > 0 ? Math.round((offGpuUtil / offCount) * 10) / 10 : null,
+        avgMemUtil: offCount > 0 ? Math.round((offMemUtil / offCount) * 10) / 10 : null,
+        sampleCount: offCount,
+      },
+      heatmap: heatmapData,
+      peakHours,
+      throughputByHour,
+      totalSnapshots: snapshots.length,
+    });
+  } catch (error) {
+    console.error('Analytics overview error:', error);
+    res.status(500).json({ error: 'Failed to get analytics' });
   }
 });
