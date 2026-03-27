@@ -292,14 +292,19 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   }
   console.log(`[PromCollector] Found ${llmCount} snapshots with LLM data — need backfill`);
 
-  // 주요 vLLM 메트릭 range query
-  const [runningRange, waitingRange, kvRange, promptRange, genRange] = await Promise.all([
+  // 주요 vLLM 메트릭 range query (KV cache: 두 이름 모두 조회, preemption 추가)
+  const [runningRange, waitingRange, kvRange1, kvRange2, promptRange, genRange, preemptRange] = await Promise.all([
     promQueryRange('vllm:num_requests_running', startTime, endTime, BACKFILL_STEP),
     promQueryRange('vllm:num_requests_waiting', startTime, endTime, BACKFILL_STEP),
-    promQueryRange('vllm:gpu_cache_usage_perc', startTime, endTime, BACKFILL_STEP),
+    promQueryRange('vllm:gpu_cache_usage_perc', startTime, endTime, BACKFILL_STEP),    // 구 이름
+    promQueryRange('vllm:kv_cache_usage_perc', startTime, endTime, BACKFILL_STEP),     // 신 이름
     promQueryRange('vllm:prompt_tokens_total', startTime, endTime, BACKFILL_STEP),
     promQueryRange('vllm:generation_tokens_total', startTime, endTime, BACKFILL_STEP),
+    promQueryRange('vllm:num_preemptions_total', startTime, endTime, BACKFILL_STEP),   // preemption 추가
   ]);
+  // KV cache: 두 이름 중 데이터 있는 쪽 사용
+  const kvRange = kvRange1.length > 0 ? kvRange1 : kvRange2;
+  console.log(`[PromCollector] Backfill metrics: running=${runningRange.length}, waiting=${waitingRange.length}, kv=${kvRange.length}(old:${kvRange1.length},new:${kvRange2.length}), prompt=${promptRange.length}, gen=${genRange.length}, preempt=${preemptRange.length}`);
 
   // DCGM GPU 메트릭도 같은 기간 range query
   const [gpuUtilRange, fbUsedRange, fbFreeRange] = await Promise.all([
@@ -367,10 +372,12 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   const kvIdx = buildIndex(kvRange, vllmKey);
   const promptIdx = buildIndex(promptRange, vllmKey);
   const genIdx = buildIndex(genRange, vllmKey);
+  const preemptIdx = buildIndex(preemptRange, vllmKey);
 
   // counter → rate 변환을 위한 이전 값 저장
   const prevPrompt = new Map<string, number>();
   const prevGen = new Map<string, number>();
+  const prevPreempt = new Map<string, number>();
 
   for (const ts of sortedTs) {
     const timestamp = new Date(ts * 1000);
@@ -436,17 +443,28 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
           prevGen.set(instance, genTotal);
         }
 
+        // preemption (counter → rate)
+        const preemptTotal = preemptIdx.get(instance)?.get(ts);
+        let preemptCount: number | null = null;
+        if (preemptTotal != null) {
+          const prev = prevPreempt.get(instance);
+          if (prev != null && preemptTotal >= prev) {
+            preemptCount = Math.round(preemptTotal - prev); // 구간 내 발생 횟수
+          }
+          prevPreempt.set(instance, preemptTotal);
+        }
+
         if (runVal != null || kvVal != null || promptTps != null) {
           llms.push({
             port: 0, containerName: instance, containerImage: 'vllm', type: 'vllm',
             modelNames: [modelName],
             runningRequests: runVal != null ? Math.round(runVal / replicaCount) : null,
             waitingRequests: waitVal != null ? Math.round(waitVal / replicaCount) : null,
-            kvCacheUsagePct: kvVal, // KV %는 비율이므로 나누지 않음
+            kvCacheUsagePct: kvVal,
             promptThroughputTps: promptTps != null ? promptTps / replicaCount : null,
             genThroughputTps: genTps != null ? genTps / replicaCount : null,
             ttftMs: null, tpotMs: null, e2eLatencyMs: null,
-            prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
+            prefixCacheHitRate: null, preemptionCount: preemptCount, queueTimeMs: null,
             precision: 'fp16', rawMetrics: {},
           });
         }
