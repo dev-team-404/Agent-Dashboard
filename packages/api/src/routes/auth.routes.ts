@@ -8,7 +8,7 @@
 
 import { Router } from 'express';
 import { prisma } from '../index.js';
-import { authenticateToken, AuthenticatedRequest, signToken, isSuperAdminByEnv, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, AuthenticatedRequest, signToken, extractBusinessUnit } from '../middleware/auth.js';
 import { trackActiveUser } from '../services/redis.service.js';
 import { redis } from '../index.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -72,16 +72,15 @@ authRoutes.get('/me', authenticateToken, async (req: AuthenticatedRequest, res) 
     await trackActiveUser(redis, user.loginid);
 
     const admin = await prisma.admin.findUnique({ where: { loginid: user.loginid } });
-    const isEnvSuperAdmin = isSuperAdminByEnv(user.loginid);
 
     res.json({
       user: {
         id: user.id, loginid: user.loginid, deptname: user.deptname,
         username: user.username, firstSeen: user.firstSeen, lastActive: user.lastActive,
       },
-      isAdmin: isEnvSuperAdmin || !!admin,
-      adminRole: isEnvSuperAdmin ? 'SUPER_ADMIN' : (admin?.role || null),
-      isSuperAdmin: isEnvSuperAdmin || admin?.role === 'SUPER_ADMIN',
+      isAdmin: !!admin,
+      adminRole: admin?.role || null,
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN',
     });
   } catch (error) {
     console.error('Get me error:', error);
@@ -159,20 +158,7 @@ authRoutes.post('/login', authenticateToken, async (req: AuthenticatedRequest, r
 
     await trackActiveUser(redis, loginid);
 
-    let isAdmin = false;
-    let adminRole: 'SUPER_ADMIN' | 'ADMIN' | null = null;
-    const isEnvSuperAdmin = isSuperAdminByEnv(loginid);
-
-    if (isEnvSuperAdmin) {
-      isAdmin = true;
-      adminRole = 'SUPER_ADMIN';
-    } else {
-      const admin = await prisma.admin.findUnique({ where: { loginid } });
-      if (admin) {
-        isAdmin = true;
-        adminRole = admin.role as 'SUPER_ADMIN' | 'ADMIN';
-      }
-    }
+    const admin = await prisma.admin.findUnique({ where: { loginid } });
 
     const sessionToken = signToken({ loginid, deptname: user.deptname, username: user.username });
 
@@ -180,9 +166,9 @@ authRoutes.post('/login', authenticateToken, async (req: AuthenticatedRequest, r
       success: true,
       user: { id: user.id, loginid: user.loginid, deptname: user.deptname, username: user.username },
       sessionToken,
-      isAdmin,
-      adminRole,
-      isSuperAdmin: isEnvSuperAdmin || adminRole === 'SUPER_ADMIN',
+      isAdmin: !!admin,
+      adminRole: admin?.role || null,
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN',
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -203,20 +189,7 @@ authRoutes.get('/check', authenticateToken, async (req: AuthenticatedRequest, re
     const user = await prisma.user.findUnique({ where: { loginid } });
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
-    let isAdmin = false;
-    let adminRole: 'SUPER_ADMIN' | 'ADMIN' | null = null;
-    const isEnvSuperAdmin = isSuperAdminByEnv(loginid);
-
-    if (isEnvSuperAdmin) {
-      isAdmin = true;
-      adminRole = 'SUPER_ADMIN';
-    } else {
-      const admin = await prisma.admin.findUnique({ where: { loginid } });
-      if (admin) {
-        isAdmin = true;
-        adminRole = admin.role as 'SUPER_ADMIN' | 'ADMIN';
-      }
-    }
+    const admin = await prisma.admin.findUnique({ where: { loginid } });
 
     res.json({
       user: {
@@ -224,9 +197,9 @@ authRoutes.get('/check', authenticateToken, async (req: AuthenticatedRequest, re
         deptname: user.deptname || deptname,
         username: user.username || username,
       },
-      isAdmin,
-      adminRole,
-      isSuperAdmin: isEnvSuperAdmin || adminRole === 'SUPER_ADMIN',
+      isAdmin: !!admin,
+      adminRole: admin?.role || null,
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN',
     });
   } catch (error) {
     console.error('Auth check error:', error);

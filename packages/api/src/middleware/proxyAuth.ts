@@ -236,7 +236,7 @@ async function resolveBackgroundDept(deptNameInput: string): Promise<{
 /**
  * 서비스 배포 범위(deployScope) 접근 제어
  * deployScopeValue는 departmentCode 배열:
- * - TEAM: 사용자의 departmentCode가 scope에 포함되면 통과
+ * - TEAM: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 통과 (하위 조직 포함)
  * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 통과
  * @returns 에러 메시지 or null (통과)
  */
@@ -251,7 +251,7 @@ export function checkDeployScope(
       return `Your department does not have access to service '${serviceName}'.`;
     }
   } else if (scope === 'TEAM' && scopeValues.length > 0) {
-    if (!scopeValues.includes(userDeptCode)) {
+    if (!isUnderAnyScope(userDeptCode, scopeValues)) {
       return `Your department does not have access to service '${serviceName}'.`;
     }
   }

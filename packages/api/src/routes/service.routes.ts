@@ -15,7 +15,7 @@
 import { Router, RequestHandler } from 'express';
 import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 import { prisma } from '../index.js';
-import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from '../services/orgTree.service.js';
 import { generateLogoForService } from '../services/logoGenerator.service.js';
@@ -61,14 +61,6 @@ async function recordAudit(req: AuthenticatedRequest, action: string, target: st
 // ============================================
 async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
   if (!req.user || req.adminRole) return; // 이미 설정되었으면 스킵
-  if (isSuperAdminByEnv(req.user.loginid)) {
-    req.isAdmin = true;
-    req.isSuperAdmin = true;
-    req.adminRole = 'SUPER_ADMIN';
-    req.adminDept = req.user.deptname;
-    req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
-    return;
-  }
   const admin = await prisma.admin.findUnique({ where: { loginid: req.user.loginid } });
   if (admin) {
     req.isAdmin = true;

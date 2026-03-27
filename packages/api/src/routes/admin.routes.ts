@@ -11,7 +11,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
@@ -1912,19 +1912,6 @@ adminRoutes.get('/users/:id/admin-status', async (req: AuthenticatedRequest, res
       return;
     }
 
-    // 환경변수 Super Admin 체크
-    const isEnvSuperAdmin = isSuperAdminByEnv(user.loginid);
-    if (isEnvSuperAdmin) {
-      res.json({
-        isAdmin: true,
-        adminRole: 'SUPER_ADMIN',
-        isSuperAdmin: true,
-        canModify: false,
-      });
-      return;
-    }
-
-    // DB admin 체크
     const admin = await prisma.admin.findUnique({
       where: { loginid: user.loginid },
     });
@@ -1932,7 +1919,7 @@ adminRoutes.get('/users/:id/admin-status', async (req: AuthenticatedRequest, res
     res.json({
       isAdmin: !!admin,
       adminRole: admin?.role || null,
-      isSuperAdmin: false,
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN',
       canModify: true,
       deptname: admin?.deptname || null,
       businessUnit: admin?.businessUnit || null,
@@ -1967,12 +1954,6 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin as RequestHandler, asyn
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
-      return;
-    }
-
-    // 환경변수 Super Admin은 승격 불가
-    if (isSuperAdminByEnv(user.loginid)) {
-      res.status(400).json({ error: 'Environment super admins cannot be promoted' });
       return;
     }
 
@@ -2022,12 +2003,6 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
-      return;
-    }
-
-    // 환경변수 Super Admin은 해제 불가
-    if (isSuperAdminByEnv(user.loginid)) {
-      res.status(400).json({ error: 'Cannot demote environment super admins' });
       return;
     }
 
@@ -2229,11 +2204,6 @@ adminRoutes.put('/unified-users/:id/permissions', async (req: AuthenticatedReque
 
     if (!user) {
       res.status(404).json({ error: 'User not found' });
-      return;
-    }
-
-    if (isSuperAdminByEnv(user.loginid)) {
-      res.status(400).json({ error: 'Cannot modify environment super admin' });
       return;
     }
 

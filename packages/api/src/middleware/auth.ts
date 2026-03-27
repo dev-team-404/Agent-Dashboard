@@ -138,39 +138,28 @@ export async function requireAdmin(req: AuthenticatedRequest, res: Response, nex
     });
     req.adminDeptCode = userRecord?.departmentCode || '';
 
-    // 1. 하드코딩/환경변수 Super Admin 체크
-    if (isSuperAdminByEnv(req.user.loginid)) {
-      req.isAdmin = true;
-      req.isSuperAdmin = true;
-      req.adminRole = 'SUPER_ADMIN';
-      req.adminDept = req.user.deptname;
-      req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
-      next();
-      return;
-    }
-
-    // 2. DB admin 체크
+    // DB admin 체크 (하드코딩 Super Admin은 서버 시작 시 seed로 DB에 등록됨)
     const admin = await prisma.admin.findUnique({
       where: { loginid: req.user.loginid },
     });
 
-    if (!admin) {
-      // /stats/ 경로는 인증된 사용자 누구나 접근 가능 (통계 조회)
-      if (req.path.startsWith('/stats/')) {
-        next();
-        return;
-      }
-      res.status(403).json({ error: 'Admin access required' });
+    if (admin) {
+      req.isAdmin = true;
+      req.isSuperAdmin = admin.role === 'SUPER_ADMIN';
+      req.adminRole = admin.role as 'SUPER_ADMIN' | 'ADMIN';
+      req.adminId = admin.id;
+      req.adminDept = admin.deptname || req.user.deptname;
+      req.adminBusinessUnit = admin.businessUnit || extractBusinessUnit(req.user.deptname);
+      next();
       return;
     }
 
-    req.isAdmin = true;
-    req.isSuperAdmin = admin.role === 'SUPER_ADMIN';
-    req.adminRole = admin.role as 'SUPER_ADMIN' | 'ADMIN';
-    req.adminId = admin.id;
-    req.adminDept = admin.deptname || req.user.deptname;
-    req.adminBusinessUnit = admin.businessUnit || extractBusinessUnit(req.user.deptname);
-    next();
+    // 관리자 아님
+    if (req.path.startsWith('/stats/')) {
+      next();
+      return;
+    }
+    res.status(403).json({ error: 'Admin access required' });
   } catch (error) {
     console.error('Admin check error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -187,28 +176,21 @@ export async function requireSuperAdmin(req: AuthenticatedRequest, res: Response
   }
 
   try {
-    if (isSuperAdminByEnv(req.user.loginid)) {
-      req.isAdmin = true;
-      req.isSuperAdmin = true;
-      req.adminRole = 'SUPER_ADMIN';
-      next();
-      return;
-    }
-
+    // DB admin 체크 (하드코딩 Super Admin은 서버 시작 시 seed로 DB에 등록됨)
     const admin = await prisma.admin.findUnique({
       where: { loginid: req.user.loginid },
     });
 
-    if (!admin || admin.role !== 'SUPER_ADMIN') {
-      res.status(403).json({ error: 'Super admin access required' });
+    if (admin?.role === 'SUPER_ADMIN') {
+      req.isAdmin = true;
+      req.isSuperAdmin = true;
+      req.adminRole = 'SUPER_ADMIN';
+      req.adminId = admin.id;
+      next();
       return;
     }
 
-    req.isAdmin = true;
-    req.isSuperAdmin = true;
-    req.adminRole = 'SUPER_ADMIN';
-    req.adminId = admin.id;
-    next();
+    res.status(403).json({ error: 'Super admin access required' });
   } catch (error) {
     console.error('Super admin check error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -219,7 +201,7 @@ export async function requireSuperAdmin(req: AuthenticatedRequest, res: Response
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
  *
  * visibilityScope는 departmentCode 배열:
- * - TEAM: 사용자의 departmentCode가 scope에 포함되면 허용
+ * - TEAM: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용 (하위 조직 포함)
  * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용
  */
 export function isModelVisibleTo(
@@ -236,7 +218,7 @@ export function isModelVisibleTo(
     case 'BUSINESS_UNIT':
       return isUnderAnyScope(userDeptCode, model.visibilityScope);
     case 'TEAM':
-      return model.visibilityScope.includes(userDeptCode);
+      return isUnderAnyScope(userDeptCode, model.visibilityScope);
     case 'ADMIN_ONLY':
       return isAdmin;
     case 'SUPER_ADMIN_ONLY':

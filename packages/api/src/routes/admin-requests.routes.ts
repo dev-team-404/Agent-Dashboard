@@ -44,22 +44,12 @@ async function recordAudit(
 // ============================================
 adminRequestRoutes.get('/admin-requests/super-admins', authenticateToken, (async (_req: AuthenticatedRequest, res) => {
   try {
+    // 하드코딩 Super Admin은 서버 시작 시 seed로 DB에 등록되므로 DB만 조회
     const superAdmins = await prisma.admin.findMany({
       where: { role: 'SUPER_ADMIN' },
       select: { loginid: true, deptname: true },
       orderBy: { loginid: 'asc' },
     });
-
-    // 환경변수 슈퍼관리자 추가
-    const hardcoded = (process.env['DEVELOPERS'] || 'syngha.han,young87.kim,byeongju.lee')
-      .split(',').map(s => s.trim()).filter(Boolean);
-
-    const allIds = new Set(superAdmins.map(a => a.loginid));
-    for (const id of hardcoded) {
-      if (!allIds.has(id)) {
-        superAdmins.push({ loginid: id, deptname: '' });
-      }
-    }
 
     res.json({ superAdmins });
   } catch (error) {

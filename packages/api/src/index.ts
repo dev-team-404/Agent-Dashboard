@@ -53,6 +53,7 @@ import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
 import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
 import { startPrometheusCollector } from './services/prometheusCollector.service.js';
+import { startBenchmarkCron, refreshAllBenchmarks } from './services/gpuBenchmark.service.js';
 import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
@@ -234,6 +235,27 @@ async function syncHealthCheckModelNames() {
   }
 }
 
+// 하드코딩 Super Admin DB 시드 (DB에 SUPER_ADMIN이 0명일 때만 실행)
+const SEED_SUPER_ADMINS = ['syngha.han', 'young87.kim', 'byeongju.lee'];
+async function seedHardcodedSuperAdmins() {
+  try {
+    const superAdminCount = await prisma.admin.count({ where: { role: 'SUPER_ADMIN' } });
+    if (superAdminCount > 0) return; // 이미 Super Admin 존재 → 스킵
+
+    console.log('[Seed] No super admins in DB, seeding hardcoded super admins...');
+    for (const loginid of SEED_SUPER_ADMINS) {
+      await prisma.admin.upsert({
+        where: { loginid },
+        update: { role: 'SUPER_ADMIN' },
+        create: { loginid, role: 'SUPER_ADMIN', deptname: '', designatedBy: 'system-seed' },
+      });
+    }
+    console.log(`[Seed] Created ${SEED_SUPER_ADMINS.length} super admin records`);
+  } catch (error) {
+    console.error('[Seed] Failed to seed super admins:', error);
+  }
+}
+
 // 빈 visibilityScope를 가진 TEAM/BUSINESS_UNIT 모델을 owner 기준으로 자동 채움
 async function backfillEmptyVisibilityScope() {
   try {
@@ -397,6 +419,9 @@ async function main() {
     // agent-registry 내부 서비스 시드 (LLM 사용량 추적용)
     await seedAgentRegistryService(prisma);
 
+    // 하드코딩 Super Admin DB 시드 (최초 배포 또는 Super Admin 전원 삭제 시)
+    await seedHardcodedSuperAdmins();
+
     // 빈 visibilityScope 자동 보정 (기존 모델 대상)
     await backfillEmptyVisibilityScope();
 
@@ -420,11 +445,17 @@ async function main() {
     startGpuCapacityPredictionCron();
     startGpuCoachingCron();
     startStatsPrecomputeCron();
+    startBenchmarkCron();
 
     // DTGPT Prometheus 수집 (30초 후 시작 — DB 안정화 대기)
     setTimeout(() => startPrometheusCollector().catch(err =>
       console.error('[PromCollector] Failed to start:', err.message)
     ), 30000);
+
+    // 벤치마크 초기 산출 (60초 후 — Prometheus 수집 후)
+    setTimeout(() => refreshAllBenchmarks().catch(err =>
+      console.error('[Benchmark] Initial refresh failed:', err.message)
+    ), 60000);
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Registry API server running on port ${PORT}`);
