@@ -16,6 +16,7 @@
 import { Router, Request, Response } from 'express';
 import { authenticateToken, requireSuperAdmin } from '../middleware/auth.js';
 import { prisma } from '../index.js';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import {
   encryptPassword,
@@ -516,7 +517,7 @@ gpuServerRoutes.post('/:id/coaching', requireSuperAdmin, async (req: Request, re
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 7;
-    // Redis 캐시 (5분 TTL — 분석은 실시간일 필요 없음)
+    // Redis 캐시 (5분 TTL)
     try {
       const { redis } = await import('../index.js');
       const cached = await redis.get(`gpu:analytics:${days}`);
@@ -525,136 +526,131 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    // 휴일 목록 조회
-    const holidays = await prisma.holiday.findMany({
-      where: { date: { gte: since } },
-      select: { date: true },
-    });
-    const holidaySet = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
+    const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
+    const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
 
-    // 전체 서버 스냅샷 (Prisma JSON napi 변환 실패 방어)
-    let snapshots: any[] = [];
-    try {
-      snapshots = await prisma.gpuMetricSnapshot.findMany({
-        where: { timestamp: { gte: since } },
-        orderBy: { timestamp: 'asc' },
-        select: {
-          serverId: true, timestamp: true, gpuMetrics: true,
-          cpuLoadAvg: true, cpuCores: true, memoryTotalMb: true, memoryUsedMb: true,
-          gpuProcesses: true, llmMetrics: true,
-        },
-      });
-    } catch (snapErr: any) {
-      console.error('[Analytics] Prisma findMany failed, raw fallback:', snapErr.message);
-      const rawSnaps = await prisma.$queryRaw<any[]>`
-        SELECT server_id as "serverId", timestamp, gpu_metrics::text as "gpuMetrics",
-               cpu_load_avg as "cpuLoadAvg", cpu_cores as "cpuCores",
-               memory_total_mb as "memoryTotalMb", memory_used_mb as "memoryUsedMb",
-               gpu_processes::text as "gpuProcesses", llm_metrics::text as "llmMetrics"
-        FROM gpu_metric_snapshots WHERE timestamp >= ${since} ORDER BY timestamp ASC`;
-      snapshots = rawSnaps.map(r => {
-        try {
-          return { ...r,
-            gpuMetrics: typeof r.gpuMetrics === 'string' ? JSON.parse(r.gpuMetrics) : r.gpuMetrics,
-            gpuProcesses: typeof r.gpuProcesses === 'string' ? JSON.parse(r.gpuProcesses || '[]') : r.gpuProcesses,
-            llmMetrics: typeof r.llmMetrics === 'string' ? JSON.parse(r.llmMetrics || '[]') : r.llmMetrics,
-          };
-        } catch { return { ...r, gpuMetrics: [], gpuProcesses: [], llmMetrics: [] }; }
-      });
-    }
+    // ── SQL 직접 집계 (JSON을 Node.js로 안 가져옴 — napi 에러 근본 해결) ──
+    // GPU 메트릭: jsonb_array_elements로 DB 안에서 평균 계산
+    const gpuAgg = await prisma.$queryRaw<any[]>`
+      WITH expanded AS (
+        SELECT
+          s.timestamp,
+          (s.timestamp + INTERVAL '9 hours') AS kst,
+          EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
+          EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
+          to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
+          AVG((g->>'utilGpu')::float) AS avg_util,
+          CASE WHEN SUM((g->>'memTotalMb')::float) > 0
+            THEN SUM((g->>'memUsedMb')::float) / SUM((g->>'memTotalMb')::float) * 100 ELSE 0 END AS mem_util
+        FROM gpu_metric_snapshots s, jsonb_array_elements(s.gpu_metrics) AS g
+        WHERE s.timestamp >= ${since}
+        GROUP BY s.id, s.timestamp
+      )
+      SELECT
+        kst_hour, kst_dow, kst_date,
+        ROUND(avg_util::numeric, 1) AS avg_util,
+        ROUND(mem_util::numeric, 1) AS mem_util,
+        CASE WHEN kst_dow BETWEEN 1 AND 5
+          AND kst_hour BETWEEN 9 AND 17
+          AND kst_date NOT IN (${holidayDates.length > 0 ? Prisma.sql`${Prisma.join(holidayDates)}` : Prisma.sql`'__none__'`})
+          THEN true ELSE false END AS is_biz
+      FROM expanded`;
 
-    const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+    // LLM 메트릭: llm_metrics jsonb에서 집계
+    const llmAgg = await prisma.$queryRaw<any[]>`
+      WITH expanded AS (
+        SELECT
+          s.timestamp,
+          EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
+          EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
+          to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
+          (l->>'kvCacheUsagePct')::float AS kv,
+          COALESCE((l->>'runningRequests')::float, 0) AS running,
+          COALESCE((l->>'waitingRequests')::float, 0) AS waiting,
+          COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0) AS tps
+        FROM gpu_metric_snapshots s, jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l
+        WHERE s.timestamp >= ${since}
+      )
+      SELECT kst_hour, kst_dow, kst_date,
+        AVG(kv) FILTER (WHERE kv IS NOT NULL) AS avg_kv,
+        SUM(running) AS total_running,
+        SUM(waiting) AS total_waiting,
+        SUM(tps) FILTER (WHERE tps > 0) AS total_tps,
+        COUNT(*) FILTER (WHERE tps > 0) AS tps_count,
+        CASE WHEN kst_dow BETWEEN 1 AND 5
+          AND kst_hour BETWEEN 9 AND 17
+          AND kst_date NOT IN (${holidayDates.length > 0 ? Prisma.sql`${Prisma.join(holidayDates)}` : Prisma.sql`'__none__'`})
+          THEN true ELSE false END AS is_biz
+      FROM expanded
+      GROUP BY kst_hour, kst_dow, kst_date, s.id, s.timestamp`;
 
-    // 시간대별 히트맵 데이터 (0-23시 x 0-6요일)
-    // heatmap[hour][dayOfWeek] = { totalUtil, count }
-    const heatmap: Array<Array<{ totalUtil: number; count: number }>> = Array.from({ length: 24 }, () =>
-      Array.from({ length: 7 }, () => ({ totalUtil: 0, count: 0 }))
-    );
+    // 스냅샷 단위 합산 tok/s (피크 계산용)
+    const snapTpsAgg = await prisma.$queryRaw<any[]>`
+      SELECT
+        s.id,
+        EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
+        EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
+        to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
+        COALESCE(SUM(
+          COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0)
+        ), 0) AS snap_tps
+      FROM gpu_metric_snapshots s
+      LEFT JOIN jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l ON true
+      WHERE s.timestamp >= ${since}
+      GROUP BY s.id, s.timestamp`;
 
-    // 비즈니스시간 vs 비영업시간 집계
+    // ── Node.js에서 집계 결과만 처리 (JSON 로딩 없음) ──
+    const holidaySet = new Set(holidayDates);
+    const isBiz = (h: number, d: number, date: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(date);
+
     let bizGpuUtil = 0, bizMemUtil = 0, bizCount = 0;
     let offGpuUtil = 0, offMemUtil = 0, offCount = 0;
-    let bizLlmKvCache = 0, bizLlmCount = 0;
-    let bizLlmRunning = 0, bizLlmWaiting = 0, bizLlmThroughput = 0, bizLlmTpCount = 0;
-    let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
+    const heatmap: Array<Array<{ totalUtil: number; count: number }>> = Array.from({ length: 24 }, () => Array.from({ length: 7 }, () => ({ totalUtil: 0, count: 0 })));
 
-    // 시간대별 LLM throughput 추이
+    for (const r of gpuAgg) {
+      const h = Number(r.kst_hour), d = Number(r.kst_dow), u = Number(r.avg_util) || 0, m = Number(r.mem_util) || 0;
+      heatmap[h][d].totalUtil += u; heatmap[h][d].count++;
+      if (r.is_biz) { bizGpuUtil += u; bizMemUtil += m; bizCount++; }
+      else { offGpuUtil += u; offMemUtil += m; offCount++; }
+    }
+
+    let bizLlmKvCache = 0, bizLlmCount = 0, bizLlmRunning = 0, bizLlmWaiting = 0;
+    let bizLlmThroughput = 0, bizLlmTpCount = 0;
     const hourlyThroughput: Array<{ totalTps: number; count: number }> = Array.from({ length: 24 }, () => ({ totalTps: 0, count: 0 }));
 
-    for (const snap of snapshots) {
-      const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET_MS);
-      const kstHour = kstDate.getUTCHours();
-      const kstDow = kstDate.getUTCDay(); // 0=Sun
-      const dateStr = new Date(snap.timestamp.getTime() + KST_OFFSET_MS).toISOString().split('T')[0];
-      const isHoliday = holidaySet.has(dateStr);
-      const isWeekend = kstDow === 0 || kstDow === 6;
-      const isBusinessHour = kstHour >= 9 && kstHour < 18 && !isHoliday && !isWeekend;
-
-      const gpus = snap.gpuMetrics as any[];
-      if (!Array.isArray(gpus) || gpus.length === 0) continue;
-
-      const avgUtil = gpus.reduce((s: number, g: any) => s + (g.utilGpu || 0), 0) / gpus.length;
-      const totalMem = gpus.reduce((s: number, g: any) => s + (g.memTotalMb || 0), 0);
-      const usedMem = gpus.reduce((s: number, g: any) => s + (g.memUsedMb || 0), 0);
-      const memUtil = totalMem > 0 ? (usedMem / totalMem) * 100 : 0;
-
-      // 히트맵 집계
-      heatmap[kstHour][kstDow].totalUtil += avgUtil;
-      heatmap[kstHour][kstDow].count++;
-
-      // 비즈니스시간 집계
-      if (isBusinessHour) {
-        bizGpuUtil += avgUtil; bizMemUtil += memUtil; bizCount++;
-      } else {
-        offGpuUtil += avgUtil; offMemUtil += memUtil; offCount++;
-      }
-
-      // LLM 메트릭 집계
-      const llms = snap.llmMetrics as any[];
-      if (Array.isArray(llms)) {
-        for (const llm of llms) {
-          if (llm.kvCacheUsagePct != null && isBusinessHour) {
-            bizLlmKvCache += llm.kvCacheUsagePct; bizLlmCount++;
-          }
-          if (isBusinessHour) {
-            bizLlmRunning += llm.runningRequests || 0;
-            bizLlmWaiting += llm.waitingRequests || 0;
-          }
-          const tps = (llm.promptThroughputTps || 0) + (llm.genThroughputTps || 0);
-          if (tps > 0) {
-            hourlyThroughput[kstHour].totalTps += tps;
-            hourlyThroughput[kstHour].count++;
-            if (isBusinessHour) { bizLlmThroughput += tps; bizLlmTpCount++; }
-          }
-        }
-        // 스냅샷 단위 합산 tok/s (영업시간)
-        if (isBusinessHour) {
-          const snapTps = llms.reduce((s: number, l: any) => s + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
-          if (snapTps > 0) { bizTotalTps += snapTps; bizTpsCount++; }
-          if (snapTps > bizPeakTps) bizPeakTps = snapTps;
-        }
+    for (const r of llmAgg) {
+      const h = Number(r.kst_hour), tps = Number(r.total_tps) || 0;
+      if (tps > 0) { hourlyThroughput[h].totalTps += tps; hourlyThroughput[h].count += Number(r.tps_count) || 0; }
+      if (r.is_biz) {
+        if (r.avg_kv != null) { bizLlmKvCache += Number(r.avg_kv); bizLlmCount++; }
+        bizLlmRunning += Number(r.total_running) || 0;
+        bizLlmWaiting += Number(r.total_waiting) || 0;
+        if (tps > 0) { bizLlmThroughput += tps; bizLlmTpCount += Number(r.tps_count) || 0; }
       }
     }
 
-    // 히트맵 → 평균으로 변환
-    const heatmapData = heatmap.map((hours, hour) =>
-      hours.map((cell, dow) => ({
-        hour, dow,
-        avgUtil: cell.count > 0 ? Math.round((cell.totalUtil / cell.count) * 10) / 10 : null,
-        sampleCount: cell.count,
-      }))
-    ).flat();
+    let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
+    for (const r of snapTpsAgg) {
+      const h = Number(r.kst_hour), d = Number(r.kst_dow), t = Number(r.snap_tps) || 0;
+      if (isBiz(h, d, r.kst_date) && t > 0) {
+        bizTotalTps += t; bizTpsCount++;
+        if (t > bizPeakTps) bizPeakTps = t;
+      }
+    }
 
-    // 피크타임 탐지 (상위 5개 시간대)
-    const peakHours = heatmapData
-      .filter(h => h.avgUtil !== null && h.sampleCount >= 3)
-      .sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0))
-      .slice(0, 5);
+    const totalSnapshots = gpuAgg.length;
 
-    // 시간대별 throughput 평균
+    const heatmapData = heatmap.map((hours, hour) => hours.map((cell, dow) => ({
+      hour, dow,
+      avgUtil: cell.count > 0 ? Math.round((cell.totalUtil / cell.count) * 10) / 10 : null,
+      sampleCount: cell.count,
+    }))).flat();
+
+    const peakHours = heatmapData.filter(h => h.avgUtil !== null && h.sampleCount >= 3)
+      .sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0)).slice(0, 5);
+
     const throughputByHour = hourlyThroughput.map((h, hour) => ({
-      hour,
-      avgTps: h.count > 0 ? Math.round((h.totalTps / h.count) * 10) / 10 : 0,
+      hour, avgTps: h.count > 0 ? Math.round((h.totalTps / h.count) * 10) / 10 : 0,
     }));
 
     const analyticsResult = {
@@ -675,10 +671,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
         avgMemUtil: offCount > 0 ? Math.round((offMemUtil / offCount) * 10) / 10 : null,
         sampleCount: offCount,
       },
-      heatmap: heatmapData,
-      peakHours,
-      throughputByHour,
-      totalSnapshots: snapshots.length,
+      heatmap: heatmapData, peakHours, throughputByHour, totalSnapshots,
     };
     try { const { redis } = await import('../index.js'); await redis.setex(`gpu:analytics:${days}`, 300, JSON.stringify(analyticsResult)); } catch {}
     res.json(analyticsResult);

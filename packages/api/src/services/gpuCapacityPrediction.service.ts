@@ -9,6 +9,7 @@
  */
 
 import { prisma } from '../index.js';
+import { Prisma } from '@prisma/client';
 import { B300_SPEC, lookupGpuSpec, calcTheoreticalMaxTps, estimateModelParams, detectPrecision } from './gpuMonitor.service.js';
 import { logInternalLlmUsage } from './internalUsageLogger.js';
 
@@ -152,60 +153,62 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   const avgLatencyMs = latencyResult[0]?.avg_ms || null;
   const p95LatencyMs = latencyResult[0]?.p95_ms || null;
 
-  // ── GPU 메트릭 (영업시간만) ──
-  // Prisma JSON 칼럼에서 napi 변환 실패 가능 → 배치로 나눠 가져오고 깨진 데이터 방어
-  let snapshots: Array<{ gpuMetrics: any; llmMetrics: any; timestamp: Date }> = [];
-  try {
-    snapshots = await prisma.gpuMetricSnapshot.findMany({
-      where: { timestamp: { gte: sevenDaysAgo } },
-      select: { gpuMetrics: true, llmMetrics: true, timestamp: true },
-    });
-  } catch (snapErr: any) {
-    console.error('[GPU Capacity] Snapshot findMany failed, trying raw fallback:', snapErr.message);
-    // Prisma JSON 파싱 실패 시 raw query fallback
-    try {
-      const rawSnaps = await prisma.$queryRaw<Array<{ gpu_metrics: string; llm_metrics: string; timestamp: Date }>>`
-        SELECT gpu_metrics::text, llm_metrics::text, timestamp
-        FROM gpu_metric_snapshots WHERE timestamp >= ${sevenDaysAgo}`;
-      snapshots = rawSnaps.map(r => {
-        try { return { gpuMetrics: JSON.parse(r.gpu_metrics || '[]'), llmMetrics: JSON.parse(r.llm_metrics || '[]'), timestamp: r.timestamp }; }
-        catch { return { gpuMetrics: [], llmMetrics: [], timestamp: r.timestamp }; }
-      });
-    } catch (rawErr: any) {
-      console.error('[GPU Capacity] Raw snapshot fallback also failed:', rawErr.message);
-    }
-  }
+  // ── GPU 메트릭 (영업시간만, SQL 집계 — napi 에러 근본 해결) ──
+  const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
+  const holidayFilter = holidayDates.length > 0 ? Prisma.sql`AND to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') NOT IN (${Prisma.join(holidayDates)})` : Prisma.sql``;
 
-  const bizConcurrents: number[] = [];
-  let totalGpuUtil = 0, gpuUtilCount = 0, totalKvCache = 0, kvCacheCount = 0, totalThroughput = 0, tpCount = 0;
+  // GPU 영업시간 평균
+  const gpuBizAgg = await prisma.$queryRaw<[{ avg_util: number | null; count: bigint }]>`
+    SELECT AVG(sub.avg_util) AS avg_util, COUNT(*) AS count FROM (
+      SELECT AVG((g->>'utilGpu')::float) AS avg_util
+      FROM gpu_metric_snapshots s, jsonb_array_elements(s.gpu_metrics) AS g
+      WHERE s.timestamp >= ${sevenDaysAgo}
+        AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+        AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+        ${holidayFilter}
+      GROUP BY s.id
+    ) sub`;
 
-  for (const snap of snapshots) {
-    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
-    const kstHour = kstDate.getUTCHours();
-    const kstDow = kstDate.getUTCDay();
-    const dateStr = kstDate.toISOString().split('T')[0];
-    const isBiz = kstHour >= 9 && kstHour < 18 && kstDow !== 0 && kstDow !== 6 && !holidaySet.has(dateStr);
-    if (!isBiz) continue;
+  // LLM 영업시간 집계
+  const llmBizAgg = await prisma.$queryRaw<[{ avg_kv: number | null; avg_tps: number | null; total_concurrent: number | null; kv_count: bigint; tps_count: bigint }]>`
+    SELECT
+      AVG(kv) FILTER (WHERE kv IS NOT NULL) AS avg_kv,
+      AVG(tps) FILTER (WHERE tps > 0) AS avg_tps,
+      AVG(concurrent) FILTER (WHERE concurrent > 0) AS total_concurrent,
+      COUNT(*) FILTER (WHERE kv IS NOT NULL) AS kv_count,
+      COUNT(*) FILTER (WHERE tps > 0) AS tps_count
+    FROM (
+      SELECT
+        (l->>'kvCacheUsagePct')::float AS kv,
+        COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0) AS tps,
+        COALESCE((l->>'runningRequests')::float, 0) + COALESCE((l->>'waitingRequests')::float, 0) AS concurrent
+      FROM gpu_metric_snapshots s, jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l
+      WHERE s.timestamp >= ${sevenDaysAgo}
+        AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+        AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+        ${holidayFilter}
+    ) sub`;
 
-    const llms = snap.llmMetrics as any[];
-    if (Array.isArray(llms)) {
-      const concurrent = llms.reduce((s: number, l: any) => s + (l.runningRequests || 0) + (l.waitingRequests || 0), 0);
-      if (concurrent > 0) bizConcurrents.push(concurrent);
-      for (const l of llms) {
-        if (l.kvCacheUsagePct != null) { totalKvCache += l.kvCacheUsagePct; kvCacheCount++; }
-        const tp = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
-        if (tp > 0) { totalThroughput += tp; tpCount++; }
-      }
-    }
-    const gpus = snap.gpuMetrics as any[];
-    if (Array.isArray(gpus)) { for (const g of gpus) { totalGpuUtil += g.utilGpu || 0; gpuUtilCount++; } }
-  }
+  // P95 동시 요청 (영업시간)
+  const concurrentP95 = await prisma.$queryRaw<[{ p95: number | null }]>`
+    SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY concurrent) AS p95 FROM (
+      SELECT COALESCE(SUM(
+        COALESCE((l->>'runningRequests')::float, 0) + COALESCE((l->>'waitingRequests')::float, 0)
+      ), 0) AS concurrent
+      FROM gpu_metric_snapshots s
+      LEFT JOIN jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l ON true
+      WHERE s.timestamp >= ${sevenDaysAgo}
+        AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+        AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+        ${holidayFilter}
+      GROUP BY s.id
+      HAVING SUM(COALESCE((l->>'runningRequests')::float, 0) + COALESCE((l->>'waitingRequests')::float, 0)) > 0
+    ) sub`;
 
-  bizConcurrents.sort((a, b) => a - b);
-  const peakConcurrent = bizConcurrents.length > 0 ? bizConcurrents[Math.min(Math.floor(bizConcurrents.length * 0.95), bizConcurrents.length - 1)] : 0;
-  const avgGpuUtil = gpuUtilCount > 0 ? totalGpuUtil / gpuUtilCount : null;
-  const avgKvCache = kvCacheCount > 0 ? totalKvCache / kvCacheCount : null;
-  const avgThroughput = tpCount > 0 ? totalThroughput / tpCount : 0;
+  const peakConcurrent = Math.round(Number(concurrentP95[0]?.p95 || 0));
+  const avgGpuUtil = gpuBizAgg[0]?.avg_util != null ? Number(gpuBizAgg[0].avg_util) : null;
+  const avgKvCache = llmBizAgg[0]?.avg_kv != null ? Number(llmBizAgg[0].avg_kv) : null;
+  const avgThroughput = llmBizAgg[0]?.avg_tps != null ? Number(llmBizAgg[0].avg_tps) : 0;
 
   // ── GPU 인벤토리 ──
   const servers = await prisma.gpuServer.findMany({ where: { enabled: true } });
@@ -274,30 +277,32 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     gpuCount: number;     // 사용 GPU 수 (추정)
     tpsRatio: number;     // 전체 대비 throughput 비율
   }
+  // 모델별 throughput/KV cache 수집 (SQL 집계 — napi 에러 방지)
   const modelTpsMap = new Map<string, { totalTps: number; count: number; peakTps: number; totalKv: number; kvCount: number }>();
 
-  // 7일 영업시간 스냅샷에서 모델별 throughput/KV cache 수집 (이미 필터된 데이터 재활용 가능하나, 모델별 분리 필요)
-  for (const snap of snapshots) {
-    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
-    const kstHour = kstDate.getUTCHours();
-    const kstDow = kstDate.getUTCDay();
-    const dateStr = kstDate.toISOString().split('T')[0];
-    if (kstHour < 9 || kstHour >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
+  const modelAggRows = await prisma.$queryRaw<Array<{ model_key: string; total_tps: number; count: bigint; peak_tps: number; avg_kv: number | null; kv_count: bigint; precision: string | null }>>`
+    SELECT
+      COALESCE(l->'modelNames'->>0, l->>'containerName', 'unknown') AS model_key,
+      SUM(COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0)) AS total_tps,
+      COUNT(*) AS count,
+      MAX(COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0)) AS peak_tps,
+      AVG((l->>'kvCacheUsagePct')::float) FILTER (WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS avg_kv,
+      COUNT(*) FILTER (WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS kv_count,
+      MAX(l->>'precision') AS precision
+    FROM gpu_metric_snapshots s, jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l
+    WHERE s.timestamp >= ${sevenDaysAgo}
+      AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+      AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+      ${holidayFilter}
+    GROUP BY model_key`;
 
-    const llms = snap.llmMetrics as any[];
-    if (!Array.isArray(llms)) continue;
-    for (const l of llms) {
-      const names = l?.modelNames || [];
-      const modelKey = names[0] || l.containerName || 'unknown';
-      const tp = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
-      const kv = l.kvCacheUsagePct;
-      const existing = modelTpsMap.get(modelKey) || { totalTps: 0, count: 0, peakTps: 0, totalKv: 0, kvCount: 0 };
-      existing.totalTps += tp; existing.count++;
-      if (tp > existing.peakTps) existing.peakTps = tp;
-      if (kv != null) { existing.totalKv += kv; existing.kvCount++; }
-      modelTpsMap.set(modelKey, existing);
-      // precision 정보가 없으면 이름에서 감지
-      if (!modelPrecisionMap.has(modelKey) && l.precision) modelPrecisionMap.set(modelKey, l.precision);
+  for (const row of modelAggRows) {
+    modelTpsMap.set(row.model_key, {
+      totalTps: Number(row.total_tps) || 0, count: Number(row.count), peakTps: Number(row.peak_tps) || 0,
+      totalKv: (Number(row.avg_kv) || 0) * Number(row.kv_count), kvCount: Number(row.kv_count),
+    });
+    if (row.precision && !modelPrecisionMap.has(row.model_key)) {
+      modelPrecisionMap.set(row.model_key, row.precision as 'fp8' | 'fp16');
     }
   }
 
@@ -393,19 +398,21 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     weightedMaxTps = calcTheoreticalMaxTps(dominantSpec, totalGpuCount, fbParams);
   }
 
-  // ── 피크 throughput 수집 (7일, 영업시간만) ──
-  let peakThroughput = 0;
-  for (const snap of snapshots) {
-    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
-    const kstH = kstDate.getUTCHours();
-    const kstDow = kstDate.getUTCDay();
-    const dateStr = kstDate.toISOString().split('T')[0];
-    if (kstH < 9 || kstH >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
-    const llms = snap.llmMetrics as any[];
-    if (!Array.isArray(llms)) continue;
-    const tp = llms.reduce((s: number, l: any) => s + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
-    if (tp > peakThroughput) peakThroughput = tp;
-  }
+  // ── 피크 throughput (7일, 영업시간, SQL 집계) ──
+  const peakTpsResult = await prisma.$queryRaw<[{ peak_tps: number | null }]>`
+    SELECT MAX(snap_tps) AS peak_tps FROM (
+      SELECT COALESCE(SUM(
+        COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0)
+      ), 0) AS snap_tps
+      FROM gpu_metric_snapshots s
+      LEFT JOIN jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l ON true
+      WHERE s.timestamp >= ${sevenDaysAgo}
+        AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+        AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+        ${holidayFilter}
+      GROUP BY s.id
+    ) sub`;
+  const peakThroughput = Number(peakTpsResult[0]?.peak_tps || 0);
   const avgHealthPct = weightedMaxTps > 0 && peakThroughput > 0
     ? Math.min((peakThroughput / weightedMaxTps) * 100, 100) : null;
 
@@ -474,44 +481,32 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   //   1) throughput 관점: 피크 throughput이 이론 최대의 몇 %인지 (= avgHealthPct)
   //   2) KV cache 관점: 피크 때 KV cache가 몇 %까지 차는지
   //   3) 복합: 둘 중 하나라도 위험 수준이면 부족
-  let peakKvMax = 0;
-  for (const snap of snapshots) {
-    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
-    const kstH = kstDate.getUTCHours();
-    const kstDow = kstDate.getUTCDay();
-    const dateStr = kstDate.toISOString().split('T')[0];
-    if (kstH < 9 || kstH >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
-    const llms = snap.llmMetrics as any[];
-    if (!Array.isArray(llms)) continue;
-    const kv = llms.reduce((s: number, l: any) => s + (l.kvCacheUsagePct || 0), 0) / Math.max(llms.length, 1);
-    if (kv > peakKvMax) peakKvMax = kv;
-  }
+  // 피크 KV cache + waiting/preemption (SQL 집계)
+  const peakShortageAgg = await prisma.$queryRaw<[{ peak_kv: number | null; waiting_snaps: bigint; preemption_total: number | null; total_snaps: bigint }]>`
+    SELECT
+      MAX(sub.avg_kv) AS peak_kv,
+      COUNT(*) FILTER (WHERE sub.total_waiting > 0) AS waiting_snaps,
+      SUM(sub.total_preemption) AS preemption_total,
+      COUNT(*) AS total_snaps
+    FROM (
+      SELECT
+        AVG((l->>'kvCacheUsagePct')::float) FILTER (WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS avg_kv,
+        SUM(COALESCE((l->>'waitingRequests')::float, 0)) AS total_waiting,
+        SUM(COALESCE((l->>'preemptionCount')::float, 0)) AS total_preemption
+      FROM gpu_metric_snapshots s
+      LEFT JOIN jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l ON true
+      WHERE s.timestamp >= ${sevenDaysAgo}
+        AND EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours') BETWEEN 9 AND 17
+        AND EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours') BETWEEN 1 AND 5
+        ${holidayFilter}
+      GROUP BY s.id
+    ) sub`;
 
-  // 피크 throughput 기반: 이론max 대비 피크 처리량 비율 (= 건강도, 30-50% 정상)
-  // 이 자체로는 "부족"이 아님 — 건강도가 낮은 건 GPU 효율이 낮은 거지 부족한 게 아님
-  // 진짜 부족 시그널: KV cache 피크 80%↑, waiting > 0 빈발, preemption 빈발
-  //
-  // 현재 피크 부족분 판단:
-  //   - KV cache 피크 80% 이상 → 메모리 부족 (VRAM 추가 필요)
-  //   - 피크 KV가 X%면, 100%까지의 여유 = (100-X)/X 의 추가 용량 필요
-  const peakThroughputPct = weightedMaxTps > 0 ? (peakThroughput / weightedMaxTps) * 100 : null; // 건강도와 동일
-
-  // 피크 때 waiting/preemption 빈도 수집
-  let peakWaitingCount = 0, peakPreemptionTotal = 0, snapCountForPeak = 0;
-  for (const snap of snapshots) {
-    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
-    const kstH = kstDate.getUTCHours();
-    const kstDow = kstDate.getUTCDay();
-    const dateStr = kstDate.toISOString().split('T')[0];
-    if (kstH < 9 || kstH >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
-    const llms = snap.llmMetrics as any[];
-    if (!Array.isArray(llms)) continue;
-    snapCountForPeak++;
-    for (const l of llms) {
-      if ((l.waitingRequests || 0) > 0) peakWaitingCount++;
-      peakPreemptionTotal += (l.preemptionCount || 0);
-    }
-  }
+  const peakKvMax = Number(peakShortageAgg[0]?.peak_kv || 0);
+  const peakThroughputPct = weightedMaxTps > 0 ? (peakThroughput / weightedMaxTps) * 100 : null;
+  const snapCountForPeak = Number(peakShortageAgg[0]?.total_snaps || 0);
+  const peakWaitingCount = Number(peakShortageAgg[0]?.waiting_snaps || 0);
+  const peakPreemptionTotal = Number(peakShortageAgg[0]?.preemption_total || 0);
   const waitingFrequencyPct = snapCountForPeak > 0 ? (peakWaitingCount / snapCountForPeak) * 100 : 0;
 
   // 복합 부족 판단: KV↑ OR waiting 빈발 OR preemption 빈발

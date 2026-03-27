@@ -618,8 +618,19 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
       // Prometheus 메트릭 파싱 (MODELS_JSON 줄 제외)
       const promLines = lines.slice(1).filter(l => !l.startsWith('MODELS_JSON:'));
       const { metrics: prom, raw: promRaw } = parsePrometheusLines(promLines);
+      // rawMetrics: 주요 메트릭만 저장 (전체 덤프 → napi 에러 원인)
+      const RAW_METRIC_KEYS = [
+        'num_requests_running', 'num_requests_waiting', 'num_requests_swapped',
+        'gpu_cache_usage_perc', 'kv_cache_usage_perc', 'cpu_cache_usage_perc',
+        'prompt_tokens_total', 'generation_tokens_total',
+        'request_success_total', 'request_failure_total',
+        'e2e_request_latency_seconds', 'time_to_first_token_seconds', 'time_per_output_token_seconds',
+        'num_preemptions_total', 'prefix_cache_hit_rate',
+      ];
       const rawMetrics: Record<string, number> = {};
-      for (const [k, v] of prom) rawMetrics[k] = v;
+      for (const [k, v] of prom) {
+        if (RAW_METRIC_KEYS.some(rk => k.includes(rk))) rawMetrics[k] = v;
+      }
 
       const type = extractLlmType(prom, containerImage);
       const extracted = extractLlmMetricsFromProm(prom, type, `${containerName}:${port}`);
@@ -738,20 +749,26 @@ async function pollServer(server: { id: string; name: string; host: string; sshP
       return;
     }
 
+    // JSON 칼럼 저장 전 sanitize (NaN/Infinity/특수문자 → napi 변환 에러 방지)
+    const sanitizeJson = (obj: any): any => {
+      try { return JSON.parse(JSON.stringify(obj, (_k, v) => typeof v === 'number' && !isFinite(v) ? null : v)); }
+      catch { return Array.isArray(obj) ? [] : {}; }
+    };
+
     await prisma.gpuMetricSnapshot.create({
       data: {
         serverId: server.id,
-        gpuMetrics: parsed.gpus as any,
-        cpuLoadAvg: parsed.cpuLoadAvg,
-        cpuCores: parsed.cpuCores,
-        memoryTotalMb: parsed.memoryTotalMb,
-        memoryUsedMb: parsed.memoryUsedMb,
-        diskTotalGb: parsed.diskTotalGb,
-        diskUsedGb: parsed.diskUsedGb,
-        diskFreeGb: parsed.diskFreeGb,
-        hostname: parsed.hostname,
-        gpuProcesses: parsed.processes as any,
-        llmMetrics: parsed.llmEndpoints as any,
+        gpuMetrics: sanitizeJson(parsed.gpus),
+        cpuLoadAvg: isFinite(parsed.cpuLoadAvg ?? NaN) ? parsed.cpuLoadAvg : null,
+        cpuCores: isFinite(parsed.cpuCores ?? NaN) ? parsed.cpuCores : null,
+        memoryTotalMb: isFinite(parsed.memoryTotalMb ?? NaN) ? parsed.memoryTotalMb : null,
+        memoryUsedMb: isFinite(parsed.memoryUsedMb ?? NaN) ? parsed.memoryUsedMb : null,
+        diskTotalGb: isFinite(parsed.diskTotalGb ?? NaN) ? parsed.diskTotalGb : null,
+        diskUsedGb: isFinite(parsed.diskUsedGb ?? NaN) ? parsed.diskUsedGb : null,
+        diskFreeGb: isFinite(parsed.diskFreeGb ?? NaN) ? parsed.diskFreeGb : null,
+        hostname: parsed.hostname?.replace(/[^\x20-\x7E\uAC00-\uD7A3]/g, '') || null,
+        gpuProcesses: sanitizeJson(parsed.processes),
+        llmMetrics: sanitizeJson(parsed.llmEndpoints),
       },
     });
   } catch (err: any) {
@@ -819,13 +836,33 @@ export async function startGpuMonitorCron() {
       );
     }
 
-    // 오래된 스냅샷 정리 (매 6시간, 30일 이상 삭제)
+    // 스냅샷 보존 정책 (매 6시간):
+    // - 30일 이상: 삭제
+    // - 14~30일: 하루 1건만 보관 (트렌드용), 나머지 삭제
+    // - 14일 이내: 전체 보관 (상세 분석용)
     setInterval(async () => {
       try {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 30);
-        const result = await prisma.gpuMetricSnapshot.deleteMany({ where: { timestamp: { lt: cutoff } } });
-        if (result.count > 0) console.log(`[GPU Monitor] Cleaned up ${result.count} old snapshots`);
+        // 30일 이상 삭제
+        const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30);
+        const del30 = await prisma.gpuMetricSnapshot.deleteMany({ where: { timestamp: { lt: cutoff30 } } });
+        if (del30.count > 0) console.log(`[GPU Monitor] Cleaned up ${del30.count} old snapshots (>30d)`);
+
+        // 14~30일: 하루 1건만 보관 (서버별 첫 번째 스냅샷만 유지)
+        const cutoff14 = new Date(); cutoff14.setDate(cutoff14.getDate() - 14);
+        const thinned = await prisma.$executeRaw`
+          DELETE FROM gpu_metric_snapshots
+          WHERE timestamp < ${cutoff14} AND timestamp >= ${cutoff30}
+            AND id NOT IN (
+              SELECT DISTINCT ON (server_id, DATE(timestamp)) id
+              FROM gpu_metric_snapshots
+              WHERE timestamp < ${cutoff14} AND timestamp >= ${cutoff30}
+              ORDER BY server_id, DATE(timestamp), timestamp ASC
+            )`;
+        if (thinned > 0) console.log(`[GPU Monitor] Thinned ${thinned} snapshots (14-30d, keeping 1/day/server)`);
+
+        // DB 공간 모니터링
+        const dbSize = await prisma.$queryRaw<[{ size: string }]>`SELECT pg_size_pretty(pg_database_size(current_database())) as size`;
+        console.log(`[GPU Monitor] DB size: ${dbSize[0]?.size}`);
       } catch (err) {
         console.error('[GPU Monitor] Cleanup error:', err);
       }
