@@ -495,10 +495,10 @@ async function handleServiceUsage(req: Request, res: Response) {
     // DEPLOYED 서비스 ID 목록
     const deployedServices = await prisma.service.findMany({
       where: { status: 'DEPLOYED' },
-      select: { id: true, name: true, displayName: true },
+      select: { id: true, name: true, displayName: true, registeredByDept: true },
     });
     const EXCLUDED_SERVICE_NAMES = ['api'];
-    const filteredServices = deployedServices.filter(s => !EXCLUDED_SERVICE_NAMES.includes(s.name));
+    const filteredServices = deployedServices.filter(s => !EXCLUDED_SERVICE_NAMES.includes(s.name) && s.registeredByDept);
     const deployedIds = filteredServices.map(s => s.id);
 
     if (deployedIds.length === 0) {
@@ -540,6 +540,7 @@ async function handleServiceUsage(req: Request, res: Response) {
         const svc = svcMap.get(r.service_id)!;
         return {
           displayName: svc.displayName,
+          serviceProvider: svc.registeredByDept!,
           llmCallCount: Number(r.llm_call_count),
           tokenUsage: {
             input: Number(r.total_input),
