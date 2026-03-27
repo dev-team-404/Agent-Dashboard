@@ -190,8 +190,12 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
           primaryModelParams = params;
         }
       }
+      // precision 자동 감지 (모델명이나 경로에 FP8이 포함되면)
+      const allModelInfo = endpoints.flatMap(ep => ep.modelNames || []).join(' ');
+      const precision = allModelInfo.includes('__precision_fp8__') ? 'fp8' as const : 'fp16' as const;
+
       const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
-        ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams) * 10) / 10
+        ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10
         : null;
 
       // 현재 처리량 (unknown 제외)

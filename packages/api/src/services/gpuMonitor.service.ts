@@ -134,26 +134,27 @@ function isLlmProcess(processName: string): boolean {
 // ================================================================
 interface GpuSpec {
   fp16Tflops: number;      // FP16 이론 성능 (TFLOPS)
+  fp8Tflops: number;       // FP8 이론 성능 (TFLOPS)
   memBandwidthGBs: number; // 메모리 대역폭 (GB/s)
   tdpW: number;            // TDP (W)
   vramGb: number;          // VRAM (GB)
   label: string;           // 표시 이름
 }
 
-export const B300_SPEC: GpuSpec = { fp16Tflops: 2250, memBandwidthGBs: 8000, tdpW: 1000, vramGb: 192, label: 'B300' };
+export const B300_SPEC: GpuSpec = { fp16Tflops: 2250, fp8Tflops: 4500, memBandwidthGBs: 8000, tdpW: 1000, vramGb: 192, label: 'B300' };
 
 const GPU_SPECS: Array<{ pattern: RegExp; spec: GpuSpec }> = [
   { pattern: /B300/i,        spec: B300_SPEC },
-  { pattern: /H200.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200 SXM' } },
-  { pattern: /H200/i,       spec: { fp16Tflops: 989, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200' } },
-  { pattern: /H100.*SXM/i,  spec: { fp16Tflops: 989, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100 SXM' } },
-  { pattern: /H100.*PCIe/i, spec: { fp16Tflops: 756, memBandwidthGBs: 2000, tdpW: 350, vramGb: 80, label: 'H100 PCIe' } },
-  { pattern: /H100/i,       spec: { fp16Tflops: 989, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100' } },
-  { pattern: /L40S/i,       spec: { fp16Tflops: 362, memBandwidthGBs: 864, tdpW: 350, vramGb: 48, label: 'L40S' } },
-  { pattern: /A100.*80/i,   spec: { fp16Tflops: 312, memBandwidthGBs: 2039, tdpW: 400, vramGb: 80, label: 'A100 80GB' } },
-  { pattern: /A100/i,       spec: { fp16Tflops: 312, memBandwidthGBs: 1555, tdpW: 400, vramGb: 40, label: 'A100 40GB' } },
-  { pattern: /RTX.*4090/i,  spec: { fp16Tflops: 165, memBandwidthGBs: 1008, tdpW: 450, vramGb: 24, label: 'RTX 4090' } },
-  { pattern: /RTX.*4070/i,  spec: { fp16Tflops: 73,  memBandwidthGBs: 504,  tdpW: 200, vramGb: 12, label: 'RTX 4070' } },
+  { pattern: /H200.*SXM/i,  spec: { fp16Tflops: 989, fp8Tflops: 1979, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200 SXM' } },
+  { pattern: /H200/i,       spec: { fp16Tflops: 989, fp8Tflops: 1979, memBandwidthGBs: 4800, tdpW: 700, vramGb: 141, label: 'H200' } },
+  { pattern: /H100.*SXM/i,  spec: { fp16Tflops: 989, fp8Tflops: 1979, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100 SXM' } },
+  { pattern: /H100.*PCIe/i, spec: { fp16Tflops: 756, fp8Tflops: 1513, memBandwidthGBs: 2000, tdpW: 350, vramGb: 80, label: 'H100 PCIe' } },
+  { pattern: /H100/i,       spec: { fp16Tflops: 989, fp8Tflops: 1979, memBandwidthGBs: 3350, tdpW: 700, vramGb: 80, label: 'H100' } },
+  { pattern: /L40S/i,       spec: { fp16Tflops: 362, fp8Tflops: 733, memBandwidthGBs: 864, tdpW: 350, vramGb: 48, label: 'L40S' } },
+  { pattern: /A100.*80/i,   spec: { fp16Tflops: 312, fp8Tflops: 312, memBandwidthGBs: 2039, tdpW: 400, vramGb: 80, label: 'A100 80GB' } }, // A100은 FP8 미지원
+  { pattern: /A100/i,       spec: { fp16Tflops: 312, fp8Tflops: 312, memBandwidthGBs: 1555, tdpW: 400, vramGb: 40, label: 'A100 40GB' } },
+  { pattern: /RTX.*4090/i,  spec: { fp16Tflops: 165, fp8Tflops: 330, memBandwidthGBs: 1008, tdpW: 450, vramGb: 24, label: 'RTX 4090' } },
+  { pattern: /RTX.*4070/i,  spec: { fp16Tflops: 73,  fp8Tflops: 146, memBandwidthGBs: 504,  tdpW: 200, vramGb: 12, label: 'RTX 4070' } },
 ];
 
 export function lookupGpuSpec(gpuName: string): GpuSpec | null {
@@ -295,19 +296,18 @@ export function estimateModelParams(modelName: string): number | null {
  * 두 가지 중 더 낮은 값이 실제 상한.
  * 실무에서는 메모리 효율 ~60-70%이므로 0.65 보정.
  */
-export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number): number {
-  const modelSizeBytes = modelParamsBillion * 1e9 * 2;
-  // Method 1: Memory bandwidth bound (단일 요청 decode)
-  const bwBound = (spec.memBandwidthGBs * 1e9 * gpuCount) / modelSizeBytes;
-  // Method 2: Compute bound (배치 처리, FP16 FLOPS 기준)
-  const flopsPerToken = 2 * modelParamsBillion * 1e9; // 2 * params FLOPs per token
-  const totalFlops = spec.fp16Tflops * 1e12 * gpuCount; // total FP16 FLOPS
-  const computeBound = totalFlops / flopsPerToken;
-  // 이론 최대 = compute bound (제조사 스펙 × 물리 법칙, 보정 없음)
-  // 건강도 30-50%: 대형 모델 8GPU 텐서 병렬에서 정상
-  // 건강도 5-15%: 소형 모델 (<20B) — compute를 다 못 씀 (bandwidth 병목)
-  // 핵심은 시간 경과에 따른 건강도 하락 추이 (노후화 감지)
-  return computeBound;
+/** /v1/models root 경로나 모델명에서 precision 자동 감지 */
+export function detectPrecision(modelInfo: string): 'fp8' | 'fp16' {
+  const lower = modelInfo.toLowerCase();
+  if (lower.includes('fp8') || lower.includes('-f8') || lower.includes('_fp8')) return 'fp8';
+  return 'fp16';
+}
+
+export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number, precision: 'fp8' | 'fp16' = 'fp16'): number {
+  const flopsPerToken = 2 * modelParamsBillion * 1e9;
+  const tflops = precision === 'fp8' ? spec.fp8Tflops : spec.fp16Tflops;
+  const totalFlops = tflops * 1e12 * gpuCount;
+  return totalFlops / flopsPerToken;
 }
 
 // ================================================================
@@ -608,6 +608,8 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
           for (const m of models) {
             const name = m.id || m.model || m.name;
             if (name) modelNames.push(name);
+            // root 경로에서 precision 감지 (e.g. /root/models/GLM-5-FP8 → fp8)
+            if (m.root && detectPrecision(m.root) === 'fp8') modelNames.push('__precision_fp8__');
           }
         } catch { /* json parse fail */ }
       }
