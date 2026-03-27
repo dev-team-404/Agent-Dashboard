@@ -569,32 +569,49 @@ export default function ResourceMonitor() {
         <div className="px-3 pt-1 border-t border-gray-100">
           <p className="text-[9px] font-bold text-emerald-600 mb-1">5영업일 평균 (KST 9-18시, 주말·등록 휴일 제외)</p>
         </div>
+        {(() => {
+          const bh = ana?.businessHours;
+          // 이론max는 실시간 throughputAnalysis에서 가져옴 (서버별 합산)
+          const totalTheoMax = data.reduce((a, e) => a + (e.throughputAnalysis?.theoreticalMaxTps || 0), 0);
+          const avgTps = bh?.avgTps || null;
+          const peakTps = bh?.peakTps || null;
+          const avgTheoUtil = (avgTps != null && totalTheoMax > 0) ? Math.round((avgTps / totalTheoMax) * 1000) / 10 : null;
+          const avgHealthPct = (peakTps != null && totalTheoMax > 0) ? Math.round((peakTps / totalTheoMax) * 1000) / 10 : null;
+          const avgEffUtil = (avgTheoUtil != null && avgHealthPct != null && avgHealthPct > 0) ? Math.round((avgTheoUtil / avgHealthPct) * 1000) / 10 : avgTheoUtil;
+          const avgHeadroom = avgEffUtil != null ? Math.round((100 - avgEffUtil) * 10) / 10 : null;
+          return (
         <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
-            <p className="text-[8px] text-emerald-600 font-semibold">GPU 사용률</p>
-            <p className={`text-xl font-black ${ana?.businessHours?.avgGpuUtil != null ? utilTxt(ana.businessHours.avgGpuUtil) : 'text-gray-300'}`}>{ana?.businessHours?.avgGpuUtil ?? '-'}%</p>
+            <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률</p>
+            <p className={`text-xl font-black ${avgEffUtil != null ? utilTxt(avgEffUtil) : 'text-gray-300'}`}>{avgEffUtil ?? '-'}%</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">VRAM 사용률</p>
-            <p className="text-xl font-black text-gray-900">{ana?.businessHours?.avgMemUtil ?? '-'}%</p>
+            <p className="text-[8px] text-gray-600 font-semibold">평균 이론대비</p>
+            <p className={`text-xl font-black ${avgTheoUtil != null ? utilTxt(avgTheoUtil) : 'text-gray-300'}`}>{avgTheoUtil ?? '-'}%</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">KV Cache</p>
-            <p className="text-xl font-black text-purple-600">{ana?.businessHours?.avgKvCache ?? '-'}%</p>
+            <p className="text-[8px] text-gray-600 font-semibold">평균 건강도</p>
+            <p className={`text-xl font-black ${avgHealthPct != null ? healthTxt(avgHealthPct) : 'text-gray-300'}`}>{avgHealthPct ?? '-'}%</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 여유</p>
+            <p className={`text-xl font-black ${avgHeadroom != null ? (avgHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{avgHeadroom ?? '-'}%</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
             <p className="text-[8px] text-gray-600 font-semibold">평균 처리량</p>
-            <p className="text-xl font-black text-blue-600">{ana?.businessHours?.avgThroughputTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
+            <p className="text-xl font-black text-blue-600">{avgTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 대기큐</p>
-            <p className={`text-xl font-black ${(ana?.businessHours?.avgWaitingReqs || 0) > 1 ? 'text-amber-600' : 'text-gray-900'}`}>{ana?.businessHours?.avgWaitingReqs ?? '-'}<span className="text-[9px] font-normal"> 건</span></p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">샘플</p>
-            <p className="text-xs font-bold text-gray-600">{ana?.businessHours?.sampleCount ?? '-'}건<span className="text-[8px] font-normal text-gray-400 ml-1">{ana?.period?.days || '-'}일간</span></p>
+            <p className="text-[8px] text-gray-600 font-semibold">GPU / KV / 대기</p>
+            <div className="flex gap-1.5 text-[9px] mt-0.5">
+              <span>GPU <b>{bh?.avgGpuUtil ?? '-'}%</b></span>
+              <span>KV <b>{bh?.avgKvCache ?? '-'}%</b></span>
+              <span>W <b>{bh?.avgWaitingReqs ?? '-'}</b></span>
+            </div>
           </div>
         </div>
+          );
+        })()}
       </div>
     )}
 

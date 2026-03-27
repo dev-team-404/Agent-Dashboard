@@ -545,6 +545,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     let offGpuUtil = 0, offMemUtil = 0, offCount = 0;
     let bizLlmKvCache = 0, bizLlmCount = 0;
     let bizLlmRunning = 0, bizLlmWaiting = 0, bizLlmThroughput = 0, bizLlmTpCount = 0;
+    let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
 
     // 시간대별 LLM throughput 추이
     const hourlyThroughput: Array<{ totalTps: number; count: number }> = Array.from({ length: 24 }, () => ({ totalTps: 0, count: 0 }));
@@ -595,6 +596,12 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
             if (isBusinessHour) { bizLlmThroughput += tps; bizLlmTpCount++; }
           }
         }
+        // 스냅샷 단위 합산 tok/s (영업시간)
+        if (isBusinessHour) {
+          const snapTps = llms.reduce((s: number, l: any) => s + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
+          if (snapTps > 0) { bizTotalTps += snapTps; bizTpsCount++; }
+          if (snapTps > bizPeakTps) bizPeakTps = snapTps;
+        }
       }
     }
 
@@ -628,6 +635,8 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
         avgRunningReqs: bizCount > 0 ? Math.round((bizLlmRunning / bizCount) * 10) / 10 : null,
         avgWaitingReqs: bizCount > 0 ? Math.round((bizLlmWaiting / bizCount) * 10) / 10 : null,
         avgThroughputTps: bizLlmTpCount > 0 ? Math.round((bizLlmThroughput / bizLlmTpCount) * 10) / 10 : null,
+        avgTps: bizTpsCount > 0 ? Math.round((bizTotalTps / bizTpsCount) * 10) / 10 : null,
+        peakTps: bizPeakTps > 0 ? Math.round(bizPeakTps * 10) / 10 : null,
         sampleCount: bizCount,
       },
       offHours: {

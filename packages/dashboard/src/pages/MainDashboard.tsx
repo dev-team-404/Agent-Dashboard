@@ -820,20 +820,38 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">GPU 리소스</span><span className="text-[10px] text-gray-400">서버 {online.length}/{gpuData.length} 온라인</span></div>
               <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
+            {/* 영업일 평균 (핵심) */}
+            {gpuPrediction?.calculationDetails?.scaling && (() => {
+              // 예측 결과에서 영업시간 평균 도출
+              const pred = gpuPrediction;
+              const avgGpuU = pred.currentAvgGpuUtil;
+              const avgKv = pred.currentAvgKvCache;
+              return (
+                <div className="mb-2">
+                  <p className="text-[9px] text-emerald-600 font-semibold mb-1">영업일 평균 (KST 9-18)</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-xs">
+                    <div className="bg-emerald-50 rounded p-1.5 border border-emerald-100"><span className="text-emerald-600 font-semibold text-[9px]">GPU</span><p className="text-lg font-bold">{avgGpuU != null ? avgGpuU.toFixed(1) : '-'}%</p></div>
+                    <div><span className="text-gray-500">KV Cache</span><p className="text-lg font-bold text-purple-600">{avgKv != null ? avgKv.toFixed(1) : '-'}%</p></div>
+                    {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded p-1.5 border border-indigo-100"><span className="text-gray-500">예측 ({pred.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{pred.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가</span></p></div>}
+                    <div><span className="text-gray-500">인프라</span><p className="text-sm font-bold">{totGpu}GPU · {totLlm}LLM</p></div>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* 실시간 */}
+            <p className="text-[9px] text-blue-600 font-semibold mb-1">실시간</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 text-xs">
               {(() => {
                 const avgTheorUtil = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.theoreticalUtilPct != null).map((e: any) => e.throughputAnalysis.theoreticalUtilPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
                 const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
                 const headroom = effUtil != null ? 100 - effUtil : null;
                 return (<>
-                  <div className="bg-blue-50 rounded-lg p-1.5 border border-blue-100"><span className="text-blue-600 font-semibold text-[9px]">실효 사용률</span><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : effUtil != null && effUtil >= 40 ? 'text-amber-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
-                  {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 85 ? 'text-emerald-600' : avgHealth >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
+                  <div className="bg-blue-50 rounded p-1.5 border border-blue-100"><span className="text-blue-600 font-semibold text-[9px]">실효</span><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
+                  {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
                   <div><span className="text-gray-500">여유</span><p className={`text-lg font-bold ${headroom != null && headroom <= 20 ? 'text-red-600' : 'text-emerald-600'}`}>{headroom ?? '-'}%</p></div>
                 </>);
               })()}
               {totTps > 0 && <div><span className="text-gray-500">처리량</span><p className="text-lg font-bold text-blue-600">{totTps.toFixed(1)}<span className="text-[10px] font-normal"> tok/s</span></p></div>}
-              <div><span className="text-gray-500">인프라</span><p className="text-sm font-bold">{totGpu}GPU · {totLlm}LLM</p></div>
-              {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded-lg p-1.5 border border-indigo-100"><span className="text-gray-500">예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{gpuPrediction.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가</span></p></div>}
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
