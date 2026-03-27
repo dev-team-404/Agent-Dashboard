@@ -832,14 +832,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
                     <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} 온라인</p></div>
                     {/* 현재 피크 기준 부족 */}
-                    <div className={`rounded-lg p-2.5 border shadow-sm ${ps?.isShort ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                      <p className="text-[9px] font-semibold text-orange-700">피크 기준 즉시</p>
+                    <div className={`rounded-lg p-2.5 border shadow-sm cursor-help ${ps?.isShort ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`} title={"현재 피크 부하에서 서비스 품질을 유지하기 위해\n당장 추가해야 하는 B300 GPU 장비 수입니다.\n\n0이면 현재 피크에서 여유가 있다는 뜻입니다.\n1 이상이면 즉시 증설을 검토해야 합니다."}>
+                      <p className="text-[9px] font-semibold text-orange-700">피크 기준 즉시 ⓘ</p>
                       <p className={`text-xl font-black ${ps?.isShort ? 'text-red-700' : 'text-emerald-600'}`}>{ps?.b300Units > 0 ? `+${ps.b300Units}` : '0'}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
                       {ps?.isShort && <p className="text-[8px] text-red-500 truncate">{ps.reasons?.[0]}</p>}
                     </div>
                     {/* 목표 기준 부족 */}
-                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2">
-                      <p className="text-[9px] text-indigo-700 font-semibold">목표 {pred.targetUserCount?.toLocaleString()}명 기준</p>
+                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2 cursor-help" title={"목표 사용자 수 달성을 위해 추가로 구매해야 하는\nB300 GPU 장비(192GB 메모리) 수입니다.\n\n안전 마진과 6개월 성장률이 반영되어 있습니다.\n현재 인프라 + 이 수량 = 목표 서비스 가능"}>
+                      <p className="text-[9px] text-indigo-700 font-semibold">목표 {pred.targetUserCount?.toLocaleString()}명 기준 ⓘ</p>
                       <p className="text-xl font-black text-indigo-700">+{pred.predictedB300Units}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
                     </div>
                   </div>
@@ -854,12 +854,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
                 const headroom = effUtil != null ? 100 - effUtil : null;
                 return (<>
-                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm"><p className="text-[9px] text-blue-600 font-semibold">실효 사용률</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
-                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">건강도</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
-                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">여유</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
+                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={"GPU의 실제 처리 가능 용량 대비 현재 사용 비율입니다.\n건강도(GPU 효율)를 반영하여 보정한 값입니다.\n\n70% 이상이면 증설을 검토해야 합니다."}><p className="text-[9px] text-blue-600 font-semibold">실효 사용률 ⓘ</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
+                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"GPU가 이론 최대 성능의 몇 %를 달성하는지 보여줍니다.\n수치가 낮으면 GPU 효율이 떨어지고 있다는 의미입니다.\n\n25% 이상이면 정상, 15% 미만이면 점검 필요합니다."}><p className="text-[9px] text-gray-700 font-semibold">건강도 ⓘ</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
+                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"추가 부하를 수용할 수 있는 여유분입니다.\n100% - 실효 사용률 = 여유\n\n20% 이하면 증설이 시급합니다."}><p className="text-[9px] text-gray-700 font-semibold">여유 ⓘ</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
                 </>);
               })()}
-              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"전체 서버의 현재 초당 토큰 생성 수 합계입니다.\n\n모든 LLM 서비스가 지금 초당 몇 개의 토큰을\n생성하고 있는지 보여줍니다."}><p className="text-[9px] text-gray-700 font-semibold">처리량 ⓘ</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (

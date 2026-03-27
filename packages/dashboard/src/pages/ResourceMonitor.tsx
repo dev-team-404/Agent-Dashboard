@@ -559,14 +559,14 @@ export default function ResourceMonitor() {
           <div className={`bg-white/80 rounded-lg p-3 border ${peakShort.isShort ? 'border-red-200' : 'border-gray-200'}`}>
             <p className="text-[10px] font-bold text-orange-700 mb-2">📊 현재 피크 기준 부족분 <span className="font-normal text-gray-400">(7일 영업시간)</span></p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div><p className="text-[9px] text-gray-500">피크 KV Cache</p><p className={`text-lg font-bold ${peakShort.peakKvMax >= 80 ? 'text-red-600' : peakShort.peakKvMax >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakKvMax ?? '-'}%</p></div>
-              <div><p className="text-[9px] text-gray-500">대기 요청 빈도</p><p className={`text-lg font-bold ${peakShort.waitingFrequencyPct >= 30 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.waitingFrequencyPct ?? 0}%</p></div>
-              <div><p className="text-[9px] text-gray-500">피크 부족 VRAM</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
-              <div><p className="text-[9px] text-gray-500">즉시 필요</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
+              <div className="cursor-help" title={"KV Cache = AI 모델이 대화 내용을 기억하기 위해 사용하는 메모리입니다.\n\n80% 이상이면 메모리 부족으로 응답이 느려지거나 요청이 밀려날 수 있습니다.\n즉, 사용자가 체감하는 응답 속도가 저하됩니다."}><p className="text-[9px] text-gray-500">피크 KV Cache ⓘ</p><p className={`text-lg font-bold ${peakShort.peakKvMax >= 80 ? 'text-red-600' : peakShort.peakKvMax >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakKvMax ?? '-'}%</p></div>
+              <div className="cursor-help" title={"대기 요청 = GPU가 바빠서 처리를 기다리는 요청의 비율입니다.\n\n30% 이상이면 사용자들이 응답 대기 시간이 길어지는 것을 체감합니다.\nGPU 증설이 필요한 직접적인 시그널입니다."}><p className="text-[9px] text-gray-500">대기 요청 빈도 ⓘ</p><p className={`text-lg font-bold ${peakShort.waitingFrequencyPct >= 30 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.waitingFrequencyPct ?? 0}%</p></div>
+              <div className="cursor-help" title={"VRAM = GPU의 작업 메모리입니다.\n\n이 수치가 0보다 크면 현재 GPU 메모리가 부족하여\n피크 시간대에 서비스 품질이 저하될 수 있습니다."}><p className="text-[9px] text-gray-500">피크 부족 VRAM ⓘ</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div className="cursor-help" title={"B300 = NVIDIA의 최신 GPU 장비 (192GB 메모리)입니다.\n\n현재 피크 부하에서 서비스 품질을 유지하기 위해\n당장 추가해야 하는 GPU 장비 수입니다."}><p className="text-[9px] text-gray-500">즉시 필요 ⓘ</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
             </div>
             {peakShort.isShort && peakShort.reasons?.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {peakShort.reasons.map((r: string, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px] font-semibold">⚠ {r}</span>)}
+                {peakShort.reasons.map((r: string, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px] font-semibold cursor-help" title={r.includes('KV cache') ? 'KV Cache가 80% 이상이면 메모리 부족으로 새 요청이 밀려나거나 응답이 느려집니다.\n즉시 GPU 증설을 검토하세요.' : r.includes('대기 요청') ? '전체 모니터링 중 30% 이상에서 대기 요청이 발생하고 있습니다.\n사용자들이 응답 대기를 체감하고 있을 가능성이 높습니다.' : r.includes('Preemption') ? 'Preemption = 처리 중이던 요청이 밀려나는 현상입니다.\n빈발하면 응답 실패나 지연이 발생합니다.' : r}>⚠ {r}</span>)}
               </div>
             )}
             {!peakShort.isShort && <p className="text-[9px] text-emerald-600 mt-1">✅ 현재 피크에서는 여유 있음</p>}
@@ -575,9 +575,9 @@ export default function ResourceMonitor() {
           <div className="bg-white/80 rounded-lg p-3 border border-indigo-200">
             <p className="text-[10px] font-bold text-indigo-700 mb-2">🎯 목표 {pred.targetUserCount?.toLocaleString()}명 기준 부족분</p>
             <div className="grid grid-cols-3 gap-2">
-              <div><p className="text-[9px] text-gray-500">현재 VRAM</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
-              <div><p className="text-[9px] text-gray-500">필요 VRAM</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p><p className="text-[9px] text-gray-400">+{Math.round(pred.gapVramGb)}GB</p></div>
-              <div><p className="text-[9px] text-gray-500">추가 필요</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p><p className="text-[9px] text-gray-400">(192GB/장)</p></div>
+              <div className="cursor-help" title={"현재 보유한 전체 GPU 메모리 용량입니다.\n모든 서버의 GPU VRAM을 합산한 값입니다."}><p className="text-[9px] text-gray-500">현재 VRAM ⓘ</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div className="cursor-help" title={"목표 사용자 수를 서비스하기 위해 필요한\n총 GPU 메모리 용량입니다.\n안전 마진(1.5배)이 포함되어 있습니다."}><p className="text-[9px] text-gray-500">필요 VRAM ⓘ</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p><p className="text-[9px] text-gray-400">+{Math.round(pred.gapVramGb)}GB</p></div>
+              <div className="cursor-help" title={"목표 사용자 수 달성을 위해 추가로 구매해야 하는\nB300 GPU 장비 수입니다.\n\n현재 인프라 + 이 수량 = 목표 서비스 가능"}><p className="text-[9px] text-gray-500">추가 필요 ⓘ</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p><p className="text-[9px] text-gray-400">(192GB/장)</p></div>
             </div>
           </div>
         </div>
@@ -590,15 +590,15 @@ export default function ResourceMonitor() {
             <p className="text-[9px] text-gray-400">DAU {Math.round(pred.currentDau)}</p>
           </div>
           {cd.scaling?.weeksUntilSaturated != null && (
-            <div className={`rounded-lg p-2 border ${cd.scaling.weeksUntilSaturated === 0 ? 'bg-red-100 border-red-300' : 'bg-red-50 border-red-200'}`}>
-              <p className="text-[9px] text-red-600 font-semibold">포화 예상</p>
+            <div className={`rounded-lg p-2 border cursor-help ${cd.scaling.weeksUntilSaturated === 0 ? 'bg-red-100 border-red-300' : 'bg-red-50 border-red-200'}`} title={"현재 성장 추세가 유지되면 GPU 용량이\n한계에 도달하는 예상 시점입니다.\n\n이 시점 전에 GPU 증설이 완료되어야\n서비스 장애를 방지할 수 있습니다."}>
+              <p className="text-[9px] text-red-600 font-semibold">포화 예상 ⓘ</p>
               <p className="text-lg font-black text-red-700">{cd.scaling.weeksUntilSaturated === 0 ? '즉시' : `${cd.scaling.weeksUntilSaturated}주 후`}</p>
               <p className="text-[9px] text-red-500">{cd.scaling.weeksUntilSaturated === 0 ? '이미 포화 상태!' : '현재 성장률 유지 시'}</p>
             </div>
           )}
-          <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">스케일링 배율</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">6개월 성장 반영</p></div>
-          {cd.scaling?.currentEffUtil != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">현재 실효 사용률</p><p className={`text-lg font-bold ${cd.scaling.currentEffUtil >= 80 ? 'text-red-600' : cd.scaling.currentEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{cd.scaling.currentEffUtil}%</p></div>}
-          {cd.scaling?.avgHealthPct != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">GPU 건강도</p><p className={`text-lg font-bold ${cd.scaling.avgHealthPct >= 25 ? 'text-emerald-600' : 'text-amber-600'}`}>{cd.scaling.avgHealthPct}%</p></div>}
+          <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"현재 대비 목표까지 필요한 확장 배율입니다.\n\n사용자 수 증가 + 인당 토큰 소비 증가를\n모두 반영한 종합 배율입니다."}><p className="text-[9px] text-gray-500">스케일링 배율 ⓘ</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">6개월 성장 반영</p></div>
+          {cd.scaling?.currentEffUtil != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"GPU의 실제 처리 가능 용량 대비 현재 사용 비율입니다.\n\n80% 이상이면 증설이 시급합니다."}><p className="text-[9px] text-gray-500">현재 실효 사용률 ⓘ</p><p className={`text-lg font-bold ${cd.scaling.currentEffUtil >= 80 ? 'text-red-600' : cd.scaling.currentEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{cd.scaling.currentEffUtil}%</p></div>}
+          {cd.scaling?.avgHealthPct != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"GPU가 이론 최대 성능의 몇 %를 달성하는지 보여줍니다.\n수치가 낮으면 GPU 효율이 떨어지고 있다는 의미입니다."}><p className="text-[9px] text-gray-500">GPU 건강도 ⓘ</p><p className={`text-lg font-bold ${cd.scaling.avgHealthPct >= 25 ? 'text-emerald-600' : 'text-amber-600'}`}>{cd.scaling.avgHealthPct}%</p></div>}
         </div>
 
         {/* 배포 모델 분포 */}
@@ -607,7 +607,7 @@ export default function ResourceMonitor() {
             <p className="text-[9px] font-bold text-gray-700 mb-1">배포 모델 (throughput 비율)</p>
             <div className="flex flex-wrap gap-1">
               {cd.modelBreakdown.map((m: any, i: number) => (
-                <span key={i} className="px-2 py-1 bg-white/70 rounded-lg text-[9px] border border-gray-200" title={`params: ${m.params || '?'}B | 평균 ${m.avgTps} tok/s | 이론max ${m.theoreticalMaxTps} tok/s | GPU ${m.gpuCount}장`}>
+                <span key={i} className="px-2 py-1 bg-white/70 rounded-lg text-[9px] border border-gray-200" title={`params: ${m.params || '?'}B | 평균 ${m.avgTps} tok/s | 이론max ${m.theoreticalMaxTps} tok/s | 대역폭max ${m.bandwidthMaxTps || '?'} tok/s | GPU ${m.gpuCount}장`}>
                   <b>{m.name}</b> <span className="text-gray-500">{m.params ? `${m.params}B` : '?'} ({m.precision})</span> <span className="text-indigo-600 font-bold">{m.tpsRatio}%</span>
                   <span className="text-gray-400 ml-1">{m.avgTps} tok/s</span>
                 </span>
@@ -619,9 +619,9 @@ export default function ResourceMonitor() {
         {/* 성장률 + 에러율 */}
         {cd.growth && (
           <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
-            <span className="text-gray-500">인당 토큰 성장: <b>{cd.growth.tokensPerUserGrowthRate}%</b>/주</span>
-            <span className="text-gray-500">6개월 토큰 성장 배율: <b>x{cd.growth.tokenGrowthMultiplier6mo || cd.growth.growthMultiplier6mo}</b></span>
-            {cd.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b></span>}
+            <span className="text-gray-500 cursor-help" title={"사용자 1인당 토큰 소비량의 주간 증가율입니다.\n\n이 값이 높으면 같은 사용자 수에도 GPU 부하가\n빠르게 증가하고 있다는 의미입니다.\nagentic AI, 코딩 도구 등이 확산되면 급증합니다."}>인당 토큰 성장: <b>{cd.growth.tokensPerUserGrowthRate}%</b>/주 ⓘ</span>
+            <span className="text-gray-500 cursor-help" title={"인당 토큰 성장률을 6개월(26주)간 복리 적용한 배율입니다.\n\n예: 주 5% 성장 → 6개월 후 약 3.6배\n이 배율이 스케일링 계산에 직접 반영됩니다."}>6개월 토큰 성장 배율: <b>x{cd.growth.tokenGrowthMultiplier6mo || cd.growth.growthMultiplier6mo}</b> ⓘ</span>
+            {cd.inputs?.errorRate > 0 && <span className="text-gray-500 cursor-help" title={"최근 7일간 전체 요청 중 에러(HTTP 400+)가 발생한 비율입니다.\n\n5% 이상이면 GPU 과부하 또는 서비스 문제의 신호입니다.\n에러율이 높을수록 예측에 안전 마진을 추가합니다."}>에러율: <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b> ⓘ</span>}
           </div>
         )}
         {/* 서비스별 Top */}
@@ -647,6 +647,39 @@ export default function ResourceMonitor() {
               {cd.modelBreakdown?.length > 0 && <div><b>모델별:</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, 이론max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}장</li>)}</ul></div>}
               {cd.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {cd.confidenceIssues.join(', ')}</p>}
               {cd.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{cd.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
+              {/* 월별 예측 테이블 */}
+              {cd.monthlyForecast?.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-gray-200">
+                  <p className="font-bold text-gray-700 mb-1">📅 월별 GPU 수요 예측 (2026년 말까지)</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[9px] border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="px-2 py-1 text-left border border-gray-200 font-semibold">월</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="인당 토큰 소비 증가율을 해당 월까지 복리 적용한 배율입니다.">토큰 성장</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="사용자 수 스케일링 × 토큰 성장 배율.\n이 배율만큼 현재 대비 GPU가 필요합니다.">총 스케일링</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월에 필요한 총 GPU 메모리(VRAM) 예측치입니다.">필요 VRAM</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="현재 보유 VRAM 대비 추가로 필요한 GPU 메모리입니다.">추가 VRAM</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월까지 추가 확보해야 하는 B300 GPU 장비 수입니다.">B300</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cd.monthlyForecast.map((f: any, i: number) => (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="px-2 py-1 border border-gray-200 font-medium">{f.month}</td>
+                            <td className="px-2 py-1 border border-gray-200 text-right">x{f.tokenGrowthMultiplier}</td>
+                            <td className="px-2 py-1 border border-gray-200 text-right font-semibold">x{f.totalScaling}</td>
+                            <td className="px-2 py-1 border border-gray-200 text-right">{f.predictedVramGb?.toLocaleString()}GB</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right ${f.gapVramGb > 0 ? 'text-red-600 font-semibold' : ''}`}>+{f.gapVramGb?.toLocaleString()}GB</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.b300Units > 0 ? 'text-indigo-700' : 'text-emerald-600'}`}>{f.b300Units}장</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[8px] text-gray-400 mt-1">* 안전마진 1.5배 및 에러보정 포함. 인당 토큰 소비 증가만 반영 (DAU 증가는 목표에 이미 포함).</p>
+                </div>
+              )}
             </div>
           </details>
         )}
