@@ -827,10 +827,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <div className="mb-3">
                   <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">영업일 평균 (KST 9-18)</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
-                    <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-100"><p className="text-[9px] text-emerald-600 font-semibold">GPU</p><p className="text-lg font-bold">{pred.currentAvgGpuUtil != null ? pred.currentAvgGpuUtil.toFixed(1) : '-'}%</p></div>
-                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
-                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-400">{online.length}/{gpuData.length} 온라인</p></div>
-                    <div className="bg-indigo-50 rounded-lg p-2 border border-indigo-100 sm:col-span-2"><p className="text-[9px] text-indigo-600 font-semibold">GPU 예측 ({pred.targetUserCount?.toLocaleString()}명)</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units} B300<span className="text-sm font-normal text-gray-400 ml-1">추가 필요</span></p></div>
+                    <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-200 shadow-sm"><p className="text-[9px] text-emerald-700 font-semibold">GPU</p><p className="text-lg font-bold">{pred.currentAvgGpuUtil != null ? pred.currentAvgGpuUtil.toFixed(1) : '-'}%</p></div>
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} 온라인</p></div>
+                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2"><p className="text-[9px] text-indigo-700 font-semibold">GPU 예측 ({pred.targetUserCount?.toLocaleString()}명)</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units} B300<span className="text-sm font-normal text-gray-500 ml-1">추가 필요</span></p></div>
                   </div>
                 </div>
               );
@@ -843,12 +843,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
                 const headroom = effUtil != null ? 100 - effUtil : null;
                 return (<>
-                  <div className="bg-blue-50 rounded-lg p-2 border border-blue-100"><p className="text-[9px] text-blue-600 font-semibold">실효 사용률</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
-                  <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">건강도</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
-                  <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">여유</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
+                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm"><p className="text-[9px] text-blue-600 font-semibold">실효 사용률</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
+                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">건강도</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
+                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">여유</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
                 </>);
               })()}
-              <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
