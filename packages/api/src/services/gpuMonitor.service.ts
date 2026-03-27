@@ -173,16 +173,114 @@ const MODEL_SIZE_PATTERNS: Array<{ pattern: RegExp; billionParams: number }> = [
 
 export function estimateModelParams(modelName: string): number | null {
   if (!modelName) return null;
-  // MoE 모델: 8x7B → 총 파라미터 = experts × per_expert
-  const moe = modelName.match(/(\d+)[xX](\d+\.?\d*)[bB]/i);
-  if (moe) return parseFloat(moe[1]) * parseFloat(moe[2]);
-  // 일반 모델: 70B, 8B, 0.5B 등
-  const match = modelName.match(/(\d+\.?\d*)\s*[bB]/i);
-  if (match) return parseFloat(match[1]);
-  // 알려진 모델 매핑
   const lower = modelName.toLowerCase();
+  // MoE 모델: 8x7B → active ≈ total / 4 (top-2 of 8 기본 가정)
+  const moe = modelName.match(/(\d+)[xX](\d+\.?\d*)[bB]/i);
+  if (moe) { const total = parseFloat(moe[1]) * parseFloat(moe[2]); return Math.round(total / 4 * 10) / 10; }
+  // 일반 모델: 70B, 8B, 0.5B 등 (B suffix 명시)
+  const match = modelName.match(/(\d+\.?\d*)\s*[bB](?![a-z])/i);
+  if (match && parseFloat(match[1]) > 0) return parseFloat(match[1]);
+  // A숫자B 형식 (MoE): Qwen3.5-35B-A3B → active 3B (A뒤 숫자가 active params)
+  const aMatch = modelName.match(/\d+\.?\d*[bB]-A(\d+\.?\d*)[bB]/i);
+  if (aMatch) return parseFloat(aMatch[1]);
+  // 알려진 모델 매핑 (B suffix 없는 경우)
+  // MoE 모델은 active params 반환 (throughput = bandwidth / active_params)
+  // GLM-5: 744B total, 40B active (MoE, Zhipu AI 공식)
+  if (lower.includes('glm-5') || lower.includes('glm5')) return 40;
+  if (lower.includes('glm-4') || lower.includes('glm4')) return 32; // GLM-4.5: 355B total, 32B active
+  // Kimi-K2.5: 1T total, 32B active (MoE, Moonshot AI 공식)
+  if (lower.includes('kimi-k2') || lower.includes('kimi')) return 32;
+  // DeepSeek: MoE
+  if (lower.includes('deepseek-v3') || lower.includes('deepseek-r1')) return 37; // 671B total, 37B active
+  if (lower.includes('deepseek-v2')) return 21; // 236B total, 21B active
+  if (lower.includes('claude')) return 200;
   if (lower.includes('gpt-4')) return 200;
   if (lower.includes('gpt-3.5')) return 20;
+  if (lower.includes('llama-3.1-405') || lower.includes('llama-405')) return 405;
+  if (lower.includes('llama-3.1-70') || lower.includes('llama-70')) return 70;
+  if (lower.includes('llama-3.1-8') || lower.includes('llama-8')) return 8;
+  if (lower.includes('qwen') && lower.includes('72')) return 72;
+  if (lower.includes('qwen') && lower.includes('32')) return 32;
+  if (lower.includes('qwen') && lower.includes('14')) return 14;
+  if (lower.includes('qwen') && lower.includes('7')) return 7;
+  if (lower.includes('mistral') && lower.includes('large')) return 123;
+  if (lower.includes('mistral') && lower.includes('7')) return 7;
+  if (lower.includes('gemma') && lower.includes('27')) return 27;
+  if (lower.includes('gemma') && lower.includes('9')) return 9;
+  if (lower.includes('gemma') && lower.includes('2')) return 2;
+  if (lower.includes('phi-4')) return 14;
+  if (lower.includes('phi-3')) return 14;
+  if (lower.includes('phi-2')) return 2.7;
+  // MiniMax / MiniCPM
+  if (lower.includes('minimax') || lower.includes('abab')) return 45.9; // MiniMax-01: 456B total, 45.9B active (MoE)
+  if (lower.includes('minicpm') && lower.includes('2.4')) return 2.4;
+  if (lower.includes('minicpm')) return 4;
+  // Command R
+  if (lower.includes('command-r-plus') || lower.includes('command-r+')) return 104;
+  if (lower.includes('command-r')) return 35;
+  // Yi
+  if (lower.includes('yi-large') || lower.includes('yi-34')) return 34;
+  if (lower.includes('yi-1.5-34') || lower.includes('yi-34')) return 34;
+  if (lower.includes('yi-1.5-9') || lower.includes('yi-9')) return 9;
+  if (lower.includes('yi-1.5-6') || lower.includes('yi-6')) return 6;
+  // InternLM
+  if (lower.includes('internlm') && lower.includes('20')) return 20;
+  if (lower.includes('internlm') && lower.includes('7')) return 7;
+  // Baichuan
+  if (lower.includes('baichuan') && lower.includes('13')) return 13;
+  if (lower.includes('baichuan') && lower.includes('7')) return 7;
+  // ChatGLM
+  if (lower.includes('chatglm') && lower.includes('130')) return 130;
+  if (lower.includes('chatglm') && lower.includes('66')) return 66;
+  if (lower.includes('chatglm') && lower.includes('6')) return 6;
+  // SOLAR
+  if (lower.includes('solar') && lower.includes('10.7')) return 10.7;
+  if (lower.includes('solar')) return 10.7;
+  // Mixtral (MoE, active params)
+  if (lower.includes('mixtral') && lower.includes('8x22')) return 39; // 176B total, ~39B active
+  if (lower.includes('mixtral') && lower.includes('8x7')) return 12.9; // 46.7B total, 12.9B active
+  // Falcon
+  if (lower.includes('falcon') && lower.includes('180')) return 180;
+  if (lower.includes('falcon') && lower.includes('40')) return 40;
+  if (lower.includes('falcon') && lower.includes('7')) return 7;
+  // Codestral / Codellama
+  if (lower.includes('codestral')) return 22;
+  if (lower.includes('codellama') && lower.includes('34')) return 34;
+  if (lower.includes('codellama') && lower.includes('13')) return 13;
+  if (lower.includes('codellama') && lower.includes('7')) return 7;
+  // Jamba (MoE, active params)
+  if (lower.includes('jamba') && lower.includes('1.5')) return 94; // 398B total, ~94B active
+  if (lower.includes('jamba')) return 12; // 52B total, ~12B active
+  // Nemotron
+  if (lower.includes('nemotron') && lower.includes('340')) return 340;
+  if (lower.includes('nemotron') && lower.includes('70')) return 70;
+  // Nous / Hermes
+  if (lower.includes('hermes') && lower.includes('405')) return 405;
+  if (lower.includes('hermes') && lower.includes('70')) return 70;
+  if (lower.includes('hermes') && lower.includes('8')) return 8;
+  // StarCoder
+  if (lower.includes('starcoder') && lower.includes('15')) return 15;
+  if (lower.includes('starcoder') && lower.includes('7')) return 7;
+  if (lower.includes('starcoder') && lower.includes('3')) return 3;
+  // Vicuna / LLaVA
+  if (lower.includes('vicuna') && lower.includes('33')) return 33;
+  if (lower.includes('vicuna') && lower.includes('13')) return 13;
+  if (lower.includes('vicuna') && lower.includes('7')) return 7;
+  if (lower.includes('llava')) return 13;
+  // EXAONE
+  if (lower.includes('exaone') && lower.includes('32')) return 32;
+  if (lower.includes('exaone') && lower.includes('7.8')) return 7.8;
+  if (lower.includes('exaone') && lower.includes('2.4')) return 2.4;
+  // Voxtral
+  if (lower.includes('voxtral') && lower.includes('4b')) return 4;
+  if (lower.includes('voxtral')) return 4;
+  // ASR/Embedding 모델은 작음
+  if (lower.includes('asr') || lower.includes('whisper') || lower.includes('voice')) return 1;
+  if (lower.includes('embed') || lower.includes('bge') || lower.includes('e5')) return 0.5;
+  if (lower.includes('rerank') || lower.includes('colbert') || lower.includes('splade')) return 0.5;
+  // 모델명에서 마지막 숫자 추출 시도 (e.g. model-name-7 → 7B 추정)
+  const lastNum = modelName.match(/[-_](\d+\.?\d*)$/);
+  if (lastNum && parseFloat(lastNum[1]) >= 0.5 && parseFloat(lastNum[1]) <= 1000) return parseFloat(lastNum[1]);
   return null;
 }
 

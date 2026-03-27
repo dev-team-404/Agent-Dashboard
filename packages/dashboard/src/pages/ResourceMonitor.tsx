@@ -94,7 +94,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const spec = m?.gpus?.[0]?.spec;
   // VRAM 정보 (GPU 상세 펼침에서 사용)
   void gc; // gc는 spec 표시에서 사용
-  const eps = m?.llmEndpoints || [];
+  const eps = (m?.llmEndpoints || []).filter(e => e.type !== 'unknown');
   const avgKv = eps.filter(e => e.kvCacheUsagePct != null);
   const kvPct = avgKv.length > 0 ? avgKv.reduce((a, e) => a + e.kvCacheUsagePct!, 0) / avgKv.length : null;
   const cpuPct = m?.cpuLoadAvg && m?.cpuCores ? Math.min(Math.round((m.cpuLoadAvg / m.cpuCores) * 100), 100) : null;
