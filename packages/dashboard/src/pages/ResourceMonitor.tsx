@@ -686,32 +686,32 @@ export default function ResourceMonitor() {
           <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
         </div>
         <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
-          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2 border border-emerald-200">
-            <p className="text-[8px] text-emerald-700 font-semibold">실용 사용률</p>
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2 border border-emerald-200 cursor-help" title="실용 사용률 = 현재 처리량 ÷ 메모리 대역폭 기준 최대 처리량&#10;&#10;일반적인 부하에서 GPU가 얼마나 활용되고 있는지 보여줍니다.&#10;50% 이상이면 증설을 고려해야 합니다.&#10;&#10;투자 판단에 가장 직관적인 지표입니다.">
+            <p className="text-[8px] text-emerald-700 font-semibold">실용 사용률 ⓘ</p>
             <p className={`text-xl font-black ${avgPracticalUtil != null ? utilTxt(avgPracticalUtil) : 'text-gray-300'}`}>{avgPracticalUtil ?? '-'}%</p>
             <p className="text-[7px] text-gray-400">대역폭 기준</p>
           </div>
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100">
-            <p className="text-[8px] text-blue-600 font-semibold">실효 사용률</p>
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 cursor-help" title="실효 사용률 = 이론대비 ÷ 건강도&#10;&#10;GPU의 실제 처리 가능 용량 대비 사용 비율입니다.&#10;건강도(GPU 효율)를 반영하여 보정한 값입니다.&#10;&#10;compute-bound 기준이라 수치가 매우 작을 수 있습니다.">
+            <p className="text-[8px] text-blue-600 font-semibold">실효 사용률 ⓘ</p>
             <p className={`text-xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">이론대비</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="이론대비 = 현재 처리량 ÷ 물리적 절대 상한(compute-bound)&#10;&#10;GPU 칩의 연산 능력 기준 절대 한계 대비 사용률입니다.&#10;이 값은 보통 0.1~5%로 매우 작은데, 이론 최대가&#10;실제 달성 가능치의 100~300배이기 때문입니다.&#10;&#10;참고 지표이며, 투자 판단에는 실용 사용률을 보세요.">
+            <p className="text-[8px] text-gray-600 font-semibold">이론대비 ⓘ</p>
             <p className={`text-xl font-black ${avgTheoreticalUtil != null ? utilTxt(avgTheoreticalUtil) : 'text-gray-300'}`}>{avgTheoreticalUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">건강도</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="건강도 = 7일 피크 처리량 ÷ 이론 최대(compute-bound)&#10;&#10;GPU가 최대 성능의 몇 %를 실제로 달성하는지 보여줍니다.&#10;30~50%가 정상이며, 25% 미만이면 점검이 필요합니다.&#10;&#10;※ compute-bound 기준이라 수치가 작아 보일 수 있습니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">건강도 ⓘ</p>
             <p className={`text-xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">여유</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="여유 = 100% - 실용 사용률&#10;&#10;추가 부하를 수용할 수 있는 여유분입니다.&#10;20% 이하면 증설이 시급합니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">여유 ⓘ</p>
             <p className={`text-xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">처리량</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="처리량 = 전체 서버의 현재 초당 토큰 생성 수 합계&#10;&#10;모든 LLM 서비스가 지금 초당 몇 개의 토큰을&#10;생성하고 있는지 보여줍니다.&#10;&#10;tok/s가 높을수록 더 많은 요청을 처리 중입니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">처리량 ⓘ</p>
             <p className="text-xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="인프라 = 현재 GPU 장비 수, LLM 서비스 수, 온라인 서버 수&#10;&#10;CPU/RAM/Disk는 GPU 서버의 시스템 리소스 평균입니다.">
             <p className="text-[8px] text-gray-600 font-semibold">인프라</p>
             <p className="text-xs font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
             <div className="flex gap-1.5 text-[8px] text-gray-500">
@@ -738,33 +738,33 @@ export default function ResourceMonitor() {
           const avgHeadroom = avgPractUtil != null ? Math.round((100 - avgPractUtil) * 10) / 10 : null;
           return (
         <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
-          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200">
-            <p className="text-[8px] text-emerald-700 font-semibold">평균 실용사용률</p>
+          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200 cursor-help" title="5영업일 평균 실용사용률&#10;= 영업시간 평균 처리량 ÷ 메모리 대역폭 기준 최대&#10;&#10;최근 5영업일(KST 9-18시) 동안의 평균입니다.&#10;이 값이 50% 이상이면 증설 검토가 필요합니다.">
+            <p className="text-[8px] text-emerald-700 font-semibold">평균 실용사용률 ⓘ</p>
             <p className={`text-xl font-black ${avgPractUtil != null ? utilTxt(avgPractUtil) : 'text-gray-300'}`}>{avgPractUtil ?? '-'}%</p>
             <p className="text-[7px] text-gray-400">대역폭 기준</p>
           </div>
-          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
-            <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률</p>
+          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100 cursor-help" title="5영업일 평균 실효사용률 (compute-bound 기준)&#10;= 평균 이론대비 ÷ 건강도&#10;&#10;compute-bound 기준이라 수치가 작을 수 있습니다.">
+            <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률 ⓘ</p>
             <p className={`text-xl font-black ${avgEffUtil != null ? utilTxt(avgEffUtil) : 'text-gray-300'}`}>{avgEffUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 이론대비</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 이론대비&#10;= 영업시간 평균 처리량 ÷ 물리 절대 상한(compute-bound)&#10;&#10;0.1~5%가 정상입니다.&#10;참고 지표이며, 투자 판단에는 실용사용률을 보세요.">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 이론대비 ⓘ</p>
             <p className={`text-xl font-black ${avgTheoUtil != null ? utilTxt(avgTheoUtil) : 'text-gray-300'}`}>{avgTheoUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 건강도</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 건강도&#10;= 7일 피크 처리량 ÷ 이론 최대(compute-bound)&#10;&#10;GPU가 최대 성능의 몇 %를 달성하는지 보여줍니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 건강도 ⓘ</p>
             <p className={`text-xl font-black ${avgHealthPct != null ? healthTxt(avgHealthPct) : 'text-gray-300'}`}>{avgHealthPct ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 여유</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="평균 여유 = 100% - 실용사용률&#10;&#10;추가 부하를 수용할 여유분입니다.&#10;20% 이하면 증설이 시급합니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 여유 ⓘ</p>
             <p className={`text-xl font-black ${avgHeadroom != null ? (avgHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{avgHeadroom ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 처리량&#10;= 영업시간 동안의 평균 초당 토큰 생성 수&#10;&#10;모든 LLM 서비스의 합산입니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량 ⓘ</p>
             <p className="text-xl font-black text-blue-600">{avgTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">GPU / KV / 대기</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 GPU/KV/대기&#10;&#10;GPU: nvidia-smi GPU 사용률 평균&#10;KV: LLM 메모리(KV Cache) 사용률 — 80% 이상이면 메모리 부족&#10;W(대기): 처리 대기 중인 요청 수 — 0보다 크면 과부하 시그널">
+            <p className="text-[8px] text-gray-600 font-semibold">GPU / KV / 대기 ⓘ</p>
             <div className="flex gap-1.5 text-[9px] mt-0.5">
               <span>GPU <b>{bh?.avgGpuUtil ?? '-'}%</b></span>
               <span>KV <b>{bh?.avgKvCache ?? '-'}%</b></span>

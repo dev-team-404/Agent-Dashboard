@@ -98,7 +98,7 @@ const METRICS_CMD = [
   'df -BG / 2>/dev/null | awk "NR==2{gsub(/G/,\\"\\"); print \\$2,\\$3,\\$4}"',
   // LLM 탐지: vllm/sglang/tgi/lmdeploy 이미지 컨테이너만 스캔
   'echo "==LLM=="',
-  'docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep -iE "vllm|sglang|tgi|text-generation|lmdeploy|aphrodite" | while IFS="|" read PORTS CNAME CIMAGE; do'
+  'docker ps --format "{{.Ports}}|{{.Names}}|{{.Image}}" 2>/dev/null | grep -iE "vllm|sglang|tgi|text-generation|lmdeploy|aphrodite" | grep -viE "prometheus|exporter|grafana|monitor" | while IFS="|" read PORTS CNAME CIMAGE; do'
   + ' port=$(echo "$PORTS" | grep -o "0\\.0\\.0\\.0:[0-9]*" | head -1 | sed "s/0\\.0\\.0\\.0://");'
   + ' [ -z "$port" ] && continue;'
   + ' MODELS=$(curl -s --max-time 2 "http://localhost:$port/v1/models" 2>/dev/null);'
