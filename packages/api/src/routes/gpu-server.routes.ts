@@ -15,8 +15,7 @@
 
 import { Router, Request, Response } from 'express';
 import { authenticateToken, requireSuperAdmin } from '../middleware/auth.js';
-import { prisma } from '../index.js';
-import { Prisma } from '@prisma/client';
+import { prisma, pgPool } from '../index.js';
 import { z } from 'zod';
 import {
   encryptPassword,
@@ -529,149 +528,93 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
     const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
 
-    // ── SQL 직접 집계 (JSON을 Node.js로 안 가져옴 — napi 에러 근본 해결) ──
-    // GPU 메트릭: jsonb_array_elements로 DB 안에서 평균 계산
-    const gpuAgg = await prisma.$queryRaw<any[]>`
-      WITH expanded AS (
-        SELECT
-          s.timestamp,
-          (s.timestamp + INTERVAL '9 hours') AS kst,
-          EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
-          EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
-          to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
-          AVG((g->>'utilGpu')::float) AS avg_util,
-          CASE WHEN SUM((g->>'memTotalMb')::float) > 0
-            THEN SUM((g->>'memUsedMb')::float) / SUM((g->>'memTotalMb')::float) * 100 ELSE 0 END AS mem_util
-        FROM gpu_metric_snapshots s, jsonb_array_elements(s.gpu_metrics) AS g
-        WHERE s.timestamp >= ${since}
-        GROUP BY s.id, s.timestamp
-      )
-      SELECT
-        kst_hour, kst_dow, kst_date,
-        ROUND(avg_util::numeric, 1) AS avg_util,
-        ROUND(mem_util::numeric, 1) AS mem_util,
-        CASE WHEN kst_dow BETWEEN 1 AND 5
-          AND kst_hour BETWEEN 9 AND 17
-          AND kst_date NOT IN (${holidayDates.length > 0 ? Prisma.sql`${Prisma.join(holidayDates)}` : Prisma.sql`'__none__'`})
-          THEN true ELSE false END AS is_biz
-      FROM expanded`;
-
-    // LLM 메트릭: llm_metrics jsonb에서 집계
-    const llmAgg = await prisma.$queryRaw<any[]>`
-      WITH expanded AS (
-        SELECT
-          s.timestamp,
-          EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
-          EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
-          to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
-          (l->>'kvCacheUsagePct')::float AS kv,
-          COALESCE((l->>'runningRequests')::float, 0) AS running,
-          COALESCE((l->>'waitingRequests')::float, 0) AS waiting,
-          COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0) AS tps
-        FROM gpu_metric_snapshots s, jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l
-        WHERE s.timestamp >= ${since}
-      )
-      SELECT kst_hour, kst_dow, kst_date,
-        AVG(kv) FILTER (WHERE kv IS NOT NULL) AS avg_kv,
-        SUM(running) AS total_running,
-        SUM(waiting) AS total_waiting,
-        SUM(tps) FILTER (WHERE tps > 0) AS total_tps,
-        COUNT(*) FILTER (WHERE tps > 0) AS tps_count,
-        CASE WHEN kst_dow BETWEEN 1 AND 5
-          AND kst_hour BETWEEN 9 AND 17
-          AND kst_date NOT IN (${holidayDates.length > 0 ? Prisma.sql`${Prisma.join(holidayDates)}` : Prisma.sql`'__none__'`})
-          THEN true ELSE false END AS is_biz
-      FROM expanded
-      GROUP BY kst_hour, kst_dow, kst_date, s.id, s.timestamp`;
-
-    // 스냅샷 단위 합산 tok/s (피크 계산용)
-    const snapTpsAgg = await prisma.$queryRaw<any[]>`
+    // ── pg 직접 쿼리 (Prisma napi 완전 우회) ──
+    // 1개 쿼리로 스냅샷당 숫자만 추출 (JSON 전송 없음)
+    const { rows } = await pgPool.query(`
       SELECT
         s.id,
-        EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS kst_hour,
-        EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS kst_dow,
-        to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS kst_date,
-        COALESCE(SUM(
-          COALESCE((l->>'promptThroughputTps')::float, 0) + COALESCE((l->>'genThroughputTps')::float, 0)
-        ), 0) AS snap_tps
+        EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS h,
+        EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS d,
+        to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS dt,
+        (SELECT AVG((g->>'utilGpu')::float) FROM jsonb_array_elements(s.gpu_metrics) g) AS gpu,
+        (SELECT CASE WHEN SUM((g->>'memTotalMb')::float) > 0
+          THEN SUM((g->>'memUsedMb')::float)/SUM((g->>'memTotalMb')::float)*100 ELSE 0 END
+          FROM jsonb_array_elements(s.gpu_metrics) g) AS mem,
+        (SELECT AVG((l->>'kvCacheUsagePct')::float)
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l
+          WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS kv,
+        (SELECT SUM(COALESCE((l->>'runningRequests')::float,0))
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS run,
+        (SELECT SUM(COALESCE((l->>'waitingRequests')::float,0))
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS wait,
+        (SELECT SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0))
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps
       FROM gpu_metric_snapshots s
-      LEFT JOIN jsonb_array_elements(COALESCE(s.llm_metrics, '[]'::jsonb)) AS l ON true
-      WHERE s.timestamp >= ${since}
-      GROUP BY s.id, s.timestamp`;
+      WHERE s.timestamp >= $1
+      ORDER BY s.timestamp ASC
+    `, [since]);
 
-    // ── Node.js에서 집계 결과만 처리 (JSON 로딩 없음) ──
     const holidaySet = new Set(holidayDates);
-    const isBiz = (h: number, d: number, date: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(date);
+    const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
 
     let bizGpuUtil = 0, bizMemUtil = 0, bizCount = 0;
     let offGpuUtil = 0, offMemUtil = 0, offCount = 0;
-    const heatmap: Array<Array<{ totalUtil: number; count: number }>> = Array.from({ length: 24 }, () => Array.from({ length: 7 }, () => ({ totalUtil: 0, count: 0 })));
-
-    for (const r of gpuAgg) {
-      const h = Number(r.kst_hour), d = Number(r.kst_dow), u = Number(r.avg_util) || 0, m = Number(r.mem_util) || 0;
-      heatmap[h][d].totalUtil += u; heatmap[h][d].count++;
-      if (r.is_biz) { bizGpuUtil += u; bizMemUtil += m; bizCount++; }
-      else { offGpuUtil += u; offMemUtil += m; offCount++; }
-    }
-
     let bizLlmKvCache = 0, bizLlmCount = 0, bizLlmRunning = 0, bizLlmWaiting = 0;
     let bizLlmThroughput = 0, bizLlmTpCount = 0;
-    const hourlyThroughput: Array<{ totalTps: number; count: number }> = Array.from({ length: 24 }, () => ({ totalTps: 0, count: 0 }));
-
-    for (const r of llmAgg) {
-      const h = Number(r.kst_hour), tps = Number(r.total_tps) || 0;
-      if (tps > 0) { hourlyThroughput[h].totalTps += tps; hourlyThroughput[h].count += Number(r.tps_count) || 0; }
-      if (r.is_biz) {
-        if (r.avg_kv != null) { bizLlmKvCache += Number(r.avg_kv); bizLlmCount++; }
-        bizLlmRunning += Number(r.total_running) || 0;
-        bizLlmWaiting += Number(r.total_waiting) || 0;
-        if (tps > 0) { bizLlmThroughput += tps; bizLlmTpCount += Number(r.tps_count) || 0; }
-      }
-    }
-
     let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
-    for (const r of snapTpsAgg) {
-      const h = Number(r.kst_hour), d = Number(r.kst_dow), t = Number(r.snap_tps) || 0;
-      if (isBiz(h, d, r.kst_date) && t > 0) {
-        bizTotalTps += t; bizTpsCount++;
-        if (t > bizPeakTps) bizPeakTps = t;
+    const heatmap: number[][] = Array.from({ length: 24 }, () => Array(7).fill(0));
+    const heatmapCount: number[][] = Array.from({ length: 24 }, () => Array(7).fill(0));
+    const hourlyTps: number[] = Array(24).fill(0);
+    const hourlyCnt: number[] = Array(24).fill(0);
+
+    for (const r of rows) {
+      const h = +r.h, d = +r.d, gpu = +(r.gpu || 0), mem = +(r.mem || 0);
+      const kv = r.kv != null ? +r.kv : null;
+      const run = +(r.run || 0), wait = +(r.wait || 0), tps = +(r.tps || 0);
+      const biz = isBiz(h, d, r.dt);
+
+      heatmap[h][d] += gpu; heatmapCount[h][d]++;
+
+      if (biz) {
+        bizGpuUtil += gpu; bizMemUtil += mem; bizCount++;
+        if (kv != null) { bizLlmKvCache += kv; bizLlmCount++; }
+        bizLlmRunning += run; bizLlmWaiting += wait;
+        if (tps > 0) { bizLlmThroughput += tps; bizLlmTpCount++; bizTotalTps += tps; bizTpsCount++; }
+        if (tps > bizPeakTps) bizPeakTps = tps;
+      } else {
+        offGpuUtil += gpu; offMemUtil += mem; offCount++;
       }
+      if (tps > 0) { hourlyTps[h] += tps; hourlyCnt[h]++; }
     }
 
-    const totalSnapshots = gpuAgg.length;
-
-    const heatmapData = heatmap.map((hours, hour) => hours.map((cell, dow) => ({
-      hour, dow,
-      avgUtil: cell.count > 0 ? Math.round((cell.totalUtil / cell.count) * 10) / 10 : null,
-      sampleCount: cell.count,
-    }))).flat();
-
-    const peakHours = heatmapData.filter(h => h.avgUtil !== null && h.sampleCount >= 3)
-      .sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0)).slice(0, 5);
-
-    const throughputByHour = hourlyThroughput.map((h, hour) => ({
-      hour, avgTps: h.count > 0 ? Math.round((h.totalTps / h.count) * 10) / 10 : 0,
-    }));
+    const r1 = (v: number) => Math.round(v * 10) / 10;
+    const heatmapData = [];
+    for (let h = 0; h < 24; h++) for (let d = 0; d < 7; d++) {
+      heatmapData.push({ hour: h, dow: d, avgUtil: heatmapCount[h][d] > 0 ? r1(heatmap[h][d] / heatmapCount[h][d]) : null, sampleCount: heatmapCount[h][d] });
+    }
 
     const analyticsResult = {
       period: { days, since: since.toISOString(), holidayCount: holidays.length },
       businessHours: {
-        avgGpuUtil: bizCount > 0 ? Math.round((bizGpuUtil / bizCount) * 10) / 10 : null,
-        avgMemUtil: bizCount > 0 ? Math.round((bizMemUtil / bizCount) * 10) / 10 : null,
-        avgKvCache: bizLlmCount > 0 ? Math.round((bizLlmKvCache / bizLlmCount) * 10) / 10 : null,
-        avgRunningReqs: bizCount > 0 ? Math.round((bizLlmRunning / bizCount) * 10) / 10 : null,
-        avgWaitingReqs: bizCount > 0 ? Math.round((bizLlmWaiting / bizCount) * 10) / 10 : null,
-        avgThroughputTps: bizLlmTpCount > 0 ? Math.round((bizLlmThroughput / bizLlmTpCount) * 10) / 10 : null,
-        avgTps: bizTpsCount > 0 ? Math.round((bizTotalTps / bizTpsCount) * 10) / 10 : null,
-        peakTps: bizPeakTps > 0 ? Math.round(bizPeakTps * 10) / 10 : null,
+        avgGpuUtil: bizCount > 0 ? r1(bizGpuUtil / bizCount) : null,
+        avgMemUtil: bizCount > 0 ? r1(bizMemUtil / bizCount) : null,
+        avgKvCache: bizLlmCount > 0 ? r1(bizLlmKvCache / bizLlmCount) : null,
+        avgRunningReqs: bizCount > 0 ? r1(bizLlmRunning / bizCount) : null,
+        avgWaitingReqs: bizCount > 0 ? r1(bizLlmWaiting / bizCount) : null,
+        avgThroughputTps: bizLlmTpCount > 0 ? r1(bizLlmThroughput / bizLlmTpCount) : null,
+        avgTps: bizTpsCount > 0 ? r1(bizTotalTps / bizTpsCount) : null,
+        peakTps: bizPeakTps > 0 ? r1(bizPeakTps) : null,
         sampleCount: bizCount,
       },
       offHours: {
-        avgGpuUtil: offCount > 0 ? Math.round((offGpuUtil / offCount) * 10) / 10 : null,
-        avgMemUtil: offCount > 0 ? Math.round((offMemUtil / offCount) * 10) / 10 : null,
+        avgGpuUtil: offCount > 0 ? r1(offGpuUtil / offCount) : null,
+        avgMemUtil: offCount > 0 ? r1(offMemUtil / offCount) : null,
         sampleCount: offCount,
       },
-      heatmap: heatmapData, peakHours, throughputByHour, totalSnapshots,
+      heatmap: heatmapData,
+      peakHours: heatmapData.filter(h => h.avgUtil !== null && h.sampleCount >= 3).sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0)).slice(0, 5),
+      throughputByHour: hourlyTps.map((t, h) => ({ hour: h, avgTps: hourlyCnt[h] > 0 ? r1(t / hourlyCnt[h]) : 0 })),
+      totalSnapshots: rows.length,
     };
     try { const { redis } = await import('../index.js'); await redis.setex(`gpu:analytics:${days}`, 300, JSON.stringify(analyticsResult)); } catch {}
     res.json(analyticsResult);

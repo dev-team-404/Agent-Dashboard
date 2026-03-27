@@ -58,6 +58,7 @@ import { lookupEmployee } from './services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
 import { seedAgentRegistryService } from './seed-agent-registry.js';
 
+import pg from 'pg';
 import 'dotenv/config';
 
 const app = express();
@@ -67,6 +68,12 @@ app.set('trust proxy', 1);
 
 export const prisma = new PrismaClient();
 export const redis = createRedisClient();
+
+// Prisma napi 한계 우회: JSON-heavy 쿼리용 직접 pg Pool
+export const pgPool = new pg.Pool({
+  connectionString: process.env['DATABASE_URL'],
+  max: 10,
+});
 
 // Middleware
 // HTTP 환경 (사내망) — HTTPS 전용 헤더 전부 비활성화
