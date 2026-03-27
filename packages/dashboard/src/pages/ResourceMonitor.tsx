@@ -445,6 +445,7 @@ export default function ResourceMonitor() {
   const [fleetSaving, setFleetSaving] = useState(false);
   const [noticeEdit, setNoticeEdit] = useState(false);
   const [noticeText, setNoticeText] = useState('');
+  const [hmTab, setHmTab] = useState('tps');
   const ref = useRef<ReturnType<typeof setInterval>>();
 
   const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
@@ -1000,7 +1001,7 @@ export default function ResourceMonitor() {
       {(() => {
         const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number; preempt: number }>;
         const dates = [...new Set(hm.map(d => d.date))].sort();
-        const [hmTab, setHmTab] = useState<string>('tps');
+        // hmTab state는 컴포넌트 최상위에 정의됨
         const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
         const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
 
