@@ -456,8 +456,7 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   // 현재 피크 부족분 판단:
   //   - KV cache 피크 80% 이상 → 메모리 부족 (VRAM 추가 필요)
   //   - 피크 KV가 X%면, 100%까지의 여유 = (100-X)/X 의 추가 용량 필요
-  const peakKvBasedUtil = peakKvMax; // KV cache 자체가 메모리 사용률 프록시
-  const peakThroughputPct = weightedMaxTps > 0 ? (peakThroughput / weightedMaxTps) * 100 : null; // 건강도와 같음
+  const peakThroughputPct = weightedMaxTps > 0 ? (peakThroughput / weightedMaxTps) * 100 : null; // 건강도와 동일
 
   // 피크 때 waiting/preemption 빈도 수집
   let peakWaitingCount = 0, peakPreemptionTotal = 0, snapCountForPeak = 0;
