@@ -133,9 +133,9 @@ const techStack = [
 
 // ── 팀 ──
 const team = [
-  { name: '한승하', initials: 'SH', role: 'Project Lead & Main Developer', desc: '기획 · 설계 · 풀스택 개발', color: 'from-blue-500 to-indigo-600' },
-  { name: '이병주', initials: 'BJ', role: 'Developer', desc: '개발', color: 'from-emerald-500 to-teal-600' },
-  { name: '김영섭', initials: 'YS', role: 'Developer', desc: '개발', color: 'from-violet-500 to-purple-600' },
+  { name: '한승하', initials: 'SH', role: 'Developer', desc: '기획 · 설계 · 개발', color: 'from-blue-500 to-indigo-600' },
+  { name: '이병주', initials: 'BJ', role: 'Developer', desc: '기획 · 설계 · 개발', color: 'from-emerald-500 to-teal-600' },
+  { name: '김영섭', initials: 'YS', role: 'Developer', desc: '기획 · 설계 · 개발', color: 'from-violet-500 to-purple-600' },
 ];
 
 export default function PlatformStory() {
