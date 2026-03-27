@@ -82,8 +82,8 @@ const timeline = [
   {
     date: '2026.03.26 ~ 03.27',
     title: 'AI 도우미 챗봇 & 최종 고도화',
-    desc: 'AI 도우미 챗봇(SSE 스트리밍, 권한별 동적 프롬프트, 페이지 자동 이동), 382→6 쿼리 최적화 + Batch API, AI 코칭 리포트, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E/KV Cache/Preemption/Queue), FP8 자동 감지, 플랫폼 스토리 페이지.',
-    tags: ['AI 챗봇', '성능 최적화', 'AI 코칭', '품질 메트릭', 'FP8'],
+    desc: 'AI 도우미 챗봇(SSE 스트리밍, 권한별 동적 프롬프트, 페이지 자동 이동), 382→6 쿼리 최적화 + Batch API, AI 코칭 리포트, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E/KV Cache/Preemption/Queue), FP8 자동 감지, GPU 수요 예측 고도화(산업 트렌드 데이터 반영 + 경영 보고서 마크다운 출력 + structured output), 전체 라우트 에러 방어 강화, 플랫폼 스토리 페이지.',
+    tags: ['AI 챗봇', '성능 최적화', 'AI 코칭', '품질 메트릭', 'GPU 예측 고도화'],
   },
 ];
 
