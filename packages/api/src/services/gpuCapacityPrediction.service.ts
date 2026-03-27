@@ -365,6 +365,25 @@ ${gpuInventory.map(g => `- ${g.type} x${g.count} (${g.vramGb}GB/장)`).join('\n'
 - 현재 실효 사용률: ${currentEffUtil ? currentEffUtil.toFixed(1) + '%' : 'N/A'}
 ${weeksUntilSaturated ? `- ⚠️ 현재 성장률 유지 시 약 ${weeksUntilSaturated}주 후 포화 예상` : '- 포화 시점: 계산 불가 (성장률 0 또는 데이터 부족)'}
 
+## 서비스 품질 메트릭 (최근 스냅샷 기준)
+${(() => {
+  const latestSnap = latestSnaps[0];
+  const llms = (latestSnap?.llmMetrics as any[]) || [];
+  const lines: string[] = [];
+  for (const l of llms) {
+    const name = l.modelNames?.[0] || l.containerName || 'unknown';
+    const parts: string[] = [`- ${name}:`];
+    if (l.ttftMs != null) parts.push(`TTFT ${Math.round(l.ttftMs)}ms`);
+    if (l.tpotMs != null) parts.push(`TPOT ${Math.round(l.tpotMs)}ms`);
+    if (l.e2eLatencyMs != null) parts.push(`E2E ${Math.round(l.e2eLatencyMs)}ms`);
+    if (l.prefixCacheHitRate != null) parts.push(`Cache Hit ${(l.prefixCacheHitRate * 100).toFixed(1)}%`);
+    if (l.preemptionCount != null && l.preemptionCount > 0) parts.push(`⚠ Preemption ${l.preemptionCount}회`);
+    if (l.queueTimeMs != null) parts.push(`Queue ${Math.round(l.queueTimeMs)}ms`);
+    if (parts.length > 1) lines.push(parts.join(' | '));
+  }
+  return lines.length > 0 ? lines.join('\n') : '- 서비스 품질 데이터 없음';
+})()}
+
 ## 예측 (목표 ${targetUserCount.toLocaleString()}명, 성장률 반영)
 - 스케일링: x${scalingFactor.toFixed(1)} (기본) → x${growthAdjustedScaling.toFixed(1)} (6개월 성장 반영)
 - Method A (모델가중치 고정 + KV 스케일): ${Math.round(totalVramA)}GB

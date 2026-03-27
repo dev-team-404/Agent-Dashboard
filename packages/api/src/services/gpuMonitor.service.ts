@@ -105,7 +105,7 @@ const METRICS_CMD = [
   + ' METRICS=$(curl -s --max-time 3 "http://localhost:$port/metrics" 2>/dev/null);'
   + ' echo "PORT:$port|CONTAINER:$PORTS|$CNAME|$CIMAGE";'
   + ' echo "MODELS_JSON:$MODELS";'
-  + ' echo "$METRICS" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|latency|flops|bytes|sleep|model_name|prompt|generation|batch|kv_|accepted|spec_decode" | head -150;'
+  + ' echo "$METRICS" | grep -vE "^#|^$" | grep -iE "request|cache|throughput|running|waiting|queue|token|latency|flops|bytes|sleep|model_name|prompt|generation|batch|kv_|accepted|spec_decode|ttft|tpot|first_token|per_output|e2e_|preemption|hit_rate|iteration" | head -200;'
   + ' echo "---ENDPORT---";'
   + ' done',
   // Ollama 탐지 (기본 포트 11434)
@@ -216,13 +216,23 @@ export interface LlmEndpointMetrics {
   containerName: string;
   containerImage: string;
   type: 'vllm' | 'sglang' | 'tgi' | 'ollama' | 'unknown';
-  modelNames: string[];               // /v1/models에서 가져온 모델 목록
+  modelNames: string[];
+  // 기본 메트릭
   runningRequests: number | null;
   waitingRequests: number | null;
   kvCacheUsagePct: number | null;
   promptThroughputTps: number | null;
   genThroughputTps: number | null;
-  rawMetrics: Record<string, number>; // AI 분석용 전체 Prometheus 메트릭
+  // 서비스 품질 메트릭 (투자 판단)
+  ttftMs: number | null;              // Time To First Token (ms) — 사용자 체감 응답 속도
+  tpotMs: number | null;              // Time Per Output Token (ms) — 스트리밍 속도
+  e2eLatencyMs: number | null;        // End-to-End 요청 처리 시간 (ms)
+  // 효율성 메트릭 (라우팅 판단)
+  prefixCacheHitRate: number | null;  // Prefix cache hit rate (0~1) — GPU 효율
+  preemptionCount: number | null;     // 요청 밀려남 횟수 — VRAM 부족 시그널
+  queueTimeMs: number | null;         // 대기열 체류 시간 (ms)
+  // AI 분석용
+  rawMetrics: Record<string, number>;
 }
 
 export interface ServerMetrics {
@@ -317,8 +327,27 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string, coun
         prevCounters.set(counterKey, { promptTotal: promptTotal || 0, genTotal: genTotal || 0, ts: now });
       }
     }
+    // 서비스 품질 메트릭 (히스토그램 _sum/_count → 평균)
+    const ttftSum = promGet(prom, 'time_to_first_token_seconds_sum');
+    const ttftCount = promGet(prom, 'time_to_first_token_seconds_count');
+    const ttftMs = (ttftSum != null && ttftCount != null && ttftCount > 0) ? (ttftSum / ttftCount) * 1000 : null;
+    const tpotSum = promGet(prom, 'time_per_output_token_seconds_sum');
+    const tpotCount = promGet(prom, 'time_per_output_token_seconds_count');
+    const tpotMs = (tpotSum != null && tpotCount != null && tpotCount > 0) ? (tpotSum / tpotCount) * 1000 : null;
+    const e2eSum = promGet(prom, 'e2e_request_latency_seconds_sum');
+    const e2eCount = promGet(prom, 'e2e_request_latency_seconds_count');
+    const e2eLatencyMs = (e2eSum != null && e2eCount != null && e2eCount > 0) ? (e2eSum / e2eCount) * 1000 : null;
+    // 효율성 메트릭
+    const cacheQueries = promGet(prom, 'prefix_cache_queries_total', 'gpu_prefix_cache_queries_total');
+    const cacheHits = promGet(prom, 'prefix_cache_hits_total', 'gpu_prefix_cache_hits_total');
+    const prefixCacheHitRate = (cacheQueries != null && cacheHits != null && cacheQueries > 0) ? cacheHits / cacheQueries : null;
+    const preemptionCount = promGet(prom, 'num_preemptions_total');
+    const queueSum = promGet(prom, 'request_queue_time_seconds_sum', 'waiting_time_seconds_sum');
+    const queueCount = promGet(prom, 'request_queue_time_seconds_count', 'waiting_time_seconds_count');
+    const queueTimeMs = (queueSum != null && queueCount != null && queueCount > 0) ? (queueSum / queueCount) * 1000 : null;
+
     if (running != null || kv != null || promptTps != null) {
-      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, promptThroughputTps: promptTps, genThroughputTps: genTps };
+      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, promptThroughputTps: promptTps, genThroughputTps: genTps, ttftMs, tpotMs, e2eLatencyMs, prefixCacheHitRate, preemptionCount, queueTimeMs };
     }
   }
   if (type === 'sglang' || type === 'unknown') {
@@ -335,8 +364,21 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string, coun
       if (prev && genTotal != null) { const dt = (now - prev.ts) / 1000; if (dt > 5) genTps = Math.max(0, (genTotal - prev.genTotal) / dt); }
       if (genTotal != null) prevCounters.set(counterKey, { promptTotal: 0, genTotal, ts: now });
     }
+    // SGLang 서비스 품질 메트릭
+    const ttftSum = promGet(prom, 'time_to_first_token_seconds_sum');
+    const ttftCount = promGet(prom, 'time_to_first_token_seconds_count');
+    const ttftMs = (ttftSum != null && ttftCount != null && ttftCount > 0) ? (ttftSum / ttftCount) * 1000 : null;
+    const tpotSum = promGet(prom, 'time_per_output_token_seconds_sum');
+    const tpotCount = promGet(prom, 'time_per_output_token_seconds_count');
+    const tpotMs = (tpotSum != null && tpotCount != null && tpotCount > 0) ? (tpotSum / tpotCount) * 1000 : null;
+    const e2eSum = promGet(prom, 'e2e_request_latency_seconds_sum');
+    const e2eCount = promGet(prom, 'e2e_request_latency_seconds_count');
+    const e2eLatencyMs = (e2eSum != null && e2eCount != null && e2eCount > 0) ? (e2eSum / e2eCount) * 1000 : null;
+    const cacheHitRate = promGet(prom, 'cache_hit_rate');
+    const preemptionCount = promGet(prom, 'num_preemptions_total');
+
     if (running != null || kv != null || genTps != null) {
-      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, genThroughputTps: genTps };
+      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, genThroughputTps: genTps, ttftMs, tpotMs, e2eLatencyMs, prefixCacheHitRate: cacheHitRate, preemptionCount };
     }
   }
   if (type === 'tgi') {
@@ -481,6 +523,12 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
         kvCacheUsagePct: extracted.kvCacheUsagePct ?? null,
         promptThroughputTps: extracted.promptThroughputTps ?? null,
         genThroughputTps: extracted.genThroughputTps ?? null,
+        ttftMs: extracted.ttftMs ?? null,
+        tpotMs: extracted.tpotMs ?? null,
+        e2eLatencyMs: extracted.e2eLatencyMs ?? null,
+        prefixCacheHitRate: extracted.prefixCacheHitRate ?? null,
+        preemptionCount: extracted.preemptionCount ?? null,
+        queueTimeMs: extracted.queueTimeMs ?? null,
         rawMetrics,
       });
     }
@@ -495,7 +543,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
           llmEndpoints.push({
             port: 11434, containerName: 'ollama', containerImage: 'ollama', type: 'ollama',
             modelNames: [parts[0]], runningRequests: null, waitingRequests: null,
-            kvCacheUsagePct: null, promptThroughputTps: null, genThroughputTps: null, rawMetrics: {},
+            kvCacheUsagePct: null, promptThroughputTps: null, genThroughputTps: null, ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null, rawMetrics: {},
           });
         }
       }
@@ -512,7 +560,9 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
               port: 11434, containerName: 'ollama', containerImage: 'ollama', type: 'ollama',
               modelNames: [m.name || m.model || 'unknown'],
               runningRequests: null, waitingRequests: null, kvCacheUsagePct: null,
-              promptThroughputTps: null, genThroughputTps: null, rawMetrics: {},
+              promptThroughputTps: null, genThroughputTps: null,
+              ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
+              rawMetrics: {},
             });
           }
         }

@@ -15,7 +15,7 @@ import {
 interface GpuSpec { fp16Tflops: number; memBandwidthGBs: number; tdpW: number; vramGb: number; label: string; }
 interface GpuInfo { index: number; uuid: string; name: string; memTotalMb: number; memUsedMb: number; utilGpu: number; utilMem: number; temp: number; powerW: number; powerMaxW: number; spec: GpuSpec | null; }
 interface GpuProcess { gpuIndex: number; pid: number; name: string; memMb: number; isLlm: boolean; }
-interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelNames: string[]; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; rawMetrics?: Record<string, number>; }
+interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelNames: string[]; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; ttftMs: number | null; tpotMs: number | null; e2eLatencyMs: number | null; prefixCacheHitRate: number | null; preemptionCount: number | null; queueTimeMs: number | null; rawMetrics?: Record<string, number>; }
 interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; diskTotalGb: number | null; diskUsedGb: number | null; diskFreeGb: number | null; hostname: string | null; }
 interface GpuServer { id: string; name: string; host: string; sshPort: number; sshUsername: string; description: string | null; isLocal: boolean; enabled: boolean; pollIntervalSec: number; createdAt: string; }
 interface ThroughputAnalysis { theoreticalMaxTps: number | null; peakTps: number | null; currentTps: number; modelName: string | null; modelParams: string | null; gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null; }
@@ -209,12 +209,23 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {eps.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {eps.map((ep, i) => (
-                <span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${llmBadge(ep.type)}`}>
+                <span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${llmBadge(ep.type)} cursor-help`}
+                  title={[
+                    `TTFT: 첫 토큰까지 시간 (${ep.ttftMs != null ? Math.round(ep.ttftMs) + 'ms' : '-'})`,
+                    `TPOT: 토큰 간 지연 (${ep.tpotMs != null ? Math.round(ep.tpotMs) + 'ms' : '-'})`,
+                    `E2E: 전체 요청 시간 (${ep.e2eLatencyMs != null ? Math.round(ep.e2eLatencyMs) + 'ms' : '-'})`,
+                    `Cache Hit: 프롬프트 캐시 적중률 (${ep.prefixCacheHitRate != null ? (ep.prefixCacheHitRate * 100).toFixed(1) + '%' : '-'})`,
+                    `Preemption: VRAM 부족으로 밀려난 요청 (${ep.preemptionCount ?? 0}회)`,
+                    `Queue: 대기열 체류 시간 (${ep.queueTimeMs != null ? Math.round(ep.queueTimeMs) + 'ms' : '-'})`,
+                  ].join('\n')}>
                   <span className="uppercase">{ep.type}</span>
-                  {ep.modelNames?.[0] && <span className="opacity-75 truncate max-w-[120px]">{ep.modelNames[0]}</span>}
+                  {ep.modelNames?.[0] && <span className="opacity-75 truncate max-w-[100px]">{ep.modelNames[0]}</span>}
                   {ep.kvCacheUsagePct != null && <span>KV:{ep.kvCacheUsagePct.toFixed(0)}%</span>}
                   {(ep.runningRequests || 0) > 0 && <span>R:{ep.runningRequests}</span>}
                   {(ep.waitingRequests || 0) > 0 && <span className="text-amber-700">W:{ep.waitingRequests}</span>}
+                  {ep.ttftMs != null && <span className="text-gray-500">TTFT:{ep.ttftMs < 1000 ? Math.round(ep.ttftMs) + 'ms' : (ep.ttftMs / 1000).toFixed(1) + 's'}</span>}
+                  {ep.prefixCacheHitRate != null && <span className="text-gray-500">C:{(ep.prefixCacheHitRate * 100).toFixed(0)}%</span>}
+                  {(ep.preemptionCount || 0) > 0 && <span className="text-red-600">P:{ep.preemptionCount}</span>}
                 </span>
               ))}
             </div>
