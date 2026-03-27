@@ -975,15 +975,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {/* ── GPU 탭 ── */}
       {activeTab === 'gpu' && gpuData.length > 0 && (() => {
         const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
-          const ta = e.throughputAnalysis;
-          const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
-          return { name: e.server.name, util: eu, health: ta?.gpuHealthPct, tps: ta?.currentTps || 0, gpuCount: e.metrics.gpus.length, spec: e.metrics.gpus[0]?.spec?.label || '?' };
+          const ca = e.capacityAnalysis;
+          return { name: e.server.name, util: ca?.compositeCapacity || 0, bottleneck: ca?.bottleneck, tps: ca?.currentTps || 0, gpuCount: e.metrics.gpus.length, spec: e.metrics.gpus[0]?.spec?.label || '?' };
         }).sort((a: any, b: any) => b.util - a.util);
         return (
           <div className="space-y-4">
             {/* 서버별 비교 */}
             <div className="bg-white rounded-lg border p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">서버별 GPU 사용률 / 건강도 비교</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-3">서버별 종합 용량 비교 (벤치마크 대비)</h3>
               <div className="space-y-2">
                 {serverUtils.map((s: any) => (
                   <div key={s.name} className="flex items-center gap-3">

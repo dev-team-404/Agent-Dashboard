@@ -26,8 +26,8 @@ interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; thro
 const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 const utilCls = (p: number) => p >= 90 ? 'bg-red-500' : p >= 70 ? 'bg-amber-500' : p >= 40 ? 'bg-blue-500' : 'bg-emerald-500';
 const utilTxt = (p: number) => p >= 90 ? 'text-red-600' : p >= 70 ? 'text-amber-600' : 'text-gray-900';
-// 건강도 = 이론대비 달성률 (30-50% 정상, 25% 미만 점검필요, 15% 미만 위험)
-const healthTxt = (p: number) => p >= 25 ? 'text-emerald-600' : p >= 15 ? 'text-amber-600' : 'text-red-600';
+// 병목 표시
+const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
 const llmBadge = (t: string) => ({ vllm: 'bg-blue-100 text-blue-700', sglang: 'bg-purple-100 text-purple-700', ollama: 'bg-green-100 text-green-700', tgi: 'bg-orange-100 text-orange-700' }[t] || 'bg-gray-100 text-gray-600');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -152,9 +152,10 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const ramPct = m?.memoryTotalMb && m?.memoryUsedMb ? Math.round((m.memoryUsedMb / m.memoryTotalMb) * 100) : null;
   const diskPct = m?.diskTotalGb && m?.diskUsedGb ? Math.round((m.diskUsedGb / m.diskTotalGb) * 100) : null;
   const currentTps = eps.reduce((a, e) => a + (e.promptThroughputTps || 0) + (e.genThroughputTps || 0), 0);
-  // 서버별 핵심 지표
-  const serverEffUtil = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct && ta.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || null;
-  const serverHeadroom = serverEffUtil != null ? 100 - serverEffUtil : null;
+  // 서버별 핵심 지표 (벤치마크 기반)
+  const ca = (entry as any).capacityAnalysis;
+  const serverComposite = ca?.compositeCapacity ?? null;
+  const serverHeadroom = serverComposite != null ? Math.round((100 - serverComposite) * 10) / 10 : null;
 
   const loadHist = useCallback(async () => { try { const r = await gpuServerApi.history(s.id, hrs); setHist(r.data); } catch {} }, [s.id, hrs]);
   // 영업시간 평균은 항상 로드 (컴팩트 뷰에 표시), 차트 데이터는 open 시
@@ -212,24 +213,24 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
         </div>
 
         {m?.error ? <p className="text-[10px] text-red-500"><WifiOff className="w-3 h-3 inline mr-0.5" />{m.error}</p> : ok ? (<>
-          {/* ── 1) 핵심 4개 게이지 ── */}
+          {/* ── 1) 벤치마크 기반 4개 게이지 ── */}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="text-gray-500 w-10 shrink-0">실효</span>
-              <div className="flex-1"><MiniBar pct={serverEffUtil || 0} color={utilCls(serverEffUtil || 0)} h="h-2" /></div>
-              <b className={`w-7 text-right ${serverEffUtil != null ? utilTxt(serverEffUtil) : 'text-gray-300'}`}>{serverEffUtil ?? '-'}%</b>
+            <div className="flex items-center gap-1.5 text-[10px]" title={`종합 용량 = max(처리량 ${ca?.tokPct ?? '-'}%, KV ${ca?.kvPct ?? '-'}%, 동시 ${ca?.concPct ?? '-'}%)\n병목: ${ca?.bottleneck === 'throughput' ? '처리량' : ca?.bottleneck === 'kvMemory' ? 'KV메모리' : ca?.bottleneck === 'concurrency' ? '동시처리' : '-'}`}>
+              <span className="text-gray-500 w-10 shrink-0">종합</span>
+              <div className="flex-1"><MiniBar pct={serverComposite || 0} color={utilCls(serverComposite || 0)} h="h-2" /></div>
+              <b className={`w-7 text-right ${serverComposite != null ? utilTxt(serverComposite) : 'text-gray-300'}`}>{serverComposite != null ? Math.round(serverComposite) : '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="text-gray-500 w-10 shrink-0">이론대비</span>
-              <div className="flex-1"><MiniBar pct={ta?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
-              <b className={`w-7 text-right ${ta?.theoreticalUtilPct != null ? utilTxt(ta.theoreticalUtilPct) : 'text-gray-300'}`}>{ta?.theoreticalUtilPct ?? '-'}%</b>
+            <div className="flex items-center gap-1.5 text-[10px]" title="처리량 = 현재 tok/s ÷ 벤치마크 피크 tok/s">
+              <span className="text-gray-500 w-10 shrink-0">처리량</span>
+              <div className="flex-1"><MiniBar pct={ca?.tokPct || 0} color="bg-blue-400" h="h-2" /></div>
+              <b className={`w-7 text-right ${ca?.tokPct != null ? utilTxt(ca.tokPct) : 'text-gray-300'}`}>{ca?.tokPct ?? '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="text-gray-500 w-10 shrink-0">건강도</span>
-              <div className="flex-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
-              <b className={`w-7 text-right ${ta?.gpuHealthPct != null ? healthTxt(ta.gpuHealthPct) : 'text-gray-300'}`}>{ta?.gpuHealthPct ?? '-'}%</b>
+            <div className="flex items-center gap-1.5 text-[10px]" title="KV 메모리 = 현재 KV Cache 사용률 (80%+ 위험)">
+              <span className="text-gray-500 w-10 shrink-0">KV</span>
+              <div className="flex-1"><MiniBar pct={ca?.kvPct || 0} color="bg-purple-400" h="h-2" /></div>
+              <b className={`w-7 text-right ${ca?.kvPct != null && ca.kvPct >= 80 ? 'text-red-600' : ca?.kvPct != null && ca.kvPct >= 50 ? 'text-amber-600' : 'text-gray-700'}`}>{ca?.kvPct ?? '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]">
+            <div className="flex items-center gap-1.5 text-[10px]" title="여유 = 100% - 종합 용량">
               <span className="text-gray-500 w-10 shrink-0">여유</span>
               <div className="flex-1"><MiniBar pct={serverHeadroom || 0} color={serverHeadroom != null && serverHeadroom <= 20 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
               <b className={`w-7 text-right ${serverHeadroom != null ? (serverHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{serverHeadroom ?? '-'}%</b>
@@ -252,7 +253,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             <div className="grid grid-cols-3 gap-1.5">
               <div className="text-[9px]"><span className="text-blue-600 font-medium">GPU 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgGpuUtil || 0} color={utilCls(hist?.businessHoursAvg?.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist?.businessHoursAvg?.avgGpuUtil || 0)}>{hist?.businessHoursAvg?.avgGpuUtil ?? '-'}%</b></div></div>
               <div className="text-[9px]"><span className="text-blue-600 font-medium">VRAM 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist?.businessHoursAvg?.avgMemUtil ?? '-'}%</b></div></div>
-              <div className="text-[9px]"><span className="text-blue-600 font-medium">건강도</span><div className="flex items-center gap-1"><MiniBar pct={ta?.gpuHealthPct || 0} color={ta?.gpuHealthPct && ta.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-1.5" /><b className={healthTxt(ta?.gpuHealthPct || 0)}>{ta?.gpuHealthPct ?? '-'}%</b></div></div>
+              <div className="text-[9px]"><span className="text-blue-600 font-medium">종합용량</span><div className="flex items-center gap-1"><MiniBar pct={ca?.compositeCapacity || 0} color={utilCls(ca?.compositeCapacity || 0)} h="h-1.5" /><b className={utilTxt(ca?.compositeCapacity || 0)}>{ca?.compositeCapacity != null ? Math.round(ca.compositeCapacity) : '-'}%</b></div></div>
             </div>
           </div>
 
@@ -325,16 +326,16 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {/* 처리량 3단 분석 */}
           {ta && (ta.theoreticalMaxTps || ta.peakTps) && (
             <div className="px-3 py-2 border-t border-gray-100">
-              <p className="text-[10px] font-medium text-gray-500 mb-1.5">처리량 분석 {ta.modelName && <span className="text-gray-400">({ta.modelName})</span>}</p>
+              <p className="text-[10px] font-medium text-gray-500 mb-1.5">벤치마크 대비 {ca?.benchmark?.source === 'manual' ? '(수동)' : '(자동 P95)'}</p>
               <div className="space-y-1">
-                {ta.theoreticalMaxTps && <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-10 text-right">이론</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-indigo-200 rounded-full" style={{ width: '100%' }} /></div><span className="text-[9px] w-14 text-right text-gray-500">{ta.theoreticalMaxTps.toFixed(0)} tok/s</span></div>}
-                {ta.peakTps != null && ta.peakTps > 0 && <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-10 text-right">피크</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-purple-400 rounded-full" style={{ width: `${ta.gpuHealthPct || 0}%` }} /></div><span className="text-[9px] w-14 text-right text-purple-600">{ta.peakTps.toFixed(1)} tok/s</span></div>}
-                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-10 text-right">현재</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className={`h-full rounded-full ${utilCls(ta.theoreticalUtilPct || 0)}`} style={{ width: `${ta.theoreticalUtilPct || 0}%` }} /></div><span className={`text-[9px] w-14 text-right ${ta.currentTps > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{ta.currentTps.toFixed(1)} tok/s</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">처리량</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-blue-400 rounded-full" style={{ width: `${Math.min(ca?.tokPct || 0, 100)}%` }} /></div><span className="text-[9px] w-14 text-right text-blue-600">{ca?.tokPct ?? '-'}%</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">KV메모리</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-purple-400 rounded-full" style={{ width: `${Math.min(ca?.kvPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.kvPct || 0) >= 80 ? 'text-red-600' : 'text-purple-600'}`}>{ca?.kvPct ?? '-'}%</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">동시처리</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-amber-400 rounded-full" style={{ width: `${Math.min(ca?.concPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.concPct || 0) >= 100 ? 'text-red-600' : 'text-amber-600'}`}>{ca?.concPct ?? '-'}%</span></div>
               </div>
               <div className="flex gap-4 mt-1.5 text-[9px]">
-                {ta.gpuHealthPct != null && <span className="text-gray-500">건강도: <b className={healthTxt(ta.gpuHealthPct)}>{ta.gpuHealthPct}%</b></span>}
-                {ta.utilizationPct != null && <span className="text-gray-500">피크대비: <b className={utilTxt(ta.utilizationPct)}>{ta.utilizationPct}%</b></span>}
-                {ta.theoreticalUtilPct != null && <span className="text-gray-500">이론대비: <b className={utilTxt(ta.theoreticalUtilPct)}>{ta.theoreticalUtilPct}%</b></span>}
+                <span className="text-gray-500">현재: <b className="text-blue-600">{(ca?.currentTps || 0).toFixed(1)} tok/s</b></span>
+                <span className="text-gray-500">벤치마크: <b>{ca?.benchmark?.peakTps ?? '-'} tok/s</b></span>
+                {ca?.bottleneck && <span className="text-orange-600 font-semibold">병목: {ca.bottleneck === 'throughput' ? '처리량' : ca.bottleneck === 'kvMemory' ? 'KV메모리' : '동시처리'}</span>}
               </div>
             </div>
           )}
@@ -344,9 +345,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-medium text-gray-500">사용률 추이</span><div className="flex gap-0.5">{[6, 12, 24, 72].map(h => <button key={h} onClick={() => setHrs(h)} className={`px-1.5 py-0.5 text-[9px] rounded ${hrs === h ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{h}h</button>)}</div></div>
             {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>KST 9-18시 영업일 평균 (주말·등록 휴일 제외): GPU <b>{hist.businessHoursAvg.avgGpuUtil}%</b> VRAM <b>{hist.businessHoursAvg.avgMemUtil}%</b> ({hist.businessHoursAvg.sampleCount}건)</span></div>}
             <div className="space-y-3">
-              {/* 실효사용률 + KV Cache + GPU 사용률 */}
-              <div><p className="text-[9px] text-gray-400 mb-0.5">실효사용률 / KV Cache / GPU (%)</p>
-              <ResponsiveContainer width="100%" height={140}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="effUtil" name="실효사용률" stroke="#2563eb" fill="url(#gG)" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" strokeWidth={1.5} dot={false} strokeDasharray="3 2" /><Line type="monotone" dataKey="gpuUtil" name="GPU" stroke="#94a3b8" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer></div>
+              {/* KV Cache + GPU 사용률 */}
+              <div><p className="text-[9px] text-gray-400 mb-0.5">KV Cache / GPU 사용률 (%)</p>
+              <ResponsiveContainer width="100%" height={140}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} /><stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" fill="url(#gG)" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="gpuUtil" name="GPU" stroke="#94a3b8" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer></div>
               {/* tok/s 처리량 (합산 + LLM별) */}
               {(() => {
                 const llmColors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
@@ -650,7 +651,7 @@ export default function ResourceMonitor() {
           )}
           <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"현재 대비 목표까지 필요한 확장 배율입니다.\n\n사용자 수 증가 + 인당 토큰 소비 증가를\n모두 반영한 종합 배율입니다."}><p className="text-[9px] text-gray-500">스케일링 배율 ⓘ</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">6개월 성장 반영</p></div>
           {cd.scaling?.currentEffUtil != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"GPU의 실제 처리 가능 용량 대비 현재 사용 비율입니다.\n\n80% 이상이면 증설이 시급합니다."}><p className="text-[9px] text-gray-500">현재 실효 사용률 ⓘ</p><p className={`text-lg font-bold ${cd.scaling.currentEffUtil >= 80 ? 'text-red-600' : cd.scaling.currentEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{cd.scaling.currentEffUtil}%</p></div>}
-          {cd.scaling?.avgHealthPct != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"GPU가 이론 최대 성능의 몇 %를 달성하는지 보여줍니다.\n수치가 낮으면 GPU 효율이 떨어지고 있다는 의미입니다."}><p className="text-[9px] text-gray-500">GPU 건강도 ⓘ</p><p className={`text-lg font-bold ${cd.scaling.avgHealthPct >= 25 ? 'text-emerald-600' : 'text-amber-600'}`}>{cd.scaling.avgHealthPct}%</p></div>}
+          {cd.dimensionalBreakdown?.bottleneck && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={`병목 차원: 3개 차원 중 가장 부족한 리소스\n처리량 B300 ${cd.dimensionalBreakdown.throughput?.b300 ?? '-'}장\nKV메모리 B300 ${cd.dimensionalBreakdown.kvMemory?.b300 ?? '-'}장\n동시처리 B300 ${cd.dimensionalBreakdown.concurrency?.b300 ?? '-'}장`}><p className="text-[9px] text-gray-500">병목 ⓘ</p><p className="text-lg font-bold text-orange-600">{cd.dimensionalBreakdown.bottleneck === 'throughput' ? '처리량' : cd.dimensionalBreakdown.bottleneck === 'kvMemory' ? 'KV메모리' : '동시처리'}</p></div>}
         </div>
 
         {/* 배포 모델 분포 */}
