@@ -310,13 +310,24 @@ export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelPara
   return totalFlops / flopsPerToken;
 }
 
-/** 메모리 대역폭 기반 실용 최대 (배치1 기준, 일반 부하 기준선) */
+/**
+ * 메모리 대역폭 기반 실용 최대 처리량
+ *
+ * 배치1: maxTps = bandwidth × efficiency / modelSize
+ * vLLM continuous batching: 동시에 여러 토큰 처리 → 배치1의 4-12배
+ *
+ * TYPICAL_BATCH_FACTOR = 8: vLLM/SGLang 실 운영 환경에서의
+ * 일반적인 동시 처리 배치 크기 (보수적 중간값)
+ *
+ * 결과: 0-100% 범위에서 의미 있는 사용률 도출 가능
+ */
 export function calcBandwidthMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number, precision: 'fp8' | 'fp16' = 'fp16'): number {
   const bytesPerParam = precision === 'fp8' ? 1 : 2;
   const modelSizeBytes = modelParamsBillion * 1e9 * bytesPerParam;
   const totalBandwidth = spec.memBandwidthGBs * 1e9 * gpuCount; // bytes/s
-  const efficiency = 0.65; // 실무 메모리 효율 ~65%
-  return (totalBandwidth * efficiency) / modelSizeBytes;
+  const efficiency = 0.65; // 메모리 효율 ~65%
+  const TYPICAL_BATCH_FACTOR = 8; // continuous batching 환경 (vLLM 일반 운영 기준)
+  return (totalBandwidth * efficiency * TYPICAL_BATCH_FACTOR) / modelSizeBytes;
 }
 
 // ================================================================

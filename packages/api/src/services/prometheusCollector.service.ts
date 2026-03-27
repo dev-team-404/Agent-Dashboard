@@ -18,7 +18,7 @@ const PROM_URL = 'https://cloud.dtgpt.samsungds.net/prometheus/api/v1';
 const POLL_INTERVAL_MS = 60_000; // 60초
 const VLLM_LAST_AVAILABLE = 1774321200; // KST 2026-03-24 12:00 — vLLM 메트릭 마지막 시점
 const BACKFILL_STEP = 300; // 5분 간격
-const BACKFILL_LOOKBACK_HOURS = 72; // 3일 전부터 backfill
+const BACKFILL_LOOKBACK_HOURS = 336; // 14일 (Prometheus 기본 보존 기간) — 가능한 모든 과거 데이터
 const SERVER_DESC_PREFIX = '[DTGPT-Prometheus]';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
