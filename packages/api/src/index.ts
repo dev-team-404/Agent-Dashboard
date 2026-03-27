@@ -52,6 +52,7 @@ import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
 import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
+import { startPrometheusCollector } from './services/prometheusCollector.service.js';
 import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
@@ -419,6 +420,11 @@ async function main() {
     startGpuCapacityPredictionCron();
     startGpuCoachingCron();
     startStatsPrecomputeCron();
+
+    // DTGPT Prometheus 수집 (30초 후 시작 — DB 안정화 대기)
+    setTimeout(() => startPrometheusCollector().catch(err =>
+      console.error('[PromCollector] Failed to start:', err.message)
+    ), 30000);
 
     const server = app.listen(PORT, () => {
       console.log(`Agent Registry API server running on port ${PORT}`);
