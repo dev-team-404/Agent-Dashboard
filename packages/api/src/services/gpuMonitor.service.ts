@@ -174,15 +174,15 @@ const MODEL_SIZE_PATTERNS: Array<{ pattern: RegExp; billionParams: number }> = [
 export function estimateModelParams(modelName: string): number | null {
   if (!modelName) return null;
   const lower = modelName.toLowerCase();
-  // MoE 모델: 8x7B → active ≈ total / 4 (top-2 of 8 기본 가정)
-  const moe = modelName.match(/(\d+)[xX](\d+\.?\d*)[bB]/i);
-  if (moe) { const total = parseFloat(moe[1]) * parseFloat(moe[2]); return Math.round(total / 4 * 10) / 10; }
-  // 일반 모델: 70B, 8B, 0.5B 등 (B suffix 명시)
-  const match = modelName.match(/(\d+\.?\d*)\s*[bB](?![a-z])/i);
-  if (match && parseFloat(match[1]) > 0) return parseFloat(match[1]);
-  // A숫자B 형식 (MoE): Qwen3.5-35B-A3B → active 3B (A뒤 숫자가 active params)
+  // 1. A숫자B 형식 (MoE active params): Qwen3.5-35B-A3B → active 3B (최우선)
   const aMatch = modelName.match(/\d+\.?\d*[bB]-A(\d+\.?\d*)[bB]/i);
   if (aMatch) return parseFloat(aMatch[1]);
+  // 2. NxMB 형식 (MoE): 8x7B → active ≈ total / 4 (top-2 of 8 가정)
+  const moe = modelName.match(/(\d+)[xX](\d+\.?\d*)[bB]/i);
+  if (moe) { const total = parseFloat(moe[1]) * parseFloat(moe[2]); return Math.round(total / 4 * 10) / 10; }
+  // 3. 일반 모델: 70B, 8B, 0.5B 등 (B suffix 명시)
+  const match = modelName.match(/(\d+\.?\d*)\s*[bB](?![a-z])/i);
+  if (match && parseFloat(match[1]) > 0) return parseFloat(match[1]);
   // 알려진 모델 매핑 (B suffix 없는 경우)
   // MoE 모델은 active params 반환 (throughput = bandwidth / active_params)
   // GLM-5: 744B total, 40B active (MoE, Zhipu AI 공식)
