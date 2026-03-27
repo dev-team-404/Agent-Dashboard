@@ -8,6 +8,12 @@ import {
 // ── 타임라인 데이터 (커밋 히스토리 기반, 상세) ──
 const timeline = [
   {
+    date: '2026.03.27',
+    title: 'GPU 리소스 모니터링 — napi 한계 극복 및 예측 로직 전면 재설계',
+    desc: 'Prisma ORM의 Rust→Node.js napi 브릿지 한계로 GPU 스냅샷 JSON 대량 조회 시 서비스 장애 발생. node-postgres(pg) 드라이버 직접 연결로 Prisma 완전 우회 — Grafana/Datadog 등 모니터링 시스템과 동일한 아키텍처. GPU 수요 예측 로직 전면 재설계: 실측 피크 throughput 기반 B300 산출, 성장률 이중적용 수정, 경영 보고서 자동 생성. IDC/Deloitte/Gartner/Sequoia 등 외부 리서치 기반 산업 트렌드 데이터 예측 프롬프트에 반영.',
+    tags: ['napi 우회', 'node-postgres', 'GPU 예측 재설계', '경영 보고서', '산업 트렌드'],
+  },
+  {
     date: '2026.01.15',
     title: 'Day 1 — 프로젝트 시작 & 기반 구축',
     desc: '하루 만에 45+ 커밋. 멀티서비스 대시보드 초기 구조 설계, LLM 프록시 라우팅, 서비스/모델 CRUD, 5단계 권한 시스템, 레거시 데이터 마이그레이션(PostgreSQL UUID 캐스팅과의 사투), 통합 대시보드, 부서별 사용량 차트, 모델 평점 시스템 구현. Nexus Coder → AX Portal로 첫 리브랜딩.',
