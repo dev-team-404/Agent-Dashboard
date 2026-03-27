@@ -108,23 +108,6 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Git commit history (플랫폼 스토리 공로 기록용)
-app.get('/git-log', (_req, res) => {
-  try {
-    const { execSync } = require('child_process');
-    const raw = execSync(
-      'git log --format="%h|%ad|%an|%s" --date=format:"%Y-%m-%d" --reverse',
-      { cwd: '/home/syngha/Agent-Dashboard', maxBuffer: 5 * 1024 * 1024, encoding: 'utf-8' }
-    ) as string;
-    const commits = raw.trim().split('\n').map((line: string) => {
-      const [hash, date, author, ...rest] = line.split('|');
-      return { hash, date, author, subject: rest.join('|') };
-    });
-    res.json({ total: commits.length, commits });
-  } catch {
-    res.status(500).json({ error: 'Failed to read git log' });
-  }
-});
 
 // API Routes (Dashboard - JWT/SSO auth)
 app.use('/auth', authRoutes);

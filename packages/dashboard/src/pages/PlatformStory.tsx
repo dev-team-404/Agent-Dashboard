@@ -1,20 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Server, Shield, Brain, BarChart3, Users, Layers, Zap,
   GitBranch, Database, Globe, Sparkles,
   Network, Container, ChevronRight, Terminal,
   MonitorSpeaker, BookOpen, ChevronDown,
 } from 'lucide-react';
-import { api } from '../services/api';
+import commitsData from './commits-data.json';
 
 // ── 타임라인 데이터 (커밋 히스토리 기반, 상세) ──
 const timeline = [
-  {
-    date: '2026.03.27',
-    title: 'GPU 리소스 모니터링 — napi 한계 극복 및 예측 로직 전면 재설계',
-    desc: 'Prisma ORM의 Rust→Node.js napi 브릿지 한계로 GPU 스냅샷 JSON 대량 조회 시 서비스 장애 발생. node-postgres(pg) 드라이버 직접 연결로 Prisma 완전 우회 — Grafana/Datadog 등 모니터링 시스템과 동일한 아키텍처. GPU 수요 예측 로직 전면 재설계: 실측 피크 throughput 기반 B300 산출, 성장률 이중적용 수정, 경영 보고서 자동 생성. IDC/Deloitte/Gartner/Sequoia 등 외부 리서치 기반 산업 트렌드 데이터 예측 프롬프트에 반영.',
-    tags: ['napi 우회', 'node-postgres', 'GPU 예측 재설계', '경영 보고서', '산업 트렌드'],
-  },
   {
     date: '2026.01.15',
     title: 'Day 1 — 프로젝트 시작 & 기반 구축',
@@ -90,8 +84,8 @@ const timeline = [
   {
     date: '2026.03.26 ~ 03.27',
     title: 'AI 도우미 챗봇 & 최종 고도화',
-    desc: 'AI 도우미 챗봇(SSE 스트리밍, 권한별 동적 프롬프트, 페이지 자동 이동), 382→6 쿼리 최적화 + Batch API, AI 코칭 리포트, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E/KV Cache/Preemption/Queue), FP8 자동 감지, GPU 수요 예측 고도화(산업 트렌드 데이터 반영 + 경영 보고서 마크다운 출력 + structured output), 전체 라우트 에러 방어 강화, 플랫폼 스토리 페이지.',
-    tags: ['AI 챗봇', '성능 최적화', 'AI 코칭', '품질 메트릭', 'GPU 예측 고도화'],
+    desc: 'AI 도우미 챗봇(SSE 스트리밍, 권한별 동적 프롬프트, 페이지 자동 이동), 382→6 쿼리 최적화 + Batch API, AI 코칭 리포트, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E/KV Cache/Preemption/Queue), FP8 자동 감지. Prisma napi 한계 극복 — node-postgres 직접 연결로 GPU 스냅샷 대량 조회 안정화. GPU 수요 예측 전면 재설계(실측 기반 B300 산출 + IDC/Deloitte/Gartner 산업 트렌드 반영 + 경영 보고서 자동 생성). 플랫폼 스토리 페이지.',
+    tags: ['AI 챗봇', '성능 최적화', 'napi 극복', 'GPU 예측 재설계', '플랫폼 스토리'],
   },
 ];
 
@@ -390,19 +384,8 @@ const authorColors: Record<string, string> = {
 
 function CommitHistory() {
   const [open, setOpen] = useState(false);
-  const [commits, setCommits] = useState<Commit[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (open && !loaded) {
-      api.get('/git-log').then(res => {
-        setCommits(res.data.commits || []);
-        setTotal(res.data.total || 0);
-        setLoaded(true);
-      }).catch(() => setLoaded(true));
-    }
-  }, [open, loaded]);
+  const commits = commitsData as Commit[];
+  const total = commits.length;
 
   // 날짜별 그루핑
   const grouped = commits.reduceRight((acc, c) => {
@@ -426,29 +409,25 @@ function CommitHistory() {
 
       {open && (
         <div className="mt-4 max-h-[500px] overflow-y-auto border border-gray-100 rounded-lg bg-gray-50/50">
-          {!loaded ? (
-            <div className="p-6 text-center text-xs text-gray-400">로딩 중...</div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {dates.map(date => (
-                <div key={date}>
-                  <div className="sticky top-0 bg-gray-50 px-4 py-1.5 border-b border-gray-100">
-                    <span className="text-[10px] font-mono font-medium text-gray-400">{date}</span>
-                    <span className="text-[10px] text-gray-300 ml-2">{grouped[date].length}건</span>
-                  </div>
-                  {grouped[date].map(c => (
-                    <div key={c.hash} className="px-4 py-1.5 flex items-start gap-2 hover:bg-white/60 transition-colors">
-                      <code className="text-[10px] font-mono text-gray-300 mt-px flex-shrink-0">{c.hash}</code>
-                      <span className={`text-[10px] font-medium flex-shrink-0 w-24 truncate ${authorColors[c.author] || 'text-gray-400'}`}>
-                        {c.author}
-                      </span>
-                      <span className="text-[10px] text-gray-500 leading-relaxed">{c.subject}</span>
-                    </div>
-                  ))}
+          <div className="divide-y divide-gray-100">
+            {dates.map(date => (
+              <div key={date}>
+                <div className="sticky top-0 bg-gray-50 px-4 py-1.5 border-b border-gray-100">
+                  <span className="text-[10px] font-mono font-medium text-gray-400">{date}</span>
+                  <span className="text-[10px] text-gray-300 ml-2">{grouped[date].length}건</span>
                 </div>
-              ))}
-            </div>
-          )}
+                {grouped[date].map(c => (
+                  <div key={c.hash} className="px-4 py-1.5 flex items-start gap-2 hover:bg-white/60 transition-colors">
+                    <code className="text-[10px] font-mono text-gray-300 mt-px flex-shrink-0">{c.hash}</code>
+                    <span className={`text-[10px] font-medium flex-shrink-0 w-24 truncate ${authorColors[c.author] || 'text-gray-400'}`}>
+                      {c.author}
+                    </span>
+                    <span className="text-[10px] text-gray-500 leading-relaxed">{c.subject}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </section>

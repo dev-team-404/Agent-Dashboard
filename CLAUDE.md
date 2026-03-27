@@ -10,9 +10,30 @@
   - Hero 섹션의 커밋 수, 코드 라인 수 등 통계 업데이트
   - 팀 멤버 변경 시 team 배열 업데이트
 - **기능 추가 시 타임라인/기능 목록에 반영되지 않은 커밋이 있는지 git log로 확인하고, 빠진 것은 추가할 것**
-- 페이지 하단에 **전체 커밋 히스토리** 접이식 섹션이 있음 (GET /git-log API — 시간순 전체 커밋)
+- 페이지 하단에 **전체 커밋 히스토리** 접이식 섹션이 있음 (정적 JSON: `commits-data.json`)
   - 커밋별 작성자(author)가 색상으로 구분되며, 공로 분배 논의 시 근거 자료로 활용
   - 이 섹션은 의도적으로 눈에 띄지 않게 디자인됨 (필요할 때만 펼쳐서 확인)
+  - **커밋 추가 시 commits-data.json도 갱신할 것** — 아래 명령어로 재생성:
+    ```bash
+    git log --format='{hash:"%h",date:"%ad",author:"%an",subject:"%s"}' --date=format:"%Y-%m-%d" --reverse | python3 -c "
+    import sys, json
+    commits = []
+    for line in sys.stdin:
+        line = line.strip()
+        if not line: continue
+        parts = line[1:-1]
+        fields = {}
+        for pair in ['hash','date','author','subject']:
+            idx = parts.find(pair + ':\"')
+            if idx == -1: continue
+            start = idx + len(pair) + 2
+            end = parts.find('\",', start) if pair != 'subject' else len(parts) - 1
+            if end == -1: end = len(parts) - 1
+            fields[pair] = parts[start:end]
+        commits.append(fields)
+    print(json.dumps(commits, ensure_ascii=False))
+    " > packages/dashboard/src/pages/commits-data.json
+    ```
 
 ## Commit Convention
 - 한국어 설명 + 카테고리 prefix (fix:, feat:, refactor:, perf:, docs:)
