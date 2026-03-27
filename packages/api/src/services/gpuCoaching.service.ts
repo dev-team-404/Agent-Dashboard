@@ -10,6 +10,7 @@
 
 import { prisma } from '../index.js';
 import { getAllLatestMetrics, lookupGpuSpec, estimateModelParams, calcTheoreticalMaxTps, detectPrecision } from './gpuMonitor.service.js';
+import { logInternalLlmUsage } from './internalUsageLogger.js';
 
 const COACHING_INTERVAL_MS = 60 * 60 * 1000; // 1시간
 const DELAY_BETWEEN_SERVERS_MS = 5 * 60 * 1000; // 5분 간격
@@ -51,12 +52,22 @@ async function callLlm(prompt: string): Promise<string> {
 
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
+  const startMs = Date.now();
   try {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal });
     clearTimeout(tid);
     if (!res.ok) return '';
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    return data.choices?.[0]?.message?.content || '';
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+    const content = data.choices?.[0]?.message?.content || '';
+    // 사용량 로깅
+    logInternalLlmUsage({
+      modelId, modelName: model.name,
+      inputTokens: data.usage?.prompt_tokens || Math.round(prompt.length / 4),
+      outputTokens: data.usage?.completion_tokens || Math.round(content.length / 4),
+      latencyMs: Date.now() - startMs,
+      path: '/internal/gpu-coaching', statusCode: 200,
+    }).catch(() => {});
+    return content;
   } catch { clearTimeout(tid); return ''; }
 }
 
