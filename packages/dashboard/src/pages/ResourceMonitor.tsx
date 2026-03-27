@@ -374,8 +374,8 @@ export default function ResourceMonitor() {
 
   const fetch_ = useCallback(async () => { try { const [r, p] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest()]); setData(r.data.data || []); setPred(p.data.prediction); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays); setAna(r.data); } catch {} }, [anaDays]);
-  useEffect(() => { fetch_(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
-  useEffect(() => { if (tab === 'analysis') fetchAna(); }, [tab, fetchAna]);
+  useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
+  useEffect(() => { fetchAna(); }, [fetchAna]);
 
   // ── 종합 KPI (투자 판단 관점) ──
   const totGpu = data.reduce((a, e) => a + (e.metrics?.gpus?.length || 0), 0);
@@ -501,46 +501,75 @@ export default function ResourceMonitor() {
       </div>
     )}
 
-    {/* ── 종합 KPI (투자 판단 우선순위) ── */}
+    {/* ── 종합 KPI (실시간 + 5영업일 평균) ── */}
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
-        <div className="px-3 pt-2 flex items-center justify-between">
-          <p className="text-[9px] text-gray-500">종합 지표 | 이론max = GPU FP16 TFLOPS ÷ (2×모델 파라미터) | 이론대비 = 현재/이론max | 건강도 = 7일피크/이론max (30-50% 정상, 하락 시 노후화) | 영업시간: KST 9-18시 영업일</p>
+        <div className="px-3 pt-2">
+          <p className="text-[9px] text-gray-500">이론max = GPU FP16 TFLOPS ÷ (2×모델 active params) | 건강도 = 7일피크/이론max | 영업시간: KST 9-18시 영업일</p>
         </div>
-        <div className="p-3 pt-1.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-100">
-            <p className="text-[9px] text-blue-600 font-semibold uppercase">실효 가용량 대비 사용률</p>
-            <p className={`text-2xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
-            <p className="text-[9px] text-gray-400">건강도 반영 실사용</p>
+        {/* 실시간 */}
+        <div className="px-3 pt-1">
+          <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
+        </div>
+        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100">
+            <p className="text-[8px] text-blue-600 font-semibold">실효 사용률</p>
+            <p className={`text-xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-            <p className="text-[9px] text-gray-600 font-semibold uppercase">이론 최대 대비</p>
-            <p className={`text-2xl font-black ${avgTheoreticalUtil != null ? utilTxt(avgTheoreticalUtil) : 'text-gray-300'}`}>{avgTheoreticalUtil ?? '-'}%</p>
-            <p className="text-[9px] text-gray-400">현재 / 이론max</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">이론대비</p>
+            <p className={`text-xl font-black ${avgTheoreticalUtil != null ? utilTxt(avgTheoreticalUtil) : 'text-gray-300'}`}>{avgTheoreticalUtil ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-            <p className="text-[9px] text-gray-600 font-semibold uppercase">GPU 건강도</p>
-            <p className={`text-2xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
-            <p className="text-[9px] text-gray-400">피크/이론max (30-50% 정상)</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">건강도</p>
+            <p className={`text-xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-            <p className="text-[9px] text-gray-600 font-semibold uppercase">여유 용량</p>
-            <p className={`text-2xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : headroom <= 40 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
-            <p className="text-[9px] text-gray-400">{headroom != null && headroom <= 20 ? '증설 필요!' : '포화까지 남은 %'}</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">여유</p>
+            <p className={`text-xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-            <p className="text-[9px] text-gray-600 font-semibold uppercase">처리량</p>
-            <p className="text-2xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}</p>
-            <p className="text-[9px] text-gray-400">tok/s (전체 서버 합산)</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">처리량</p>
+            <p className="text-xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-            <p className="text-[9px] text-gray-600 font-semibold uppercase">인프라</p>
-            <p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
-            <div className="flex gap-2 mt-0.5 text-[9px] text-gray-500">
-              <span>CPU <b className={avgCpu != null && avgCpu > 80 ? 'text-red-600' : ''}>{avgCpu ?? '-'}%</b></span>
-              <span>RAM <b className={avgRam != null && avgRam > 85 ? 'text-red-600' : ''}>{avgRam ?? '-'}%</b></span>
-              <span>Disk <b className={avgDisk != null && avgDisk > 90 ? 'text-red-600' : ''}>{avgDisk ?? '-'}%</b></span>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">인프라</p>
+            <p className="text-xs font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
+            <div className="flex gap-1.5 text-[8px] text-gray-500">
+              <span>CPU <b>{avgCpu ?? '-'}%</b></span>
+              <span>RAM <b>{avgRam ?? '-'}%</b></span>
+              <span>Disk <b>{avgDisk ?? '-'}%</b></span>
             </div>
+          </div>
+        </div>
+        {/* 5영업일 평균 */}
+        <div className="px-3 pt-1 border-t border-gray-100">
+          <p className="text-[9px] font-bold text-emerald-600 mb-1">5영업일 평균 (KST 9-18시, 주말·등록 휴일 제외)</p>
+        </div>
+        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
+            <p className="text-[8px] text-emerald-600 font-semibold">GPU 사용률</p>
+            <p className={`text-xl font-black ${ana?.businessHours?.avgGpuUtil != null ? utilTxt(ana.businessHours.avgGpuUtil) : 'text-gray-300'}`}>{ana?.businessHours?.avgGpuUtil ?? '-'}%</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">VRAM 사용률</p>
+            <p className="text-xl font-black text-gray-900">{ana?.businessHours?.avgMemUtil ?? '-'}%</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">KV Cache</p>
+            <p className="text-xl font-black text-purple-600">{ana?.businessHours?.avgKvCache ?? '-'}%</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량</p>
+            <p className="text-xl font-black text-blue-600">{ana?.businessHours?.avgThroughputTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 대기큐</p>
+            <p className={`text-xl font-black ${(ana?.businessHours?.avgWaitingReqs || 0) > 1 ? 'text-amber-600' : 'text-gray-900'}`}>{ana?.businessHours?.avgWaitingReqs ?? '-'}<span className="text-[9px] font-normal"> 건</span></p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">샘플</p>
+            <p className="text-xs font-bold text-gray-600">{ana?.businessHours?.sampleCount ?? '-'}건<span className="text-[8px] font-normal text-gray-400 ml-1">{ana?.period?.days || '-'}일간</span></p>
           </div>
         </div>
       </div>
