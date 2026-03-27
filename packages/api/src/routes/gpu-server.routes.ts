@@ -176,19 +176,27 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       const m = metrics.find(mt => mt.serverId === s.id) || null;
       const gpuCount = m?.gpus?.length || 0;
       const spec = gpuCount > 0 ? m!.gpus[0].spec : null;
+      const endpoints = (m?.llmEndpoints || []).filter(ep => ep.type !== 'unknown');
 
-      // 모델 파라미터 추정 (첫 번째 LLM 엔드포인트의 모델명에서)
-      const modelName = m?.llmEndpoints?.[0]?.modelNames?.[0] || null;
-      const modelParams = modelName ? estimateModelParams(modelName) : null;
-
-      // 이론적 최대 처리량
-      const theoreticalMaxTps = (spec && modelParams && gpuCount > 0)
-        ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, modelParams) * 10) / 10
+      // 이론 최대: 서버 전체 GPU의 compute bound (가장 큰 모델 기준)
+      // GPU 분배를 모르므로 전체 GPU × 가장 큰 모델로 보수적 계산
+      let primaryModelName: string | null = null;
+      let primaryModelParams: number | null = null;
+      for (const ep of endpoints) {
+        const name = ep.modelNames?.[0] || null;
+        const params = name ? estimateModelParams(name) : null;
+        if (params && (primaryModelParams == null || params > primaryModelParams)) {
+          primaryModelName = name;
+          primaryModelParams = params;
+        }
+      }
+      const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
+        ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams) * 10) / 10
         : null;
 
-      // 현재 처리량
-      const currentTps = m?.llmEndpoints?.reduce((sum, ep) =>
-        sum + (ep.promptThroughputTps || 0) + (ep.genThroughputTps || 0), 0) || 0;
+      // 현재 처리량 (unknown 제외)
+      const currentTps = endpoints.reduce((sum, ep) =>
+        sum + (ep.promptThroughputTps || 0) + (ep.genThroughputTps || 0), 0);
 
       // 7일 피크
       const peakTps = peakTpsMap.get(s.id) || null;
@@ -197,11 +205,11 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
         server: serverMap.get(s.id),
         metrics: m,
         throughputAnalysis: {
-          theoreticalMaxTps,    // 이론 최대 (GPU 스펙 + 모델 크기 기반)
-          peakTps,              // 7일 관측 피크
+          theoreticalMaxTps,
+          peakTps,
           currentTps: Math.round(currentTps * 10) / 10,
-          modelName,
-          modelParams: modelParams ? `${modelParams}B` : null,
+          modelName: primaryModelName,
+          modelParams: primaryModelParams ? `${primaryModelParams}B` : null,
           gpuHealthPct: (theoreticalMaxTps && peakTps) ? Math.round((peakTps / theoreticalMaxTps) * 1000) / 10 : null,
           utilizationPct: (peakTps && peakTps > 0) ? Math.round((currentTps / peakTps) * 1000) / 10 : null,
           theoreticalUtilPct: (theoreticalMaxTps && theoreticalMaxTps > 0) ? Math.round((currentTps / theoreticalMaxTps) * 1000) / 10 : null,

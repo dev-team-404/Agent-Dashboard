@@ -285,13 +285,27 @@ export function estimateModelParams(modelName: string): number | null {
 }
 
 /**
- * 이론적 최대 처리량 계산 (decode phase, memory-bandwidth bound)
- * tok/s ≈ (GPU 대역폭 × GPU 수) / (모델 파라미터 × 2 bytes/FP16)
+ * 이론적 최대 처리량 계산
+ *
+ * LLM 추론에는 2가지 병목이 있음:
+ * 1. Memory-bandwidth bound (배치 1): tok/s = bandwidth / model_size
+ * 2. Compute bound (배치 N): tok/s = FLOPS / (2 * active_params) [각 토큰에 2*params FLOPs 필요]
+ *
+ * vLLM continuous batching에서는 compute bound가 적용됨.
+ * 두 가지 중 더 낮은 값이 실제 상한.
+ * 실무에서는 메모리 효율 ~60-70%이므로 0.65 보정.
  */
 export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number): number {
-  const modelSizeBytes = modelParamsBillion * 1e9 * 2; // FP16 = 2 bytes
-  const totalBandwidthBytes = spec.memBandwidthGBs * 1e9 * gpuCount;
-  return totalBandwidthBytes / modelSizeBytes;
+  const modelSizeBytes = modelParamsBillion * 1e9 * 2;
+  // Method 1: Memory bandwidth bound (단일 요청 decode)
+  const bwBound = (spec.memBandwidthGBs * 1e9 * gpuCount) / modelSizeBytes;
+  // Method 2: Compute bound (배치 처리, FP16 FLOPS 기준)
+  const flopsPerToken = 2 * modelParamsBillion * 1e9; // 2 * params FLOPs per token
+  const totalFlops = spec.fp16Tflops * 1e12 * gpuCount; // total FP16 FLOPS
+  const computeBound = totalFlops / flopsPerToken;
+  // vLLM continuous batching → compute bound가 실질적 상한
+  // 효율 보정 0.5 (실무 GPU utilization ~50-60%)
+  return computeBound * 0.5;
 }
 
 // ================================================================
