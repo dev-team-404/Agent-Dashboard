@@ -39,6 +39,7 @@ async function callSystemLlm(
     model: model.name,
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
     max_tokens: 12000, temperature: 0.2, stream: false,
+    response_format: { type: 'json_object' },
   };
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), LLM_TIMEOUT_MS);
@@ -152,10 +153,28 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   const p95LatencyMs = latencyResult[0]?.p95_ms || null;
 
   // ── GPU 메트릭 (영업시간만) ──
-  const snapshots = await prisma.gpuMetricSnapshot.findMany({
-    where: { timestamp: { gte: sevenDaysAgo } },
-    select: { gpuMetrics: true, llmMetrics: true, timestamp: true },
-  });
+  // Prisma JSON 칼럼에서 napi 변환 실패 가능 → 배치로 나눠 가져오고 깨진 데이터 방어
+  let snapshots: Array<{ gpuMetrics: any; llmMetrics: any; timestamp: Date }> = [];
+  try {
+    snapshots = await prisma.gpuMetricSnapshot.findMany({
+      where: { timestamp: { gte: sevenDaysAgo } },
+      select: { gpuMetrics: true, llmMetrics: true, timestamp: true },
+    });
+  } catch (snapErr: any) {
+    console.error('[GPU Capacity] Snapshot findMany failed, trying raw fallback:', snapErr.message);
+    // Prisma JSON 파싱 실패 시 raw query fallback
+    try {
+      const rawSnaps = await prisma.$queryRaw<Array<{ gpu_metrics: string; llm_metrics: string; timestamp: Date }>>`
+        SELECT gpu_metrics::text, llm_metrics::text, timestamp
+        FROM gpu_metric_snapshots WHERE timestamp >= ${sevenDaysAgo}`;
+      snapshots = rawSnaps.map(r => {
+        try { return { gpuMetrics: JSON.parse(r.gpu_metrics || '[]'), llmMetrics: JSON.parse(r.llm_metrics || '[]'), timestamp: r.timestamp }; }
+        catch { return { gpuMetrics: [], llmMetrics: [], timestamp: r.timestamp }; }
+      });
+    } catch (rawErr: any) {
+      console.error('[GPU Capacity] Raw snapshot fallback also failed:', rawErr.message);
+    }
+  }
 
   const bizConcurrents: number[] = [];
   let totalGpuUtil = 0, gpuUtilCount = 0, totalKvCache = 0, kvCacheCount = 0, totalThroughput = 0, tpCount = 0;
@@ -190,11 +209,30 @@ export async function runGpuCapacityPrediction(): Promise<any> {
 
   // ── GPU 인벤토리 ──
   const servers = await prisma.gpuServer.findMany({ where: { enabled: true } });
-  const latestSnaps = await prisma.gpuMetricSnapshot.findMany({
-    where: { serverId: { in: servers.map(s => s.id) } },
-    orderBy: { timestamp: 'desc' }, distinct: ['serverId'],
-    select: { serverId: true, gpuMetrics: true, llmMetrics: true },
-  });
+  let latestSnaps: Array<{ serverId: string; gpuMetrics: any; llmMetrics: any }> = [];
+  try {
+    latestSnaps = await prisma.gpuMetricSnapshot.findMany({
+      where: { serverId: { in: servers.map(s => s.id) } },
+      orderBy: { timestamp: 'desc' }, distinct: ['serverId'],
+      select: { serverId: true, gpuMetrics: true, llmMetrics: true },
+    });
+  } catch (snapErr: any) {
+    console.error('[GPU Capacity] latestSnaps findMany failed, trying raw fallback:', snapErr.message);
+    try {
+      const serverIds = servers.map(s => s.id);
+      if (serverIds.length > 0) {
+        const rawSnaps = await prisma.$queryRaw<Array<{ server_id: string; gpu_metrics: string; llm_metrics: string }>>`
+          SELECT DISTINCT ON (server_id) server_id, gpu_metrics::text, llm_metrics::text
+          FROM gpu_metric_snapshots WHERE server_id = ANY(${serverIds}) ORDER BY server_id, timestamp DESC`;
+        latestSnaps = rawSnaps.map(r => {
+          try { return { serverId: r.server_id, gpuMetrics: JSON.parse(r.gpu_metrics || '[]'), llmMetrics: JSON.parse(r.llm_metrics || '[]') }; }
+          catch { return { serverId: r.server_id, gpuMetrics: [], llmMetrics: [] }; }
+        });
+      }
+    } catch (rawErr: any) {
+      console.error('[GPU Capacity] Raw latestSnaps fallback also failed:', rawErr.message);
+    }
+  }
 
   const inventoryMap = new Map<string, { count: number; vramGb: number; spec: any }>();
   let totalVramGb = 0;
@@ -692,30 +730,30 @@ JSON으로만 응답: {"analysis":"...기술 분석(한국어, 마크다운)..."
     aiAnalysis = `[자동] ${currentUsers}명(DAU ${Math.round(currentDau)}) → 목표 ${targetUserCount.toLocaleString()}명 기준 ${Math.round(predictedTotalVram)}GB 필요 (현재 ${Math.round(totalVramGb)}GB). 부족분: B300 ${calculationDetails.result.b300Units}장. ${currentPeakB300Units > 0 ? `현재 피크에서도 B300 ${currentPeakB300Units}장 부족.` : ''} 주간 성장률 ${(weeklyGrowthRate * 100).toFixed(1)}%.`;
   }
 
-  // ── DB 저장 ──
+  // ── DB 저장 (타입 안전장치) ──
   const today = new Date(); today.setHours(0, 0, 0, 0);
+  const safeInt = (v: any): number => { const n = parseInt(String(v), 10); return isNaN(n) ? 0 : n; };
+  const safeFloat = (v: any): number => { const n = parseFloat(String(v)); return isNaN(n) ? 0 : n; };
+  const safeFloatNull = (v: any): number | null => { if (v == null) return null; const n = parseFloat(String(v)); return isNaN(n) ? null : n; };
+  const safeConfidence = (v: string): string => ['HIGH', 'MEDIUM', 'LOW'].includes(v) ? v : dataConfidence;
+
+  const dbData = {
+    targetUserCount: safeInt(targetUserCount), currentDau: safeFloat(currentDau), currentUsers: safeInt(currentUsers),
+    avgTokensPerUserPerDay: safeFloat(avgTokensPerUser), avgRequestsPerUserPerDay: safeFloat(avgRequestsPerUser),
+    peakConcurrentRequests: safeInt(peakConcurrent), avgLatencyMs: safeFloatNull(avgLatencyMs),
+    currentGpuInventory: gpuInventory as any, currentTotalVramGb: safeFloat(totalVramGb),
+    currentAvgGpuUtil: safeFloatNull(avgGpuUtil), currentAvgKvCache: safeFloatNull(avgKvCache),
+    predictedTotalVramGb: safeFloat(predictedTotalVram), predictedGpuCount: predictedGpuCount as any,
+    predictedB300Units: safeInt(calculationDetails.result.b300Units), gapVramGb: safeFloat(gapVram),
+    scalingFactor: safeFloat(growthAdjustedScaling), safetyMargin: safeFloat(SAFETY_MARGIN),
+    aiAnalysis: String(aiAnalysis || ''), aiConfidence: safeConfidence(aiConfidence),
+    modelId: modelId || 'none', calculationDetails: calculationDetails as any,
+  };
+
   const prediction = await prisma.gpuCapacityPrediction.upsert({
     where: { date: today },
-    update: {
-      targetUserCount, currentDau, currentUsers, avgTokensPerUserPerDay: avgTokensPerUser,
-      avgRequestsPerUserPerDay: avgRequestsPerUser, peakConcurrentRequests: peakConcurrent, avgLatencyMs,
-      currentGpuInventory: gpuInventory as any, currentTotalVramGb: totalVramGb,
-      currentAvgGpuUtil: avgGpuUtil, currentAvgKvCache: avgKvCache,
-      predictedTotalVramGb: predictedTotalVram, predictedGpuCount: predictedGpuCount as any,
-      predictedB300Units: calculationDetails.result.b300Units, gapVramGb: gapVram,
-      scalingFactor: growthAdjustedScaling, safetyMargin: SAFETY_MARGIN,
-      aiAnalysis, aiConfidence, modelId: modelId || 'none', calculationDetails: calculationDetails as any,
-    },
-    create: {
-      date: today, targetUserCount, currentDau, currentUsers, avgTokensPerUserPerDay: avgTokensPerUser,
-      avgRequestsPerUserPerDay: avgRequestsPerUser, peakConcurrentRequests: peakConcurrent, avgLatencyMs,
-      currentGpuInventory: gpuInventory as any, currentTotalVramGb: totalVramGb,
-      currentAvgGpuUtil: avgGpuUtil, currentAvgKvCache: avgKvCache,
-      predictedTotalVramGb: predictedTotalVram, predictedGpuCount: predictedGpuCount as any,
-      predictedB300Units: calculationDetails.result.b300Units, gapVramGb: gapVram,
-      scalingFactor: growthAdjustedScaling, safetyMargin: SAFETY_MARGIN,
-      aiAnalysis, aiConfidence, modelId: modelId || 'none', calculationDetails: calculationDetails as any,
-    },
+    update: dbData,
+    create: { date: today, ...dbData },
   });
 
   console.log(`[GPU Capacity] Done: B300 ${calculationDetails.result.b300Units}장 (gap ${Math.round(gapVram)}GB, growth x${tokenGrowthMultiplier.toFixed(2)})`);

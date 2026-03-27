@@ -495,7 +495,20 @@ export default function ResourceMonitor() {
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${pred.aiConfidence === 'HIGH' ? 'bg-emerald-100 text-emerald-700' : pred.aiConfidence === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{pred.aiConfidence}</span>
-            <button onClick={async () => { setPredRunning(true); try { const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setPredRunning(false); } }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중...' : '재실행'}</button>
+            <button onClick={async () => {
+              setPredRunning(true);
+              try {
+                const r = await gpuCapacityApi.run();
+                setPred(r.data.prediction);
+              } catch (e: any) {
+                // timeout이어도 서버에서 분석 진행 중일 수 있음 → 폴링으로 결과 확인
+                if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
+                  alert('분석이 진행 중입니다. 완료되면 자동으로 업데이트됩니다.');
+                } else {
+                  alert(e?.response?.data?.error || '실패');
+                }
+              } finally { setPredRunning(false); }
+            }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중... (완료 시 자동 반영)' : '재실행'}</button>
           </div>
         </div>
 
