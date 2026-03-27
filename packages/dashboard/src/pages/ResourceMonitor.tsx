@@ -566,7 +566,7 @@ export default function ResourceMonitor() {
         {cd.growth && (
           <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
             <span className="text-gray-500">인당 토큰 성장: <b>{cd.growth.tokensPerUserGrowthRate}%</b>/주</span>
-            <span className="text-gray-500">6개월 배율: <b>x{cd.growth.growthMultiplier6mo}</b></span>
+            <span className="text-gray-500">6개월 토큰 성장 배율: <b>x{cd.growth.tokenGrowthMultiplier6mo || cd.growth.growthMultiplier6mo}</b></span>
             {cd.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b></span>}
           </div>
         )}
@@ -583,22 +583,37 @@ export default function ResourceMonitor() {
           <details className="text-[10px]">
             <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">계산 논리 보기</summary>
             <div className="mt-2 p-2 bg-white/70 rounded-lg space-y-1 text-gray-600">
-              <p><b>1. 스케일링:</b> DAU 비율 {(cd.inputs?.dauRatio * 100).toFixed(1)}% → 기본 x{cd.scaling?.scalingFactor} → 성장 반영 x{cd.growth?.growthAdjustedScaling}</p>
-              <p><b>2. Method A</b> (모델별 가중치 고정 + KV 스케일 합산): <b>{cd.methodA?.totalVramA}GB</b></p>
-              <p><b>3. Method B</b> (처리량 {cd.methodB?.currentTps} → {cd.methodB?.predictedTps} tok/s, 이론 max {cd.methodB?.weightedMaxTps} tok/s): <b>{cd.methodB?.totalVramB}GB</b></p>
-              <p><b>4. 최종:</b> max(A,B) x 안전마진 {pred.safetyMargin} x 에러보정 {cd.scaling?.errorMargin} x 건강도보정 {cd.scaling?.healthMargin} = <b>{Math.round(pred.predictedTotalVramGb)}GB</b></p>
+              <p><b>1. 스케일링:</b> DAU 비율 {(cd.inputs?.dauRatio * 100).toFixed(1)}% → x{cd.scaling?.scalingFactor} × 인당 토큰 성장 x{cd.growth?.tokenGrowthMultiplier6mo || cd.growth?.growthMultiplier6mo} = <b>x{cd.growth?.growthAdjustedScaling}</b></p>
+              <p className="text-[9px] text-gray-400 ml-2">DAU 증가는 target에 이미 포함. 인당 토큰 소비 증가만 추가 반영.</p>
+              <p><b>2. Method A</b> (실측 피크 throughput 기반): <b>B300 {cd.methodA?.b300 ?? cd.methodA?.totalVramA}장</b></p>
+              {cd.methodA?.detail && <p className="text-[9px] text-gray-400 ml-2">{cd.methodA.detail}</p>}
+              <p><b>3. Method B</b> (VRAM 복제 기반): <b>B300 {cd.methodB?.b300 ?? '?'}장</b> {cd.methodB?.totalVramNeeded ? `(필요 ${cd.methodB.totalVramNeeded}GB)` : ''}</p>
+              <p><b>4. 최종:</b> max(A,B) × 안전마진 {pred.safetyMargin} × 에러보정 {cd.scaling?.errorMargin} = <b>B300 {pred.predictedB300Units}장</b> ({Math.round(pred.predictedTotalVramGb)}GB)</p>
               {cd.inputs?.detectedModels?.length > 0 && <p><b>감지 모델:</b> {cd.inputs.detectedModels.join(', ')}</p>}
-              {cd.modelBreakdown?.length > 0 && <div><b>모델별 분석:</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, 이론max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}장</li>)}</ul></div>}
+              {cd.modelBreakdown?.length > 0 && <div><b>모델별:</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, 이론max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}장</li>)}</ul></div>}
               {cd.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {cd.confidenceIssues.join(', ')}</p>}
               {cd.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{cd.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
             </div>
           </details>
         )}
-        {/* AI 분석 */}
+        {/* AI 분석 — 2탭: 기술 분석 + 경영 보고서 */}
         {pred.aiAnalysis && pred.modelId !== 'none' && (
           <details className="text-[10px] mt-1">
             <summary className="cursor-pointer text-purple-600 font-medium hover:text-purple-800">AI 분석 리포트</summary>
-            <div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (pred.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
+            <div className="mt-2 space-y-2">
+              {/* 경영 보고서 (비전문가용) */}
+              {cd.executiveReport && (
+                <div className="p-3 bg-blue-50/80 rounded-lg border border-blue-200">
+                  <p className="text-[10px] font-bold text-blue-700 mb-1">경영 의사결정 보고서</p>
+                  <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (cd.executiveReport || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
+                </div>
+              )}
+              {/* 기술 분석 (전문가용) */}
+              <div className="p-3 bg-white/70 rounded-lg">
+                <p className="text-[10px] font-bold text-purple-700 mb-1">기술 상세 분석</p>
+                <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (pred.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
+              </div>
+            </div>
           </details>
         )}
       </div>
