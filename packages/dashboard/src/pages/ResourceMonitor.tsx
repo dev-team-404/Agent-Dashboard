@@ -650,17 +650,16 @@ export default function ResourceMonitor() {
               {/* 월별 예측 테이블 */}
               {cd.monthlyForecast?.length > 0 && (
                 <div className="mt-3 pt-2 border-t border-gray-200">
-                  <p className="font-bold text-gray-700 mb-1">📅 월별 GPU 수요 예측 (2026년 말까지)</p>
+                  <p className="font-bold text-gray-700 mb-1">📅 월별 GPU 수요 예측 (올해 말까지, 인당 토큰 성장 반영)</p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-[9px] border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
                           <th className="px-2 py-1 text-left border border-gray-200 font-semibold">월</th>
                           <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="인당 토큰 소비 증가율을 해당 월까지 복리 적용한 배율입니다.">토큰 성장</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="사용자 수 스케일링 × 토큰 성장 배율.\n이 배율만큼 현재 대비 GPU가 필요합니다.">총 스케일링</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월에 필요한 총 GPU 메모리(VRAM) 예측치입니다.">필요 VRAM</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="현재 보유 VRAM 대비 추가로 필요한 GPU 메모리입니다.">추가 VRAM</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월까지 추가 확보해야 하는 B300 GPU 장비 수입니다.">B300</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="현재 인프라 유지 시, 토큰 성장만으로 추가 필요한 B300 수.\n목표 인원 무관 — 순수 성장 대응 비용입니다.">성장만 B300</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="목표 인원 달성 + 토큰 성장 대응에 필요한 총 추가 B300 수.">목표 기준 B300</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월에 목표 기준 필요한 총 GPU 메모리(VRAM) 예측치입니다.">필요 VRAM</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -668,10 +667,9 @@ export default function ResourceMonitor() {
                           <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                             <td className="px-2 py-1 border border-gray-200 font-medium">{f.month}</td>
                             <td className="px-2 py-1 border border-gray-200 text-right">x{f.tokenGrowthMultiplier}</td>
-                            <td className="px-2 py-1 border border-gray-200 text-right font-semibold">x{f.totalScaling}</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.growthOnlyB300 > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>+{f.growthOnlyB300}장</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.b300Units > 0 ? 'text-indigo-700' : 'text-emerald-600'}`}>+{f.b300Units}장</td>
                             <td className="px-2 py-1 border border-gray-200 text-right">{f.predictedVramGb?.toLocaleString()}GB</td>
-                            <td className={`px-2 py-1 border border-gray-200 text-right ${f.gapVramGb > 0 ? 'text-red-600 font-semibold' : ''}`}>+{f.gapVramGb?.toLocaleString()}GB</td>
-                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.b300Units > 0 ? 'text-indigo-700' : 'text-emerald-600'}`}>{f.b300Units}장</td>
                           </tr>
                         ))}
                       </tbody>

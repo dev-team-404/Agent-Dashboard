@@ -575,66 +575,68 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     },
     result: { predictedTotalVram: Math.round(predictedTotalVram), gapVram: Math.round(gapVram), b300Units },
     topServices, dataConfidence, confidenceIssues,
-    monthlyForecast: [] as Array<{ month: string; tokenGrowthMultiplier: number; totalScaling: number; predictedVramGb: number; gapVramGb: number; b300Units: number }>,
+    monthlyForecast: [] as Array<{ month: string; tokenGrowthMultiplier: number; totalScaling: number; predictedVramGb: number; gapVramGb: number; b300Units: number; growthOnlyB300: number }>,
   };
 
-  // ── 월별 예측 (현재 월 ~ 2026년 12월) ──
+  // ── 월별 예측 (현재 월 ~ 올해 12월, 인당 토큰 성장률 기반) ──
+  // 두 가지 관점:
+  //   growthOnly: 현재 인프라 유지 시 성장만 반영한 부족분 (투자 시급성)
+  //   withTarget: target 인원 기준 월별 투자 스케줄
   {
     const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-based (1=Jan, 12=Dec)
+    const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
-    const targetYear = 2026;
-    // Calculate months remaining from next month to Dec 2026
-    const startMonth = currentYear === targetYear ? currentMonth + 1 : 1;
-    const endMonth = 12;
-    const monthsToGenerate = currentYear === targetYear
-      ? Math.max(0, endMonth - currentMonth)
-      : Math.max(0, (targetYear - currentYear) * 12 + endMonth - currentMonth);
+    const monthsToDecember = Math.max(0, 12 - currentMonth);
 
-    const forecast: Array<{ month: string; tokenGrowthMultiplier: number; totalScaling: number; predictedVramGb: number; gapVramGb: number; b300Units: number }> = [];
+    const forecast: Array<{ month: string; tokenGrowthMultiplier: number; totalScaling: number; predictedVramGb: number; gapVramGb: number; b300Units: number; growthOnlyB300: number }> = [];
 
-    for (let i = 1; i <= monthsToGenerate; i++) {
-      const futureMonth = ((currentMonth - 1 + i) % 12) + 1;
-      const futureYear = currentYear + Math.floor((currentMonth - 1 + i) / 12);
-      if (futureYear > targetYear) break;
-
+    for (let i = 1; i <= monthsToDecember; i++) {
+      const futureMonth = currentMonth + i;
+      const monthLabel = `${currentYear}-${String(futureMonth).padStart(2, '0')}`;
       const weeksFromNow = i * 4.33;
       const tokenGrowthAtM = Math.pow(1 + Math.max(tokensPerUserGrowthRate, 0), weeksFromNow);
       const cappedTokenGrowth = Math.min(tokenGrowthAtM, 3);
-      const scalingAtM = scalingFactor * cappedTokenGrowth;
 
-      // Method A at month M
-      let methodA_b300_m = 0;
+      // ── 현재 인프라 유지 시 (성장률만 반영, target 무관) ──
+      // 현재 피크 throughput이 토큰 성장률만큼 증가 → 현재 GPU로 감당 가능한지
+      let growthOnlyB300 = 0;
       if (peakThroughput > 0 && totalGpuCount > 0) {
-        const observedTpsPerGpu = peakThroughput / totalGpuCount;
-        const targetPeakTps_m = peakThroughput * scalingAtM;
-        const targetGpuCount_m = Math.ceil(targetPeakTps_m / observedTpsPerGpu);
-        const additionalGpuEquiv_m = Math.max(0, targetGpuCount_m - totalGpuCount);
-        const dominantTflops = dominantSpec?.fp16Tflops || 989;
-        const b300Advantage = B300_SPEC.fp16Tflops / dominantTflops;
-        methodA_b300_m = Math.ceil(additionalGpuEquiv_m / b300Advantage);
-      } else {
-        const additionalVram_m = totalVramGb * Math.max(scalingAtM - 1, 0);
-        methodA_b300_m = Math.ceil(additionalVram_m / B300_SPEC.vramGb);
+        const futureRequiredTps = peakThroughput * cappedTokenGrowth;
+        const currentCapacityTps = peakThroughput; // 현재 피크가 곧 현재 용량
+        if (futureRequiredTps > currentCapacityTps) {
+          const additionalTps = futureRequiredTps - currentCapacityTps;
+          const tpsPerGpu = peakThroughput / totalGpuCount;
+          const additionalGpus = Math.ceil(additionalTps / tpsPerGpu);
+          const b300Adv = B300_SPEC.fp16Tflops / (dominantSpec?.fp16Tflops || 989);
+          growthOnlyB300 = Math.ceil(Math.ceil(additionalGpus / b300Adv) * SAFETY_MARGIN * errorMargin);
+        }
       }
 
-      // Method B at month M
-      const totalVramNeeded_m = totalVramGb * scalingAtM;
-      const vramGap_m = Math.max(0, totalVramNeeded_m - totalVramGb);
-      const methodB_b300_m = Math.ceil(vramGap_m / B300_SPEC.vramGb);
-
+      // ── target 기준 (기존 로직) ──
+      const scalingAtM = scalingFactor * cappedTokenGrowth;
+      let methodA_b300_m = 0;
+      if (peakThroughput > 0 && totalGpuCount > 0) {
+        const tpsPerGpu = peakThroughput / totalGpuCount;
+        const targetPeakTps_m = peakThroughput * scalingAtM;
+        const additionalGpuEquiv_m = Math.max(0, Math.ceil(targetPeakTps_m / tpsPerGpu) - totalGpuCount);
+        const b300Adv = B300_SPEC.fp16Tflops / (dominantSpec?.fp16Tflops || 989);
+        methodA_b300_m = Math.ceil(additionalGpuEquiv_m / b300Adv);
+      } else {
+        methodA_b300_m = Math.ceil(totalVramGb * Math.max(scalingAtM - 1, 0) / B300_SPEC.vramGb);
+      }
+      const methodB_b300_m = Math.ceil(Math.max(0, totalVramGb * scalingAtM - totalVramGb) / B300_SPEC.vramGb);
       const rawB300_m = Math.max(methodA_b300_m, methodB_b300_m);
       const b300Units_m = Math.ceil(rawB300_m * SAFETY_MARGIN * errorMargin);
       const gapVram_m = b300Units_m * B300_SPEC.vramGb;
-      const predictedVram_m = totalVramGb + gapVram_m;
 
       forecast.push({
-        month: `${futureYear}-${String(futureMonth).padStart(2, '0')}`,
+        month: monthLabel,
         tokenGrowthMultiplier: Math.round(cappedTokenGrowth * 100) / 100,
         totalScaling: Math.round(scalingAtM * 100) / 100,
-        predictedVramGb: Math.round(predictedVram_m),
+        predictedVramGb: Math.round(totalVramGb + gapVram_m),
         gapVramGb: Math.round(gapVram_m),
         b300Units: b300Units_m,
+        growthOnlyB300, // 현재 인프라 유지 시 성장으로 인한 추가 B300
       });
     }
 
@@ -723,13 +725,16 @@ ${(isKvShort || isWaitingShort || isPreemptionShort) ? '⚠️ 현재 피크에�
 - 안전마진 x${SAFETY_MARGIN}, 에러보정 x${errorMargin.toFixed(2)} → 최종 B300 ${b300Units}장 (${Math.round(gapVram)}GB)
 ※ healthMargin 미적용: 실측 throughput에 효율 이미 반영
 
-## 월별 예측 (2026년 말까지)
+## 월별 예측 (${new Date().getFullYear()}년 말까지, 인당 토큰 성장 반영)
 ${calculationDetails.monthlyForecast.length > 0
-  ? '| 월 | 토큰 성장 배율 | 총 스케일링 | 필요 VRAM(GB) | 추가 VRAM(GB) | B300 |\n|---|---|---|---|---|---|\n' +
+  ? '| 월 | 토큰 성장 | 성장만 B300 | 목표 기준 B300 | 목표 기준 VRAM |\n|---|---|---|---|---|\n' +
     calculationDetails.monthlyForecast.map(f =>
-      `| ${f.month} | x${f.tokenGrowthMultiplier} | x${f.totalScaling} | ${f.predictedVramGb} | ${f.gapVramGb} | ${f.b300Units}장 |`
+      `| ${f.month} | x${f.tokenGrowthMultiplier} | +${f.growthOnlyB300}장 | +${f.b300Units}장 | ${f.predictedVramGb}GB |`
     ).join('\n')
-  : '- 월별 예측 데이터 없음 (이미 2026년 12월 이후)'}
+  : '- 월별 예측 데이터 없음 (이미 12월 이후)'}
+
+※ "성장만 B300" = 현재 인프라 유지하면서 토큰 성장만 대응하는 데 필요한 추가 장비
+※ "목표 기준 B300" = 목표 ${targetUserCount.toLocaleString()}명 + 토큰 성장 대응 총 필요 장비
 
 위 월별 추이에서 가파른 증가 구간이 있다면 해당 시점 전에 GPU 확보가 완료되어야 함을 강조하세요.
 
