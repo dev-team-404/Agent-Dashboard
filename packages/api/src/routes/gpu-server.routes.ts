@@ -608,7 +608,9 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
         (SELECT SUM(COALESCE((l->>'waitingRequests')::float,0))
           FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS wait,
         (SELECT SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0))
-          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps,
+        (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
+          FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
       FROM gpu_metric_snapshots s
       WHERE s.timestamp >= $1
       ORDER BY s.timestamp ASC
@@ -622,7 +624,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
 
     // 날짜×시간 히트맵 (3차원: tok/s, kv%, 대기건수)
-    const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[] }>();
+    const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[]; preempt: number[] }>();
 
     for (const r of rows) {
       const h = +r.h, d = +r.d;
@@ -632,10 +634,12 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
 
       // 날짜×시간 히트맵 집계
       const key = `${r.dt}|${h}`;
-      const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [] };
+      const preempt = +(r.preempt || 0);
+      const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [], preempt: [] };
       if (tps > 0) entry.tps.push(tps);
       if (kv != null) entry.kv.push(kv);
       entry.wait.push(wait);
+      entry.preempt.push(preempt);
       dateHourMap.set(key, entry);
 
       if (biz) {
@@ -657,7 +661,8 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       const avgTps = v.tps.length > 0 ? v.tps.reduce((a, b) => a + b, 0) / v.tps.length : 0;
       const avgKv = v.kv.length > 0 ? v.kv.reduce((a, b) => a + b, 0) / v.kv.length : 0;
       const avgWait = v.wait.length > 0 ? v.wait.reduce((a, b) => a + b, 0) / v.wait.length : 0;
-      return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), samples: v.tps.length || v.wait.length };
+      const avgPreempt = v.preempt.length > 0 ? v.preempt.reduce((a, b) => a + b, 0) / v.preempt.length : 0;
+      return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), preempt: r1(avgPreempt), samples: v.tps.length || v.wait.length };
     }).sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
 
     const analyticsResult = {

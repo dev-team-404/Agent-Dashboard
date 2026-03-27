@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, BarChart, Bar,
+  AreaChart, Area,
 } from 'recharts';
 
 // ── Types ──
@@ -423,14 +423,6 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   );
 }
 
-// ── Heatmap ──
-function Heatmap({ data }: { data: Array<{ hour: number; dow: number; avgUtil: number | null }> }) {
-  const cc = (v: number | null) => v == null ? 'bg-gray-50' : v >= 80 ? 'bg-red-500 text-white' : v >= 60 ? 'bg-orange-400 text-white' : v >= 40 ? 'bg-amber-300' : v >= 20 ? 'bg-blue-200' : v > 0 ? 'bg-blue-100' : 'bg-gray-50';
-  return (<div className="overflow-x-auto"><div className="grid gap-px" style={{ gridTemplateColumns: '28px repeat(24, 1fr)' }}>
-    <div />{Array.from({ length: 24 }, (_, h) => <div key={h} className="text-center text-[8px] text-gray-400">{h}</div>)}
-    {DOW.map((d, dow) => <>{<div key={`l${dow}`} className="text-[9px] text-gray-500 flex items-center justify-end pr-1">{d}</div>}{Array.from({ length: 24 }, (_, h) => { const c = data.find(x => x.hour === h && x.dow === dow); return <div key={`${dow}-${h}`} className={`text-center text-[8px] py-0.5 rounded-sm ${cc(c?.avgUtil ?? null)}`} title={`${d} ${h}시: ${c?.avgUtil?.toFixed(1) ?? '-'}%`}>{c?.avgUtil != null ? Math.round(c.avgUtil) : ''}</div>; })}</>)}
-  </div></div>);
-}
 
 // ── Main ──
 export default function ResourceMonitor() {
@@ -1010,13 +1002,14 @@ export default function ResourceMonitor() {
         const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
         const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
 
-        const tabs = [
-          { key: 'tps', label: 'tok/s 실제값', color: (v: number) => v > 500 ? '#dc2626' : v > 100 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
-          { key: 'kv', label: 'KV Cache %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
-          { key: 'wait', label: '대기 건수', color: (v: number) => v >= 5 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
-          { key: 'tpsPct', label: '처리량 %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
-          { key: 'kvPct', label: 'KV %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
-          { key: 'concPct', label: '동시처리 %', color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
+        const tabs: Array<{ key: string; label: string; desc: string; color: (v: number) => string }> = [
+          { key: 'tps', label: 'tok/s', desc: '초당 토큰 생성 수 — AI가 얼마나 빠르게 응답하고 있는지. 높을수록 활발.', color: (v: number) => v > 500 ? '#dc2626' : v > 100 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kv', label: 'KV Cache %', desc: 'AI 대화 메모리 사용률 — 80% 이상이면 메모리 부족으로 응답이 느려지거나 요청이 밀릴 수 있음.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'wait', label: '대기 건수', desc: 'GPU가 바빠서 처리를 기다리는 요청 수 — 1건 이상이면 사용자가 대기 체감. 5건 이상이면 심각.', color: (v: number) => v >= 5 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
+          { key: 'preempt', label: 'Preemption', desc: 'VRAM 부족으로 밀려난 요청 수 — 처리 중이던 요청이 강제로 중단됨. 사용자가 응답 실패를 경험.', color: (v: number) => v >= 3 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
+          { key: 'tpsPct', label: '처리량 %', desc: '벤치마크(과거 피크) 대비 현재 처리 속도 비율. 100% = 과거 피크 수준, 초과 = 역대 최고 부하.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kvPct', label: 'KV %', desc: 'KV Cache 사용률 (0-100%). 80% 이상 빨간색 = 메모리 부족 위험.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'concPct', label: '동시처리 %', desc: '벤치마크 대비 동시 요청 비율. 100% 초과 = 과거 피크보다 더 많은 요청이 동시 처리 중. 과부하 신호.', color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
         ];
         const activeTab = tabs.find(t => t.key === hmTab) || tabs[0];
 
@@ -1024,6 +1017,7 @@ export default function ResourceMonitor() {
           if (hmTab === 'tps') return d.tps;
           if (hmTab === 'kv') return d.kv;
           if (hmTab === 'wait') return d.wait;
+          if (hmTab === 'preempt') return d.preempt || 0;
           if (hmTab === 'tpsPct') return totalBmTps > 0 ? Math.round(d.tps / totalBmTps * 1000) / 10 : 0;
           if (hmTab === 'kvPct') return d.kv;
           if (hmTab === 'concPct') return totalBmConc > 0 ? Math.round(d.wait / totalBmConc * 1000) / 10 : 0;
@@ -1032,12 +1026,13 @@ export default function ResourceMonitor() {
 
         return (
         <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <div className="flex items-center gap-1 mb-3 flex-wrap">
-            <p className="text-[10px] font-semibold text-gray-600 mr-2">3대 지표 히트맵 (날짜 × 시간)</p>
+          <div className="flex items-center gap-1 mb-1 flex-wrap">
+            <p className="text-[10px] font-semibold text-gray-600 mr-2">3대 지표 히트맵 (날짜 × 시간, 30일)</p>
             {tabs.map(t => (
               <button key={t.key} onClick={() => setHmTab(t.key)} className={`px-2 py-0.5 text-[9px] rounded ${hmTab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{t.label}</button>
             ))}
           </div>
+          <p className="text-[9px] text-gray-500 mb-2">{activeTab.desc}</p>
           <div className="overflow-x-auto">
             <div className="inline-block">
               {/* 시간 헤더 */}
@@ -1056,7 +1051,7 @@ export default function ResourceMonitor() {
                     const val = cell ? getValue(cell) : 0;
                     const bg = activeTab.color(val);
                     return (
-                      <div key={h} className="w-5 h-4 border border-white/50 cursor-help" style={{ backgroundColor: bg }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건${hmTab.includes('Pct') ? `\n${activeTab.label}: ${val}%` : ''}`} />
+                      <div key={h} className="w-5 h-4 border border-white/50 cursor-help" style={{ backgroundColor: bg }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}`  : ''}`} />
                     );
                   })}
                 </div>
