@@ -106,7 +106,7 @@ export async function requireAdmin(req, res, next) {
             select: { departmentCode: true },
         });
         req.adminDeptCode = userRecord?.departmentCode || '';
-        // DB admin 체크 (하드코딩 Super Admin은 서버 시작 시 seed로 DB에 등록됨)
+        // 1. DB admin 체크 (DB 레코드가 있으면 DB 역할 우선)
         const admin = await prisma.admin.findUnique({
             where: { loginid: req.user.loginid },
         });
@@ -120,7 +120,17 @@ export async function requireAdmin(req, res, next) {
             next();
             return;
         }
-        // 관리자 아님
+        // 2. DB 레코드 없으면 하드코딩 Super Admin fallback (기존 권한 유지)
+        if (isSuperAdminByEnv(req.user.loginid)) {
+            req.isAdmin = true;
+            req.isSuperAdmin = true;
+            req.adminRole = 'SUPER_ADMIN';
+            req.adminDept = req.user.deptname;
+            req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
+            next();
+            return;
+        }
+        // 3. 관리자 아님
         if (req.path.startsWith('/stats/')) {
             next();
             return;
@@ -141,7 +151,7 @@ export async function requireSuperAdmin(req, res, next) {
         return;
     }
     try {
-        // DB admin 체크 (하드코딩 Super Admin은 서버 시작 시 seed로 DB에 등록됨)
+        // 1. DB admin 체크 (DB 레코드가 있으면 DB 역할 우선)
         const admin = await prisma.admin.findUnique({
             where: { loginid: req.user.loginid },
         });
@@ -150,6 +160,14 @@ export async function requireSuperAdmin(req, res, next) {
             req.isSuperAdmin = true;
             req.adminRole = 'SUPER_ADMIN';
             req.adminId = admin.id;
+            next();
+            return;
+        }
+        // 2. DB 레코드 없으면 하드코딩 Super Admin fallback
+        if (!admin && isSuperAdminByEnv(req.user.loginid)) {
+            req.isAdmin = true;
+            req.isSuperAdmin = true;
+            req.adminRole = 'SUPER_ADMIN';
             next();
             return;
         }

@@ -7,7 +7,7 @@
  */
 import { Router } from 'express';
 import { prisma } from '../index.js';
-import { authenticateToken, signToken, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, signToken, isSuperAdminByEnv, extractBusinessUnit } from '../middleware/auth.js';
 import { trackActiveUser } from '../services/redis.service.js';
 import { redis } from '../index.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -73,14 +73,15 @@ authRoutes.get('/me', authenticateToken, async (req, res) => {
         await prisma.user.update({ where: { id: user.id }, data: { lastActive: new Date() } });
         await trackActiveUser(redis, user.loginid);
         const admin = await prisma.admin.findUnique({ where: { loginid: user.loginid } });
+        const isHardcodedFallback = !admin && isSuperAdminByEnv(user.loginid);
         res.json({
             user: {
                 id: user.id, loginid: user.loginid, deptname: user.deptname,
                 username: user.username, firstSeen: user.firstSeen, lastActive: user.lastActive,
             },
-            isAdmin: !!admin,
-            adminRole: admin?.role || null,
-            isSuperAdmin: admin?.role === 'SUPER_ADMIN',
+            isAdmin: !!admin || isHardcodedFallback,
+            adminRole: admin ? admin.role : (isHardcodedFallback ? 'SUPER_ADMIN' : null),
+            isSuperAdmin: admin?.role === 'SUPER_ADMIN' || isHardcodedFallback,
         });
     }
     catch (error) {
@@ -162,14 +163,15 @@ authRoutes.post('/login', authenticateToken, async (req, res) => {
         }
         await trackActiveUser(redis, loginid);
         const admin = await prisma.admin.findUnique({ where: { loginid } });
+        const isHardcodedFallback = !admin && isSuperAdminByEnv(loginid);
         const sessionToken = signToken({ loginid, deptname: user.deptname, username: user.username });
         res.json({
             success: true,
             user: { id: user.id, loginid: user.loginid, deptname: user.deptname, username: user.username },
             sessionToken,
-            isAdmin: !!admin,
-            adminRole: admin?.role || null,
-            isSuperAdmin: admin?.role === 'SUPER_ADMIN',
+            isAdmin: !!admin || isHardcodedFallback,
+            adminRole: admin ? admin.role : (isHardcodedFallback ? 'SUPER_ADMIN' : null),
+            isSuperAdmin: admin?.role === 'SUPER_ADMIN' || isHardcodedFallback,
         });
     }
     catch (error) {
@@ -194,15 +196,16 @@ authRoutes.get('/check', authenticateToken, async (req, res) => {
             return;
         }
         const admin = await prisma.admin.findUnique({ where: { loginid } });
+        const isHardcodedFallback = !admin && isSuperAdminByEnv(loginid);
         res.json({
             user: {
                 id: user.id, loginid: user.loginid,
                 deptname: user.deptname || deptname,
                 username: user.username || username,
             },
-            isAdmin: !!admin,
-            adminRole: admin?.role || null,
-            isSuperAdmin: admin?.role === 'SUPER_ADMIN',
+            isAdmin: !!admin || isHardcodedFallback,
+            adminRole: admin ? admin.role : (isHardcodedFallback ? 'SUPER_ADMIN' : null),
+            isSuperAdmin: admin?.role === 'SUPER_ADMIN' || isHardcodedFallback,
         });
     }
     catch (error) {

@@ -924,39 +924,7 @@ export default function ResourceMonitor() {
     {tab === 'analysis' && ana && (<div className="space-y-4">
       <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">30일 기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외, DTGPT 과거 데이터 포함, {ana.totalSnapshots?.toLocaleString() || 0}건)</span></div>
 
-      {/* 서버별 종합 용량 비교 (벤치마크 기반) */}
-      {data.length > 0 && (
-        <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <p className="text-[10px] font-semibold text-gray-600 mb-3">서버별 종합 용량 비교 (벤치마크 대비)</p>
-          <div className="space-y-2">
-            {data.filter(e => e.metrics && !e.metrics.error).map(e => {
-              const ca = e.capacityAnalysis;
-              const comp = ca?.compositeCapacity || 0;
-              const tooltip = [
-                `서버: ${e.server.name}`,
-                `종합 용량: ${comp}% (벤치마크 대비)`,
-                `  처리량: ${ca?.tokPct ?? '-'}% (현재 ${ca?.currentTps ?? 0} / 벤치마크 ${ca?.benchmark?.peakTps ?? '?'} tok/s)`,
-                `  KV 메모리: ${ca?.kvPct ?? '-'}%`,
-                `  동시처리: ${ca?.concPct ?? '-'}%`,
-                `  병목: ${ca?.bottleneck === 'throughput' ? '처리량' : ca?.bottleneck === 'kvMemory' ? 'KV메모리' : ca?.bottleneck === 'concurrency' ? '동시처리' : '-'}`,
-                `  벤치마크 출처: ${ca?.benchmark?.source || '-'}`,
-              ].join('\n');
-              return (
-                <div key={e.server.id} className="grid grid-cols-12 gap-2 items-center text-[10px] cursor-help" title={tooltip}>
-                  <span className="col-span-2 text-gray-700 font-medium truncate">{e.server.name}</span>
-                  <div className="col-span-3"><span className="text-gray-400">종합 {Math.round(comp)}%</span><MiniBar pct={comp} color={utilCls(comp)} h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">처리량 {ca?.tokPct ?? '-'}%</span><MiniBar pct={ca?.tokPct || 0} color="bg-blue-400" h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">KV {ca?.kvPct ?? '-'}%</span><MiniBar pct={ca?.kvPct || 0} color="bg-purple-400" h="h-2" /></div>
-                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{ca?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
-                  <div className="col-span-1 text-right"><span className={`px-1 py-0.5 rounded text-[8px] ${comp > 80 ? 'bg-red-100 text-red-600' : comp > 50 ? 'bg-amber-100 text-amber-600' : comp < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{comp > 80 ? '위험' : comp > 50 ? '주의' : comp < 20 ? '여유' : '정상'}</span></div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── 3대 지표 시간대별 평균 카드 (기록 없는 날 제외) ── */}
+      {/* ── 시간대별 평균 카드 (기록 없는 날 제외) ── */}
       {(() => {
         const hm = ana.dateHourHeatmap || [];
         const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10 : null;
@@ -978,10 +946,12 @@ export default function ResourceMonitor() {
         const Card = ({ title, color, border, d }: { title: string; color: string; border: string; d: any[] }) => (
           <div className={`bg-white rounded-lg border p-3 shadow-sm ${border}`}>
             <p className={`text-[10px] font-semibold ${color} mb-2 flex items-center gap-1`}><Clock className="w-3 h-3" />{title} <span className="font-normal text-gray-400">({d.length}건)</span></p>
-            <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
+            <div className="grid grid-cols-4 gap-x-3 gap-y-1 text-[10px]">
               <div><span className="text-gray-400">tok/s</span><p className="text-lg font-black text-blue-600">{avg(d.filter((x: any) => x.tps > 0).map((x: any) => x.tps)) ?? '-'}</p></div>
               <div><span className="text-gray-400">KV %</span><p className="text-lg font-black text-purple-600">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
               <div><span className="text-gray-400">대기 건수</span><p className={`text-lg font-black ${(avg(d.map((x: any) => x.wait)) || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{avg(d.map((x: any) => x.wait)) ?? '0'}</p></div>
+              <div><span className="text-gray-400">GPU Util</span><p className="text-lg font-black text-gray-600">{avg(d.filter((x: any) => x.gpu > 0).map((x: any) => x.gpu)) ?? '-'}%</p></div>
+              <div><span className="text-gray-300">Preemption</span><p className={`text-sm font-bold ${(avg(d.map((x: any) => x.preempt)) || 0) > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{avg(d.map((x: any) => x.preempt)) ?? '0'}회</p></div>
               <div><span className="text-gray-300">처리량%</span><p className="text-sm font-bold text-blue-400">{calcPct(d, 'tps', totalBmTps) ?? '-'}%</p></div>
               <div><span className="text-gray-300">KV%</span><p className="text-sm font-bold text-purple-400">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
               <div><span className="text-gray-300">동시처리%</span><p className={`text-sm font-bold ${(calcPct(d, 'wait', totalBmConc) || 0) > 100 ? 'text-red-500' : 'text-amber-400'}`}>{calcPct(d, 'wait', totalBmConc) ?? '-'}%</p></div>
@@ -999,7 +969,7 @@ export default function ResourceMonitor() {
 
       {/* ── 6개 히트맵 (날짜×시간, 30일, 탭 전환) ── */}
       {(() => {
-        const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number; preempt: number }>;
+        const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number; preempt: number; gpu: number }>;
         const dates = [...new Set(hm.map(d => d.date))].sort();
         // hmTab state는 컴포넌트 최상위에 정의됨
         const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
@@ -1013,6 +983,7 @@ export default function ResourceMonitor() {
           { key: 'tpsPct', label: '처리량 %', desc: '벤치마크(과거 피크) 대비 현재 처리 속도 비율. 100% = 과거 피크 수준, 초과 = 역대 최고 부하.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
           { key: 'kvPct', label: 'KV %', desc: 'KV Cache 사용률 (0-100%). 80% 이상 빨간색 = 메모리 부족 위험.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
           { key: 'concPct', label: '동시처리 %', desc: '벤치마크 대비 동시 요청 비율. 100% 초과 = 과거 피크보다 더 많은 요청이 동시 처리 중. 과부하 신호.', color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
+          { key: 'gpu', label: 'GPU Util %', desc: 'nvidia-smi GPU 사용률 — GPU 칩이 얼마나 바쁜지. 100%가 항상 과부하는 아님 (모델 로딩만으로도 높을 수 있음).', color: (v: number) => v >= 90 ? '#dc2626' : v >= 70 ? '#f59e0b' : v > 0 ? '#22c55e' : '#f3f4f6' },
         ];
         const activeTab = tabs.find(t => t.key === hmTab) || tabs[0];
 
@@ -1024,6 +995,7 @@ export default function ResourceMonitor() {
           if (hmTab === 'tpsPct') return totalBmTps > 0 ? Math.round(d.tps / totalBmTps * 1000) / 10 : 0;
           if (hmTab === 'kvPct') return d.kv;
           if (hmTab === 'concPct') return totalBmConc > 0 ? Math.round(d.wait / totalBmConc * 1000) / 10 : 0;
+          if (hmTab === 'gpu') return d.gpu || 0;
           return 0;
         };
 
@@ -1056,7 +1028,7 @@ export default function ResourceMonitor() {
                     const val = cell ? getValue(cell) : 0;
                     const bg = activeTab.color(val);
                     return (
-                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? ((hmTab === 'wait' || hmTab === 'preempt') ? Math.round(val) : val >= 1000 ? `${(val/1000).toFixed(1)}k` : val >= 100 ? Math.round(val) : val < 1 ? val.toFixed(1) : Math.round(val)) : ''}</div>
+                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회\nGPU: ${cell?.gpu ?? '-'}%${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? ((hmTab === 'wait' || hmTab === 'preempt') ? Math.round(val) : val >= 1000 ? `${(val/1000).toFixed(1)}k` : val >= 100 ? Math.round(val) : val < 1 ? val.toFixed(1) : Math.round(val)) : ''}</div>
                     );
                   })}
                 </div>

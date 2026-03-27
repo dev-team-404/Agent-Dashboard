@@ -624,7 +624,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
 
     // 날짜×시간 히트맵 (3차원: tok/s, kv%, 대기건수)
-    const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[]; preempt: number[] }>();
+    const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[]; preempt: number[]; gpu: number[] }>();
 
     for (const r of rows) {
       const h = +r.h, d = +r.d;
@@ -635,11 +635,13 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       // 날짜×시간 히트맵 집계
       const key = `${r.dt}|${h}`;
       const preempt = +(r.preempt || 0);
-      const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [], preempt: [] };
+      const gpu = +(r.gpu || 0);
+      const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [], preempt: [], gpu: [] };
       if (tps > 0) entry.tps.push(tps);
       if (kv != null) entry.kv.push(kv);
       entry.wait.push(wait);
       entry.preempt.push(preempt);
+      if (gpu > 0) entry.gpu.push(gpu);
       dateHourMap.set(key, entry);
 
       if (biz) {
@@ -662,7 +664,8 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       const avgKv = v.kv.length > 0 ? v.kv.reduce((a, b) => a + b, 0) / v.kv.length : 0;
       const avgWait = v.wait.length > 0 ? v.wait.reduce((a, b) => a + b, 0) / v.wait.length : 0;
       const avgPreempt = v.preempt.length > 0 ? v.preempt.reduce((a, b) => a + b, 0) / v.preempt.length : 0;
-      return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), preempt: r1(avgPreempt), samples: v.tps.length || v.wait.length };
+      const avgGpu = v.gpu.length > 0 ? v.gpu.reduce((a, b) => a + b, 0) / v.gpu.length : 0;
+      return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), preempt: r1(avgPreempt), gpu: r1(avgGpu), samples: v.tps.length || v.wait.length };
     }).sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
 
     const analyticsResult = {
