@@ -27,7 +27,6 @@ const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Mat
 const utilCls = (p: number) => p >= 90 ? 'bg-red-500' : p >= 70 ? 'bg-amber-500' : p >= 40 ? 'bg-blue-500' : 'bg-emerald-500';
 const utilTxt = (p: number) => p >= 90 ? 'text-red-600' : p >= 70 ? 'text-amber-600' : 'text-gray-900';
 const llmBadge = (t: string) => ({ vllm: 'bg-blue-100 text-blue-700', sglang: 'bg-purple-100 text-purple-700', ollama: 'bg-green-100 text-green-700', tgi: 'bg-orange-100 text-orange-700' }[t] || 'bg-gray-100 text-gray-600');
-const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 
 // ── 마크다운→HTML 변환 (테이블 포함) ──
 function mdToHtml(md: string): string {
@@ -558,7 +557,10 @@ export default function ResourceMonitor() {
                   alert(e?.response?.data?.error || '실패');
                 }
               } finally { setPredRunning(false); }
-            }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중... (완료 시 자동 반영)' : '재실행'}</button>
+            }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중... (완료 시 자동 반영)' : '예측 재실행'}</button>
+            <button onClick={async () => {
+              try { await gpuCapacityApi.refreshBenchmarks(); alert('벤치마크 재산정 완료. 새로고침하면 반영됩니다.'); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '벤치마크 재산정 실패'); }
+            }} className="text-[10px] text-emerald-600 hover:text-emerald-800">벤치마크 재산정</button>
           </div>
         </div>
 
@@ -996,7 +998,7 @@ export default function ResourceMonitor() {
 
       {/* ── 6개 히트맵 (날짜×시간, 30일, 탭 전환) ── */}
       {(() => {
-        const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number }>;
+        const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number; preempt: number }>;
         const dates = [...new Set(hm.map(d => d.date))].sort();
         const [hmTab, setHmTab] = useState<string>('tps');
         const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
