@@ -721,7 +721,7 @@ export default function ResourceMonitor() {
             <p className={`text-xl font-black ${avgPracticalUtil != null ? utilTxt(avgPracticalUtil) : 'text-gray-300'}`}>{avgPracticalUtil ?? '-'}%</p>
             <p className="text-[7px] text-gray-400">대역폭 기준</p>
           </div>
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 cursor-help" title="실효 사용률 = 이론대비 ÷ 건강도&#10;&#10;GPU의 실제 처리 가능 용량 대비 사용 비율입니다.&#10;건강도(GPU 효율)를 반영하여 보정한 값입니다.&#10;&#10;compute-bound 기준이라 수치가 매우 작을 수 있습니다.">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 cursor-help" title={`실효 사용률 = 이론대비 사용률 ÷ 건강도\n\n계산 과정:\n① 이론대비 = 현재 처리량 ÷ 이론 최대(compute-bound)\n   = ${totTps.toFixed(1)} ÷ ${data.reduce((a, e) => a + (e.throughputAnalysis?.theoreticalMaxTps || 0), 0).toFixed(0)} = ${avgTheoreticalUtil ?? '?'}%\n② 건강도 = 7일 피크 ÷ 이론 최대 = ${avgHealth ?? '?'}%\n③ 실효 = ① ÷ ② = ${avgTheoreticalUtil ?? '?'} ÷ ${avgHealth ?? '?'} = ${effectiveUtil ?? '?'}%\n\n의미: 현재 처리량이 GPU가 실제로 낼 수 있는 피크의 몇 %인지.\n수학적으로 "현재 처리량 ÷ 피크 처리량"과 동일합니다.\n\n70% 이상이면 피크에 근접 → 증설 검토 필요.`}>
             <p className="text-[8px] text-blue-600 font-semibold">실효 사용률 ⓘ</p>
             <p className={`text-xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
           </div>
@@ -773,7 +773,7 @@ export default function ResourceMonitor() {
             <p className={`text-xl font-black ${avgPractUtil != null ? utilTxt(avgPractUtil) : 'text-gray-300'}`}>{avgPractUtil ?? '-'}%</p>
             <p className="text-[7px] text-gray-400">대역폭 기준</p>
           </div>
-          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100 cursor-help" title="5영업일 평균 실효사용률 (compute-bound 기준)&#10;= 평균 이론대비 ÷ 건강도&#10;&#10;compute-bound 기준이라 수치가 작을 수 있습니다.">
+          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100 cursor-help" title={`5영업일 평균 실효사용률\n\n계산: 평균 이론대비(${avgTheoUtil ?? '?'}%) ÷ 건강도(${avgHealthPct ?? '?'}%) = ${avgEffUtil ?? '?'}%\n\n의미: 영업시간 평균 처리량이 피크 처리량의 몇 %인지.\n= "평소에 GPU를 피크 대비 얼마나 쓰고 있는지"\n\n50% 이상이면 평소에도 GPU가 바쁜 상태.\n70% 이상이면 피크 시 과부하 위험 → 증설 검토.`}>
             <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률 ⓘ</p>
             <p className={`text-xl font-black ${avgEffUtil != null ? utilTxt(avgEffUtil) : 'text-gray-300'}`}>{avgEffUtil ?? '-'}%</p>
           </div>
