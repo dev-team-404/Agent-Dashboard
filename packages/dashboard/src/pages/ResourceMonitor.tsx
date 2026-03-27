@@ -89,6 +89,8 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const [hrs, setHrs] = useState(24);
   const [dbg, setDbg] = useState<string | null>(null);
   const [dbgL, setDbgL] = useState(false);
+  const [coach, setCoach] = useState<any>(null);
+  const [coachL, setCoachL] = useState(false);
   const { server: s, metrics: m, throughputAnalysis: ta } = entry;
   const ok = m && !m.error;
   const gc = m?.gpus?.length || 0;
@@ -331,6 +333,29 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
                 </>);
               })()}
             </div>
+          </div>
+
+          {/* AI 코칭 */}
+          <div className="px-3 py-2 border-t border-gray-100">
+            <div className="flex items-center gap-2">
+              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.coaching(s.id); setCoach(r.data.coaching); } catch { setCoach(null); } finally { setCoachL(false); } }} className="text-[9px] text-indigo-500 hover:text-indigo-700 underline">{coachL ? '로딩...' : 'AI 코칭 보기'}</button>
+              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.runCoaching(s.id); setCoach(r.data.coaching); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setCoachL(false); } }} className="text-[9px] text-purple-500 hover:text-purple-700 underline">{coachL ? '분석 중...' : '지금 분석'}</button>
+            </div>
+            {coach && (
+              <div className="mt-1.5 p-2 bg-indigo-50 rounded-lg text-[9px] space-y-1">
+                <p className="text-[8px] text-indigo-400">{coach.timestamp ? new Date(coach.timestamp).toLocaleString('ko-KR') : ''}</p>
+                {coach.paramCheck && <p><b className="text-indigo-600">파라미터 검증:</b> {coach.paramCheck}</p>}
+                {coach.precisionAdvice && <p><b className="text-indigo-600">정밀도 최적화:</b> {coach.precisionAdvice}</p>}
+                {coach.batchAdvice && <p><b className="text-indigo-600">배치 최적화:</b> {coach.batchAdvice}</p>}
+                {coach.qualityIssues && <p><b className="text-indigo-600">품질 이슈:</b> {coach.qualityIssues}</p>}
+                {coach.topRecommendations?.length > 0 && (
+                  <div className="mt-1 p-1.5 bg-white rounded border border-indigo-200">
+                    <b className="text-indigo-700">권고:</b>
+                    <ul className="list-disc ml-3 mt-0.5">{coach.topRecommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 디버그 */}

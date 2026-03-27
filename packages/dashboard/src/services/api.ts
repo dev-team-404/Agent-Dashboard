@@ -436,6 +436,8 @@ export const gpuServerApi = {
   history: (id: string, hours = 24) => api.get(`/admin/gpu-servers/${id}/history`, { params: { hours } }),
   analytics: (days = 7) => api.get('/admin/gpu-servers/analytics/overview', { params: { days } }),
   debug: (id: string) => api.get(`/admin/gpu-servers/${id}/debug`),
+  coaching: (id: string) => api.get(`/admin/gpu-servers/${id}/coaching`),
+  runCoaching: (id: string) => api.post(`/admin/gpu-servers/${id}/coaching`),
 };
 
 // GPU Capacity Prediction API

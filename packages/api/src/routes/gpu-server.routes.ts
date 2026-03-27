@@ -50,13 +50,13 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   host: z.string().min(1).optional(),
-  sshPort: z.union([z.number().int().min(1).max(65535), z.string().transform(v => parseInt(v) || 22)]).optional(),
+  sshPort: z.union([z.number(), z.string().transform(v => parseInt(v) || 22)]).pipe(z.number().int().min(1).max(65535)).optional(),
   sshUsername: z.string().min(1).optional(),
-  sshPassword: z.string().optional(), // 빈 문자열 허용 (프론트에서 삭제 처리)
+  sshPassword: z.string().optional(),
   description: z.union([z.string(), z.null()]).optional(),
   isLocal: z.boolean().optional(),
   enabled: z.boolean().optional(),
-  pollIntervalSec: z.union([z.number().int().min(10).max(3600), z.string().transform(v => parseInt(v) || 60)]).optional(),
+  pollIntervalSec: z.union([z.number(), z.string().transform(v => parseInt(v) || 60)]).pipe(z.number().int().min(10).max(3600)).optional(),
 });
 
 const testSchema = z.object({
@@ -459,6 +459,32 @@ gpuServerRoutes.get('/:id/debug', async (req: Request, res: Response) => {
 });
 
 // ── 종합 분석 (피크타임 히트맵 + 비즈니스시간 분석) ──
+
+// ── AI 코칭 ──
+
+gpuServerRoutes.get('/:id/coaching', async (req: Request, res: Response) => {
+  try {
+    const { getCoachingResult } = await import('../services/gpuCoaching.service.js');
+    const result = await getCoachingResult(req.params.id);
+    res.json({ coaching: result });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get coaching' });
+  }
+});
+
+gpuServerRoutes.post('/:id/coaching', requireSuperAdmin, async (req: Request, res: Response) => {
+  try {
+    const { runGpuCoaching } = await import('../services/gpuCoaching.service.js');
+    await runGpuCoaching(req.params.id);
+    const { getCoachingResult } = await import('../services/gpuCoaching.service.js');
+    const result = await getCoachingResult(req.params.id);
+    res.json({ success: true, coaching: result });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Coaching failed' });
+  }
+});
+
+// ── 종합 분석 ──
 
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
   try {

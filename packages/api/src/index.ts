@@ -51,6 +51,7 @@ import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
+import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
 import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
@@ -408,6 +409,7 @@ async function main() {
     startAiEstimationCron();
     startGpuMonitorCron();
     startGpuCapacityPredictionCron();
+    startGpuCoachingCron();
     startStatsPrecomputeCron();
 
     const server = app.listen(PORT, () => {

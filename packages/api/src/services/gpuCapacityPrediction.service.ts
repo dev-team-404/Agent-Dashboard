@@ -351,10 +351,11 @@ export async function runGpuCapacityPrediction(): Promise<any> {
 - 에러율: ${(errorRate * 100).toFixed(2)}%
 - 서빙 모델: ${allModels.join(', ') || '미확인'} (${modelParams ? modelParams + 'B' : '크기 미확인'})
 
-## 성장 추세 (최근 2주)
-- DAU 주간 성장률: ${(dauGrowthRate * 100).toFixed(1)}%
-- 인당 토큰 주간 성장률: ${(tokensPerUserGrowthRate * 100).toFixed(1)}%
-- 6개월 후 예상 배율: x${growthMultiplier.toFixed(2)}
+## 사용자 현황 (추이 아닌 절대값 — 외부 사용량 전송 서비스로 인해 추이 부정확)
+- DAU: ${Math.round(currentDau)}명 (최근 5영업일 평균)
+- 전체 사용자: ${currentUsers}명 (최근 30일)
+- 인당 평균 토큰: ${Math.round(avgTokensPerUser).toLocaleString()}/일
+- 6개월 스케일링 배율: x${growthMultiplier.toFixed(2)} (참고용)
 
 ## 서비스별 토큰 소비 Top 5
 ${topServices.map((s, i) => `${i + 1}. ${s.name}: ${s.tokens.toLocaleString()} 토큰 (${s.requests.toLocaleString()}건)`).join('\n') || '데이터 없음'}
