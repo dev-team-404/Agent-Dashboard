@@ -317,9 +317,10 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   const BATCH_SIZE = 50;
   const batch: any[] = [];
 
-  // instance → node 매핑 (1:N — replica가 여러 노드에 배포됨)
+  // instance → node 매핑: CURRENT instant query 사용 (range query pod 라벨 신뢰 불가 이슈 해결)
   const instanceToNodes = new Map<string, string[]>();
-  for (const r of fbUsedRange) {
+  const currentFbUsed = await promQuery('DCGM_FI_DEV_FB_USED');
+  for (const r of currentFbUsed) {
     const node = r.metric?.node || r.metric?.Hostname;
     const pod = r.metric?.pod || '';
     if (node && pod) {
@@ -331,6 +332,7 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
       }
     }
   }
+  console.log(`[PromCollector] Backfill mapping: ${Array.from(instanceToNodes.entries()).map(([k, v]) => `${k} → [${v.join(',')}]`).join(', ')}`);
 
   // 각 range 결과에서 키별 값을 타임스탬프로 빠르게 조회하기 위한 인덱스
   // DCGM: UUID로 키 (같은 노드의 GPU 8장을 구분해야 함)
