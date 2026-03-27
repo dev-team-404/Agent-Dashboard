@@ -266,8 +266,10 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
             },
           });
 
-          await prisma.serviceModel.create({
-            data: {
+          await prisma.serviceModel.upsert({
+            where: { serviceId_modelId_aliasName: { serviceId: service.id, modelId: newModel.id, aliasName: modelName } },
+            update: {},
+            create: {
               serviceId: service.id,
               modelId: newModel.id,
               aliasName: modelName,

@@ -1291,8 +1291,15 @@ serviceRoutes.post('/:id/models', authenticateToken, async (req: AuthenticatedRe
       return;
     }
 
-    const serviceModel = await prisma.serviceModel.create({
-      data: {
+    const serviceModel = await prisma.serviceModel.upsert({
+      where: { serviceId_modelId_aliasName: { serviceId, modelId, aliasName } },
+      update: {
+        weight,
+        sortOrder,
+        enabled,
+        fallbackModelId: fallbackModelId || null,
+      },
+      create: {
         serviceId,
         modelId,
         aliasName,
@@ -1713,8 +1720,14 @@ serviceRoutes.post('/:id/models/copy-from/:sourceId', authenticateToken, async (
         }
       }
 
-      await prisma.serviceModel.create({
-        data: {
+      await prisma.serviceModel.upsert({
+        where: { serviceId_modelId_aliasName: { serviceId: targetId, modelId: sm.modelId, aliasName: sm.aliasName } },
+        update: {
+          weight: sm.weight,
+          sortOrder: sm.sortOrder,
+          enabled: sm.enabled,
+        },
+        create: {
           serviceId: targetId,
           modelId: sm.modelId,
           aliasName: sm.aliasName,
