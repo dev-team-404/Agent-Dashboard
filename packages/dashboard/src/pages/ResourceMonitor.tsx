@@ -223,6 +223,10 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
                     `Preemption: VRAM 부족으로 밀려난 요청 (${ep.preemptionCount ?? 0}회)`,
                     `Queue: 대기열 체류 시간 (${ep.queueTimeMs != null ? Math.round(ep.queueTimeMs) + 'ms' : '-'})`,
                   ].join('\n')}>
+                  {(() => {
+                    const overloaded = (ep.kvCacheUsagePct != null && ep.kvCacheUsagePct > 80) || (ep.waitingRequests || 0) > 0 || (ep.preemptionCount || 0) > 0;
+                    return overloaded ? <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title="과부하: KV>80% 또는 대기큐>0 또는 Preemption>0" /> : null;
+                  })()}
                   <span className="uppercase">{ep.type}</span>
                   {ep.modelNames?.[0] && <span className="opacity-75 truncate max-w-[100px]">{ep.modelNames[0]}</span>}
                   {ep.kvCacheUsagePct != null && <span>KV:{ep.kvCacheUsagePct.toFixed(0)}%</span>}

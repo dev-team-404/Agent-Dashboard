@@ -143,21 +143,23 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
     const metrics = getAllLatestMetrics();
     const serverMap = new Map(servers.map(s => [s.id, { ...s, sshPassword: '***' }]));
 
-    // 서버별 7일 피크 처리량 조회
+    // 서버별 7일 피크 처리량 (최근 100건만 샘플링 — 성능 최적화)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const peakSnapshots = await prisma.gpuMetricSnapshot.findMany({
-      where: { timestamp: { gte: sevenDaysAgo } },
-      select: { serverId: true, llmMetrics: true },
-    });
-
-    // serverId → 7일 피크 tok/s
     const peakTpsMap = new Map<string, number>();
-    for (const snap of peakSnapshots) {
-      const llms = snap.llmMetrics as any[];
-      if (!Array.isArray(llms)) continue;
-      const tps = llms.reduce((s: number, l: any) => s + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
-      if (tps > (peakTpsMap.get(snap.serverId) || 0)) peakTpsMap.set(snap.serverId, tps);
+    for (const s of servers) {
+      const recentSnaps = await prisma.gpuMetricSnapshot.findMany({
+        where: { serverId: s.id, timestamp: { gte: sevenDaysAgo } },
+        select: { llmMetrics: true },
+        orderBy: { timestamp: 'desc' },
+        take: 100,
+      });
+      for (const snap of recentSnaps) {
+        const llms = snap.llmMetrics as any[];
+        if (!Array.isArray(llms)) continue;
+        const tps = llms.reduce((sum: number, l: any) => sum + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
+        if (tps > (peakTpsMap.get(s.id) || 0)) peakTpsMap.set(s.id, tps);
+      }
     }
 
     const result = servers.map(s => {
@@ -350,11 +352,16 @@ gpuServerRoutes.get('/:id/history', async (req: Request, res: Response) => {
       },
     });
 
-    // KST 영업시간 (9-18) 평균 계산
+    // KST 영업시간 (9-18, 영업일만) 평균 계산
     const KST_OFFSET = 9 * 60; // UTC+9
+    const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
+    const holidaySet = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
     const businessHourSnapshots = snapshots.filter(s => {
-      const kstHour = new Date(s.timestamp.getTime() + KST_OFFSET * 60 * 1000).getUTCHours();
-      return kstHour >= 9 && kstHour < 18;
+      const kstDate = new Date(s.timestamp.getTime() + KST_OFFSET * 60 * 1000);
+      const kstHour = kstDate.getUTCHours();
+      const kstDow = kstDate.getUTCDay();
+      const dateStr = kstDate.toISOString().split('T')[0];
+      return kstHour >= 9 && kstHour < 18 && kstDow !== 0 && kstDow !== 6 && !holidaySet.has(dateStr);
     });
 
     const calcAvg = (items: typeof snapshots) => {

@@ -162,8 +162,11 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   let totalGpuUtil = 0, gpuUtilCount = 0, totalKvCache = 0, kvCacheCount = 0, totalThroughput = 0, tpCount = 0;
 
   for (const snap of snapshots) {
-    const kstHour = new Date(snap.timestamp.getTime() + KST_OFFSET).getUTCHours();
-    const isBiz = kstHour >= 9 && kstHour < 18;
+    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
+    const kstHour = kstDate.getUTCHours();
+    const kstDow = kstDate.getUTCDay();
+    const dateStr = kstDate.toISOString().split('T')[0];
+    const isBiz = kstHour >= 9 && kstHour < 18 && kstDow !== 0 && kstDow !== 6 && !holidaySet.has(dateStr);
     if (!isBiz) continue;
 
     const llms = snap.llmMetrics as any[];
@@ -367,10 +370,10 @@ ${weeksUntilSaturated ? `- ⚠️ 현재 성장률 유지 시 약 ${weeksUntilSa
 
 ## 서비스 품질 메트릭 (최근 스냅샷 기준)
 ${(() => {
-  const latestSnap = latestSnaps[0];
-  const llms = (latestSnap?.llmMetrics as any[]) || [];
+  const allLlms: any[] = [];
+  for (const snap of latestSnaps) { const ls = (snap.llmMetrics as any[]) || []; allLlms.push(...ls); }
   const lines: string[] = [];
-  for (const l of llms) {
+  for (const l of allLlms) {
     const name = l.modelNames?.[0] || l.containerName || 'unknown';
     const parts: string[] = [`- ${name}:`];
     if (l.ttftMs != null) parts.push(`TTFT ${Math.round(l.ttftMs)}ms`);

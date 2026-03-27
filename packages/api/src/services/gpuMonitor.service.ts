@@ -378,7 +378,10 @@ function extractLlmMetricsFromProm(prom: Map<string, number>, type: string, coun
     const preemptionCount = promGet(prom, 'num_preemptions_total');
 
     if (running != null || kv != null || genTps != null) {
-      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, genThroughputTps: genTps, ttftMs, tpotMs, e2eLatencyMs, prefixCacheHitRate: cacheHitRate, preemptionCount };
+      const queueSum = promGet(prom, 'request_queue_time_seconds_sum', 'waiting_time_seconds_sum');
+      const queueCount = promGet(prom, 'request_queue_time_seconds_count', 'waiting_time_seconds_count');
+      const queueTimeMs = (queueSum != null && queueCount != null && queueCount > 0) ? (queueSum / queueCount) * 1000 : null;
+      return { runningRequests: running, waitingRequests: waiting, kvCacheUsagePct: kv, genThroughputTps: genTps, ttftMs, tpotMs, e2eLatencyMs, prefixCacheHitRate: cacheHitRate, preemptionCount, queueTimeMs };
     }
   }
   if (type === 'tgi') {
