@@ -1,9 +1,8 @@
 import {
-  Server, Shield, Brain, BarChart3, Cpu, Users, Layers, Zap,
-  GitBranch, Database, Globe, Lock, Clock, ArrowRight,
-  Activity, Eye, AlertTriangle, Bot, Sparkles, FileText,
-  Network, Container, ChevronRight, Terminal, Gauge,
-  MonitorSpeaker, TreePine, KeyRound, CalendarDays, BookOpen,
+  Server, Shield, Brain, BarChart3, Users, Layers, Zap,
+  GitBranch, Database, Globe, Sparkles,
+  Network, Container, ChevronRight, Terminal,
+  MonitorSpeaker, BookOpen,
 } from 'lucide-react';
 
 // ── 타임라인 데이터 (커밋 히스토리 기반) ──
@@ -11,8 +10,8 @@ const timeline = [
   {
     date: '2026.01 초',
     title: '프로젝트 시작',
-    desc: '멀티서비스 대시보드 초기 구조 설계, LLM 프록시 라우팅 구현, 서비스 등록/관리 시스템',
-    tags: ['프록시', '서비스 CRUD', '모델 CRUD'],
+    desc: '멀티서비스 대시보드 초기 구조 설계, LLM 프록시 라우팅 구현, 서비스 등록/관리 시스템. (Nexus Coder → AX Portal → Agent Registry 리브랜딩)',
+    tags: ['프록시', '서비스 CRUD', '모델 CRUD', '리브랜딩'],
   },
   {
     date: '2026.01 중',
@@ -23,14 +22,14 @@ const timeline = [
   {
     date: '2026.01 말',
     title: 'SubModel & 고가용성',
-    desc: 'SubModel 로드밸런싱, 자동 Failover, 엔드포인트 헬스체크, 에러 텔레메트리, Knox 인증 연동',
-    tags: ['SubModel', 'Failover', '헬스체크', 'Knox'],
+    desc: 'SubModel 로드밸런싱, 자동 Failover, 엔드포인트 헬스체크, Embedding·Rerank·Image·ASR 프록시 확장, 에러 텔레메트리, Knox 인증 연동',
+    tags: ['SubModel', 'Failover', '헬스체크', '멀티 프록시', 'Knox'],
   },
   {
     date: '2026.02',
     title: 'v2 리팩토링 & 조직 연동',
-    desc: 'v2 전면 리팩토링 (코드 구조 개선, 포트 체계 변경), docs-site React 리디자인, 조직도(org_nodes) 기반 부서 계층 통합, 가시성 스코프, 인사이트 대시보드, Saved M/M 관리',
-    tags: ['v2 리팩토링', 'docs-site', '조직도', '인사이트'],
+    desc: 'v2 전면 리팩토링 (코드 구조 개선, 포트 체계 변경), docs-site React 리디자인, API Only 서비스(외부 사용 기록 수집), 조직도(org_nodes) 기반 부서 계층 통합, 가시성 스코프, 인사이트 대시보드, Saved M/M 관리',
+    tags: ['v2 리팩토링', 'API Only', 'docs-site', '조직도', '인사이트'],
   },
   {
     date: '2026.03 초',
@@ -61,12 +60,12 @@ const featureGroups = [
     bg: 'bg-blue-50',
     border: 'border-blue-100',
     features: [
-      'LLM 프록시 라우팅 (OpenAI 호환 API)',
-      '가중치 기반 라운드로빈 로드밸런싱',
-      'SubModel 자동 Failover & 재시도',
-      '토큰 기반 Rate Limiting (서비스/사용자별)',
-      '서비스 마켓플레이스 & 배포 범위 관리',
-      '공개 대시보드 & 관리자 권한 신청 시스템',
+      'LLM 프록시 (Chat · Embedding · Rerank · Image · ASR)',
+      '가중치 기반 라운드로빈 로드밸런싱 & SubModel Failover',
+      'API Only 서비스 — 외부 사용 기록 수집 (프록시 미경유)',
+      '토큰 기반 Rate Limiting (서비스 공통 / 사용자별)',
+      '서비스 마켓플레이스 & 배포 범위 관리 (전체·본부·팀)',
+      '공개 대시보드 & 관리자 권한 신청 워크플로우',
     ],
   },
   {
@@ -76,12 +75,12 @@ const featureGroups = [
     bg: 'bg-emerald-50',
     border: 'border-emerald-100',
     features: [
-      'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석',
-      '통합 대시보드 9개 탭 (DAU·MAU·토큰·부서·본부 등)',
-      '모델 레이턴시 & 헬스체크 (10분 자동 프로빙)',
-      '에러 추적 & Failover 시도 상세 로그',
+      'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석 (이론·피크·현재)',
+      '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
+      '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
+      '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',
-      '서비스 품질 메트릭 6종 (TTFT, TPOT, E2E, KV Cache, Preemption, Queue)',
+      '서비스 품질 메트릭 6종 (TTFT · TPOT · E2E · KV Cache · Preemption · Queue)',
     ],
   },
   {
@@ -107,11 +106,11 @@ const featureGroups = [
     border: 'border-amber-100',
     features: [
       '3단계 권한 체계 (SUPER_ADMIN → ADMIN → USER)',
-      '5단계 모델 가시성 (Visibility Scope)',
-      '감사 로그 & 요청 로그 (전체 추적)',
-      'Knox 임직원 인증 연동 & 조직도 동기화',
+      '5단계 모델 가시성 (PUBLIC · BUSINESS_UNIT · TEAM · ADMIN · SUPER_ADMIN)',
+      '감사 로그 & 요청 로그 — 전체 관리자 액션 추적',
+      'Knox 임직원 인증 연동 & 조직도 동기화 (해외 R&D 센터 포함)',
       '휴일 관리 & 영업일 기반 통계 필터링',
-      'Internal API Swagger 문서 자동 생성',
+      'Internal API Swagger + 외부 연동 API 문서 자동 생성',
     ],
   },
 ];
@@ -147,7 +146,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            572 commits · 52,000+ lines of code
+            580+ commits · 52,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
@@ -184,7 +183,7 @@ export default function PlatformStory() {
             <div key={group.title} className={`${group.bg} ${group.border} border rounded-xl p-6`}>
               <div className="flex items-center gap-3 mb-4">
                 <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${group.color} flex items-center justify-center`}>
-                  <group.icon className="w-4.5 h-4.5 text-white" />
+                  <group.icon className="w-5 h-5 text-white" />
                 </div>
                 <h3 className="font-semibold text-gray-800 text-sm">{group.title}</h3>
               </div>
@@ -258,7 +257,7 @@ export default function PlatformStory() {
 
       {/* ════ Development Timeline ════ */}
       <section>
-        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 572 commits" />
+        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 580+ commits" />
         <div className="relative">
           {/* 수직 라인 */}
           <div className="absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-blue-200 via-violet-200 to-emerald-200" />
