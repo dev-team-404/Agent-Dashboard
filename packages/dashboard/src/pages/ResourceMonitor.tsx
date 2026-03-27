@@ -436,7 +436,7 @@ export default function ResourceMonitor() {
   const [testR, setTestR] = useState<any>(null);
   const [updated, setUpdated] = useState<Date | null>(null);
   const [ana, setAna] = useState<any>(null);
-  const [anaDays, setAnaDays] = useState(7);
+  const [anaDays, setAnaDays] = useState(14);
   const [pred, setPred] = useState<any>(null);
   const [predRunning, setPredRunning] = useState(false);
   const [targetEdit, setTargetEdit] = useState(false);

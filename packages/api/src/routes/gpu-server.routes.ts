@@ -187,11 +187,39 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       }
     }
 
+    // Prometheus 기반 서버는 DB에서 최신 스냅샷 가져오기 (in-memory에 없으므로)
+    const promServerIds = servers.filter(s => s.sshPort === 0 || s.description?.includes('[DTGPT-Prometheus]')).map(s => s.id);
+    const promMetricsMap = new Map<string, any>();
+    if (promServerIds.length > 0) {
+      try {
+        const { rows } = await pgPool.query(`
+          SELECT DISTINCT ON (server_id) server_id,
+            gpu_metrics::text as gm, llm_metrics::text as lm,
+            hostname, timestamp
+          FROM gpu_metric_snapshots
+          WHERE server_id = ANY($1)
+          ORDER BY server_id, timestamp DESC
+        `, [promServerIds]);
+        for (const r of rows) {
+          try {
+            const gpus = JSON.parse(r.gm || '[]');
+            const llms = JSON.parse(r.lm || '[]');
+            promMetricsMap.set(r.server_id, {
+              serverId: r.server_id, serverName: '', timestamp: r.timestamp,
+              gpus, processes: [], llmEndpoints: llms,
+              cpuLoadAvg: null, cpuCores: null, memoryTotalMb: null, memoryUsedMb: null,
+              diskTotalGb: null, diskUsedGb: null, diskFreeGb: null, hostname: r.hostname,
+            });
+          } catch {}
+        }
+      } catch {}
+    }
+
     const result = servers.map(s => {
-      const m = metrics.find(mt => mt.serverId === s.id) || null;
+      const m = metrics.find(mt => mt.serverId === s.id) || promMetricsMap.get(s.id) || null;
       const gpuCount = m?.gpus?.length || 0;
       const spec = gpuCount > 0 ? m!.gpus[0].spec : null;
-      const endpoints = (m?.llmEndpoints || []).filter(ep => ep.type !== 'unknown');
+      const endpoints: any[] = (m?.llmEndpoints || []).filter((ep: any) => ep.type !== 'unknown');
 
       // 이론 최대: 서버 전체 GPU의 compute bound (가장 큰 모델 기준)
       // GPU 분배를 모르므로 전체 GPU × 가장 큰 모델로 보수적 계산
@@ -206,7 +234,7 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
         }
       }
       // precision 자동 감지 (LLM 엔드포인트의 precision 필드에서)
-      const precision = endpoints.some(ep => ep.precision === 'fp8') ? 'fp8' as const : 'fp16' as const;
+      const precision = endpoints.some((ep: any) => ep.precision === 'fp8') ? 'fp8' as const : 'fp16' as const;
 
       const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
         ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10
@@ -216,7 +244,7 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
         : null;
 
       // 현재 처리량 (unknown 제외)
-      const currentTps = endpoints.reduce((sum, ep) =>
+      const currentTps = endpoints.reduce((sum: number, ep: any) =>
         sum + (ep.promptThroughputTps || 0) + (ep.genThroughputTps || 0), 0);
 
       // 7일 피크

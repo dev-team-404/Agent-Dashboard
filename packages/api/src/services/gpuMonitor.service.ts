@@ -851,6 +851,11 @@ export async function startGpuMonitorCron() {
     console.log(`[GPU Monitor] Found ${servers.length} enabled server(s)`);
 
     for (const server of servers) {
+      // Prometheus 기반 서버는 SSH 폴링 스킵 (prometheusCollector가 별도 수집)
+      if (server.sshPort === 0 || server.description?.includes('[DTGPT-Prometheus]')) {
+        console.log(`[GPU Monitor] Skipping SSH polling for "${server.name}" (Prometheus-based)`);
+        continue;
+      }
       startPolling(server).catch(err =>
         console.error(`[GPU Monitor] Failed to start polling for "${server.name}":`, err)
       );
