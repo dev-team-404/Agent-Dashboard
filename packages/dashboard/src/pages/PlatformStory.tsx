@@ -88,10 +88,22 @@ const timeline = [
     tags: ['AI 챗봇', '성능 최적화', 'napi 극복', 'GPU 예측 재설계', '플랫폼 스토리'],
   },
   {
-    date: '2026.03.27 ~ 진행 중',
-    title: 'Prometheus 통합 & GPU 수요 예측 고도화',
-    desc: 'DTGPT Prometheus 자동 수집기 구현(deploy 즉시 동작, 30초 지연 시작). 실효 사용률 계산 체계 정립(continuous batching 배치 팩터 반영, 280% 버그 수정). 미연결 장비 등록 — 모니터링 불가 GPU도 수요 예측에 포함. GPU 전력 사용률 일별→시간별(timestamp) 전환. DTGPT replica 매핑 1:1→1:N 다중 노드 반영. 추정 조건 공지 배너(편집 가능). 월별 예측 이중 표시(성장 기준 vs 목표 기준 B300).',
-    tags: ['Prometheus', '실효 사용률', '미연결 장비', '전력 시간별', '예측 고도화'],
+    date: '2026.03.26 ~ 03.27',
+    title: '권한 체계 강화 & GPU 전력 시간별 전환',
+    desc: 'SUPER_ADMIN 대상 권한 변경 버튼 슈퍼관리자에게만 노출. 하드코딩 Super Admin fallback 복원(DB 우선, 없으면 기존 유지). TEAM visibility 조상 매칭 수정. GPU 전력 사용률 수집 체계 일별(date)→시간별(timestamp) 전환 + 기존 데이터 보존 마이그레이션. Swagger 문서 반영.',
+    tags: ['권한 체계', 'Super Admin', 'TEAM visibility', '전력 시간별', '마이그레이션'],
+  },
+  {
+    date: '2026.03.27',
+    title: 'Prometheus 통합 & DTGPT 연동',
+    desc: 'DTGPT K8s 클러스터(5노드 40×H200) Prometheus 자동 수집기 구현 — deploy 즉시 동작. 과거 vLLM 데이터 14일 backfill(KV cache 신구 이름 대응 + preemption). DTGPT replica 1:N 매핑. 미연결 장비(HPC 54×H200) 등록 및 추정 포함. GPU 전력 사용률 시간별 전환. 추정 조건 공지 배너(편집 가능, JIRA 링크).',
+    tags: ['Prometheus', 'DTGPT', 'backfill', '미연결 장비', 'HPC'],
+  },
+  {
+    date: '2026.03.27',
+    title: 'GPU 벤치마크 기반 용량 시스템 전면 재설계',
+    desc: 'compute-bound 이론 최대(0.8%) → 서버별 관측 P95 피크 벤치마크로 전환. 3대 지표 체계 확립: tok/s + KV Cache% + 대기건수. 종합 용량 = max(3차원) — 체감과 일치하는 0-100% 지표. GPU 부족분 3차원 산출(처리량/KV메모리/동시성 각각 B300, 병목 식별). 8개 히트맵(날짜×시간 30일): tok/s, KV%, 대기, Preemption, 처리량%, KV%, 동시처리%, GPU Util%. 피크(14~16시)/비업무(20~06시)/전체 평균 카드. Prisma napi 한계 → node-postgres 직접 연결로 근본 해결. 벤치마크 자동 산출(P95) + 수동 오버라이드 + 매일 갱신 크론.',
+    tags: ['벤치마크', '3대 지표', '종합 용량', '히트맵', 'napi 우회', '3차원 부족분'],
   },
 ];
 
