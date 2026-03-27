@@ -823,14 +823,24 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             {/* 영업일 평균 */}
             {gpuPrediction && (() => {
               const pred = gpuPrediction;
+              const ps = pred.calculationDetails?.currentPeakShortage;
               return (
                 <div className="mb-3">
                   <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">영업일 평균 (KST 9-18)</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-xs">
                     <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-200 shadow-sm"><p className="text-[9px] text-emerald-700 font-semibold">GPU</p><p className="text-lg font-bold">{pred.currentAvgGpuUtil != null ? pred.currentAvgGpuUtil.toFixed(1) : '-'}%</p></div>
                     <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
                     <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} 온라인</p></div>
-                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2"><p className="text-[9px] text-indigo-700 font-semibold">GPU 예측 ({pred.targetUserCount?.toLocaleString()}명)</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units} B300<span className="text-sm font-normal text-gray-500 ml-1">추가 필요</span></p></div>
+                    {/* 현재 피크 기준 부족 */}
+                    <div className={`rounded-lg p-2.5 border shadow-sm ${ps?.b300Units > 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                      <p className="text-[9px] font-semibold text-orange-700">피크 기준 즉시</p>
+                      <p className={`text-xl font-black ${ps?.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{ps?.b300Units > 0 ? `+${ps.b300Units}` : '0'}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
+                    </div>
+                    {/* 목표 기준 부족 */}
+                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2">
+                      <p className="text-[9px] text-indigo-700 font-semibold">목표 {pred.targetUserCount?.toLocaleString()}명 기준</p>
+                      <p className="text-xl font-black text-indigo-700">+{pred.predictedB300Units}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
+                    </div>
                   </div>
                 </div>
               );

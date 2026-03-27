@@ -400,6 +400,9 @@ export default function ResourceMonitor() {
   const [anaDays, setAnaDays] = useState(7);
   const [pred, setPred] = useState<any>(null);
   const [predRunning, setPredRunning] = useState(false);
+  const [targetEdit, setTargetEdit] = useState(false);
+  const [targetVal, setTargetVal] = useState('');
+  const [targetSaving, setTargetSaving] = useState(false);
   const ref = useRef<ReturnType<typeof setInterval>>();
 
   const fetch_ = useCallback(async () => { try { const [r, p] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest()]); setData(r.data.data || []); setPred(p.data.prediction); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
@@ -457,65 +460,132 @@ export default function ResourceMonitor() {
     </div>
 
     {/* GPU 수요 예측 하이라이트 */}
-    {pred && (
+    {pred && (() => {
+      const cd = pred.calculationDetails || {};
+      const peakShort = cd.currentPeakShortage || {};
+      return (
       <div className="bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50 rounded-lg border border-indigo-200 p-4 shadow-sm">
-        <div className="flex items-start justify-between mb-2">
+        {/* 헤더: 목표 인원 수정 가능 */}
+        <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center"><BarChart3 className="w-4 h-4 text-indigo-600" /></div>
-            <div><p className="text-xs font-bold text-gray-900">GPU 수요 예측</p><p className="text-[10px] text-gray-500">{new Date(pred.date).toLocaleDateString('ko-KR')} 기준 | 목표 {pred.targetUserCount?.toLocaleString()}명</p></div>
+            <div>
+              <p className="text-xs font-bold text-gray-900">GPU 수요 예측</p>
+              <div className="flex items-center gap-1 text-[10px] text-gray-500">
+                <span>{new Date(pred.date).toLocaleDateString('ko-KR')} 기준</span>
+                <span>|</span>
+                {targetEdit ? (
+                  <span className="flex items-center gap-1">
+                    <span>목표</span>
+                    <input type="number" min={100} max={500000} value={targetVal} onChange={e => setTargetVal(e.target.value)} className="w-20 px-1 py-0.5 border rounded text-[10px] text-center" />
+                    <span>명</span>
+                    <button disabled={targetSaving} onClick={async () => {
+                      const n = parseInt(targetVal);
+                      if (isNaN(n) || n < 100 || n > 500000) { alert('100 ~ 500,000 범위'); return; }
+                      setTargetSaving(true);
+                      try { await gpuCapacityApi.updateSettings(n); setTargetEdit(false); setPredRunning(true); const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setTargetSaving(false); setPredRunning(false); }
+                    }} className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[9px] hover:bg-indigo-700 disabled:opacity-50">{targetSaving ? '저장+분석...' : '저장 후 재분석'}</button>
+                    <button onClick={() => setTargetEdit(false)} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
+                  </span>
+                ) : (
+                  <button onClick={() => { setTargetVal(String(pred.targetUserCount || 15000)); setTargetEdit(true); }} className="text-indigo-600 hover:text-indigo-800 underline decoration-dotted">목표 {pred.targetUserCount?.toLocaleString()}명 ✏️</button>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${pred.aiConfidence === 'HIGH' ? 'bg-emerald-100 text-emerald-700' : pred.aiConfidence === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{pred.aiConfidence}</span>
             <button onClick={async () => { setPredRunning(true); try { const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setPredRunning(false); } }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중...' : '재실행'}</button>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
-          <div><p className="text-[10px] text-gray-500">현재 사용자</p><p className="text-lg font-bold text-gray-900">{pred.currentUsers?.toLocaleString()}<span className="text-xs font-normal text-gray-400 ml-0.5">명</span></p><p className="text-[10px] text-gray-400">DAU {Math.round(pred.currentDau)}</p></div>
-          <div><p className="text-[10px] text-gray-500">현재 GPU VRAM</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
-          <div><p className="text-[10px] text-gray-500">예상 필요 VRAM</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
-          <div><p className="text-[10px] text-gray-500">부족분</p><p className={`text-lg font-bold ${pred.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{pred.gapVramGb > 0 ? `+${Math.round(pred.gapVramGb)}` : '0'}<span className="text-xs font-normal text-gray-400 ml-0.5">GB</span></p></div>
-          {/* 소진 시점 */}
-          {pred.calculationDetails?.scaling?.weeksUntilSaturated && (
-            <div className="bg-red-50 rounded-lg p-2 border border-red-200">
-              <p className="text-[10px] text-red-600 font-semibold">포화 예상</p>
-              <p className="text-lg font-black text-red-700">{pred.calculationDetails.scaling.weeksUntilSaturated}<span className="text-xs font-normal ml-0.5">주 후</span></p>
-              <p className="text-[9px] text-red-500">현재 성장률 유지 시</p>
+
+        {/* 2-tier: 현재 피크 기준 부족분 + 목표 인원 기준 부족분 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+          {/* 현재 피크 기준 */}
+          <div className="bg-white/80 rounded-lg p-3 border border-gray-200">
+            <p className="text-[10px] font-bold text-orange-700 mb-2">📊 현재 피크 기준 부족분</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div><p className="text-[9px] text-gray-500">피크 실효 사용률</p><p className={`text-lg font-black ${peakShort.peakEffUtil >= 80 ? 'text-red-600' : peakShort.peakEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakEffUtil ?? '-'}%</p></div>
+              <div><p className="text-[9px] text-gray-500">피크 부족 VRAM</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div><p className="text-[9px] text-gray-500">즉시 필요</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
             </div>
-          )}
-          <div className="sm:col-span-2 bg-white/60 rounded-lg p-2 border border-indigo-100">
-            <p className="text-[10px] text-gray-500">추가 필요 GPU</p>
-            <p className="text-2xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-sm font-normal text-gray-500 ml-1">B300</span></p>
-            <p className="text-[10px] text-gray-400">(192GB/장 기준)</p>
+            {peakShort.b300Units > 0 && <p className="text-[9px] text-red-600 mt-1 font-semibold">⚠ 현재 피크에서 이미 리소스 부족!</p>}
+            {peakShort.b300Units === 0 && <p className="text-[9px] text-emerald-600 mt-1">✅ 현재 피크에서는 여유 있음</p>}
+          </div>
+          {/* 목표 인원 기준 */}
+          <div className="bg-white/80 rounded-lg p-3 border border-indigo-200">
+            <p className="text-[10px] font-bold text-indigo-700 mb-2">🎯 목표 {pred.targetUserCount?.toLocaleString()}명 기준 부족분</p>
+            <div className="grid grid-cols-3 gap-2">
+              <div><p className="text-[9px] text-gray-500">현재 VRAM</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div><p className="text-[9px] text-gray-500">필요 VRAM</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p><p className="text-[9px] text-gray-400">+{Math.round(pred.gapVramGb)}GB</p></div>
+              <div><p className="text-[9px] text-gray-500">추가 필요</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p><p className="text-[9px] text-gray-400">(192GB/장)</p></div>
+            </div>
           </div>
         </div>
+
+        {/* 포화 시점 + 사용자 현황 */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 mb-3">
+          <div className="bg-white/60 rounded-lg p-2 border border-gray-100">
+            <p className="text-[9px] text-gray-500">현재 사용자</p>
+            <p className="text-lg font-bold text-gray-900">{pred.currentUsers?.toLocaleString()}<span className="text-[9px] text-gray-400 ml-0.5">명</span></p>
+            <p className="text-[9px] text-gray-400">DAU {Math.round(pred.currentDau)}</p>
+          </div>
+          {cd.scaling?.weeksUntilSaturated != null && (
+            <div className={`rounded-lg p-2 border ${cd.scaling.weeksUntilSaturated === 0 ? 'bg-red-100 border-red-300' : 'bg-red-50 border-red-200'}`}>
+              <p className="text-[9px] text-red-600 font-semibold">포화 예상</p>
+              <p className="text-lg font-black text-red-700">{cd.scaling.weeksUntilSaturated === 0 ? '즉시' : `${cd.scaling.weeksUntilSaturated}주 후`}</p>
+              <p className="text-[9px] text-red-500">{cd.scaling.weeksUntilSaturated === 0 ? '이미 포화 상태!' : '현재 성장률 유지 시'}</p>
+            </div>
+          )}
+          <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">스케일링 배율</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">6개월 성장 반영</p></div>
+          {cd.scaling?.currentEffUtil != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">현재 실효 사용률</p><p className={`text-lg font-bold ${cd.scaling.currentEffUtil >= 80 ? 'text-red-600' : cd.scaling.currentEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{cd.scaling.currentEffUtil}%</p></div>}
+          {cd.scaling?.avgHealthPct != null && <div className="bg-white/60 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-500">GPU 건강도</p><p className={`text-lg font-bold ${cd.scaling.avgHealthPct >= 25 ? 'text-emerald-600' : 'text-amber-600'}`}>{cd.scaling.avgHealthPct}%</p></div>}
+        </div>
+
+        {/* 배포 모델 분포 */}
+        {cd.modelBreakdown?.length > 0 && (
+          <div className="mb-2">
+            <p className="text-[9px] font-bold text-gray-700 mb-1">배포 모델 (throughput 비율)</p>
+            <div className="flex flex-wrap gap-1">
+              {cd.modelBreakdown.map((m: any, i: number) => (
+                <span key={i} className="px-2 py-1 bg-white/70 rounded-lg text-[9px] border border-gray-200" title={`params: ${m.params || '?'}B | 평균 ${m.avgTps} tok/s | 이론max ${m.theoreticalMaxTps} tok/s | GPU ${m.gpuCount}장`}>
+                  <b>{m.name}</b> <span className="text-gray-500">{m.params ? `${m.params}B` : '?'} ({m.precision})</span> <span className="text-indigo-600 font-bold">{m.tpsRatio}%</span>
+                  <span className="text-gray-400 ml-1">{m.avgTps} tok/s</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* 성장률 + 에러율 */}
-        {pred.calculationDetails?.growth && (
+        {cd.growth && (
           <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
-            <span className="text-gray-500">인당 토큰 성장: <b>{pred.calculationDetails.growth.tokensPerUserGrowthRate}%</b>/주</span>
-            <span className="text-gray-500">6개월 배율: <b>x{pred.calculationDetails.growth.growthMultiplier6mo}</b></span>
-            {pred.calculationDetails.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={pred.calculationDetails.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{pred.calculationDetails.inputs.errorRate}%</b></span>}
+            <span className="text-gray-500">인당 토큰 성장: <b>{cd.growth.tokensPerUserGrowthRate}%</b>/주</span>
+            <span className="text-gray-500">6개월 배율: <b>x{cd.growth.growthMultiplier6mo}</b></span>
+            {cd.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b></span>}
           </div>
         )}
         {/* 서비스별 Top */}
-        {pred.calculationDetails?.topServices?.length > 0 && (
+        {cd.topServices?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-2">
-            {pred.calculationDetails.topServices.map((s: any, i: number) => (
+            {cd.topServices.map((s: any, i: number) => (
               <span key={i} className="px-1.5 py-0.5 bg-white/60 rounded text-[9px] text-gray-600 border border-gray-200">{s.name}: {(s.tokens / 1000000).toFixed(1)}M tok</span>
             ))}
           </div>
         )}
         {/* 계산 논리 */}
-        {pred.calculationDetails && (
+        {cd && (
           <details className="text-[10px]">
             <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">계산 논리 보기</summary>
             <div className="mt-2 p-2 bg-white/70 rounded-lg space-y-1 text-gray-600">
-              <p><b>1. 스케일링:</b> DAU 비율 {(pred.calculationDetails.inputs?.dauRatio * 100).toFixed(1)}% x 서브리니어 0.7 = 기본 x{pred.calculationDetails.scaling?.scalingFactor} → 성장 반영 x{pred.calculationDetails.growth?.growthAdjustedScaling}</p>
-              <p><b>2. Method A</b> (모델가중치 {pred.calculationDetails.methodA?.modelWeightVram}GB 고정 + KV {pred.calculationDetails.methodA?.kvVramCurrent}GB → {pred.calculationDetails.methodA?.kvVramPredicted}GB): <b>{pred.calculationDetails.methodA?.totalVramA}GB</b></p>
-              <p><b>3. Method B</b> (처리량 {pred.calculationDetails.methodB?.currentTps} → {pred.calculationDetails.methodB?.predictedTps} tok/s, 이론 max {pred.calculationDetails.methodB?.weightedMaxTps} tok/s): <b>{pred.calculationDetails.methodB?.totalVramB}GB</b></p>
-              <p><b>4. 최종:</b> max(A,B) x 안전마진 {pred.safetyMargin} x 에러보정 {pred.calculationDetails.scaling?.errorMargin} = <b>{Math.round(pred.predictedTotalVramGb)}GB</b></p>
-              {pred.calculationDetails.inputs?.detectedModels?.length > 0 && <p><b>모델:</b> {pred.calculationDetails.inputs.detectedModels.join(', ')} ({pred.calculationDetails.inputs.modelParams || '?'})</p>}
-              {pred.calculationDetails.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {pred.calculationDetails.confidenceIssues.join(', ')}</p>}
-              {pred.calculationDetails.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{pred.calculationDetails.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
+              <p><b>1. 스케일링:</b> DAU 비율 {(cd.inputs?.dauRatio * 100).toFixed(1)}% → 기본 x{cd.scaling?.scalingFactor} → 성장 반영 x{cd.growth?.growthAdjustedScaling}</p>
+              <p><b>2. Method A</b> (모델별 가중치 고정 + KV 스케일 합산): <b>{cd.methodA?.totalVramA}GB</b></p>
+              <p><b>3. Method B</b> (처리량 {cd.methodB?.currentTps} → {cd.methodB?.predictedTps} tok/s, 이론 max {cd.methodB?.weightedMaxTps} tok/s): <b>{cd.methodB?.totalVramB}GB</b></p>
+              <p><b>4. 최종:</b> max(A,B) x 안전마진 {pred.safetyMargin} x 에러보정 {cd.scaling?.errorMargin} x 건강도보정 {cd.scaling?.healthMargin} = <b>{Math.round(pred.predictedTotalVramGb)}GB</b></p>
+              {cd.inputs?.detectedModels?.length > 0 && <p><b>감지 모델:</b> {cd.inputs.detectedModels.join(', ')}</p>}
+              {cd.modelBreakdown?.length > 0 && <div><b>모델별 분석:</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, 이론max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}장</li>)}</ul></div>}
+              {cd.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {cd.confidenceIssues.join(', ')}</p>}
+              {cd.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{cd.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
             </div>
           </details>
         )}
@@ -527,7 +597,8 @@ export default function ResourceMonitor() {
           </details>
         )}
       </div>
-    )}
+      );
+    })()}
 
     {/* ── 종합 KPI (실시간 + 5영업일 평균) ── */}
     {data.length > 0 && (
