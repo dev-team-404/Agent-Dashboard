@@ -556,6 +556,14 @@ export default function ResourceMonitor() {
           </div>
         </div>
 
+        {/* 추정 조건 공지 */}
+        <div className="mb-3 p-2.5 bg-amber-50/80 rounded-lg border border-amber-200 text-[10px] text-amber-800 space-y-1">
+          <p className="font-bold text-amber-700">추정 조건 안내</p>
+          <p>1. vLLM metric이 현재 실시간 값을 가져올 수 없어 <b>과거 ~10일치 데이터</b>로 추정된 상태입니다. (DTGPT 측 --disable-log-stats 적용으로 vLLM Prometheus 메트릭 비활성화)</p>
+          <p>2. HPC망 내의 GPU 접근이 <b>보안상 어려워 미연결 장비로 추정</b>되어 있는 상태입니다. (연결된 장비의 평균 사용률 가정)</p>
+          <p>3. 상세 이력은 <a href="https://jira.samsungds.net/browse/AGENTREGISTRY-42" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold hover:text-blue-800">AGENTREGISTRY-42</a>에서 확인하실 수 있습니다.</p>
+        </div>
+
         {/* 2-tier: 현재 피크 기준 부족분 + 목표 인원 기준 부족분 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
           {/* 현재 피크 기준 */}
