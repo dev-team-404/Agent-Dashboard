@@ -29,6 +29,45 @@ const utilTxt = (p: number) => p >= 90 ? 'text-red-600' : p >= 70 ? 'text-amber-
 const healthTxt = (p: number) => p >= 25 ? 'text-emerald-600' : p >= 15 ? 'text-amber-600' : 'text-red-600';
 const llmBadge = (t: string) => ({ vllm: 'bg-blue-100 text-blue-700', sglang: 'bg-purple-100 text-purple-700', ollama: 'bg-green-100 text-green-700', tgi: 'bg-orange-100 text-orange-700' }[t] || 'bg-gray-100 text-gray-600');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+
+// ── 마크다운→HTML 변환 (테이블 포함) ──
+function mdToHtml(md: string): string {
+  if (!md) return '';
+  let html = md;
+  // 마크다운 테이블 변환 (| col | col | 형식)
+  html = html.replace(/((?:^\|.+\|$\n?)+)/gm, (tableBlock) => {
+    const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+    if (rows.length < 2) return tableBlock;
+    const parseRow = (r: string) => r.split('|').slice(1, -1).map(c => c.trim());
+    const headerCells = parseRow(rows[0]);
+    // 구분선 (|---|---| ) 건너뛰기
+    const startIdx = rows[1]?.match(/^[\s|:-]+$/) ? 2 : 1;
+    let t = '<table class="w-full text-[10px] border-collapse my-2"><thead><tr>';
+    for (const h of headerCells) t += `<th class="border border-gray-200 bg-gray-50 px-2 py-1 text-left font-semibold">${h}</th>`;
+    t += '</tr></thead><tbody>';
+    for (let i = startIdx; i < rows.length; i++) {
+      const cells = parseRow(rows[i]);
+      t += '<tr>';
+      for (const c of cells) t += `<td class="border border-gray-200 px-2 py-1">${c}</td>`;
+      t += '</tr>';
+    }
+    t += '</tbody></table>';
+    return t;
+  });
+  // 기존 마크다운 변환
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+  html = html.replace(/^- (.*$)/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  html = html.replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
+  // 링크: [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-blue-600 underline">$1</a>');
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\n/g, '<br/>');
+  return html;
+}
 function Tip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   return (<div className="bg-white/95 backdrop-blur border rounded-lg shadow-lg p-2 text-[10px]">
@@ -618,13 +657,13 @@ export default function ResourceMonitor() {
               {cd.executiveReport && (
                 <div className="p-3 bg-blue-50/80 rounded-lg border border-blue-200">
                   <p className="text-[10px] font-bold text-blue-700 mb-1">경영 의사결정 보고서</p>
-                  <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (cd.executiveReport || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
+                  <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1 [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: mdToHtml(cd.executiveReport || '') }} />
                 </div>
               )}
               {/* 기술 분석 (전문가용) */}
               <div className="p-3 bg-white/70 rounded-lg">
                 <p className="text-[10px] font-bold text-purple-700 mb-1">기술 상세 분석</p>
-                <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (pred.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
+                <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1 [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: mdToHtml(pred.aiAnalysis || '') }} />
               </div>
             </div>
           </details>

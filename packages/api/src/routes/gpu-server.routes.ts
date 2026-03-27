@@ -158,12 +158,26 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const peakTpsMap = new Map<string, number>();
     for (const s of servers) {
-      const recentSnaps = await prisma.gpuMetricSnapshot.findMany({
-        where: { serverId: s.id, timestamp: { gte: sevenDaysAgo } },
-        select: { llmMetrics: true },
-        orderBy: { timestamp: 'desc' },
-        take: 100,
-      });
+      let recentSnaps: any[] = [];
+      try {
+        recentSnaps = await prisma.gpuMetricSnapshot.findMany({
+          where: { serverId: s.id, timestamp: { gte: sevenDaysAgo } },
+          select: { llmMetrics: true },
+          orderBy: { timestamp: 'desc' },
+          take: 100,
+        });
+      } catch {
+        try {
+          const rawSnaps = await prisma.$queryRaw<any[]>`
+            SELECT llm_metrics::text as "llmMetrics" FROM gpu_metric_snapshots
+            WHERE server_id = ${s.id} AND timestamp >= ${sevenDaysAgo}
+            ORDER BY timestamp DESC LIMIT 100`;
+          recentSnaps = rawSnaps.map(r => {
+            try { return { llmMetrics: typeof r.llmMetrics === 'string' ? JSON.parse(r.llmMetrics) : r.llmMetrics }; }
+            catch { return { llmMetrics: [] }; }
+          });
+        } catch {}
+      }
       for (const snap of recentSnaps) {
         const llms = snap.llmMetrics as any[];
         if (!Array.isArray(llms)) continue;
@@ -358,23 +372,26 @@ gpuServerRoutes.get('/:id/history', async (req: Request, res: Response) => {
     const since = new Date();
     since.setHours(since.getHours() - hours);
 
-    const snapshots = await prisma.gpuMetricSnapshot.findMany({
-      where: {
-        serverId: id,
-        timestamp: { gte: since },
-      },
-      orderBy: { timestamp: 'asc' },
-      select: {
-        timestamp: true,
-        gpuMetrics: true,
-        cpuLoadAvg: true,
-        cpuCores: true,
-        memoryTotalMb: true,
-        memoryUsedMb: true,
-        gpuProcesses: true,
-        llmMetrics: true,
-      },
-    });
+    let snapshots: any[] = [];
+    try {
+      snapshots = await prisma.gpuMetricSnapshot.findMany({
+        where: { serverId: id, timestamp: { gte: since } },
+        orderBy: { timestamp: 'asc' },
+        select: { timestamp: true, gpuMetrics: true, cpuLoadAvg: true, cpuCores: true, memoryTotalMb: true, memoryUsedMb: true, gpuProcesses: true, llmMetrics: true },
+      });
+    } catch {
+      try {
+        const rawSnaps = await prisma.$queryRaw<any[]>`
+          SELECT timestamp, gpu_metrics::text as "gpuMetrics", cpu_load_avg as "cpuLoadAvg", cpu_cores as "cpuCores",
+                 memory_total_mb as "memoryTotalMb", memory_used_mb as "memoryUsedMb",
+                 gpu_processes::text as "gpuProcesses", llm_metrics::text as "llmMetrics"
+          FROM gpu_metric_snapshots WHERE server_id = ${id} AND timestamp >= ${since} ORDER BY timestamp ASC`;
+        snapshots = rawSnaps.map(r => {
+          try { return { ...r, gpuMetrics: typeof r.gpuMetrics === 'string' ? JSON.parse(r.gpuMetrics) : r.gpuMetrics, gpuProcesses: typeof r.gpuProcesses === 'string' ? JSON.parse(r.gpuProcesses || '[]') : r.gpuProcesses, llmMetrics: typeof r.llmMetrics === 'string' ? JSON.parse(r.llmMetrics || '[]') : r.llmMetrics }; }
+          catch { return { ...r, gpuMetrics: [], gpuProcesses: [], llmMetrics: [] }; }
+        });
+      } catch {}
+    }
 
     // KST 영업시간 (9-18, 영업일만) 평균 계산
     const KST_OFFSET = 9 * 60; // UTC+9
@@ -515,22 +532,36 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     });
     const holidaySet = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
 
-    // 전체 서버 스냅샷
-    const snapshots = await prisma.gpuMetricSnapshot.findMany({
-      where: { timestamp: { gte: since } },
-      orderBy: { timestamp: 'asc' },
-      select: {
-        serverId: true,
-        timestamp: true,
-        gpuMetrics: true,
-        cpuLoadAvg: true,
-        cpuCores: true,
-        memoryTotalMb: true,
-        memoryUsedMb: true,
-        gpuProcesses: true,
-        llmMetrics: true,
-      },
-    });
+    // 전체 서버 스냅샷 (Prisma JSON napi 변환 실패 방어)
+    let snapshots: any[] = [];
+    try {
+      snapshots = await prisma.gpuMetricSnapshot.findMany({
+        where: { timestamp: { gte: since } },
+        orderBy: { timestamp: 'asc' },
+        select: {
+          serverId: true, timestamp: true, gpuMetrics: true,
+          cpuLoadAvg: true, cpuCores: true, memoryTotalMb: true, memoryUsedMb: true,
+          gpuProcesses: true, llmMetrics: true,
+        },
+      });
+    } catch (snapErr: any) {
+      console.error('[Analytics] Prisma findMany failed, raw fallback:', snapErr.message);
+      const rawSnaps = await prisma.$queryRaw<any[]>`
+        SELECT server_id as "serverId", timestamp, gpu_metrics::text as "gpuMetrics",
+               cpu_load_avg as "cpuLoadAvg", cpu_cores as "cpuCores",
+               memory_total_mb as "memoryTotalMb", memory_used_mb as "memoryUsedMb",
+               gpu_processes::text as "gpuProcesses", llm_metrics::text as "llmMetrics"
+        FROM gpu_metric_snapshots WHERE timestamp >= ${since} ORDER BY timestamp ASC`;
+      snapshots = rawSnaps.map(r => {
+        try {
+          return { ...r,
+            gpuMetrics: typeof r.gpuMetrics === 'string' ? JSON.parse(r.gpuMetrics) : r.gpuMetrics,
+            gpuProcesses: typeof r.gpuProcesses === 'string' ? JSON.parse(r.gpuProcesses || '[]') : r.gpuProcesses,
+            llmMetrics: typeof r.llmMetrics === 'string' ? JSON.parse(r.llmMetrics || '[]') : r.llmMetrics,
+          };
+        } catch { return { ...r, gpuMetrics: [], gpuProcesses: [], llmMetrics: [] }; }
+      });
+    }
 
     const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
