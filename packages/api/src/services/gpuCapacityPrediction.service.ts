@@ -141,7 +141,7 @@ export async function runGpuCapacityPrediction(): Promise<any> {
            SUM(COALESCE(u."inputTokens",0) + COALESCE(u."outputTokens",0)) as tokens, COUNT(*) as reqs
     FROM usage_logs u LEFT JOIN services s ON u.service_id = s.id
     WHERE u.timestamp >= ${sevenDaysAgo} AND u.service_id IS NOT NULL
-    GROUP BY u.service_id, s.name ORDER BY tokens DESC LIMIT 5`;
+    GROUP BY u.service_id, s.name ORDER BY tokens DESC`;
   const topServices = serviceBreakdown.map(s => ({ name: s.name, tokens: Number(s.tokens), requests: Number(s.reqs) }));
 
   // ── 레이턴시 ──

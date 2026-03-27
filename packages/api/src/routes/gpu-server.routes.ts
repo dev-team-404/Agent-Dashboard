@@ -462,6 +462,16 @@ gpuServerRoutes.get('/:id/debug', async (req: Request, res: Response) => {
 
 // ── AI 코칭 ──
 
+gpuServerRoutes.post('/coaching', requireSuperAdmin, async (_req: Request, res: Response) => {
+  try {
+    const { runGpuCoaching } = await import('../services/gpuCoaching.service.js');
+    runGpuCoaching().catch(err => console.error('[GPU Coaching] Manual run failed:', err));
+    res.json({ success: true, message: 'Coaching started for all servers' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed' });
+  }
+});
+
 gpuServerRoutes.get('/:id/coaching', async (req: Request, res: Response) => {
   try {
     const { getCoachingResult } = await import('../services/gpuCoaching.service.js');

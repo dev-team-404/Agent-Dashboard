@@ -455,6 +455,16 @@ export default function SystemLlmSettings() {
           </button>
         </div>
         {gpuLlmSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> GPU 예측 LLM이 변경되었습니다.</div>}
+
+        {/* 실행 버튼 */}
+        <div className="mt-4 pt-4 border-t border-gray-100 flex gap-3">
+          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-capacity/run'); alert('GPU 수요 예측이 완료되었습니다. 리소스 모니터링에서 확인하세요.'); } catch (err: unknown) { setError((err as any)?.response?.data?.error || '실행 실패'); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+            <Play className="w-4 h-4" /> GPU 수요 예측 실행
+          </button>
+          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-servers/coaching', {}); alert('AI 코칭이 전체 서버에 대해 시작되었습니다. 리소스 모니터링 서버 카드에서 확인하세요.'); } catch (err: unknown) { setError((err as any)?.response?.data?.error || '실행 실패'); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
+            <Sparkles className="w-4 h-4" /> AI 코칭 실행
+          </button>
+        </div>
       </div>
 
       {/* AI 도우미 챗봇 LLM */}

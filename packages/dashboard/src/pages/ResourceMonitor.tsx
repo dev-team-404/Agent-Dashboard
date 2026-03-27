@@ -486,8 +486,6 @@ export default function ResourceMonitor() {
         {/* 성장률 + 에러율 */}
         {pred.calculationDetails?.growth && (
           <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
-            <span className="text-gray-500">주간 성장률: <b className={pred.calculationDetails.growth.weeklyGrowthRate > 5 ? 'text-red-600' : pred.calculationDetails.growth.weeklyGrowthRate > 0 ? 'text-amber-600' : 'text-gray-700'}>{pred.calculationDetails.growth.weeklyGrowthRate}%</b></span>
-            <span className="text-gray-500">DAU 성장: <b>{pred.calculationDetails.growth.dauGrowthRate}%</b>/주</span>
             <span className="text-gray-500">인당 토큰 성장: <b>{pred.calculationDetails.growth.tokensPerUserGrowthRate}%</b>/주</span>
             <span className="text-gray-500">6개월 배율: <b>x{pred.calculationDetails.growth.growthMultiplier6mo}</b></span>
             {pred.calculationDetails.inputs?.errorRate > 0 && <span className="text-gray-500">에러율: <b className={pred.calculationDetails.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{pred.calculationDetails.inputs.errorRate}%</b></span>}
@@ -496,7 +494,7 @@ export default function ResourceMonitor() {
         {/* 서비스별 Top */}
         {pred.calculationDetails?.topServices?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-2">
-            {pred.calculationDetails.topServices.slice(0, 3).map((s: any, i: number) => (
+            {pred.calculationDetails.topServices.map((s: any, i: number) => (
               <span key={i} className="px-1.5 py-0.5 bg-white/60 rounded text-[9px] text-gray-600 border border-gray-200">{s.name}: {(s.tokens / 1000000).toFixed(1)}M tok</span>
             ))}
           </div>
