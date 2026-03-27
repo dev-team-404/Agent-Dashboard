@@ -25,7 +25,8 @@ interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; thro
 const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 const utilCls = (p: number) => p >= 90 ? 'bg-red-500' : p >= 70 ? 'bg-amber-500' : p >= 40 ? 'bg-blue-500' : 'bg-emerald-500';
 const utilTxt = (p: number) => p >= 90 ? 'text-red-600' : p >= 70 ? 'text-amber-600' : 'text-gray-900';
-const healthTxt = (p: number) => p >= 85 ? 'text-emerald-600' : p >= 70 ? 'text-amber-600' : 'text-red-600';
+// 건강도 = 이론대비 달성률 (30-50% 정상, 25% 미만 점검필요, 15% 미만 위험)
+const healthTxt = (p: number) => p >= 25 ? 'text-emerald-600' : p >= 15 ? 'text-amber-600' : 'text-red-600';
 const llmBadge = (t: string) => ({ vllm: 'bg-blue-100 text-blue-700', sglang: 'bg-purple-100 text-purple-700', ollama: 'bg-green-100 text-green-700', tgi: 'bg-orange-100 text-orange-700' }[t] || 'bg-gray-100 text-gray-600');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 function Tip({ active, payload }: any) {
@@ -504,7 +505,7 @@ export default function ResourceMonitor() {
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="px-3 pt-2 flex items-center justify-between">
-          <p className="text-[9px] text-gray-500">실시간 종합 지표 | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도) | 건강도 = 7일 피크 ÷ 이론max | 영업시간: KST 9-18시 영업일 (휴일 관리 기준)</p>
+          <p className="text-[9px] text-gray-500">종합 지표 | 이론max = GPU FP16 TFLOPS ÷ (2×모델 파라미터) | 이론대비 = 현재/이론max | 건강도 = 7일피크/이론max (30-50% 정상, 하락 시 노후화) | 영업시간: KST 9-18시 영업일</p>
         </div>
         <div className="p-3 pt-1.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-100">
@@ -520,7 +521,7 @@ export default function ResourceMonitor() {
           <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
             <p className="text-[9px] text-gray-600 font-semibold uppercase">GPU 건강도</p>
             <p className={`text-2xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
-            <p className="text-[9px] text-gray-400">피크 / 이론max</p>
+            <p className="text-[9px] text-gray-400">피크/이론max (30-50% 정상)</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
             <p className="text-[9px] text-gray-600 font-semibold uppercase">여유 용량</p>

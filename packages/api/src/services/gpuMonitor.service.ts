@@ -303,9 +303,10 @@ export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelPara
   const flopsPerToken = 2 * modelParamsBillion * 1e9; // 2 * params FLOPs per token
   const totalFlops = spec.fp16Tflops * 1e12 * gpuCount; // total FP16 FLOPS
   const computeBound = totalFlops / flopsPerToken;
-  // vLLM continuous batching → compute bound가 실질적 상한
-  // 효율 보정 0.5 (실무 GPU utilization ~50-60%)
-  return computeBound * 0.5;
+  // 이론 최대 = compute bound (제조사 스펙 그대로, 보정 없음)
+  // 실제 달성률은 30-70% (GPU 수, 통신 오버헤드, KV cache 등에 따라 다름)
+  // 건강도 = 실측 피크 / 이론 최대 → 시간에 따라 하락하면 노후화 시그널
+  return computeBound;
 }
 
 // ================================================================
