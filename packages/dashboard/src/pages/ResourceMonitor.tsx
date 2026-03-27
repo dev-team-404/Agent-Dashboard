@@ -26,8 +26,6 @@ interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; thro
 const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 const utilCls = (p: number) => p >= 90 ? 'bg-red-500' : p >= 70 ? 'bg-amber-500' : p >= 40 ? 'bg-blue-500' : 'bg-emerald-500';
 const utilTxt = (p: number) => p >= 90 ? 'text-red-600' : p >= 70 ? 'text-amber-600' : 'text-gray-900';
-// 병목 표시
-const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
 const llmBadge = (t: string) => ({ vllm: 'bg-blue-100 text-blue-700', sglang: 'bg-purple-100 text-purple-700', ollama: 'bg-green-100 text-green-700', tgi: 'bg-orange-100 text-orange-700' }[t] || 'bg-gray-100 text-gray-600');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 
