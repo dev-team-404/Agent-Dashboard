@@ -463,7 +463,6 @@ export default function ResourceMonitor() {
   const effectiveUtil = (avgTheoreticalUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheoreticalUtil / avgHealth) * 100) : avgTheoreticalUtil;
   // 실용 사용률 (메모리 대역폭 기준 — 일반 부하에서의 직관적 수치)
   const avgPracticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.practicalUtilPct != null).map(e => e.throughputAnalysis!.practicalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  const totalBandwidthMax = data.reduce((a, e) => a + (e.throughputAnalysis?.bandwidthMaxTps || 0), 0);
   // 여유 = 100 - 실효사용률
   const headroom = effectiveUtil != null ? 100 - effectiveUtil : null;
   // 시스템 리소스
