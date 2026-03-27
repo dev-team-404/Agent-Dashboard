@@ -18,7 +18,7 @@ interface GpuProcess { gpuIndex: number; pid: number; name: string; memMb: numbe
 interface LlmEndpoint { port: number; containerName: string; containerImage: string; type: string; modelNames: string[]; runningRequests: number | null; waitingRequests: number | null; kvCacheUsagePct: number | null; promptThroughputTps: number | null; genThroughputTps: number | null; ttftMs: number | null; tpotMs: number | null; e2eLatencyMs: number | null; prefixCacheHitRate: number | null; preemptionCount: number | null; queueTimeMs: number | null; rawMetrics?: Record<string, number>; }
 interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; diskTotalGb: number | null; diskUsedGb: number | null; diskFreeGb: number | null; hostname: string | null; }
 interface GpuServer { id: string; name: string; host: string; sshPort: number; sshUsername: string; description: string | null; isLocal: boolean; enabled: boolean; pollIntervalSec: number; createdAt: string; }
-interface ThroughputAnalysis { theoreticalMaxTps: number | null; peakTps: number | null; currentTps: number; modelName: string | null; modelParams: string | null; gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null; }
+interface ThroughputAnalysis { theoreticalMaxTps: number | null; bandwidthMaxTps: number | null; peakTps: number | null; currentTps: number; modelName: string | null; modelParams: string | null; gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null; practicalUtilPct: number | null; practicalHealthPct: number | null; }
 interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; throughputAnalysis?: ThroughputAnalysis; }
 
 // ── Helpers ──
@@ -457,10 +457,13 @@ export default function ResourceMonitor() {
 
   // 건강도 = 피크/이론 (GPU 성능 저하 감지)
   const avgHealth = (() => { const h = data.filter(e => e.throughputAnalysis?.gpuHealthPct != null).map(e => e.throughputAnalysis!.gpuHealthPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
-  // 이론 최대 대비 사용률 = 현재/이론max
+  // 이론 최대 대비 사용률 = 현재/이론max (compute-bound)
   const avgTheoreticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.theoreticalUtilPct != null).map(e => e.throughputAnalysis!.theoreticalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
   // 실효 가용량 대비 사용률 = 현재/(이론max × 건강도) = theoreticalUtil / health
   const effectiveUtil = (avgTheoreticalUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheoreticalUtil / avgHealth) * 100) : avgTheoreticalUtil;
+  // 실용 사용률 (메모리 대역폭 기준 — 일반 부하에서의 직관적 수치)
+  const avgPracticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.practicalUtilPct != null).map(e => e.throughputAnalysis!.practicalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  const totalBandwidthMax = data.reduce((a, e) => a + (e.throughputAnalysis?.bandwidthMaxTps || 0), 0);
   // 여유 = 100 - 실효사용률
   const headroom = effectiveUtil != null ? 100 - effectiveUtil : null;
   // 시스템 리소스
@@ -676,13 +679,18 @@ export default function ResourceMonitor() {
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="px-3 pt-2">
-          <p className="text-[9px] text-gray-500">이론max = GPU FP16 TFLOPS ÷ (2×모델 active params) | 건강도 = 7일피크/이론max | 영업시간: KST 9-18시 영업일</p>
+          <p className="text-[9px] text-gray-500">실용max = 메모리 대역폭 ÷ 모델 크기 (일반 부하 기준) | 이론max = compute-bound (절대 상한) | 영업시간: KST 9-18시 영업일</p>
         </div>
         {/* 실시간 */}
         <div className="px-3 pt-1">
           <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
         </div>
-        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2 border border-emerald-200">
+            <p className="text-[8px] text-emerald-700 font-semibold">실용 사용률</p>
+            <p className={`text-xl font-black ${avgPracticalUtil != null ? utilTxt(avgPracticalUtil) : 'text-gray-300'}`}>{avgPracticalUtil ?? '-'}%</p>
+            <p className="text-[7px] text-gray-400">대역폭 기준</p>
+          </div>
           <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100">
             <p className="text-[8px] text-blue-600 font-semibold">실효 사용률</p>
             <p className={`text-xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
@@ -719,16 +727,22 @@ export default function ResourceMonitor() {
         </div>
         {(() => {
           const bh = ana?.businessHours;
-          // 이론max는 실시간 throughputAnalysis에서 가져옴 (서버별 합산)
           const totalTheoMax = data.reduce((a, e) => a + (e.throughputAnalysis?.theoreticalMaxTps || 0), 0);
+          const totalBwMax = data.reduce((a, e) => a + (e.throughputAnalysis?.bandwidthMaxTps || 0), 0);
           const avgTps = bh?.avgTps || null;
           const peakTps = bh?.peakTps || null;
+          const avgPractUtil = (avgTps != null && totalBwMax > 0) ? Math.round((avgTps / totalBwMax) * 1000) / 10 : null;
           const avgTheoUtil = (avgTps != null && totalTheoMax > 0) ? Math.round((avgTps / totalTheoMax) * 1000) / 10 : null;
           const avgHealthPct = (peakTps != null && totalTheoMax > 0) ? Math.round((peakTps / totalTheoMax) * 1000) / 10 : null;
           const avgEffUtil = (avgTheoUtil != null && avgHealthPct != null && avgHealthPct > 0) ? Math.round((avgTheoUtil / avgHealthPct) * 1000) / 10 : avgTheoUtil;
-          const avgHeadroom = avgEffUtil != null ? Math.round((100 - avgEffUtil) * 10) / 10 : null;
+          const avgHeadroom = avgPractUtil != null ? Math.round((100 - avgPractUtil) * 10) / 10 : null;
           return (
-        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200">
+            <p className="text-[8px] text-emerald-700 font-semibold">평균 실용사용률</p>
+            <p className={`text-xl font-black ${avgPractUtil != null ? utilTxt(avgPractUtil) : 'text-gray-300'}`}>{avgPractUtil ?? '-'}%</p>
+            <p className="text-[7px] text-gray-400">대역폭 기준</p>
+          </div>
           <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100">
             <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률</p>
             <p className={`text-xl font-black ${avgEffUtil != null ? utilTxt(avgEffUtil) : 'text-gray-300'}`}>{avgEffUtil ?? '-'}%</p>

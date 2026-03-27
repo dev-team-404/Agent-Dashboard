@@ -310,6 +310,15 @@ export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelPara
   return totalFlops / flopsPerToken;
 }
 
+/** 메모리 대역폭 기반 실용 최대 (배치1 기준, 일반 부하 기준선) */
+export function calcBandwidthMaxTps(spec: GpuSpec, gpuCount: number, modelParamsBillion: number, precision: 'fp8' | 'fp16' = 'fp16'): number {
+  const bytesPerParam = precision === 'fp8' ? 1 : 2;
+  const modelSizeBytes = modelParamsBillion * 1e9 * bytesPerParam;
+  const totalBandwidth = spec.memBandwidthGBs * 1e9 * gpuCount; // bytes/s
+  const efficiency = 0.65; // 실무 메모리 효율 ~65%
+  return (totalBandwidth * efficiency) / modelSizeBytes;
+}
+
 // ================================================================
 // 타입 정의
 // ================================================================

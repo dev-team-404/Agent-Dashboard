@@ -27,6 +27,7 @@ import {
   testSshConnection,
   estimateModelParams,
   calcTheoreticalMaxTps,
+  calcBandwidthMaxTps,
   lookupGpuSpec,
 } from '../services/gpuMonitor.service.js';
 
@@ -210,6 +211,9 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
         ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10
         : null;
+      const bandwidthMaxTps = (spec && primaryModelParams && gpuCount > 0)
+        ? Math.round(calcBandwidthMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10
+        : null;
 
       // 현재 처리량 (unknown 제외)
       const currentTps = endpoints.reduce((sum, ep) =>
@@ -223,6 +227,7 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
         metrics: m,
         throughputAnalysis: {
           theoreticalMaxTps,
+          bandwidthMaxTps, // 메모리 대역폭 기반 실용 최대 (배치1)
           peakTps,
           currentTps: Math.round(currentTps * 10) / 10,
           modelName: primaryModelName,
@@ -230,6 +235,9 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
           gpuHealthPct: (theoreticalMaxTps && peakTps) ? Math.round((peakTps / theoreticalMaxTps) * 1000) / 10 : null,
           utilizationPct: (peakTps && peakTps > 0) ? Math.round((currentTps / peakTps) * 1000) / 10 : null,
           theoreticalUtilPct: (theoreticalMaxTps && theoreticalMaxTps > 0) ? Math.round((currentTps / theoreticalMaxTps) * 1000) / 10 : null,
+          // 실용 사용률 (메모리 대역폭 기준 — 직관적 수치)
+          practicalUtilPct: (bandwidthMaxTps && bandwidthMaxTps > 0) ? Math.round((currentTps / bandwidthMaxTps) * 1000) / 10 : null,
+          practicalHealthPct: (bandwidthMaxTps && peakTps) ? Math.round((peakTps / bandwidthMaxTps) * 1000) / 10 : null,
         },
       };
     });
