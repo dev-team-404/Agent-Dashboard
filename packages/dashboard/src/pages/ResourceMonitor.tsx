@@ -445,9 +445,11 @@ export default function ResourceMonitor() {
   const [fleetEdit, setFleetEdit] = useState(false);
   const [fleetList, setFleetList] = useState<Array<{ type: string; count: number; label: string; vramGb: number }>>([]);
   const [fleetSaving, setFleetSaving] = useState(false);
+  const [noticeEdit, setNoticeEdit] = useState(false);
+  const [noticeText, setNoticeText] = useState('');
   const ref = useRef<ReturnType<typeof setInterval>>();
 
-  const fetch_ = useCallback(async () => { try { const [r, p] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest()]); setData(r.data.data || []); setPred(p.data.prediction); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
+  const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays); setAna(r.data); } catch {} }, [anaDays]);
   useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { fetchAna(); }, [fetchAna]);
@@ -556,13 +558,38 @@ export default function ResourceMonitor() {
           </div>
         </div>
 
-        {/* 추정 조건 공지 */}
-        <div className="mb-3 p-2.5 bg-amber-50/80 rounded-lg border border-amber-200 text-[10px] text-amber-800 space-y-1">
-          <p className="font-bold text-amber-700">추정 조건 안내</p>
-          <p>1. vLLM metric이 현재 실시간 값을 가져올 수 없어 <b>과거 ~10일치 데이터</b>로 추정된 상태입니다. (DTGPT 측 --disable-log-stats 적용으로 vLLM Prometheus 메트릭 비활성화)</p>
-          <p>2. HPC망 내의 GPU 접근이 <b>보안상 어려워 미연결 장비로 추정</b>되어 있는 상태입니다. (연결된 장비의 평균 사용률 가정)</p>
-          <p>3. 상세 이력은 <a href="https://jira.samsungds.net/browse/AGENTREGISTRY-42" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-semibold hover:text-blue-800">AGENTREGISTRY-42</a>에서 확인하실 수 있습니다.</p>
-        </div>
+        {/* 추정 조건 공지 (편집 가능) */}
+        {(() => {
+          const defaultNotice = `1. vLLM metric의 실시간 값을 현재 가져올 수 없어, **과거 약 10일치 데이터**를 기반으로 추정된 상태입니다. (DTGPT 측 --disable-log-stats 적용으로 vLLM Prometheus 메트릭이 비활성화되어 있습니다)
+2. HPC망 내의 GPU는 **보안상 직접 접근이 어려워**, 연결된 장비의 평균 사용률을 가정하여 추정에 포함하였습니다.
+3. 관련 상세 이력은 [DTGPT-122](https://jira.samsungds.net/browse/DTGPT-122)에서 확인하실 수 있습니다.`;
+          const activeNotice = noticeText || defaultNotice;
+          return (
+          <div className="mb-3 p-2.5 bg-amber-50/80 rounded-lg border border-amber-200 text-[10px] text-amber-800">
+            <div className="flex items-center justify-between mb-1">
+              <p className="font-bold text-amber-700">추정 조건 안내</p>
+              <button onClick={() => { if (!noticeEdit && !noticeText) setNoticeText(defaultNotice); setNoticeEdit(!noticeEdit); }} className="text-[9px] text-amber-600 hover:text-amber-800 underline">{noticeEdit ? '닫기' : '편집'}</button>
+            </div>
+            {noticeEdit ? (
+              <div className="space-y-1">
+                <textarea value={noticeText} onChange={e => setNoticeText(e.target.value)} rows={5} className="w-full px-2 py-1 border rounded text-[10px] font-mono" placeholder="마크다운 형식으로 작성 (**굵게**, [링크](url))" />
+                <div className="flex gap-2">
+                  <button onClick={async () => {
+                    try {
+                      await gpuCapacityApi.updateSettings({ notice: noticeText } as any);
+                      setNoticeEdit(false);
+                      fetch_();
+                    } catch { alert('저장 실패'); }
+                  }} className="px-2 py-0.5 bg-amber-600 text-white rounded text-[9px]">저장</button>
+                  <button onClick={() => { setNoticeText(defaultNotice); }} className="px-2 py-0.5 bg-gray-200 rounded text-[9px]">기본값 복원</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-0.5 [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: mdToHtml(activeNotice) }} />
+            )}
+          </div>
+          );
+        })()}
 
         {/* 2-tier: 현재 피크 기준 부족분 + 목표 인원 기준 부족분 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">

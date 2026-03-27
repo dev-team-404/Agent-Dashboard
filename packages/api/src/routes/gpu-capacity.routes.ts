@@ -58,14 +58,16 @@ gpuCapacityRoutes.post('/run', requireSuperAdmin, async (req: Request, res: Resp
 // 설정 조회 (target + 미연결 장비)
 gpuCapacityRoutes.get('/settings', async (_req: Request, res: Response) => {
   try {
-    const [targetSetting, fleetSetting] = await Promise.all([
+    const [targetSetting, fleetSetting, noticeSetting] = await Promise.all([
       prisma.systemSetting.findUnique({ where: { key: 'GPU_CAPACITY_TARGET_USERS' } }),
       prisma.systemSetting.findUnique({ where: { key: 'GPU_UNMONITORED_FLEET' } }),
+      prisma.systemSetting.findUnique({ where: { key: 'GPU_PREDICTION_NOTICE' } }),
     ]);
     const unmonitoredFleet = fleetSetting?.value ? JSON.parse(fleetSetting.value) : [];
     res.json({
       targetUserCount: parseInt(targetSetting?.value || '15000', 10),
-      unmonitoredFleet, // [{type: "H200", count: 54, label: "HPC망", vramGb: 141}]
+      unmonitoredFleet,
+      notice: noticeSetting?.value || null,
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to get settings' });
@@ -83,6 +85,7 @@ gpuCapacityRoutes.put('/settings', requireSuperAdmin, async (req: Request, res: 
         label: z.string().optional(),
         vramGb: z.number().min(0).optional(),
       })).optional(),
+      notice: z.string().max(2000).optional(),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
@@ -99,6 +102,13 @@ gpuCapacityRoutes.put('/settings', requireSuperAdmin, async (req: Request, res: 
         where: { key: 'GPU_UNMONITORED_FLEET' },
         update: { value: JSON.stringify(parsed.data.unmonitoredFleet), updatedBy: loginid },
         create: { key: 'GPU_UNMONITORED_FLEET', value: JSON.stringify(parsed.data.unmonitoredFleet), updatedBy: loginid },
+      });
+    }
+    if (parsed.data.notice != null) {
+      await prisma.systemSetting.upsert({
+        where: { key: 'GPU_PREDICTION_NOTICE' },
+        update: { value: parsed.data.notice, updatedBy: loginid },
+        create: { key: 'GPU_PREDICTION_NOTICE', value: parsed.data.notice, updatedBy: loginid },
       });
     }
     res.json({ success: true });
