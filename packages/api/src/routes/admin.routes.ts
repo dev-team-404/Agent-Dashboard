@@ -11,7 +11,7 @@
 import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
-import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
 import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
 import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
@@ -1915,11 +1915,12 @@ adminRoutes.get('/users/:id/admin-status', async (req: AuthenticatedRequest, res
     const admin = await prisma.admin.findUnique({
       where: { loginid: user.loginid },
     });
+    const isHardcodedFallback = !admin && isSuperAdminByEnv(user.loginid);
 
     res.json({
-      isAdmin: !!admin,
-      adminRole: admin?.role || null,
-      isSuperAdmin: admin?.role === 'SUPER_ADMIN',
+      isAdmin: !!admin || isHardcodedFallback,
+      adminRole: admin?.role || (isHardcodedFallback ? 'SUPER_ADMIN' : null),
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN' || isHardcodedFallback,
       canModify: true,
       deptname: admin?.deptname || null,
       businessUnit: admin?.businessUnit || null,

@@ -15,7 +15,7 @@
 import { Router, RequestHandler } from 'express';
 import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 import { prisma } from '../index.js';
-import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from '../services/orgTree.service.js';
 import { generateLogoForService } from '../services/logoGenerator.service.js';
@@ -69,6 +69,12 @@ async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
     req.adminId = admin.id;
     req.adminDept = admin.deptname || req.user.deptname;
     req.adminBusinessUnit = admin.businessUnit || extractBusinessUnit(req.user.deptname);
+  } else if (isSuperAdminByEnv(req.user.loginid)) {
+    req.isAdmin = true;
+    req.isSuperAdmin = true;
+    req.adminRole = 'SUPER_ADMIN';
+    req.adminDept = req.user.deptname;
+    req.adminBusinessUnit = extractBusinessUnit(req.user.deptname);
   }
 }
 
