@@ -598,6 +598,9 @@ export default function ResourceMonitor() {
     ))}
 
     {/* Analysis Tab */}
+    {tab === 'analysis' && !ana && (
+      <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
+    )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
       <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외)</span><div className="flex gap-0.5">{[3, 7, 14, 30].map(d => <button key={d} onClick={() => setAnaDays(d)} className={`px-2 py-1 text-[10px] rounded ${anaDays === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{d}일</button>)}</div></div>
 
