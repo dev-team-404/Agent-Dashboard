@@ -316,28 +316,34 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
     }
   }
 
-  // 각 range 결과에서 instance별 값을 타임스탬프로 빠르게 조회하기 위한 인덱스
-  const buildIndex = (rangeData: any[]) => {
-    const idx = new Map<string, Map<number, number>>(); // instance → ts → value
+  // 각 range 결과에서 키별 값을 타임스탬프로 빠르게 조회하기 위한 인덱스
+  // DCGM: UUID로 키 (같은 노드의 GPU 8장을 구분해야 함)
+  // vLLM: instance로 키 (모델 인스턴스별 고유)
+  const buildIndex = (rangeData: any[], keyFn: (m: any) => string) => {
+    const idx = new Map<string, Map<number, number>>();
     for (const r of rangeData) {
-      const instance = r.metric?.instance || r.metric?.node || '';
-      const tsMap = idx.get(instance) || new Map();
+      const key = keyFn(r.metric || {});
+      if (!key) continue;
+      const tsMap = idx.get(key) || new Map();
       for (const [ts, val] of (r.values || [])) {
         tsMap.set(ts, parseFloat(val) || 0);
       }
-      idx.set(instance, tsMap);
+      idx.set(key, tsMap);
     }
     return idx;
   };
 
-  const gpuUtilIdx = buildIndex(gpuUtilRange);
-  const fbUsedIdx = buildIndex(fbUsedRange);
-  const fbFreeIdx = buildIndex(fbFreeRange);
-  const runningIdx = buildIndex(runningRange);
-  const waitingIdx = buildIndex(waitingRange);
-  const kvIdx = buildIndex(kvRange);
-  const promptIdx = buildIndex(promptRange);
-  const genIdx = buildIndex(genRange);
+  const dcgmKey = (m: any) => m.UUID || `${m.node || m.Hostname}:${m.device}`;
+  const vllmKey = (m: any) => m.instance || '';
+
+  const gpuUtilIdx = buildIndex(gpuUtilRange, dcgmKey);
+  const fbUsedIdx = buildIndex(fbUsedRange, dcgmKey);
+  const fbFreeIdx = buildIndex(fbFreeRange, dcgmKey);
+  const runningIdx = buildIndex(runningRange, vllmKey);
+  const waitingIdx = buildIndex(waitingRange, vllmKey);
+  const kvIdx = buildIndex(kvRange, vllmKey);
+  const promptIdx = buildIndex(promptRange, vllmKey);
+  const genIdx = buildIndex(genRange, vllmKey);
 
   // counter → rate 변환을 위한 이전 값 저장
   const prevPrompt = new Map<string, number>();
@@ -357,11 +363,12 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
         const uuid = r.metric?.UUID || '';
         const gpuModel = r.metric?.modelName || 'NVIDIA H200';
         const idx = parseInt(device.replace('nvidia', ''), 10) || 0;
-        const key = `${node}:${device}`;
+        // UUID 또는 node:device로 lookup (buildIndex의 dcgmKey와 동일)
+        const gpuKey = uuid || `${node}:${device}`;
 
-        const used = fbUsedIdx.get(key)?.get(ts) ?? fbUsedIdx.get(uuid)?.get(ts) ?? 0;
-        const free = fbFreeIdx.get(key)?.get(ts) ?? fbFreeIdx.get(uuid)?.get(ts) ?? 0;
-        const util = gpuUtilIdx.get(key)?.get(ts) ?? gpuUtilIdx.get(uuid)?.get(ts) ?? 0;
+        const used = fbUsedIdx.get(gpuKey)?.get(ts) ?? 0;
+        const free = fbFreeIdx.get(gpuKey)?.get(ts) ?? 0;
+        const util = gpuUtilIdx.get(gpuKey)?.get(ts) ?? 0;
 
         // 중복 방지
         if (!gpus.find(g => g.uuid === uuid)) {
