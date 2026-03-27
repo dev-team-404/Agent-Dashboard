@@ -656,7 +656,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                       )}
                     </td>
                     <td className="px-5 py-4 text-right">
-                      {user.globalRole !== 'SUPER_ADMIN' && (
+                      {(isSuperAdmin || user.globalRole !== 'SUPER_ADMIN') && (
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => openEditModal(user)}
