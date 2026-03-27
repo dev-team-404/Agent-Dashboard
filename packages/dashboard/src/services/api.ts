@@ -446,8 +446,13 @@ export const gpuCapacityApi = {
   history: (days = 30) => api.get('/admin/gpu-capacity/history', { params: { days } }),
   run: () => api.post('/admin/gpu-capacity/run'),
   getSettings: () => api.get('/admin/gpu-capacity/settings'),
-  updateSettings: (data: { targetUserCount?: number; unmonitoredFleet?: Array<{ type: string; count: number; label?: string; vramGb?: number }> }) =>
+  updateSettings: (data: { targetUserCount?: number; unmonitoredFleet?: Array<{ type: string; count: number; label?: string; vramGb?: number }>; notice?: string }) =>
     api.put('/admin/gpu-capacity/settings', data),
+  // 벤치마크
+  benchmarks: () => api.get('/admin/gpu-capacity/benchmarks'),
+  updateBenchmark: (serverId: string, data: { peakTps?: number; peakKvPct?: number; peakConcurrent?: number }) =>
+    api.put(`/admin/gpu-capacity/benchmarks/${serverId}`, data),
+  refreshBenchmarks: () => api.post('/admin/gpu-capacity/benchmarks/refresh'),
 };
 
 // GPU Power Usage API

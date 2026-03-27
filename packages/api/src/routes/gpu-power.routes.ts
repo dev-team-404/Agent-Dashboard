@@ -30,9 +30,9 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
     tsObj.setMinutes(0, 0, 0);
 
     const record = await prisma.gpuPowerUsage.upsert({
-      where: { timestamp: tsObj },
+      where: { timestamp: tsObj } as any,
       update: { powerAvgUsageRatio: power_avg_usage_ratio },
-      create: { timestamp: tsObj, powerAvgUsageRatio: power_avg_usage_ratio },
+      create: { timestamp: tsObj, powerAvgUsageRatio: power_avg_usage_ratio } as any,
     });
 
     // 감사 로그
@@ -53,7 +53,7 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
     res.json({
       message: 'GPU power usage saved',
       data: {
-        timestamp: record.timestamp.toISOString(),
+        timestamp: (record as any).timestamp?.toISOString?.() || (record as any).date?.toISOString?.() || '',
         power_avg_usage_ratio: record.powerAvgUsageRatio,
       },
     });
@@ -70,8 +70,8 @@ gpuPowerRoutes.get('/', async (_req: Request, res: Response) => {
     sevenDaysAgo.setMinutes(0, 0, 0);
 
     const records = await prisma.gpuPowerUsage.findMany({
-      where: { timestamp: { gte: sevenDaysAgo } },
-      orderBy: { timestamp: 'asc' },
+      where: { timestamp: { gte: sevenDaysAgo } } as any,
+      orderBy: { timestamp: 'asc' } as any,
     });
 
     const data = records.map(r => ({

@@ -800,16 +800,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {gpuData.length > 0 && (() => {
         const online = gpuData.filter((e: any) => e.metrics && !e.metrics.error);
         const totGpu = gpuData.reduce((a: number, e: any) => a + (e.metrics?.gpus?.length || 0), 0);
-        // avgUtil은 서버 비교에서 사용
-        const avgHealth = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.gpuHealthPct != null).map((e: any) => e.throughputAnalysis.gpuHealthPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
+        // 종합 용량 기반 (벤치마크)
         const totLlm = gpuData.reduce((a: number, e: any) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
-        const totTps = gpuData.reduce((a: number, e: any) => a + (e.throughputAnalysis?.currentTps || 0), 0);
-        // 과사용/저사용 서버
-        // 실효사용률 기준으로 과부하/여유 판단
+        const totTps = gpuData.reduce((a: number, e: any) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0);
+        // 종합 용량 기반 과사용/저사용
         const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
-          const ta = e.throughputAnalysis;
-          const eu = (ta?.theoreticalUtilPct != null && ta?.gpuHealthPct > 0) ? Math.round((ta.theoreticalUtilPct / ta.gpuHealthPct) * 100) : ta?.theoreticalUtilPct || 0;
-          return { name: e.server.name, util: eu, health: ta?.gpuHealthPct };
+          const ca = e.capacityAnalysis;
+          return { name: e.server.name, util: ca?.compositeCapacity || 0, bottleneck: ca?.bottleneck };
         }).sort((a: any, b: any) => b.util - a.util);
         const over = serverUtils.filter((s: any) => s.util > 70);
         const under = serverUtils.filter((s: any) => s.util < 20);
@@ -848,24 +845,24 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             })()}
             {/* 실시간 */}
             <p className="text-[9px] text-blue-600 font-semibold mb-1.5">실시간</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
               {(() => {
-                const avgTheorUtil = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.theoreticalUtilPct != null).map((e: any) => e.throughputAnalysis.theoreticalUtilPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
-                const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
-                const headroom = effUtil != null ? 100 - effUtil : null;
+                const avgComp = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.compositeCapacity != null).map((e: any) => e.capacityAnalysis.compositeCapacity); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
+                const hr = avgComp != null ? Math.round((100 - avgComp) * 10) / 10 : null;
+                const avgTok = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.tokPct != null).map((e: any) => e.capacityAnalysis.tokPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
+                const avgKv = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.kvPct != null).map((e: any) => e.capacityAnalysis.kvPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
                 return (<>
-                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={"실효 사용률 = 이론대비 ÷ 건강도\n= (현재 처리량 ÷ 이론 최대) ÷ (피크 처리량 ÷ 이론 최대)\n= 현재 처리량 ÷ 피크 처리량\n\n즉, 현재 처리량이 최근 피크의 몇 %인지.\n\n50% = 피크의 절반 수준으로 운영 중\n70%+ = 피크에 근접 → 증설 검토 필요\n\n이 지표로 '지금 GPU가 얼마나 바쁜지' 판단합니다."}><p className="text-[9px] text-blue-600 font-semibold">실효 사용률 ⓘ</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
-                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"GPU가 이론 최대 성능의 몇 %를 달성하는지 보여줍니다.\n수치가 낮으면 GPU 효율이 떨어지고 있다는 의미입니다.\n\n25% 이상이면 정상, 15% 미만이면 점검 필요합니다."}><p className="text-[9px] text-gray-700 font-semibold">건강도 ⓘ</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
-                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"추가 부하를 수용할 수 있는 여유분입니다.\n100% - 실효 사용률 = 여유\n\n20% 이하면 증설이 시급합니다."}><p className="text-[9px] text-gray-700 font-semibold">여유 ⓘ</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
+                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={`종합 용량 = max(처리량, KV메모리, 동시처리) 벤치마크 대비\n처리량 ${avgTok ?? '-'}% · KV ${avgKv ?? '-'}%\n80% 이상이면 증설 시급`}><p className="text-[9px] text-blue-600 font-semibold">종합 용량 ⓘ</p><p className={`text-lg font-bold ${avgComp != null && avgComp >= 80 ? 'text-red-600' : avgComp != null && avgComp >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgComp ?? '-'}%</p></div>
+                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"여유 = 100% - 종합 용량\n20% 이하면 증설 시급"}><p className="text-[9px] text-gray-700 font-semibold">여유 ⓘ</p><p className={`text-lg font-bold ${hr != null ? (hr <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{hr ?? '-'}%</p></div>
                 </>);
               })()}
-              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"전체 서버의 현재 초당 토큰 생성 수 합계입니다.\n\n모든 LLM 서비스가 지금 초당 몇 개의 토큰을\n생성하고 있는지 보여줍니다."}><p className="text-[9px] text-gray-700 font-semibold">처리량 ⓘ</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
               <div className="flex flex-wrap gap-2 mt-2 text-[10px]">
-                {over.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded">{s.name} <b>{s.util}%</b> 과부하</span>)}
-                {under.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{s.name} <b>{s.util}%</b> 여유</span>)}
+                {over.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> 과부하{s.bottleneck ? ` (${s.bottleneck === 'throughput' ? '처리량' : s.bottleneck === 'kvMemory' ? 'KV' : '동시'})` : ''}</span>)}
+                {under.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> 여유</span>)}
               </div>
             )}
           </div>
