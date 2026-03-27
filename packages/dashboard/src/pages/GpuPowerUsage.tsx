@@ -8,15 +8,32 @@ import {
 } from 'recharts';
 
 interface GpuRecord {
-  date: string;
+  timestamp: string;
   power_avg_usage_ratio: number;
+}
+
+function formatTs(iso: string) {
+  const d = new Date(iso);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  return `${mm}-${dd} ${hh}시`;
+}
+
+function formatTsFull(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
 }
 
 export default function GpuPowerUsage() {
   const [data, setData] = useState<GpuRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [formDate, setFormDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [formDatetime, setFormDatetime] = useState(() => {
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    return now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM for datetime-local
+  });
   const [formRatio, setFormRatio] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -35,14 +52,14 @@ export default function GpuPowerUsage() {
   useEffect(() => { loadData(); }, []);
 
   const stats = useMemo(() => {
-    if (data.length === 0) return { avg: 0, latest: 0, latestDate: '-', max: 0, count: 0 };
+    if (data.length === 0) return { avg: 0, latest: 0, latestTs: '-', max: 0, count: 0 };
     const avg = data.reduce((s, d) => s + d.power_avg_usage_ratio, 0) / data.length;
     const latest = data[data.length - 1];
     const max = Math.max(...data.map(d => d.power_avg_usage_ratio));
     return {
       avg: Math.round(avg * 100) / 100,
       latest: latest.power_avg_usage_ratio,
-      latestDate: latest.date,
+      latestTs: formatTsFull(latest.timestamp),
       max: Math.round(max * 100) / 100,
       count: data.length,
     };
@@ -61,8 +78,9 @@ export default function GpuPowerUsage() {
 
     setSaving(true);
     try {
-      await gpuPowerApi.save({ date: formDate, power_avg_usage_ratio: ratio });
-      setSuccess(`${formDate} 데이터가 저장되었습니다.`);
+      const ts = new Date(formDatetime).toISOString();
+      await gpuPowerApi.save({ timestamp: ts, power_avg_usage_ratio: ratio });
+      setSuccess(`${formatTsFull(ts)} 데이터가 저장되었습니다.`);
       setFormRatio('');
       await loadData();
     } catch {
@@ -74,7 +92,7 @@ export default function GpuPowerUsage() {
 
   const chartData = data.map(d => ({
     ...d,
-    dateLabel: d.date.slice(5), // MM-DD
+    tsLabel: formatTs(d.timestamp),
   }));
 
   if (loading) return <LoadingSpinner />;
@@ -89,15 +107,15 @@ export default function GpuPowerUsage() {
             <span>최신 사용률</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{stats.latest}%</p>
-          <p className="text-xs text-gray-400 mt-1">{stats.latestDate}</p>
+          <p className="text-xs text-gray-400 mt-1">{stats.latestTs}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
             <TrendingUp className="w-4 h-4" />
-            <span>30일 평균</span>
+            <span>7일 평균</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{stats.avg}%</p>
-          <p className="text-xs text-gray-400 mt-1">{stats.count}일 데이터</p>
+          <p className="text-xs text-gray-400 mt-1">{stats.count}건 데이터</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
@@ -112,14 +130,14 @@ export default function GpuPowerUsage() {
             <span>데이터 기간</span>
           </div>
           <p className="text-sm font-semibold text-gray-900 mt-1">
-            {data.length > 0 ? `${data[0].date} ~ ${data[data.length - 1].date}` : '-'}
+            {data.length > 0 ? `${formatTsFull(data[0].timestamp)} ~ ${formatTsFull(data[data.length - 1].timestamp)}` : '-'}
           </p>
         </div>
       </div>
 
       {/* Chart */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">일자별 GPU 평균 전력 사용률 (%)</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">시간별 GPU 평균 전력 사용률 (%)</h3>
         {data.length === 0 ? (
           <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
             데이터가 없습니다. 아래 폼에서 데이터를 입력하세요.
@@ -135,10 +153,11 @@ export default function GpuPowerUsage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
-                dataKey="dateLabel"
-                tick={{ fontSize: 11, fill: '#9ca3af' }}
+                dataKey="tsLabel"
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
                 axisLine={{ stroke: '#e5e7eb' }}
                 tickLine={false}
+                interval="preserveStartEnd"
               />
               <YAxis
                 domain={[0, 100]}
@@ -155,7 +174,7 @@ export default function GpuPowerUsage() {
                   fontSize: '12px',
                 }}
                 formatter={(value: number) => [`${value}%`, '전력 사용률']}
-                labelFormatter={(label) => `날짜: ${label}`}
+                labelFormatter={(label) => `시각: ${label}`}
               />
               <ReferenceLine y={stats.avg} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: `평균 ${stats.avg}%`, position: 'right', fontSize: 11, fill: '#f59e0b' }} />
               <Line
@@ -179,11 +198,11 @@ export default function GpuPowerUsage() {
         </h3>
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">날짜</label>
+            <label className="block text-xs text-gray-500 mb-1">시각 (시간 단위로 정규화됨)</label>
             <input
-              type="date"
-              value={formDate}
-              onChange={e => setFormDate(e.target.value)}
+              type="datetime-local"
+              value={formDatetime}
+              onChange={e => setFormDatetime(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               required
             />
@@ -225,15 +244,15 @@ export default function GpuPowerUsage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500 text-xs">
-                  <th className="text-left px-6 py-3 font-medium">날짜</th>
+                  <th className="text-left px-6 py-3 font-medium">시각</th>
                   <th className="text-right px-6 py-3 font-medium">평균 전력 사용률</th>
                   <th className="text-left px-6 py-3 font-medium w-1/2">시각화</th>
                 </tr>
               </thead>
               <tbody>
                 {[...data].reverse().map((row) => (
-                  <tr key={row.date} className="border-t border-gray-50 hover:bg-gray-50/50">
-                    <td className="px-6 py-3 text-gray-700 font-medium">{row.date}</td>
+                  <tr key={row.timestamp} className="border-t border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-6 py-3 text-gray-700 font-medium">{formatTsFull(row.timestamp)}</td>
                     <td className="px-6 py-3 text-right text-gray-900 font-semibold">{row.power_avg_usage_ratio}%</td>
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">

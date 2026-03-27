@@ -580,15 +580,15 @@ model DeptServiceSavedMM {
 }
 
 // ============================================
-// DT GPU Power Usage (일자별 전력 사용률)
+// DT GPU Power Usage (시간별 전력 사용률)
 // ============================================
 model GpuPowerUsage {
   id                 String   @id @default(uuid())
-  date               DateTime @db.Date @unique          // 집계 날짜
+  timestamp          DateTime @unique                    // 시간별 집계 (YYYY-MM-DD HH:00:00)
   powerAvgUsageRatio Float    @map("power_avg_usage_ratio") // 평균 전력 사용률 (%)
   createdAt          DateTime @default(now()) @map("created_at")
 
-  @@index([date])
+  @@index([timestamp])
   @@map("gpu_power_usages")
 }
 

@@ -1,9 +1,9 @@
 /**
  * GPU Power Usage Routes (인증 불필요)
  *
- * DT GPU 전력 사용률 집계
- * - POST /gpu-power: 일자별 전력 사용률 등록/업데이트
- * - GET  /gpu-power: 최근 30일 전력 사용률 목록
+ * DT GPU 전력 사용률 집계 (시간별)
+ * - POST /gpu-power: 시간별 전력 사용률 등록/업데이트
+ * - GET  /gpu-power: 최근 7일(168시간) 전력 사용률 목록
  */
 
 import { Router, Request, Response } from 'express';
@@ -13,7 +13,7 @@ import { z } from 'zod';
 export const gpuPowerRoutes = Router();
 
 const upsertSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
+  timestamp: z.string().refine((val) => !isNaN(Date.parse(val)), 'timestamp must be a valid ISO 8601 datetime'),
   power_avg_usage_ratio: z.number().min(0).max(100),
 });
 
@@ -24,13 +24,15 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid request', details: parsed.error.errors });
     }
 
-    const { date, power_avg_usage_ratio } = parsed.data;
-    const dateObj = new Date(date + 'T00:00:00.000Z');
+    const { timestamp, power_avg_usage_ratio } = parsed.data;
+    // 분/초를 버리고 시간 단위로 정규화
+    const tsObj = new Date(timestamp);
+    tsObj.setMinutes(0, 0, 0);
 
     const record = await prisma.gpuPowerUsage.upsert({
-      where: { date: dateObj },
+      where: { timestamp: tsObj },
       update: { powerAvgUsageRatio: power_avg_usage_ratio },
-      create: { date: dateObj, powerAvgUsageRatio: power_avg_usage_ratio },
+      create: { timestamp: tsObj, powerAvgUsageRatio: power_avg_usage_ratio },
     });
 
     // 감사 로그
@@ -41,7 +43,7 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
         target: record.id,
         targetType: 'GpuPowerUsage',
         details: JSON.parse(JSON.stringify({
-          date,
+          timestamp: tsObj.toISOString(),
           power_avg_usage_ratio,
         })),
         ipAddress: req.ip || (req.headers['x-forwarded-for'] as string) || null,
@@ -51,7 +53,7 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
     res.json({
       message: 'GPU power usage saved',
       data: {
-        date: record.date.toISOString().split('T')[0],
+        timestamp: record.timestamp.toISOString(),
         power_avg_usage_ratio: record.powerAvgUsageRatio,
       },
     });
@@ -63,17 +65,17 @@ gpuPowerRoutes.post('/', async (req: Request, res: Response) => {
 
 gpuPowerRoutes.get('/', async (_req: Request, res: Response) => {
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setMinutes(0, 0, 0);
 
     const records = await prisma.gpuPowerUsage.findMany({
-      where: { date: { gte: thirtyDaysAgo } },
-      orderBy: { date: 'asc' },
+      where: { timestamp: { gte: sevenDaysAgo } },
+      orderBy: { timestamp: 'asc' },
     });
 
     const data = records.map(r => ({
-      date: r.date.toISOString().split('T')[0],
+      timestamp: r.timestamp.toISOString(),
       power_avg_usage_ratio: r.powerAvgUsageRatio,
     }));
 
