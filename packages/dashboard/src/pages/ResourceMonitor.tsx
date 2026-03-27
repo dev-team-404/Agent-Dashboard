@@ -126,10 +126,15 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
       const label = l.modelNames?.[0] || l.containerName || `LLM${i}`;
       const short = label.length > 20 ? label.slice(-20) : label;
       const ltps = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
-      perLlm[short] = Math.round(ltps * 10) / 10; // 항상 넣음 (0이어도)
+      perLlm[short] = Math.round(ltps * 10) / 10;
       if (l.kvCacheUsagePct != null) perLlmKv[`${short}_kv`] = Math.round(l.kvCacheUsagePct * 10) / 10;
+      if (l.ttftMs != null) perLlm[`${short}_ttft`] = Math.round(l.ttftMs);
     });
-    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0, ...perLlm, ...perLlmKv };
+    // 서비스 품질 합산
+    const avgTtft = ls.filter((l: any) => l.ttftMs != null);
+    const ttft = avgTtft.length > 0 ? Math.round(avgTtft.reduce((a: number, l: any) => a + l.ttftMs, 0) / avgTtft.length) : null;
+    const totalPreempt = ls.reduce((a: number, l: any) => a + (l.preemptionCount || 0), 0);
+    return { time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }), fullTime: t.toLocaleString('ko-KR'), gpuUtil: Math.round(au * 10) / 10, memPct: tm > 0 ? Math.round((um / tm) * 1000) / 10 : 0, llmPct: tm > 0 ? Math.round((lm / tm) * 1000) / 10 : 0, kvCache: kv ? Math.round(kv * 10) / 10 : null, throughput: tp > 0 ? Math.round(tp * 10) / 10 : null, effUtil: Math.round(effUtil * 10) / 10, ttft, preempt: totalPreempt > 0 ? totalPreempt : null, cpuLoad: snap.cpuLoadAvg, ramPct: snap.memoryTotalMb > 0 ? Math.round((snap.memoryUsedMb / snap.memoryTotalMb) * 1000) / 10 : 0, ...perLlm, ...perLlmKv };
   }) || [];
   const dd = cd.length > 150 ? cd.filter((_: any, i: number) => i % Math.ceil(cd.length / 150) === 0) : cd;
 
@@ -285,9 +290,9 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               {/* tok/s 처리량 (합산 + LLM별) */}
               {(() => {
                 const llmColors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
-                const reserved = new Set(['time','fullTime','gpuUtil','memPct','llmPct','kvCache','throughput','effUtil','cpuLoad','ramPct']);
+                const reserved = new Set(['time','fullTime','gpuUtil','memPct','llmPct','kvCache','throughput','effUtil','cpuLoad','ramPct','ttft','preempt']);
                 const allKeys = new Set<string>(); dd.forEach((d: any) => Object.keys(d).forEach(k => allKeys.add(k)));
-                const llmKeys = [...allKeys].filter(k => !reserved.has(k) && !k.endsWith('_kv'));
+                const llmKeys = [...allKeys].filter(k => !reserved.has(k) && !k.endsWith('_kv') && !k.endsWith('_ttft'));
                 const kvKeys = [...allKeys].filter(k => k.endsWith('_kv'));
                 return (<>
                   <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s){llmKeys.length > 1 && <span className="ml-1 text-blue-500">— LLM별 분리</span>}</p>
@@ -307,6 +312,19 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               {/* CPU / RAM / VRAM */}
               <div><p className="text-[9px] text-gray-400 mb-0.5">시스템 리소스 (%)</p>
               <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="ramPct" name="RAM" stroke="#ec4899" strokeWidth={1} dot={false} /><Line type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" strokeWidth={1} dot={false} /></LineChart></ResponsiveContainer></div>
+              {/* TTFT + Preemption (서비스 품질) */}
+              {(() => {
+                const ttftKeys = [...new Set<string>()]; dd.forEach((d: any) => Object.keys(d).filter(k => k.endsWith('_ttft')).forEach(k => { if (!ttftKeys.includes(k)) ttftKeys.push(k); }));
+                const clr = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+                return (<>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">TTFT — 첫 토큰까지 시간 (ms) {ttftKeys.length > 0 ? '· LLM별' : ''}</p>
+                  <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
+                    {ttftKeys.length > 0 ? ttftKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k.replace('_ttft', '')} stroke={clr[i % clr.length]} strokeWidth={1.5} dot={false} />) : <Line type="monotone" dataKey="ttft" name="TTFT" stroke="#f59e0b" strokeWidth={1.5} dot={false} />}
+                  </LineChart></ResponsiveContainer></div>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">Preemption — VRAM 부족 밀려남 (횟수, 증가 시 증설 시그널)</p>
+                  <ResponsiveContainer width="100%" height={60}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="preempt" name="Preemption" stroke="#ef4444" strokeWidth={1.5} dot={false} /></LineChart></ResponsiveContainer></div>
+                </>);
+              })()}
             </div>
           </div>
 
