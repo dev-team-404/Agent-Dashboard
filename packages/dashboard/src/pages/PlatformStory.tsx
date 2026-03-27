@@ -28,9 +28,9 @@ const timeline = [
   },
   {
     date: '2026.02',
-    title: '조직 연동 & 인사이트',
-    desc: '조직도(org_nodes) 기반 부서 계층 통합, 가시성(Visibility) 스코프, 인사이트 대시보드, Saved M/M 관리',
-    tags: ['조직도', '가시성', '인사이트', 'M/M'],
+    title: 'v2 리팩토링 & 조직 연동',
+    desc: 'v2 전면 리팩토링 (코드 구조 개선, 포트 체계 변경), docs-site React 리디자인, 조직도(org_nodes) 기반 부서 계층 통합, 가시성 스코프, 인사이트 대시보드, Saved M/M 관리',
+    tags: ['v2 리팩토링', 'docs-site', '조직도', '인사이트'],
   },
   {
     date: '2026.03 초',
@@ -47,8 +47,8 @@ const timeline = [
   {
     date: '2026.03 말',
     title: '성능 최적화 & 고도화',
-    desc: '382→6 쿼리 통합, Batch API, AI 코칭, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E 등), FP8 자동 감지, 처리량 3단 분석',
-    tags: ['성능 최적화', 'AI 코칭', '품질 메트릭', 'FP8'],
+    desc: '382→6 쿼리 통합, Batch API, AI 코칭, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E 등), FP8 자동 감지, 처리량 3단 분석, 플랫폼 스토리 페이지',
+    tags: ['성능 최적화', 'AI 코칭', '품질 메트릭', 'FP8', '플랫폼 스토리'],
   },
 ];
 
@@ -61,12 +61,12 @@ const featureGroups = [
     bg: 'bg-blue-50',
     border: 'border-blue-100',
     features: [
-      'LLM 프록시 라우팅 (OpenAI 호환)',
+      'LLM 프록시 라우팅 (OpenAI 호환 API)',
       '가중치 기반 라운드로빈 로드밸런싱',
-      'SubModel 자동 Failover',
-      '토큰 기반 Rate Limiting',
-      '서비스 마켓플레이스 & 배포 관리',
-      'STANDARD / BACKGROUND 서비스 타입',
+      'SubModel 자동 Failover & 재시도',
+      '토큰 기반 Rate Limiting (서비스/사용자별)',
+      '서비스 마켓플레이스 & 배포 범위 관리',
+      '공개 대시보드 & 관리자 권한 신청 시스템',
     ],
   },
   {
@@ -76,12 +76,12 @@ const featureGroups = [
     bg: 'bg-emerald-50',
     border: 'border-emerald-100',
     features: [
-      'SSH 기반 GPU 실시간 모니터링',
-      '토큰 사용량 / DAU·MAU 대시보드',
-      '모델 레이턴시 & 헬스체크 (10분 주기)',
-      '에러 추적 & Failover 시도 상세',
-      '부서별 / 본부별 인사이트',
-      '서비스 품질 메트릭 (TTFT, TPOT, E2E)',
+      'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석',
+      '통합 대시보드 9개 탭 (DAU·MAU·토큰·부서·본부 등)',
+      '모델 레이턴시 & 헬스체크 (10분 자동 프로빙)',
+      '에러 추적 & Failover 시도 상세 로그',
+      '모델 평점(Rating) 시스템 & 만족도 차트',
+      '서비스 품질 메트릭 6종 (TTFT, TPOT, E2E, KV Cache, Preemption, Queue)',
     ],
   },
   {
@@ -108,10 +108,10 @@ const featureGroups = [
     features: [
       '3단계 권한 체계 (SUPER_ADMIN → ADMIN → USER)',
       '5단계 모델 가시성 (Visibility Scope)',
-      '감사 로그 & 요청 로그',
-      'Knox 임직원 인증 연동',
-      '조직도 기반 부서 관리',
-      'API 비밀번호 & 서비스 격리',
+      '감사 로그 & 요청 로그 (전체 추적)',
+      'Knox 임직원 인증 연동 & 조직도 동기화',
+      '휴일 관리 & 영업일 기반 통계 필터링',
+      'Internal API Swagger 문서 자동 생성',
     ],
   },
 ];
