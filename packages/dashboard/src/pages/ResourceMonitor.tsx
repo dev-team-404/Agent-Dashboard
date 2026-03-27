@@ -527,7 +527,7 @@ export default function ResourceMonitor() {
                       const n = parseInt(targetVal);
                       if (isNaN(n) || n < 100 || n > 500000) { alert('100 ~ 500,000 범위'); return; }
                       setTargetSaving(true);
-                      try { await gpuCapacityApi.updateSettings(n); setTargetEdit(false); setPredRunning(true); const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setTargetSaving(false); setPredRunning(false); }
+                      try { await gpuCapacityApi.updateSettings({ targetUserCount: n }); setTargetEdit(false); setPredRunning(true); const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setTargetSaving(false); setPredRunning(false); }
                     }} className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[9px] hover:bg-indigo-700 disabled:opacity-50">{targetSaving ? '저장+분석...' : '저장 후 재분석'}</button>
                     <button onClick={() => setTargetEdit(false)} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
                   </span>
