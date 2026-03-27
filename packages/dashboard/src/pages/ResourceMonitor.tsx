@@ -443,7 +443,7 @@ export default function ResourceMonitor() {
   const [testR, setTestR] = useState<any>(null);
   const [updated, setUpdated] = useState<Date | null>(null);
   const [ana, setAna] = useState<any>(null);
-  const [anaDays, setAnaDays] = useState(14);
+  const [anaDays] = useState(30);
   const [pred, setPred] = useState<any>(null);
   const [predRunning, setPredRunning] = useState(false);
   const [targetEdit, setTargetEdit] = useState(false);
@@ -927,7 +927,7 @@ export default function ResourceMonitor() {
       <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
     )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
-      <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외, DTGPT 과거 데이터 포함)</span><div className="flex gap-0.5">{[3, 7, 14, 30].map(d => <button key={d} onClick={() => setAnaDays(d)} className={`px-2 py-1 text-[10px] rounded ${anaDays === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{d}일</button>)}</div></div>
+      <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">30일 기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외, DTGPT 과거 데이터 포함, {ana.totalSnapshots?.toLocaleString() || 0}건)</span></div>
 
       {/* 서버별 종합 용량 비교 (벤치마크 기반) */}
       {data.length > 0 && (
@@ -961,60 +961,110 @@ export default function ResourceMonitor() {
         </div>
       )}
 
-      {/* 시간대별 KPI 카드: 피크/비업무/전체 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-white rounded-lg border p-4 shadow-sm border-red-100">
-          <p className="text-[10px] font-semibold text-red-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />피크타임 (14~16시) 평균</p>
-          {(() => {
-            const peakData = (ana.heatmap || []).filter((h: any) => h.hour >= 14 && h.hour <= 16 && h.dow >= 1 && h.dow <= 5);
-            const peakAvgUtil = peakData.length > 0 ? Math.round(peakData.filter((h: any) => h.avgUtil != null).reduce((s: number, h: any) => s + h.avgUtil, 0) / Math.max(peakData.filter((h: any) => h.avgUtil != null).length, 1) * 10) / 10 : null;
-            return (
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div><span className="text-gray-400">GPU 사용률</span><p className={`text-xl font-black ${peakAvgUtil != null ? utilTxt(peakAvgUtil) : 'text-gray-300'}`}>{peakAvgUtil ?? '-'}%</p></div>
-              <div><span className="text-gray-400">처리량</span><p className="text-lg font-bold text-blue-600">{ana.businessHours?.peakTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
-              <div><span className="text-gray-400">KV Cache</span><p className="text-lg font-bold text-purple-600">{ana.businessHours?.avgKvCache ?? '-'}%</p></div>
-              <div><span className="text-gray-400">대기 요청</span><p className={`text-lg font-bold ${(ana.businessHours?.avgWaitingReqs || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{ana.businessHours?.avgWaitingReqs ?? '0'}</p></div>
-            </div>);
-          })()}
-        </div>
-        <div className="bg-white rounded-lg border p-4 shadow-sm border-gray-100">
-          <p className="text-[10px] font-semibold text-gray-500 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />비업무시간 (18시 이후) 평균</p>
-          {(() => {
-            const offData = (ana.heatmap || []).filter((h: any) => (h.hour >= 18 || h.hour < 9));
-            const offAvgUtil = offData.length > 0 ? Math.round(offData.filter((h: any) => h.avgUtil != null).reduce((s: number, h: any) => s + h.avgUtil, 0) / Math.max(offData.filter((h: any) => h.avgUtil != null).length, 1) * 10) / 10 : null;
-            return (
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div><span className="text-gray-400">GPU 사용률</span><p className="text-xl font-black text-gray-500">{offAvgUtil ?? '-'}%</p></div>
-              <div><span className="text-gray-400">VRAM</span><p className="text-lg font-bold text-gray-500">{ana.offHours?.avgMemUtil ?? '-'}%</p></div>
-            </div>);
-          })()}
-        </div>
-        <div className="bg-white rounded-lg border p-4 shadow-sm border-blue-100">
-          <p className="text-[10px] font-semibold text-blue-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />전체 (24시간) 평균</p>
-          {(() => {
-            const allData = (ana.heatmap || []).filter((h: any) => h.avgUtil != null);
-            const allAvgUtil = allData.length > 0 ? Math.round(allData.reduce((s: number, h: any) => s + h.avgUtil, 0) / allData.length * 10) / 10 : null;
-            return (
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div><span className="text-gray-400">GPU 사용률</span><p className={`text-xl font-black ${allAvgUtil != null ? utilTxt(allAvgUtil) : 'text-gray-300'}`}>{allAvgUtil ?? '-'}%</p></div>
-              <div><span className="text-gray-400">스냅샷</span><p className="text-lg font-bold text-gray-700">{ana.totalSnapshots?.toLocaleString() || '-'}건</p></div>
-            </div>);
-          })()}
-        </div>
-      </div>
+      {/* ── 3대 지표 시간대별 평균 카드 (기록 없는 날 제외) ── */}
+      {(() => {
+        const hm = ana.dateHourHeatmap || [];
+        const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10 : null;
+        // 피크: 14~16시 영업일만
+        const peak = hm.filter((d: any) => d.hour >= 14 && d.hour <= 16 && d.samples > 0);
+        // 비업무: 20시~06시
+        const off = hm.filter((d: any) => (d.hour >= 20 || d.hour < 6) && d.samples > 0);
+        // 전체
+        const all = hm.filter((d: any) => d.samples > 0);
+        // 벤치마크 합산 (% 계산용)
+        const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
+        const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
+        const calcPct = (arr: any[], field: string, bm: number) => {
+          const vals = arr.map((d: any) => d[field]).filter((v: number) => v > 0);
+          if (vals.length === 0 || bm === 0) return null;
+          return Math.round(vals.reduce((a: number, b: number) => a + b, 0) / vals.length / bm * 1000) / 10;
+        };
 
-      {/* 히트맵 */}
-      <div className="bg-white rounded-lg border p-4 shadow-sm">
-        <p className="text-[10px] font-semibold text-gray-600 mb-2">GPU 사용률 히트맵 (시간 × 요일)</p>
-        <Heatmap data={ana.heatmap || []} />
-        {ana.peakHours?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{ana.peakHours.map((p: any, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px]">{DOW[p.dow]} {p.hour}시 {p.avgUtil}%</span>)}</div>}
-      </div>
+        const Card = ({ title, color, border, d }: { title: string; color: string; border: string; d: any[] }) => (
+          <div className={`bg-white rounded-lg border p-3 shadow-sm ${border}`}>
+            <p className={`text-[10px] font-semibold ${color} mb-2 flex items-center gap-1`}><Clock className="w-3 h-3" />{title} <span className="font-normal text-gray-400">({d.length}건)</span></p>
+            <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
+              <div><span className="text-gray-400">tok/s</span><p className="text-lg font-black text-blue-600">{avg(d.filter((x: any) => x.tps > 0).map((x: any) => x.tps)) ?? '-'}</p></div>
+              <div><span className="text-gray-400">KV %</span><p className="text-lg font-black text-purple-600">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
+              <div><span className="text-gray-400">대기 건수</span><p className={`text-lg font-black ${(avg(d.map((x: any) => x.wait)) || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{avg(d.map((x: any) => x.wait)) ?? '0'}</p></div>
+              <div><span className="text-gray-300">처리량%</span><p className="text-sm font-bold text-blue-400">{calcPct(d, 'tps', totalBmTps) ?? '-'}%</p></div>
+              <div><span className="text-gray-300">KV%</span><p className="text-sm font-bold text-purple-400">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
+              <div><span className="text-gray-300">동시처리%</span><p className={`text-sm font-bold ${(calcPct(d, 'wait', totalBmConc) || 0) > 100 ? 'text-red-500' : 'text-amber-400'}`}>{calcPct(d, 'wait', totalBmConc) ?? '-'}%</p></div>
+            </div>
+          </div>
+        );
 
-      {/* 시간대별 처리량 */}
-      {ana.throughputByHour && <div className="bg-white rounded-lg border p-4 shadow-sm">
-        <p className="text-[10px] font-semibold text-gray-600 mb-2">시간대별 LLM 처리량 (tok/s)</p>
-        <ResponsiveContainer width="100%" height={150}><BarChart data={ana.throughputByHour}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="hour" tick={{ fontSize: 9 }} tickFormatter={h => `${h}`} /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Bar dataKey="avgTps" name="tok/s" fill="#3b82f6" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer>
-      </div>}
+        return (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Card title="피크타임 (14~16시)" color="text-red-600" border="border-red-100" d={peak} />
+          <Card title="비업무시간 (20~06시)" color="text-gray-500" border="border-gray-100" d={off} />
+          <Card title="전체 (24시간)" color="text-blue-600" border="border-blue-100" d={all} />
+        </div>);
+      })()}
+
+      {/* ── 6개 히트맵 (날짜×시간, 30일, 탭 전환) ── */}
+      {(() => {
+        const hm = (ana.dateHourHeatmap || []) as Array<{ date: string; hour: number; tps: number; kv: number; wait: number }>;
+        const dates = [...new Set(hm.map(d => d.date))].sort();
+        const [hmTab, setHmTab] = useState<string>('tps');
+        const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
+        const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
+
+        const tabs = [
+          { key: 'tps', label: 'tok/s 실제값', color: (v: number) => v > 500 ? '#dc2626' : v > 100 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kv', label: 'KV Cache %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'wait', label: '대기 건수', color: (v: number) => v >= 5 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
+          { key: 'tpsPct', label: '처리량 %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kvPct', label: 'KV %', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'concPct', label: '동시처리 %', color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
+        ];
+        const activeTab = tabs.find(t => t.key === hmTab) || tabs[0];
+
+        const getValue = (d: any) => {
+          if (hmTab === 'tps') return d.tps;
+          if (hmTab === 'kv') return d.kv;
+          if (hmTab === 'wait') return d.wait;
+          if (hmTab === 'tpsPct') return totalBmTps > 0 ? Math.round(d.tps / totalBmTps * 1000) / 10 : 0;
+          if (hmTab === 'kvPct') return d.kv;
+          if (hmTab === 'concPct') return totalBmConc > 0 ? Math.round(d.wait / totalBmConc * 1000) / 10 : 0;
+          return 0;
+        };
+
+        return (
+        <div className="bg-white rounded-lg border p-4 shadow-sm">
+          <div className="flex items-center gap-1 mb-3 flex-wrap">
+            <p className="text-[10px] font-semibold text-gray-600 mr-2">3대 지표 히트맵 (날짜 × 시간)</p>
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setHmTab(t.key)} className={`px-2 py-0.5 text-[9px] rounded ${hmTab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{t.label}</button>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <div className="inline-block">
+              {/* 시간 헤더 */}
+              <div className="flex">
+                <div className="w-16 shrink-0" />
+                {Array.from({ length: 24 }, (_, h) => (
+                  <div key={h} className="w-5 text-center text-[7px] text-gray-400">{h}</div>
+                ))}
+              </div>
+              {/* 날짜 행 */}
+              {dates.map(dt => (
+                <div key={dt} className="flex items-center">
+                  <div className="w-16 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)}</div>
+                  {Array.from({ length: 24 }, (_, h) => {
+                    const cell = hm.find(d => d.date === dt && d.hour === h);
+                    const val = cell ? getValue(cell) : 0;
+                    const bg = activeTab.color(val);
+                    return (
+                      <div key={h} className="w-5 h-4 border border-white/50 cursor-help" style={{ backgroundColor: bg }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건${hmTab.includes('Pct') ? `\n${activeTab.label}: ${val}%` : ''}`} />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>);
+      })()}
     </div>)}
 
     <ServerModal open={modal} onClose={() => { setModal(false); setEdit(null); setTestR(null); }} onSubmit={handleSubmit} edit={edit} testing={testing} testResult={testR} onTest={handleTest} existingHosts={data.map(e => e.server.host)} />

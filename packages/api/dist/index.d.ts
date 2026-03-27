@@ -7,4 +7,5 @@ import { PrismaClient } from '@prisma/client';
 import 'dotenv/config';
 export declare const prisma: PrismaClient<import(".prisma/client").Prisma.PrismaClientOptions, never, import("@prisma/client/runtime/library").DefaultArgs>;
 export declare const redis: import("ioredis").default;
+export declare const pgPool: import("pg").Pool;
 //# sourceMappingURL=index.d.ts.map

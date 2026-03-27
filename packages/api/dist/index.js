@@ -49,14 +49,25 @@ import { startHealthCheckCron } from './services/healthCheck.service.js';
 import { startAiEstimationCron } from './services/aiEstimation.service.js';
 import { startGpuMonitorCron } from './services/gpuMonitor.service.js';
 import { startGpuCapacityPredictionCron } from './services/gpuCapacityPrediction.service.js';
+import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
+import { startPrometheusCollector } from './services/prometheusCollector.service.js';
+import { startBenchmarkCron, refreshAllBenchmarks } from './services/gpuBenchmark.service.js';
+import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
+import { seedAgentRegistryService } from './seed-agent-registry.js';
+import pg from 'pg';
 import 'dotenv/config';
 const app = express();
 const PORT = process.env['PORT'] || 3000;
 app.set('trust proxy', 1);
 export const prisma = new PrismaClient();
 export const redis = createRedisClient();
+// Prisma napi 한계 우회: JSON-heavy 쿼리용 직접 pg Pool
+export const pgPool = new pg.Pool({
+    connectionString: process.env['DATABASE_URL'],
+    max: 10,
+});
 // Middleware
 // HTTP 환경 (사내망) — HTTPS 전용 헤더 전부 비활성화
 app.use(helmet({
@@ -196,6 +207,27 @@ async function syncHealthCheckModelNames() {
     }
     catch (err) {
         console.error('[Sync] health_check_logs model_name sync failed:', err);
+    }
+}
+// 하드코딩 Super Admin DB 시드 (DB에 SUPER_ADMIN이 0명일 때만 실행)
+const SEED_SUPER_ADMINS = ['syngha.han', 'young87.kim', 'byeongju.lee'];
+async function seedHardcodedSuperAdmins() {
+    try {
+        const superAdminCount = await prisma.admin.count({ where: { role: 'SUPER_ADMIN' } });
+        if (superAdminCount > 0)
+            return; // 이미 Super Admin 존재 → 스킵
+        console.log('[Seed] No super admins in DB, seeding hardcoded super admins...');
+        for (const loginid of SEED_SUPER_ADMINS) {
+            await prisma.admin.upsert({
+                where: { loginid },
+                update: { role: 'SUPER_ADMIN' },
+                create: { loginid, role: 'SUPER_ADMIN', deptname: '', designatedBy: 'system-seed' },
+            });
+        }
+        console.log(`[Seed] Created ${SEED_SUPER_ADMINS.length} super admin records`);
+    }
+    catch (error) {
+        console.error('[Seed] Failed to seed super admins:', error);
     }
 }
 // 빈 visibilityScope를 가진 TEAM/BUSINESS_UNIT 모델을 owner 기준으로 자동 채움
@@ -347,6 +379,10 @@ async function main() {
         console.log('Database connected');
         await redis.ping();
         console.log('Redis connected');
+        // agent-registry 내부 서비스 시드 (LLM 사용량 추적용)
+        await seedAgentRegistryService(prisma);
+        // 하드코딩 Super Admin DB 시드 (최초 배포 또는 Super Admin 전원 삭제 시)
+        await seedHardcodedSuperAdmins();
         // 빈 visibilityScope 자동 보정 (기존 모델 대상)
         await backfillEmptyVisibilityScope();
         // departmentCode 미수집 사용자 Knox 인증 리셋 (DB 쿼리만, 빠름)
@@ -363,6 +399,13 @@ async function main() {
         startAiEstimationCron();
         startGpuMonitorCron();
         startGpuCapacityPredictionCron();
+        startGpuCoachingCron();
+        startStatsPrecomputeCron();
+        startBenchmarkCron();
+        // DTGPT Prometheus 수집 (30초 후 시작 — DB 안정화 대기)
+        setTimeout(() => startPrometheusCollector().catch(err => console.error('[PromCollector] Failed to start:', err.message)), 30000);
+        // 벤치마크 초기 산출 (60초 후 — Prometheus 수집 후)
+        setTimeout(() => refreshAllBenchmarks().catch(err => console.error('[Benchmark] Initial refresh failed:', err.message)), 60000);
         const server = app.listen(PORT, () => {
             console.log(`Agent Registry API server running on port ${PORT}`);
             // 서비스 조직 계층 backfill — 서버 시작 후 비동기 실행

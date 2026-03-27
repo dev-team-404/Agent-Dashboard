@@ -62,7 +62,7 @@ export declare function requireSuperAdmin(req: AuthenticatedRequest, res: Respon
  * LLM이 특정 사용자(dept/BU/role)에게 보이는지 확인
  *
  * visibilityScope는 departmentCode 배열:
- * - TEAM: 사용자의 departmentCode가 scope에 포함되면 허용
+ * - TEAM: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용 (하위 조직 포함)
  * - BUSINESS_UNIT: 사용자의 departmentCode 또는 조상 코드가 scope에 포함되면 허용
  */
 export declare function isModelVisibleTo(model: {
