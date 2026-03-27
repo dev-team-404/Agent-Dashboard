@@ -171,14 +171,18 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     console.log('[PromCollector] vLLM metrics detected! Real-time LLM metrics now available.');
   }
 
-  // vLLM 인스턴스 → 노드 매핑 (pod 이름에서 추출)
-  const instanceToNode = new Map<string, string>();
+  // vLLM 인스턴스 → 노드 매핑 (1:N — 같은 모델이 여러 노드에 replica로 배포됨)
+  const instanceToNodes = new Map<string, string[]>();
   for (const [node, gpus] of nodeGpus) {
     for (const gpu of gpus) {
       if (gpu.pod) {
         // pod: "llm-glm-47-h200-tp8-5d945977c6-tx8dm" → instance: "glm-47-h200-tp8"
         const match = gpu.pod.match(/^llm-(.+?)(-[a-f0-9]+-[a-z0-9]+)?$/);
-        if (match) instanceToNode.set(match[1], node);
+        if (match) {
+          const nodes = instanceToNodes.get(match[1]) || [];
+          if (!nodes.includes(node)) nodes.push(node);
+          instanceToNodes.set(match[1], nodes);
+        }
       }
     }
   }
@@ -192,41 +196,49 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     const modelName = r.metric?.model_name || instance;
     vllmInstances.add(instance);
 
-    // instance → node 매핑
-    let targetNode = instanceToNode.get(instance);
-    if (!targetNode) {
+    // instance → 모든 관련 노드에 LLM 메트릭 배포
+    let targetNodes = instanceToNodes.get(instance) || [];
+    if (targetNodes.length === 0) {
       // fallback: instance 이름에서 추론
       for (const [node, gpus] of nodeGpus) {
         if (gpus.some(g => g.pod?.includes(instance.replace(/^shared-/, '')))) {
-          targetNode = node;
+          targetNodes = [node];
           break;
         }
       }
     }
-    if (!targetNode) continue;
+    if (targetNodes.length === 0) continue;
 
     const findVllmVal = (arr: any[]) => {
       const m = arr.find(x => x.metric?.instance === instance);
       return m ? parseFloat(m.value?.[1]) || 0 : null;
     };
 
-    const llm = {
-      port: 0, containerName: instance, containerImage: 'vllm', type: 'vllm' as const,
-      modelNames: [modelName],
-      runningRequests: findVllmVal(running),
-      waitingRequests: findVllmVal(waiting),
-      kvCacheUsagePct: findVllmVal(kvCache),
-      promptThroughputTps: null as number | null, // counter → rate 필요
-      genThroughputTps: null as number | null,
-      ttftMs: null, tpotMs: null, e2eLatencyMs: null,
-      prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
-      precision: 'fp16' as const,
-      rawMetrics: {} as Record<string, number>,
-    };
+    // replica 수로 나눠서 각 노드에 배분
+    const replicaCount = targetNodes.length;
+    const runVal = findVllmVal(running);
+    const waitVal = findVllmVal(waiting);
+    const kvVal = findVllmVal(kvCache);
 
-    const existing = nodeLlms.get(targetNode) || [];
-    existing.push(llm);
-    nodeLlms.set(targetNode, existing);
+    for (const targetNode of targetNodes) {
+      const llm = {
+        port: 0, containerName: instance, containerImage: 'vllm', type: 'vllm' as const,
+        modelNames: [modelName],
+        runningRequests: runVal != null ? Math.round(runVal / replicaCount) : null,
+        waitingRequests: waitVal != null ? Math.round(waitVal / replicaCount) : null,
+        kvCacheUsagePct: kvVal, // KV cache %는 replica별 동일 (비율이므로)
+        promptThroughputTps: null as number | null,
+        genThroughputTps: null as number | null,
+        ttftMs: null, tpotMs: null, e2eLatencyMs: null,
+        prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
+        precision: 'fp16' as const,
+        rawMetrics: {} as Record<string, number>,
+      };
+
+      const existing = nodeLlms.get(targetNode) || [];
+      existing.push(llm);
+      nodeLlms.set(targetNode, existing);
+    }
   }
 
   // 노드별 스냅샷 저장
@@ -305,14 +317,18 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   const BATCH_SIZE = 50;
   const batch: any[] = [];
 
-  // instance → node 매핑 (DCGM pod 정보 기반 — 현재 매핑 재사용)
-  const instanceToNode = new Map<string, string>();
+  // instance → node 매핑 (1:N — replica가 여러 노드에 배포됨)
+  const instanceToNodes = new Map<string, string[]>();
   for (const r of fbUsedRange) {
     const node = r.metric?.node || r.metric?.Hostname;
     const pod = r.metric?.pod || '';
     if (node && pod) {
       const match = pod.match(/^llm-(.+?)(-[a-f0-9]+-[a-z0-9]+)?$/);
-      if (match) instanceToNode.set(match[1], node);
+      if (match) {
+        const nodes = instanceToNodes.get(match[1]) || [];
+        if (!nodes.includes(node)) nodes.push(node);
+        instanceToNodes.set(match[1], nodes);
+      }
     }
   }
 
@@ -382,10 +398,11 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
         }
       }
 
-      // 이 노드의 LLM 메트릭
+      // 이 노드의 LLM 메트릭 (1:N 매핑 — replica가 여러 노드에 배포)
       const llms: any[] = [];
-      for (const [instance, targetNode] of instanceToNode) {
-        if (targetNode !== node) continue;
+      for (const [instance, targetNodeList] of instanceToNodes) {
+        if (!targetNodeList.includes(node)) continue;
+        const replicaCount = targetNodeList.length;
         const modelName = runningRange.find(r => r.metric?.instance === instance)?.metric?.model_name || instance;
 
         const runVal = runningIdx.get(instance)?.get(ts) ?? null;
@@ -416,8 +433,11 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
           llms.push({
             port: 0, containerName: instance, containerImage: 'vllm', type: 'vllm',
             modelNames: [modelName],
-            runningRequests: runVal, waitingRequests: waitVal, kvCacheUsagePct: kvVal,
-            promptThroughputTps: promptTps, genThroughputTps: genTps,
+            runningRequests: runVal != null ? Math.round(runVal / replicaCount) : null,
+            waitingRequests: waitVal != null ? Math.round(waitVal / replicaCount) : null,
+            kvCacheUsagePct: kvVal, // KV %는 비율이므로 나누지 않음
+            promptThroughputTps: promptTps != null ? promptTps / replicaCount : null,
+            genThroughputTps: genTps != null ? genTps / replicaCount : null,
             ttftMs: null, tpotMs: null, e2eLatencyMs: null,
             prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
             precision: 'fp16', rawMetrics: {},
