@@ -346,6 +346,7 @@ export interface LlmEndpointMetrics {
   preemptionCount: number | null;     // 요청 밀려남 횟수 — VRAM 부족 시그널
   queueTimeMs: number | null;         // 대기열 체류 시간 (ms)
   // AI 분석용
+  precision: 'fp8' | 'fp16';        // 모델 서빙 정밀도 (root 경로에서 자동 감지)
   rawMetrics: Record<string, number>;
 }
 
@@ -598,8 +599,9 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
       const containerName = containerParts[1] || '';
       const containerImage = containerParts[2] || '';
 
-      // /v1/models JSON에서 모델명 추출 (가장 확실)
+      // /v1/models JSON에서 모델명 + precision 추출
       const modelNames: string[] = [];
+      let detectedPrecision: 'fp8' | 'fp16' = 'fp16';
       const modelsLine = lines.find(l => l.startsWith('MODELS_JSON:'));
       if (modelsLine) {
         try {
@@ -608,8 +610,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
           for (const m of models) {
             const name = m.id || m.model || m.name;
             if (name) modelNames.push(name);
-            // root 경로에서 precision 감지 (e.g. /root/models/GLM-5-FP8 → fp8)
-            if (m.root && detectPrecision(m.root) === 'fp8') modelNames.push('__precision_fp8__');
+            if (m.root && detectPrecision(m.root) === 'fp8') detectedPrecision = 'fp8';
           }
         } catch { /* json parse fail */ }
       }
@@ -648,6 +649,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
         prefixCacheHitRate: extracted.prefixCacheHitRate ?? null,
         preemptionCount: extracted.preemptionCount ?? null,
         queueTimeMs: extracted.queueTimeMs ?? null,
+        precision: detectedPrecision,
         rawMetrics,
       });
     }
@@ -662,7 +664,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
           llmEndpoints.push({
             port: 11434, containerName: 'ollama', containerImage: 'ollama', type: 'ollama',
             modelNames: [parts[0]], runningRequests: null, waitingRequests: null,
-            kvCacheUsagePct: null, promptThroughputTps: null, genThroughputTps: null, ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null, rawMetrics: {},
+            kvCacheUsagePct: null, promptThroughputTps: null, genThroughputTps: null, ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null, precision: 'fp16' as const, rawMetrics: {},
           });
         }
       }
@@ -680,7 +682,7 @@ function parseFullOutput(output: string): Omit<ServerMetrics, 'serverId' | 'serv
               modelNames: [m.name || m.model || 'unknown'],
               runningRequests: null, waitingRequests: null, kvCacheUsagePct: null,
               promptThroughputTps: null, genThroughputTps: null,
-              ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
+              ttftMs: null, tpotMs: null, e2eLatencyMs: null, prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null, precision: 'fp16' as const,
               rawMetrics: {},
             });
           }

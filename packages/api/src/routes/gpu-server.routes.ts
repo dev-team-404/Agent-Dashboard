@@ -50,13 +50,13 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   host: z.string().min(1).optional(),
-  sshPort: z.number().int().min(1).max(65535).optional(),
+  sshPort: z.union([z.number().int().min(1).max(65535), z.string().transform(v => parseInt(v) || 22)]).optional(),
   sshUsername: z.string().min(1).optional(),
-  sshPassword: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
+  sshPassword: z.string().optional(), // 빈 문자열 허용 (프론트에서 삭제 처리)
+  description: z.union([z.string(), z.null()]).optional(),
   isLocal: z.boolean().optional(),
   enabled: z.boolean().optional(),
-  pollIntervalSec: z.number().int().min(10).max(3600).optional(),
+  pollIntervalSec: z.union([z.number().int().min(10).max(3600), z.string().transform(v => parseInt(v) || 60)]).optional(),
 });
 
 const testSchema = z.object({
@@ -190,9 +190,8 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
           primaryModelParams = params;
         }
       }
-      // precision 자동 감지 (모델명이나 경로에 FP8이 포함되면)
-      const allModelInfo = endpoints.flatMap(ep => ep.modelNames || []).join(' ');
-      const precision = allModelInfo.includes('__precision_fp8__') ? 'fp8' as const : 'fp16' as const;
+      // precision 자동 감지 (LLM 엔드포인트의 precision 필드에서)
+      const precision = endpoints.some(ep => ep.precision === 'fp8') ? 'fp8' as const : 'fp16' as const;
 
       const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
         ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10
