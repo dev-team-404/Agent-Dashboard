@@ -274,18 +274,23 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   const startTime = VLLM_LAST_AVAILABLE - (BACKFILL_LOOKBACK_HOURS * 3600);
   const endTime = VLLM_LAST_AVAILABLE;
 
-  // 이미 backfill 된 데이터 확인
-  const existingCount = await prisma.gpuMetricSnapshot.count({
-    where: {
-      serverId: { in: Array.from(nodeToServerId.values()) },
-      timestamp: { lte: new Date(endTime * 1000), gte: new Date(startTime * 1000) },
-    },
-  });
-  if (existingCount > 50) {
-    console.log(`[PromCollector] Historical data already exists (${existingCount} snapshots), skipping backfill`);
+  // 이미 backfill 된 데이터 확인 — LLM 메트릭이 있는 스냅샷이 충분한지 체크
+  const serverIds = Array.from(nodeToServerId.values());
+  const existingWithLlm = await prisma.$queryRaw<[{ count: bigint }]>`
+    SELECT COUNT(*) as count FROM gpu_metric_snapshots
+    WHERE server_id = ANY(${serverIds})
+      AND timestamp <= ${new Date(endTime * 1000)}
+      AND timestamp >= ${new Date(startTime * 1000)}
+      AND llm_metrics IS NOT NULL
+      AND llm_metrics::text != '[]'
+      AND llm_metrics::text != 'null'`;
+  const llmCount = Number(existingWithLlm[0]?.count || 0);
+  if (llmCount > 100) {
+    console.log(`[PromCollector] Historical LLM data already exists (${llmCount} snapshots with LLM), skipping backfill`);
     backfillDone = true;
     return;
   }
+  console.log(`[PromCollector] Found ${llmCount} snapshots with LLM data — need backfill`);
 
   // 주요 vLLM 메트릭 range query
   const [runningRange, waitingRange, kvRange, promptRange, genRange] = await Promise.all([
