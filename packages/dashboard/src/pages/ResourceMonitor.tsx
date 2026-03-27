@@ -19,7 +19,8 @@ interface LlmEndpoint { port: number; containerName: string; containerImage: str
 interface ServerMetrics { serverId: string; serverName: string; timestamp: string; error?: string; gpus: GpuInfo[]; processes: GpuProcess[]; llmEndpoints: LlmEndpoint[]; cpuLoadAvg: number | null; cpuCores: number | null; memoryTotalMb: number | null; memoryUsedMb: number | null; diskTotalGb: number | null; diskUsedGb: number | null; diskFreeGb: number | null; hostname: string | null; }
 interface GpuServer { id: string; name: string; host: string; sshPort: number; sshUsername: string; description: string | null; isLocal: boolean; enabled: boolean; pollIntervalSec: number; createdAt: string; }
 interface ThroughputAnalysis { theoreticalMaxTps: number | null; bandwidthMaxTps: number | null; peakTps: number | null; currentTps: number; modelName: string | null; modelParams: string | null; gpuHealthPct: number | null; utilizationPct: number | null; theoreticalUtilPct: number | null; practicalUtilPct: number | null; practicalHealthPct: number | null; }
-interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; throughputAnalysis?: ThroughputAnalysis; }
+interface CapacityAnalysis { compositeCapacity: number | null; bottleneck: 'throughput' | 'kvMemory' | 'concurrency' | null; tokPct: number | null; kvPct: number | null; concPct: number | null; currentTps: number; peakTps: number | null; modelName: string | null; modelParams: string | null; benchmark: { peakTps: number; peakKvPct: number; peakConcurrent: number; source: string } | null; }
+interface RealtimeEntry { server: GpuServer; metrics: ServerMetrics | null; throughputAnalysis?: ThroughputAnalysis; capacityAnalysis?: CapacityAnalysis; }
 
 // ── Helpers ──
 const fmt = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
@@ -462,22 +463,27 @@ export default function ResourceMonitor() {
   useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { fetchAna(); }, [fetchAna]);
 
-  // ── 종합 KPI (투자 판단 관점) ──
+  // ── 종합 KPI (벤치마크 기반) ──
   const totGpu = data.reduce((a, e) => a + (e.metrics?.gpus?.length || 0), 0);
   const online = data.filter(e => e.metrics && !e.metrics.error).length;
   const totLlm = data.reduce((a, e) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
-  const totTps = data.reduce((a, e) => a + (e.throughputAnalysis?.currentTps || 0), 0);
+  const totTps = data.reduce((a, e) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0);
 
-  // 건강도 = 피크/이론 (GPU 성능 저하 감지)
-  const avgHealth = (() => { const h = data.filter(e => e.throughputAnalysis?.gpuHealthPct != null).map(e => e.throughputAnalysis!.gpuHealthPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
-  // 이론 최대 대비 사용률 = 현재/이론max (compute-bound)
-  const avgTheoreticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.theoreticalUtilPct != null).map(e => e.throughputAnalysis!.theoreticalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length) : null; })();
-  // 실효 가용량 대비 사용률 = 현재/(이론max × 건강도) = theoreticalUtil / health
-  const effectiveUtil = (avgTheoreticalUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheoreticalUtil / avgHealth) * 100) : avgTheoreticalUtil;
-  // 실용 사용률 (메모리 대역폭 기준 — 일반 부하에서의 직관적 수치)
-  const avgPracticalUtil = (() => { const h = data.filter(e => e.throughputAnalysis?.practicalUtilPct != null).map(e => e.throughputAnalysis!.practicalUtilPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  // 여유 = 100 - 실효사용률
-  const headroom = effectiveUtil != null ? 100 - effectiveUtil : null;
+  // 종합 용량 % = max(처리량%, KV%, 동시성%) — 벤치마크 대비
+  const avgComposite = (() => { const h = data.filter(e => e.capacityAnalysis?.compositeCapacity != null).map(e => e.capacityAnalysis!.compositeCapacity!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  const avgTokPct = (() => { const h = data.filter(e => e.capacityAnalysis?.tokPct != null).map(e => e.capacityAnalysis!.tokPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  const avgKvPct = (() => { const h = data.filter(e => e.capacityAnalysis?.kvPct != null).map(e => e.capacityAnalysis!.kvPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  const avgConcPct = (() => { const h = data.filter(e => e.capacityAnalysis?.concPct != null).map(e => e.capacityAnalysis!.concPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  const headroom = avgComposite != null ? Math.round((100 - avgComposite) * 10) / 10 : null;
+  // 전체 병목 (가장 빈번한 병목 차원)
+  const fleetBottleneck = (() => {
+    const bots = data.filter(e => e.capacityAnalysis?.bottleneck).map(e => e.capacityAnalysis!.bottleneck!);
+    if (bots.length === 0) return null;
+    const counts = { throughput: 0, kvMemory: 0, concurrency: 0 };
+    bots.forEach(b => counts[b]++);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] as 'throughput' | 'kvMemory' | 'concurrency';
+  })();
+  const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
   // 시스템 리소스
   const avgCpu = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.cpuLoadAvg && e.metrics.cpuCores) { s += (e.metrics.cpuLoadAvg / e.metrics.cpuCores) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
   const avgRam = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.memoryTotalMb && e.metrics.memoryUsedMb) { s += (e.metrics.memoryUsedMb / e.metrics.memoryTotalMb) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
@@ -812,39 +818,31 @@ export default function ResourceMonitor() {
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="px-3 pt-2">
-          <p className="text-[9px] text-gray-500">실용max = 메모리 대역폭 ÷ 모델 크기 (일반 부하 기준) | 이론max = compute-bound (절대 상한) | 영업시간: KST 9-18시 영업일</p>
+          <p className="text-[9px] text-gray-500">종합 용량 = max(처리량%, KV메모리%, 동시처리%) — 벤치마크(관측 P95 피크) 대비 | 영업시간: KST 9-18시 영업일</p>
         </div>
         {/* 실시간 */}
         <div className="px-3 pt-1">
           <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
         </div>
-        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
-          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2 border border-emerald-200 cursor-help" title="실용 사용률 = 현재 처리량 ÷ 메모리 대역폭 기준 최대 처리량&#10;&#10;일반적인 부하에서 GPU가 얼마나 활용되고 있는지 보여줍니다.&#10;50% 이상이면 증설을 고려해야 합니다.&#10;&#10;투자 판단에 가장 직관적인 지표입니다.">
-            <p className="text-[8px] text-emerald-700 font-semibold">실용 사용률 ⓘ</p>
-            <p className={`text-xl font-black ${avgPracticalUtil != null ? utilTxt(avgPracticalUtil) : 'text-gray-300'}`}>{avgPracticalUtil ?? '-'}%</p>
-            <p className="text-[7px] text-gray-400">대역폭 기준</p>
+        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-200 cursor-help" title={`종합 용량 = max(처리량 ${avgTokPct ?? '-'}%, KV메모리 ${avgKvPct ?? '-'}%, 동시처리 ${avgConcPct ?? '-'}%)\n\n가장 빡빡한 차원이 전체를 대표합니다.\n벤치마크(관측 P95 피크) 대비 현재 사용량.\n\n50% 미만: 여유\n50~80%: 주의 (증설 계획 수립)\n80% 이상: 위험 (증설 시급)`}>
+            <p className="text-[8px] text-blue-700 font-semibold">종합 용량 ⓘ</p>
+            <p className={`text-xl font-black ${avgComposite != null ? utilTxt(avgComposite) : 'text-gray-300'}`}>{avgComposite ?? '-'}%</p>
+            <p className="text-[7px] text-gray-400">처리량 {avgTokPct ?? '-'}% · KV {avgKvPct ?? '-'}% · 동시 {avgConcPct ?? '-'}%</p>
           </div>
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-100 cursor-help" title={`실효 사용률 = 이론대비 사용률 ÷ 건강도\n\n계산 과정:\n① 이론대비 = 현재 처리량 ÷ 이론 최대(compute-bound)\n   = ${totTps.toFixed(1)} ÷ ${data.reduce((a, e) => a + (e.throughputAnalysis?.theoreticalMaxTps || 0), 0).toFixed(0)} = ${avgTheoreticalUtil ?? '?'}%\n② 건강도 = 7일 피크 ÷ 이론 최대 = ${avgHealth ?? '?'}%\n③ 실효 = ① ÷ ② = ${avgTheoreticalUtil ?? '?'} ÷ ${avgHealth ?? '?'} = ${effectiveUtil ?? '?'}%\n\n의미: 현재 처리량이 GPU가 실제로 낼 수 있는 피크의 몇 %인지.\n수학적으로 "현재 처리량 ÷ 피크 처리량"과 동일합니다.\n\n70% 이상이면 피크에 근접 → 증설 검토 필요.`}>
-            <p className="text-[8px] text-blue-600 font-semibold">실효 사용률 ⓘ</p>
-            <p className={`text-xl font-black ${effectiveUtil != null ? utilTxt(effectiveUtil) : 'text-gray-300'}`}>{effectiveUtil ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="이론대비 = 현재 처리량 ÷ 물리적 절대 상한(compute-bound)&#10;&#10;GPU 칩의 연산 능력 기준 절대 한계 대비 사용률입니다.&#10;이 값은 보통 0.1~5%로 매우 작은데, 이론 최대가&#10;실제 달성 가능치의 100~300배이기 때문입니다.&#10;&#10;참고 지표이며, 투자 판단에는 실용 사용률을 보세요.">
-            <p className="text-[8px] text-gray-600 font-semibold">이론대비 ⓘ</p>
-            <p className={`text-xl font-black ${avgTheoreticalUtil != null ? utilTxt(avgTheoreticalUtil) : 'text-gray-300'}`}>{avgTheoreticalUtil ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="건강도 = 7일 피크 처리량 ÷ 이론 최대(compute-bound)&#10;&#10;GPU가 최대 성능의 몇 %를 실제로 달성하는지 보여줍니다.&#10;30~50%가 정상이며, 25% 미만이면 점검이 필요합니다.&#10;&#10;※ compute-bound 기준이라 수치가 작아 보일 수 있습니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">건강도 ⓘ</p>
-            <p className={`text-xl font-black ${avgHealth != null ? healthTxt(avgHealth) : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="여유 = 100% - 실용 사용률&#10;&#10;추가 부하를 수용할 수 있는 여유분입니다.&#10;20% 이하면 증설이 시급합니다.">
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="여유 = 100% - 종합 용량\n\n추가 부하를 수용할 수 있는 여유분입니다.\n20% 이하면 증설이 시급합니다.">
             <p className="text-[8px] text-gray-600 font-semibold">여유 ⓘ</p>
             <p className={`text-xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="처리량 = 전체 서버의 현재 초당 토큰 생성 수 합계&#10;&#10;모든 LLM 서비스가 지금 초당 몇 개의 토큰을&#10;생성하고 있는지 보여줍니다.&#10;&#10;tok/s가 높을수록 더 많은 요청을 처리 중입니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">처리량 ⓘ</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="병목 = 3차원 중 가장 사용률이 높은 차원\n\n이 차원이 증설의 주된 이유입니다.">
+            <p className="text-[8px] text-gray-600 font-semibold">병목 ⓘ</p>
+            <p className="text-lg font-black text-orange-600">{fleetBottleneck ? bottleneckLabel(fleetBottleneck) : '-'}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="전체 서버의 현재 초당 토큰 생성 수 합계">
+            <p className="text-[8px] text-gray-600 font-semibold">처리량</p>
             <p className="text-xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="인프라 = 현재 GPU 장비 수, LLM 서비스 수, 온라인 서버 수&#10;&#10;CPU/RAM/Disk는 GPU 서버의 시스템 리소스 평균입니다.">
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
             <p className="text-[8px] text-gray-600 font-semibold">인프라</p>
             <p className="text-xs font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
             <div className="flex gap-1.5 text-[8px] text-gray-500">
@@ -854,55 +852,49 @@ export default function ResourceMonitor() {
             </div>
           </div>
         </div>
-        {/* 5영업일 평균 */}
+        {/* 14일 영업일 평균 */}
         <div className="px-3 pt-1 border-t border-gray-100">
-          <p className="text-[9px] font-bold text-emerald-600 mb-1">5영업일 평균 (KST 9-18시, 주말·등록 휴일 제외)</p>
+          <p className="text-[9px] font-bold text-emerald-600 mb-1">영업일 평균 (KST 9-18시, 최근 {anaDays}일, 주말·등록 휴일 제외)</p>
         </div>
         {(() => {
           const bh = ana?.businessHours;
-          const totalTheoMax = data.reduce((a, e) => a + (e.throughputAnalysis?.theoreticalMaxTps || 0), 0);
-          const totalBwMax = data.reduce((a, e) => a + (e.throughputAnalysis?.bandwidthMaxTps || 0), 0);
+          // 벤치마크 기반 평균: analytics 데이터를 벤치마크로 나눔
+          const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
+          const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
           const avgTps = bh?.avgTps || null;
-          const peakTps = bh?.peakTps || null;
-          const avgPractUtil = (avgTps != null && totalBwMax > 0) ? Math.round((avgTps / totalBwMax) * 1000) / 10 : null;
-          const avgTheoUtil = (avgTps != null && totalTheoMax > 0) ? Math.round((avgTps / totalTheoMax) * 1000) / 10 : null;
-          const avgHealthPct = (peakTps != null && totalTheoMax > 0) ? Math.round((peakTps / totalTheoMax) * 1000) / 10 : null;
-          const avgEffUtil = (avgTheoUtil != null && avgHealthPct != null && avgHealthPct > 0) ? Math.round((avgTheoUtil / avgHealthPct) * 1000) / 10 : avgTheoUtil;
-          const avgHeadroom = avgPractUtil != null ? Math.round((100 - avgPractUtil) * 10) / 10 : null;
+          const avgBhKv = bh?.avgKvCache || null;
+          const avgBhConc = (bh?.avgRunningReqs || 0) + (bh?.avgWaitingReqs || 0);
+          const avgBhTokPct = (avgTps != null && totalBmTps > 0) ? Math.round((avgTps / totalBmTps) * 1000) / 10 : null;
+          const avgBhKvPct = avgBhKv;
+          const avgBhConcPct = (totalBmConc > 0 && avgBhConc > 0) ? Math.round((avgBhConc / totalBmConc) * 1000) / 10 : null;
+          const avgBhComposite = Math.max(avgBhTokPct || 0, avgBhKvPct || 0, avgBhConcPct || 0) || null;
+          const avgHeadroom = avgBhComposite != null ? Math.round((100 - avgBhComposite) * 10) / 10 : null;
           return (
-        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
-          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200 cursor-help" title="5영업일 평균 실용사용률&#10;= 영업시간 평균 처리량 ÷ 메모리 대역폭 기준 최대&#10;&#10;최근 5영업일(KST 9-18시) 동안의 평균입니다.&#10;이 값이 50% 이상이면 증설 검토가 필요합니다.">
-            <p className="text-[8px] text-emerald-700 font-semibold">평균 실용사용률 ⓘ</p>
-            <p className={`text-xl font-black ${avgPractUtil != null ? utilTxt(avgPractUtil) : 'text-gray-300'}`}>{avgPractUtil ?? '-'}%</p>
-            <p className="text-[7px] text-gray-400">대역폭 기준</p>
+        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200 cursor-help" title={`영업일 종합 용량 = max(처리량 ${avgBhTokPct ?? '-'}%, KV ${avgBhKvPct ?? '-'}%, 동시 ${avgBhConcPct ?? '-'}%)\n\n영업시간(KST 9-18시) 평균.\n벤치마크(P95 피크) 대비 사용량.`}>
+            <p className="text-[8px] text-emerald-700 font-semibold">영업일 종합 용량 ⓘ</p>
+            <p className={`text-xl font-black ${avgBhComposite != null ? utilTxt(avgBhComposite) : 'text-gray-300'}`}>{avgBhComposite ? Math.round(avgBhComposite * 10) / 10 : '-'}%</p>
+            <p className="text-[7px] text-gray-400">처리 {avgBhTokPct ?? '-'}% · KV {avgBhKvPct ?? '-'}% · 동시 {avgBhConcPct ?? '-'}%</p>
           </div>
-          <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100 cursor-help" title={`5영업일 평균 실효사용률\n\n계산: 평균 이론대비(${avgTheoUtil ?? '?'}%) ÷ 건강도(${avgHealthPct ?? '?'}%) = ${avgEffUtil ?? '?'}%\n\n의미: 영업시간 평균 처리량이 피크 처리량의 몇 %인지.\n= "평소에 GPU를 피크 대비 얼마나 쓰고 있는지"\n\n50% 이상이면 평소에도 GPU가 바쁜 상태.\n70% 이상이면 피크 시 과부하 위험 → 증설 검토.`}>
-            <p className="text-[8px] text-emerald-600 font-semibold">평균 실효사용률 ⓘ</p>
-            <p className={`text-xl font-black ${avgEffUtil != null ? utilTxt(avgEffUtil) : 'text-gray-300'}`}>{avgEffUtil ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 이론대비&#10;= 영업시간 평균 처리량 ÷ 물리 절대 상한(compute-bound)&#10;&#10;0.1~5%가 정상입니다.&#10;참고 지표이며, 투자 판단에는 실용사용률을 보세요.">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 이론대비 ⓘ</p>
-            <p className={`text-xl font-black ${avgTheoUtil != null ? utilTxt(avgTheoUtil) : 'text-gray-300'}`}>{avgTheoUtil ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 건강도&#10;= 7일 피크 처리량 ÷ 이론 최대(compute-bound)&#10;&#10;GPU가 최대 성능의 몇 %를 달성하는지 보여줍니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 건강도 ⓘ</p>
-            <p className={`text-xl font-black ${avgHealthPct != null ? healthTxt(avgHealthPct) : 'text-gray-300'}`}>{avgHealthPct ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="평균 여유 = 100% - 실용사용률&#10;&#10;추가 부하를 수용할 여유분입니다.&#10;20% 이하면 증설이 시급합니다.">
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="평균 여유 = 100% - 종합 용량\n\n20% 이하면 증설 시급.">
             <p className="text-[8px] text-gray-600 font-semibold">평균 여유 ⓘ</p>
             <p className={`text-xl font-black ${avgHeadroom != null ? (avgHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{avgHeadroom ?? '-'}%</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 처리량&#10;= 영업시간 동안의 평균 초당 토큰 생성 수&#10;&#10;모든 LLM 서비스의 합산입니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량 ⓘ</p>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량</p>
             <p className="text-xl font-black text-blue-600">{avgTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="5영업일 평균 GPU/KV/대기&#10;&#10;GPU: nvidia-smi GPU 사용률 평균&#10;KV: LLM 메모리(KV Cache) 사용률 — 80% 이상이면 메모리 부족&#10;W(대기): 처리 대기 중인 요청 수 — 0보다 크면 과부하 시그널">
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="GPU: nvidia-smi 사용률\nKV: KV Cache 사용률 — 80%+ 메모리 부족\nW: 대기 요청 수 — >0 과부하">
             <p className="text-[8px] text-gray-600 font-semibold">GPU / KV / 대기 ⓘ</p>
             <div className="flex gap-1.5 text-[9px] mt-0.5">
               <span>GPU <b>{bh?.avgGpuUtil ?? '-'}%</b></span>
               <span>KV <b>{bh?.avgKvCache ?? '-'}%</b></span>
               <span>W <b>{bh?.avgWaitingReqs ?? '-'}</b></span>
             </div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
+            <p className="text-[8px] text-gray-600 font-semibold">분석 기간</p>
+            <p className="text-xs font-bold text-gray-900">{anaDays}일 ({bh?.sampleCount || 0}건)</p>
           </div>
         </div>
           );

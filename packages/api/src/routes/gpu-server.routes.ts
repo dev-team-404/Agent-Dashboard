@@ -215,6 +215,10 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       } catch {}
     }
 
+    // 벤치마크 로드
+    const { getAllBenchmarks, calcCompositeCapacity } = await import('../services/gpuBenchmark.service.js');
+    const benchmarkMap = await getAllBenchmarks();
+
     const result = servers.map(s => {
       const m = metrics.find(mt => mt.serverId === s.id) || promMetricsMap.get(s.id) || null;
       const gpuCount = m?.gpus?.length || 0;
@@ -250,12 +254,33 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       // 7일 피크
       const peakTps = peakTpsMap.get(s.id) || null;
 
+      // 벤치마크 기반 종합 용량 계산
+      const bm = benchmarkMap.get(s.id);
+      const currentKvPct = endpoints.length > 0
+        ? endpoints.reduce((s: number, ep: any) => s + (ep.kvCacheUsagePct || 0), 0) / endpoints.length
+        : null;
+      const currentConcurrent = endpoints.reduce((s: number, ep: any) => s + (ep.runningRequests || 0) + (ep.waitingRequests || 0), 0);
+
+      const capacity = bm
+        ? calcCompositeCapacity(currentTps, currentKvPct, currentConcurrent, bm)
+        : null;
+
       return {
         server: serverMap.get(s.id),
         metrics: m,
+        // 벤치마크 기반 (PRIMARY — 종합 용량 %)
+        capacityAnalysis: capacity ? {
+          ...capacity,
+          currentTps: Math.round(currentTps * 10) / 10,
+          peakTps: bm?.peakTps || peakTps,
+          modelName: primaryModelName,
+          modelParams: primaryModelParams ? `${primaryModelParams}B` : null,
+          benchmark: bm ? { peakTps: bm.peakTps, peakKvPct: bm.peakKvPct, peakConcurrent: bm.peakConcurrent, source: bm.source } : null,
+        } : null,
+        // 이전 호환 (LEGACY — 전환 후 제거)
         throughputAnalysis: {
           theoreticalMaxTps,
-          bandwidthMaxTps, // 메모리 대역폭 기반 실용 최대 (배치1)
+          bandwidthMaxTps,
           peakTps,
           currentTps: Math.round(currentTps * 10) / 10,
           modelName: primaryModelName,
@@ -263,7 +288,6 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
           gpuHealthPct: (theoreticalMaxTps && peakTps) ? Math.round((peakTps / theoreticalMaxTps) * 1000) / 10 : null,
           utilizationPct: (peakTps && peakTps > 0) ? Math.round((currentTps / peakTps) * 1000) / 10 : null,
           theoreticalUtilPct: (theoreticalMaxTps && theoreticalMaxTps > 0) ? Math.round((currentTps / theoreticalMaxTps) * 1000) / 10 : null,
-          // 실용 사용률 (메모리 대역폭 기준 — 직관적 수치)
           practicalUtilPct: (bandwidthMaxTps && bandwidthMaxTps > 0) ? Math.round((currentTps / bandwidthMaxTps) * 1000) / 10 : null,
           practicalHealthPct: (bandwidthMaxTps && peakTps) ? Math.round((peakTps / bandwidthMaxTps) * 1000) / 10 : null,
         },
