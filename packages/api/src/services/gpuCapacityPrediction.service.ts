@@ -267,18 +267,13 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   const predictedTotalVram = totalVramGb + gapVram;
   const bottleneck = rawB300 === tpsB300 ? 'throughput' : rawB300 === kvB300 ? 'kvMemory' : 'concurrency';
 
-  // 피크 관련 참조값 (벤치마크에서)
+  // 벤치마크 기반 참조값
   const peakThroughput = totalBenchmarkTps;
-  const avgThroughput = totalBenchmarkTps * 0.5; // 평균 ≈ 피크의 50% 추정
   const avgKvCache = serverBreakdown.length > 0 ? serverBreakdown.reduce((s, b) => s + b.benchmarkKv, 0) / serverBreakdown.length : null;
-  const avgGpuUtil = null; // 벤치마크 기반에선 미사용
   const peakConcurrent = Math.round(totalBenchmarkConc);
-  const avgHealthPct = null; // compute-bound 기반 → 벤치마크 체계에서 불필요
-  const weightedMaxTps = 0; // 미사용
-  const weightedBwMaxTps = 0; // 미사용
 
-  // 소진 시점 (벤치마크 기준 — 현재 용량의 몇 주 후 소진)
-  const currentCapacityPct = totalBenchmarkTps > 0 ? (avgThroughput / totalBenchmarkTps) * 100 : 0;
+  // 소진 시점 (벤치마크 기준)
+  const currentCapacityPct = 50; // 벤치마크 대비 평균 50% 가정 (실시간 데이터 없으면)
   const weeksUntilSaturated = weeklyGrowthRate > 0 && currentCapacityPct < 100
     ? Math.ceil(Math.log(100 / Math.max(currentCapacityPct, 1)) / Math.log(1 + weeklyGrowthRate))
     : currentCapacityPct >= 100 ? 0 : null;
@@ -524,7 +519,7 @@ JSON으로만 응답: {"analysis":"...기술 분석(한국어, 마크다운)..."
     avgTokensPerUserPerDay: safeFloat(avgTokensPerUser), avgRequestsPerUserPerDay: safeFloat(avgRequestsPerUser),
     peakConcurrentRequests: safeInt(peakConcurrent), avgLatencyMs: safeFloatNull(avgLatencyMs),
     currentGpuInventory: gpuInventory as any, currentTotalVramGb: safeFloat(totalVramGb),
-    currentAvgGpuUtil: safeFloatNull(avgGpuUtil), currentAvgKvCache: safeFloatNull(avgKvCache),
+    currentAvgGpuUtil: null, currentAvgKvCache: safeFloatNull(avgKvCache),
     predictedTotalVramGb: safeFloat(predictedTotalVram), predictedGpuCount: predictedGpuCount as any,
     predictedB300Units: safeInt(calculationDetails.result.b300Units), gapVramGb: safeFloat(gapVram),
     scalingFactor: safeFloat(growthAdjustedScaling), safetyMargin: safeFloat(SAFETY_MARGIN),

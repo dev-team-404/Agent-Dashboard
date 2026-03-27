@@ -802,7 +802,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         const totGpu = gpuData.reduce((a: number, e: any) => a + (e.metrics?.gpus?.length || 0), 0);
         // 종합 용량 기반 (벤치마크)
         const totLlm = gpuData.reduce((a: number, e: any) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
-        const totTps = gpuData.reduce((a: number, e: any) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0);
+        // totTps는 실시간 섹션에서 liveServers로 계산
         // 종합 용량 기반 과사용/저사용
         const serverUtils = gpuData.filter((e: any) => e.metrics?.gpus?.length > 0).map((e: any) => {
           const ca = e.capacityAnalysis;
@@ -817,25 +817,21 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">GPU 리소스</span><span className="text-[10px] text-gray-400">서버 {online.length}/{gpuData.length} 온라인</span></div>
               <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
             </div>
-            {/* 영업일 평균 */}
+            {/* GPU 부족분 예측 요약 */}
             {gpuPrediction && (() => {
               const pred = gpuPrediction;
-              const ps = pred.calculationDetails?.currentPeakShortage;
+              const dim = pred.calculationDetails?.dimensionalBreakdown;
+              const bn = dim?.bottleneck;
               return (
                 <div className="mb-3">
-                  <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">영업일 평균 (KST 9-18)</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 text-xs">
-                    <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-200 shadow-sm"><p className="text-[9px] text-emerald-700 font-semibold">GPU</p><p className="text-lg font-bold">{pred.currentAvgGpuUtil != null ? pred.currentAvgGpuUtil.toFixed(1) : '-'}%</p></div>
-                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
+                  <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">벤치마크 기반 GPU 예측</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
                     <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} 온라인</p></div>
-                    {/* 현재 피크 기준 부족 */}
-                    <div className={`rounded-lg p-2.5 border shadow-sm cursor-help ${ps?.isShort ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`} title={"현재 피크 부하에서 서비스 품질을 유지하기 위해\n당장 추가해야 하는 B300 GPU 장비 수입니다.\n\n0이면 현재 피크에서 여유가 있다는 뜻입니다.\n1 이상이면 즉시 증설을 검토해야 합니다."}>
-                      <p className="text-[9px] font-semibold text-orange-700">피크 기준 즉시 ⓘ</p>
-                      <p className={`text-xl font-black ${ps?.isShort ? 'text-red-700' : 'text-emerald-600'}`}>{ps?.b300Units > 0 ? `+${ps.b300Units}` : '0'}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
-                      {ps?.isShort && <p className="text-[8px] text-red-500 truncate">{ps.reasons?.[0]}</p>}
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={`3차원 부족분:\n처리량: B300 ${dim?.throughput?.b300 ?? '-'}장\nKV메모리: B300 ${dim?.kvMemory?.b300 ?? '-'}장\n동시처리: B300 ${dim?.concurrency?.b300 ?? '-'}장`}>
+                      <p className="text-[9px] text-orange-700 font-semibold">병목 ⓘ</p>
+                      <p className="text-lg font-bold text-orange-600">{bn === 'throughput' ? '처리량' : bn === 'kvMemory' ? 'KV메모리' : bn === 'concurrency' ? '동시처리' : '-'}</p>
                     </div>
-                    {/* 목표 기준 부족 */}
-                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2 cursor-help" title={"목표 사용자 수 달성을 위해 추가로 구매해야 하는\nB300 GPU 장비(192GB 메모리) 수입니다.\n\n안전 마진과 6개월 성장률이 반영되어 있습니다.\n현재 인프라 + 이 수량 = 목표 서비스 가능"}>
+                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2 cursor-help" title={"목표 사용자 수 달성을 위한 추가 B300.\n3차원(처리량/KV/동시처리) 중 가장 큰 값 × 안전마진."}>
                       <p className="text-[9px] text-indigo-700 font-semibold">목표 {pred.targetUserCount?.toLocaleString()}명 기준 ⓘ</p>
                       <p className="text-xl font-black text-indigo-700">+{pred.predictedB300Units}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
                     </div>
@@ -844,20 +840,21 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               );
             })()}
             {/* 실시간 */}
-            <p className="text-[9px] text-blue-600 font-semibold mb-1.5">실시간</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-              {(() => {
-                const avgComp = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.compositeCapacity != null).map((e: any) => e.capacityAnalysis.compositeCapacity); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
-                const hr = avgComp != null ? Math.round((100 - avgComp) * 10) / 10 : null;
-                const avgTok = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.tokPct != null).map((e: any) => e.capacityAnalysis.tokPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
-                const avgKv = (() => { const h = gpuData.filter((e: any) => e.capacityAnalysis?.kvPct != null).map((e: any) => e.capacityAnalysis.kvPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length * 10) / 10 : null; })();
-                return (<>
-                  <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={`종합 용량 = max(처리량, KV메모리, 동시처리) 벤치마크 대비\n처리량 ${avgTok ?? '-'}% · KV ${avgKv ?? '-'}%\n80% 이상이면 증설 시급`}><p className="text-[9px] text-blue-600 font-semibold">종합 용량 ⓘ</p><p className={`text-lg font-bold ${avgComp != null && avgComp >= 80 ? 'text-red-600' : avgComp != null && avgComp >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgComp ?? '-'}%</p></div>
-                  <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={"여유 = 100% - 종합 용량\n20% 이하면 증설 시급"}><p className="text-[9px] text-gray-700 font-semibold">여유 ⓘ</p><p className={`text-lg font-bold ${hr != null ? (hr <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{hr ?? '-'}%</p></div>
-                </>);
-              })()}
-              <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
-            </div>
+            <p className="text-[9px] text-blue-600 font-semibold mb-1.5">실시간 (직접 연결 서버)</p>
+            {(() => {
+              // 실시간 데이터가 있는 서버만 (DTGPT Prometheus 서버 제외)
+              const liveServers = gpuData.filter((e: any) => e.capacityAnalysis?.compositeCapacity != null && !e.server?.description?.includes('[DTGPT-Prometheus]'));
+              const avgComp = liveServers.length > 0 ? Math.round(liveServers.reduce((a: number, e: any) => a + e.capacityAnalysis.compositeCapacity, 0) / liveServers.length * 10) / 10 : null;
+              const hr = avgComp != null ? Math.round((100 - avgComp) * 10) / 10 : null;
+              const liveTps = liveServers.reduce((a: number, e: any) => a + (e.capacityAnalysis?.currentTps || 0), 0);
+              return (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
+                <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={"종합 용량 = 벤치마크 대비 현재 사용 비율\n직접 연결된 서버만 (DTGPT 제외)"}><p className="text-[9px] text-blue-600 font-semibold">종합 용량 ⓘ</p><p className={`text-lg font-bold ${avgComp != null && avgComp >= 80 ? 'text-red-600' : avgComp != null && avgComp >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgComp ?? '-'}%</p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">여유</p><p className={`text-lg font-bold ${hr != null ? (hr <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{hr ?? '-'}%</p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{liveTps > 0 ? liveTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-500 font-semibold">서버</p><p className="text-sm font-bold text-gray-700">{liveServers.length}대 실시간 / {gpuData.length - liveServers.length}대 과거</p></div>
+              </div>);
+            })()}
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
               <div className="flex flex-wrap gap-2 mt-2 text-[10px]">

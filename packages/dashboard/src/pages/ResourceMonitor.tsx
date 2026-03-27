@@ -1022,7 +1022,7 @@ export default function ResourceMonitor() {
               {/* 날짜 행 */}
               {dates.map(dt => (
                 <div key={dt} className="flex items-center">
-                  <div className="w-14 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)}</div>
+                  <div className="w-20 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)} {['일','월','화','수','목','금','토'][new Date(dt + 'T00:00:00+09:00').getDay()]}</div>
                   {Array.from({ length: 24 }, (_, h) => {
                     const cell = hm.find(d => d.date === dt && d.hour === h);
                     const val = cell ? getValue(cell) : 0;
