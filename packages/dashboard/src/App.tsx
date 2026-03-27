@@ -49,6 +49,7 @@ const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUs
 const OrgTree = lazyWithRetry(() => import('./pages/OrgTree'));
 const GpuPowerUsage = lazyWithRetry(() => import('./pages/GpuPowerUsage'));
 const ResourceMonitor = lazyWithRetry(() => import('./pages/ResourceMonitor'));
+const PlatformStory = lazyWithRetry(() => import('./pages/PlatformStory'));
 
 interface User {
   id: string;
@@ -173,6 +174,7 @@ function App() {
             </>
           )}
 
+          <Route path="/platform-story" element={<PlatformStory />} />
           <Route
             path="*"
             element={<Navigate to={isAdmin ? '/' : '/public-dashboard'} replace />}
