@@ -502,15 +502,20 @@ export default function ResourceMonitor() {
         {/* 2-tier: 현재 피크 기준 부족분 + 목표 인원 기준 부족분 */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
           {/* 현재 피크 기준 */}
-          <div className="bg-white/80 rounded-lg p-3 border border-gray-200">
-            <p className="text-[10px] font-bold text-orange-700 mb-2">📊 현재 피크 기준 부족분</p>
-            <div className="grid grid-cols-3 gap-2">
-              <div><p className="text-[9px] text-gray-500">피크 실효 사용률</p><p className={`text-lg font-black ${peakShort.peakEffUtil >= 80 ? 'text-red-600' : peakShort.peakEffUtil >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakEffUtil ?? '-'}%</p></div>
+          <div className={`bg-white/80 rounded-lg p-3 border ${peakShort.isShort ? 'border-red-200' : 'border-gray-200'}`}>
+            <p className="text-[10px] font-bold text-orange-700 mb-2">📊 현재 피크 기준 부족분 <span className="font-normal text-gray-400">(7일 영업시간)</span></p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div><p className="text-[9px] text-gray-500">피크 KV Cache</p><p className={`text-lg font-bold ${peakShort.peakKvMax >= 80 ? 'text-red-600' : peakShort.peakKvMax >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakKvMax ?? '-'}%</p></div>
+              <div><p className="text-[9px] text-gray-500">대기 요청 빈도</p><p className={`text-lg font-bold ${peakShort.waitingFrequencyPct >= 30 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.waitingFrequencyPct ?? 0}%</p></div>
               <div><p className="text-[9px] text-gray-500">피크 부족 VRAM</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
               <div><p className="text-[9px] text-gray-500">즉시 필요</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
             </div>
-            {peakShort.b300Units > 0 && <p className="text-[9px] text-red-600 mt-1 font-semibold">⚠ 현재 피크에서 이미 리소스 부족!</p>}
-            {peakShort.b300Units === 0 && <p className="text-[9px] text-emerald-600 mt-1">✅ 현재 피크에서는 여유 있음</p>}
+            {peakShort.isShort && peakShort.reasons?.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {peakShort.reasons.map((r: string, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px] font-semibold">⚠ {r}</span>)}
+              </div>
+            )}
+            {!peakShort.isShort && <p className="text-[9px] text-emerald-600 mt-1">✅ 현재 피크에서는 여유 있음</p>}
           </div>
           {/* 목표 인원 기준 */}
           <div className="bg-white/80 rounded-lg p-3 border border-indigo-200">

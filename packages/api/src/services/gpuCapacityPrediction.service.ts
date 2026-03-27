@@ -200,19 +200,8 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   let totalVramGb = 0;
   const allModels: string[] = [];
 
-  // 모델별 throughput 비율 수집 (모든 배포 모델의 실제 사용 비율)
-  interface ModelProfile {
-    name: string;
-    params: number | null;
-    precision: 'fp8' | 'fp16';
-    avgTps: number;       // 평균 throughput
-    peakTps: number;      // 피크 throughput
-    avgKvPct: number;     // 평균 KV cache
-    gpuCount: number;     // 사용 GPU 수 (추정)
-    tpsRatio: number;     // 전체 대비 throughput 비율
-  }
-  const modelTpsMap = new Map<string, { totalTps: number; count: number; peakTps: number; totalKv: number; kvCount: number }>();
-
+  // GPU 인벤토리 수집 + 최신 precision 정보 수집
+  const modelPrecisionMap = new Map<string, 'fp8' | 'fp16'>(); // 모델별 실제 precision
   for (const snap of latestSnaps) {
     const gpus = snap.gpuMetrics as any[];
     if (!Array.isArray(gpus)) continue;
@@ -229,41 +218,86 @@ export async function runGpuCapacityPrediction(): Promise<any> {
       for (const l of llms) {
         const names = l?.modelNames || [];
         for (const n of names) { if (n && !allModels.includes(n)) allModels.push(n); }
-        // 모델별 throughput + KV cache 수집
+        // precision 필드가 있으면 사용 (SSH 수집 시 /v1/models에서 감지됨)
         const modelKey = names[0] || l.containerName || 'unknown';
-        const tp = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
-        const kv = l.kvCacheUsagePct;
-        const existing = modelTpsMap.get(modelKey) || { totalTps: 0, count: 0, peakTps: 0, totalKv: 0, kvCount: 0 };
-        existing.totalTps += tp; existing.count++;
-        if (tp > existing.peakTps) existing.peakTps = tp;
-        if (kv != null) { existing.totalKv += kv; existing.kvCount++; }
-        modelTpsMap.set(modelKey, existing);
+        if (l.precision) modelPrecisionMap.set(modelKey, l.precision);
       }
     }
   }
 
-  // 모델 프로파일 구축 (throughput 비율 기반)
+  // ── 모델별 프로파일: 7일 영업시간 전체 스냅샷 기반 (최신 1개 아님) ──
+  interface ModelProfile {
+    name: string;
+    params: number | null;
+    precision: 'fp8' | 'fp16';
+    avgTps: number;       // 영업시간 평균 throughput
+    peakTps: number;      // 영업시간 피크 throughput
+    avgKvPct: number;     // 영업시간 평균 KV cache
+    gpuCount: number;     // 사용 GPU 수 (추정)
+    tpsRatio: number;     // 전체 대비 throughput 비율
+  }
+  const modelTpsMap = new Map<string, { totalTps: number; count: number; peakTps: number; totalKv: number; kvCount: number }>();
+
+  // 7일 영업시간 스냅샷에서 모델별 throughput/KV cache 수집 (이미 필터된 데이터 재활용 가능하나, 모델별 분리 필요)
+  for (const snap of snapshots) {
+    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
+    const kstHour = kstDate.getUTCHours();
+    const kstDow = kstDate.getUTCDay();
+    const dateStr = kstDate.toISOString().split('T')[0];
+    if (kstHour < 9 || kstHour >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
+
+    const llms = snap.llmMetrics as any[];
+    if (!Array.isArray(llms)) continue;
+    for (const l of llms) {
+      const names = l?.modelNames || [];
+      const modelKey = names[0] || l.containerName || 'unknown';
+      const tp = (l.promptThroughputTps || 0) + (l.genThroughputTps || 0);
+      const kv = l.kvCacheUsagePct;
+      const existing = modelTpsMap.get(modelKey) || { totalTps: 0, count: 0, peakTps: 0, totalKv: 0, kvCount: 0 };
+      existing.totalTps += tp; existing.count++;
+      if (tp > existing.peakTps) existing.peakTps = tp;
+      if (kv != null) { existing.totalKv += kv; existing.kvCount++; }
+      modelTpsMap.set(modelKey, existing);
+      // precision 정보가 없으면 이름에서 감지
+      if (!modelPrecisionMap.has(modelKey) && l.precision) modelPrecisionMap.set(modelKey, l.precision);
+    }
+  }
+
+  // 모델 프로파일 구축
   const totalModelTps = Array.from(modelTpsMap.values()).reduce((s, m) => s + (m.count > 0 ? m.totalTps / m.count : 0), 0);
   const modelProfiles: ModelProfile[] = [];
   for (const [name, data] of modelTpsMap) {
     const avgTps = data.count > 0 ? data.totalTps / data.count : 0;
     const params = estimateModelParams(name);
+    // precision: 1) llmMetrics.precision 필드 → 2) 이름에서 감지
+    const precision = modelPrecisionMap.get(name) || detectPrecision(name);
     modelProfiles.push({
-      name, params,
-      precision: detectPrecision(name),
+      name, params, precision,
       avgTps, peakTps: data.peakTps,
       avgKvPct: data.kvCount > 0 ? data.totalKv / data.kvCount : 0,
-      gpuCount: 0, // 아래서 추정
+      gpuCount: 0,
       tpsRatio: totalModelTps > 0 ? avgTps / totalModelTps : 1 / Math.max(modelTpsMap.size, 1),
     });
   }
-  // GPU 배분 추정: throughput 비율로 GPU 분배 (최소 1)
+
+  // GPU 배분 추정: params 비례 (크기가 큰 모델이 더 많은 GPU 사용)
+  // params 없으면 tpsRatio fallback
   const totalGpuForModels = Array.from(inventoryMap.values()).reduce((s, v) => s + v.count, 0);
   if (modelProfiles.length > 0) {
+    const totalParams = modelProfiles.reduce((s, m) => s + (m.params || 7), 0); // 없으면 7B 가정
     let allocated = 0;
     for (let i = 0; i < modelProfiles.length; i++) {
-      if (i === modelProfiles.length - 1) { modelProfiles[i].gpuCount = Math.max(1, totalGpuForModels - allocated); }
-      else { const cnt = Math.max(1, Math.round(totalGpuForModels * modelProfiles[i].tpsRatio)); modelProfiles[i].gpuCount = cnt; allocated += cnt; }
+      if (i === modelProfiles.length - 1) {
+        modelProfiles[i].gpuCount = Math.max(1, totalGpuForModels - allocated);
+      } else {
+        const ratio = (modelProfiles[i].params || 7) / totalParams;
+        const cnt = Math.max(1, Math.round(totalGpuForModels * ratio));
+        // 총합 캡: 남은 GPU에서 최소 1장은 다음 모델에 남겨야 함
+        const remaining = modelProfiles.length - i - 1;
+        const maxAllowable = totalGpuForModels - allocated - remaining;
+        modelProfiles[i].gpuCount = Math.min(cnt, Math.max(1, maxAllowable));
+        allocated += modelProfiles[i].gpuCount;
+      }
     }
   }
 
@@ -325,15 +359,18 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     weightedMaxTps = calcTheoreticalMaxTps(dominantSpec, totalGpuCount, fallbackParams);
   }
 
-  // Method A: KV Cache + 모델 가중치 분리 스케일링 (모델별 KV 비율 반영)
+  // Method A: KV Cache + 모델 가중치 분리 스케일링 (모델별)
+  // VRAM = 모델 가중치(고정, params 비례) + KV cache(스케일링, 사용자 비례)
   let totalVramA = 0;
   if (modelProfiles.length > 0) {
-    // 모델별로 분리 계산 후 합산
+    const totalParams = modelProfiles.reduce((s, m) => s + (m.params || 7), 0);
     for (const mp of modelProfiles) {
-      const modelVram = totalVramGb * mp.tpsRatio; // 이 모델의 VRAM 비중
+      // 모델별 VRAM 비중 = params 비례 (throughput이 아닌 모델 크기 기준)
+      const paramsRatio = (mp.params || 7) / totalParams;
+      const modelVram = totalVramGb * paramsRatio;
       const kvR = mp.avgKvPct > 0 ? mp.avgKvPct / 100 : 0.3;
-      const mWeight = modelVram * (1 - kvR); // 모델 가중치 (고정)
-      const kvScaled = modelVram * kvR * growthAdjustedScaling;
+      const mWeight = modelVram * (1 - kvR); // 모델 가중치 (고정 — 스케일링해도 안 늘어남)
+      const kvScaled = modelVram * kvR * growthAdjustedScaling; // KV cache만 사용자 비례 스케일
       totalVramA += mWeight + kvScaled;
     }
   } else {
@@ -381,22 +418,72 @@ export async function runGpuCapacityPrediction(): Promise<any> {
       : null;
 
   // ── 현재 피크 기준 부족분 (target 무관, 지금 당장의 부족) ──
-  const peakEffUtil = weightedMaxTps > 0 && peakThroughput > 0 && avgHealthPct
-    ? (peakThroughput / (weightedMaxTps * avgHealthPct / 100)) * 100
-    : null;
-  // 피크 때 VRAM이 얼마나 더 필요한지 (KV cache 피크 기준)
+  // peakEffUtil = 피크 때 실효 사용률 (순환 참조 방지: avgHealthPct 대신 직접 계산)
+  // 실효 사용률 = 실 처리량 / 실 처리 가능량
+  // 실 처리 가능량 = 이론max × 건강도 = weightedMaxTps × avgHealthPct / 100
+  // 하지만 avgHealthPct = peakThroughput / weightedMaxTps 이므로 순환됨
+  //
+  // 올바른 접근: 피크 부족은 throughput 관점 + KV cache 관점을 복합 판단
+  //   1) throughput 관점: 피크 throughput이 이론 최대의 몇 %인지 (= avgHealthPct)
+  //   2) KV cache 관점: 피크 때 KV cache가 몇 %까지 차는지
+  //   3) 복합: 둘 중 하나라도 위험 수준이면 부족
   let peakKvMax = 0;
   for (const snap of snapshots) {
+    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
+    const kstH = kstDate.getUTCHours();
+    const kstDow = kstDate.getUTCDay();
+    const dateStr = kstDate.toISOString().split('T')[0];
+    if (kstH < 9 || kstH >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
     const llms = snap.llmMetrics as any[];
     if (!Array.isArray(llms)) continue;
     const kv = llms.reduce((s: number, l: any) => s + (l.kvCacheUsagePct || 0), 0) / Math.max(llms.length, 1);
     if (kv > peakKvMax) peakKvMax = kv;
   }
-  // 현재 피크 기준: 건강도 반영 실효 사용률이 80% 넘으면 부족
-  const currentPeakVramNeeded = peakEffUtil != null && peakEffUtil > 80
-    ? totalVramGb * (peakEffUtil / 80) * SAFETY_MARGIN  // 80%를 안전 기준으로
-    : null;
-  const currentPeakGapVram = currentPeakVramNeeded ? Math.max(0, currentPeakVramNeeded - totalVramGb) : 0;
+
+  // 피크 throughput 기반: 이론max 대비 피크 처리량 비율 (= 건강도, 30-50% 정상)
+  // 이 자체로는 "부족"이 아님 — 건강도가 낮은 건 GPU 효율이 낮은 거지 부족한 게 아님
+  // 진짜 부족 시그널: KV cache 피크 80%↑, waiting > 0 빈발, preemption 빈발
+  //
+  // 현재 피크 부족분 판단:
+  //   - KV cache 피크 80% 이상 → 메모리 부족 (VRAM 추가 필요)
+  //   - 피크 KV가 X%면, 100%까지의 여유 = (100-X)/X 의 추가 용량 필요
+  const peakKvBasedUtil = peakKvMax; // KV cache 자체가 메모리 사용률 프록시
+  const peakThroughputPct = weightedMaxTps > 0 ? (peakThroughput / weightedMaxTps) * 100 : null; // 건강도와 같음
+
+  // 피크 때 waiting/preemption 빈도 수집
+  let peakWaitingCount = 0, peakPreemptionTotal = 0, snapCountForPeak = 0;
+  for (const snap of snapshots) {
+    const kstDate = new Date(snap.timestamp.getTime() + KST_OFFSET);
+    const kstH = kstDate.getUTCHours();
+    const kstDow = kstDate.getUTCDay();
+    const dateStr = kstDate.toISOString().split('T')[0];
+    if (kstH < 9 || kstH >= 18 || kstDow === 0 || kstDow === 6 || holidaySet.has(dateStr)) continue;
+    const llms = snap.llmMetrics as any[];
+    if (!Array.isArray(llms)) continue;
+    snapCountForPeak++;
+    for (const l of llms) {
+      if ((l.waitingRequests || 0) > 0) peakWaitingCount++;
+      peakPreemptionTotal += (l.preemptionCount || 0);
+    }
+  }
+  const waitingFrequencyPct = snapCountForPeak > 0 ? (peakWaitingCount / snapCountForPeak) * 100 : 0;
+
+  // 복합 부족 판단: KV↑ OR waiting 빈발 OR preemption 빈발
+  const isKvShort = peakKvMax >= 80;
+  const isWaitingShort = waitingFrequencyPct >= 30; // 30% 이상의 스냅샷에서 대기 발생
+  const isPreemptionShort = peakPreemptionTotal > 10;  // 7일간 preemption 10회 이상
+
+  let currentPeakGapVram = 0;
+  if (isKvShort) {
+    // KV cache가 80% 이상이면: 80%를 안전선으로, 필요 추가 VRAM = 현재 × (피크KV/80 - 1) × 안전마진
+    currentPeakGapVram = totalVramGb * (peakKvMax / 80 - 1) * SAFETY_MARGIN;
+  }
+  if (isWaitingShort || isPreemptionShort) {
+    // waiting/preemption이 빈발하면 최소 20% 추가 여유 필요
+    const waitMargin = totalVramGb * 0.2 * SAFETY_MARGIN;
+    currentPeakGapVram = Math.max(currentPeakGapVram, waitMargin);
+  }
+  currentPeakGapVram = Math.max(0, currentPeakGapVram);
   const currentPeakB300Units = Math.ceil(currentPeakGapVram / B300_SPEC.vramGb);
 
   // 보수적: max × 안전마진 × 에러보정 × 건강도보정
@@ -432,11 +519,18 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     methodA: { totalVramA: Math.round(totalVramA), note: '모델별 가중치 고정 + KV cache 스케일링 합산' },
     methodB: { currentTps: Math.round(avgThroughput * 10) / 10, predictedTps: Math.round(predictedThroughput * 10) / 10, weightedMaxTps: Math.round(weightedMaxTps * 10) / 10, totalVramB: Math.round(totalVramB) },
     currentPeakShortage: {
-      peakEffUtil: peakEffUtil ? Math.round(peakEffUtil * 10) / 10 : null,
       peakKvMax: Math.round(peakKvMax * 10) / 10,
+      peakThroughputPct: peakThroughputPct ? Math.round(peakThroughputPct * 10) / 10 : null,
+      waitingFrequencyPct: Math.round(waitingFrequencyPct * 10) / 10,
+      preemptionTotal: peakPreemptionTotal,
+      isShort: isKvShort || isWaitingShort || isPreemptionShort,
+      reasons: [
+        ...(isKvShort ? [`KV cache 피크 ${Math.round(peakKvMax)}% (≥80%)`] : []),
+        ...(isWaitingShort ? [`대기 요청 빈발 (${Math.round(waitingFrequencyPct)}% 스냅샷)`] : []),
+        ...(isPreemptionShort ? [`Preemption ${peakPreemptionTotal}회 (7일)`] : []),
+      ],
       gapVram: Math.round(currentPeakGapVram),
       b300Units: currentPeakB300Units,
-      note: '현재 피크 기준 (target 무관, 실효 사용률 80% 초과 시 부족)',
     },
     result: { predictedTotalVram: Math.round(predictedTotalVram), gapVram: Math.round(gapVram), b300Units },
     topServices, dataConfidence, confidenceIssues,
@@ -504,11 +598,13 @@ ${(() => {
   return lines.length > 0 ? lines.join('\n') : '- 서비스 품질 데이터 없음';
 })()}
 
-## 현재 피크 기준 부족분 (target 무관)
-- 피크 실효 사용률: ${peakEffUtil ? peakEffUtil.toFixed(1) + '%' : 'N/A'}
-- 피크 KV Cache: ${peakKvMax.toFixed(1)}%
+## 현재 피크 기준 부족분 (target 무관, 7일 영업시간)
+- 피크 KV Cache: ${peakKvMax.toFixed(1)}% ${peakKvMax >= 80 ? '⚠️ 메모리 부족!' : ''}
+- 대기 요청 발생 빈도: ${waitingFrequencyPct.toFixed(1)}% (전체 스냅샷 중) ${waitingFrequencyPct >= 30 ? '⚠️ 빈발!' : ''}
+- Preemption(밀려남): ${peakPreemptionTotal}회/7일 ${peakPreemptionTotal > 10 ? '⚠️ 빈발!' : ''}
+- 피크 처리량: ${peakThroughput.toFixed(1)} tok/s / 이론max ${weightedMaxTps.toFixed(1)} tok/s (${peakThroughputPct ? peakThroughputPct.toFixed(1) + '%' : 'N/A'})
 - 현재 피크 부족 VRAM: ${Math.round(currentPeakGapVram)}GB → B300 ${currentPeakB300Units}장
-${currentPeakB300Units > 0 ? '⚠️ 현재 피크에서도 이미 리소스 부족!' : '✅ 현재 피크에서는 여유 있음'}
+${(isKvShort || isWaitingShort || isPreemptionShort) ? '⚠️ 현재 피크에서도 이미 리소스 부족!' : '✅ 현재 피크에서는 여유 있음'}
 
 ## 예측 (목표 ${targetUserCount.toLocaleString()}명, 성장률 반영)
 - 스케일링: x${scalingFactor.toFixed(1)} (기본) → x${growthAdjustedScaling.toFixed(1)} (6개월 성장 반영)
