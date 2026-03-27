@@ -1056,7 +1056,7 @@ export default function ResourceMonitor() {
                     const val = cell ? getValue(cell) : 0;
                     const bg = activeTab.color(val);
                     return (
-                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? (val >= 1000 ? `${(val/1000).toFixed(0)}k` : val >= 100 ? Math.round(val) : val.toFixed(val < 10 ? 1 : 0)) : ''}</div>
+                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? ((hmTab === 'wait' || hmTab === 'preempt') ? Math.round(val) : val >= 1000 ? `${(val/1000).toFixed(1)}k` : val >= 100 ? Math.round(val) : val < 1 ? val.toFixed(1) : Math.round(val)) : ''}</div>
                     );
                   })}
                 </div>
