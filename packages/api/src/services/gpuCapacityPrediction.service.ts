@@ -14,7 +14,7 @@ import { logInternalLlmUsage } from './internalUsageLogger.js';
 
 const INTERVAL_MS = 60 * 60 * 1000;
 const LLM_TIMEOUT_MS = 120_000;
-const SAFETY_MARGIN = 1.3;
+const SAFETY_MARGIN = 1.5; // 과소 추정 방지 (1.3 → 1.5 상향)
 const SUBLINEAR_SCALE = 0.7;
 const MAX_SCALING_FACTOR = 500; // 과도한 예측 방지
 
@@ -397,11 +397,15 @@ ${(() => {
 - 부족: ${Math.round(gapVram)}GB → B300(${B300_SPEC.vramGb}GB) ${b300Units}장
 
 ## 분석 요청
-1. 계산 과정의 논리적 타당성 평가
-2. 성장 추세 기반 추가 리스크 (인당 토큰 증가, 서비스 고도화)
-3. 보수적이되 현실적인 최종 권고 (구체적 수치)
-4. 데이터 신뢰도 (${dataConfidence}) 및 개선점
+⚠ 중요: 과소 추정은 서비스 장애로 직결됩니다. 과대 추정(GPU 여유)은 비용 문제지만, 과소 추정(GPU 부족)은 서비스 품질 저하와 사용자 이탈로 이어집니다. 반드시 보수적으로(넉넉하게) 추정하세요.
+
+1. 계산 과정의 논리적 타당성 평가 — 과소 추정 위험이 있다면 반드시 지적
+2. 성장 추세 기반 추가 리스크 (인당 토큰 증가, 서비스 고도화, 새 모델 추가 가능성)
+3. 보수적이고 넉넉한 최종 권고 (구체적 수치, 과소보다는 과대 추정이 안전)
+4. 데이터 신뢰도 (${dataConfidence}) — 데이터 부족 시 더 보수적으로
 5. ${targetUserCount.toLocaleString()}명 서비스 시 예상 레이턴시 변화
+
+adjustedB300Units는 위 계산의 ${b300Units}장 이상으로 제시하세요. 줄이지 마세요.
 
 JSON으로만 응답: {"analysis":"...한국어...","confidence":"HIGH|MEDIUM|LOW","adjustedB300Units":<숫자>,"recommendations":["...",...],"predictedLatencyMs":<숫자|null>}`;
 
