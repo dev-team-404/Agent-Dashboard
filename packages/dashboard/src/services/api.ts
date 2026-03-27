@@ -434,7 +434,7 @@ export const gpuServerApi = {
   testExisting: (id: string) => api.post(`/admin/gpu-servers/${id}/test`),
   realtime: () => api.get('/admin/gpu-servers/realtime'),
   history: (id: string, hours = 24) => api.get(`/admin/gpu-servers/${id}/history`, { params: { hours } }),
-  analytics: (days = 7) => api.get('/admin/gpu-servers/analytics/overview', { params: { days } }),
+  analytics: (days = 7, serverId?: string) => api.get('/admin/gpu-servers/analytics/overview', { params: { days, ...(serverId ? { serverId } : {}) } }),
   debug: (id: string) => api.get(`/admin/gpu-servers/${id}/debug`),
   coaching: (id: string) => api.get(`/admin/gpu-servers/${id}/coaching`),
   runCoaching: (id: string) => api.post(`/admin/gpu-servers/${id}/coaching`),

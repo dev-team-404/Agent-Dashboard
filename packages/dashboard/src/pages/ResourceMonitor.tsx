@@ -435,6 +435,7 @@ export default function ResourceMonitor() {
   const [updated, setUpdated] = useState<Date | null>(null);
   const [ana, setAna] = useState<any>(null);
   const [anaDays] = useState(30);
+  const [anaServerId, setAnaServerId] = useState<string>('');
   const [pred, setPred] = useState<any>(null);
   const [predRunning, setPredRunning] = useState(false);
   const [targetEdit, setTargetEdit] = useState(false);
@@ -449,7 +450,7 @@ export default function ResourceMonitor() {
   const ref = useRef<ReturnType<typeof setInterval>>();
 
   const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
-  const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays); setAna(r.data); } catch {} }, [anaDays]);
+  const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays, anaServerId || undefined); setAna(r.data); } catch {} }, [anaDays, anaServerId]);
   useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { fetchAna(); }, [fetchAna]);
 
@@ -922,7 +923,13 @@ export default function ResourceMonitor() {
       <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
     )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
-      <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">30일 기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외, DTGPT 과거 데이터 포함, {ana.totalSnapshots?.toLocaleString() || 0}건)</span></div>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs font-medium text-gray-600">30일 기간 분석 ({ana.totalSnapshots?.toLocaleString() || 0}건{anaServerId ? '' : ', 전체 서버'})</span>
+        <select value={anaServerId} onChange={e => setAnaServerId(e.target.value)} className="px-2 py-1 text-[10px] border rounded-lg bg-white">
+          <option value="">전체 서버</option>
+          {data.map(e => <option key={e.server.id} value={e.server.id}>{e.server.name}</option>)}
+        </select>
+      </div>
 
       {/* ── 시간대별 평균 카드 (기록 없는 날 제외) ── */}
       {(() => {

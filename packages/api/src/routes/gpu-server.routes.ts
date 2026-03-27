@@ -576,10 +576,12 @@ gpuServerRoutes.post('/:id/coaching', requireSuperAdmin, async (req: Request, re
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 7;
+    const serverId = req.query.serverId as string || null; // 서버별 필터 (null = 전체)
+    const cacheKey = `gpu:analytics:${days}:${serverId || 'all'}`;
     // Redis 캐시 (5분 TTL)
     try {
       const { redis } = await import('../index.js');
-      const cached = await redis.get(`gpu:analytics:${days}`);
+      const cached = await redis.get(cacheKey);
       if (cached) { res.setHeader('X-Cache', 'HIT'); return res.json(JSON.parse(cached)); }
     } catch {}
     const since = new Date();
@@ -612,9 +614,9 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
         (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
           FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
       FROM gpu_metric_snapshots s
-      WHERE s.timestamp >= $1
+      WHERE s.timestamp >= $1 ${serverId ? 'AND s.server_id = $2' : ''}
       ORDER BY s.timestamp ASC
-    `, [since]);
+    `, serverId ? [since, serverId] : [since]);
 
     const holidaySet = new Set(holidayDates);
     const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
@@ -683,7 +685,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       dateHourHeatmap,
       totalSnapshots: rows.length,
     };
-    try { const { redis } = await import('../index.js'); await redis.setex(`gpu:analytics:${days}`, 300, JSON.stringify(analyticsResult)); } catch {}
+    try { const { redis } = await import('../index.js'); await redis.setex(cacheKey, 300, JSON.stringify(analyticsResult)); } catch {}
     res.json(analyticsResult);
   } catch (error) {
     console.error('Analytics overview error:', error);
