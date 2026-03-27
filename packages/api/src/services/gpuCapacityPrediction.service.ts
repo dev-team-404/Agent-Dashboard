@@ -83,6 +83,11 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   const targetSetting = await prisma.systemSetting.findUnique({ where: { key: 'GPU_CAPACITY_TARGET_USERS' } });
   const targetUserCount = parseInt(targetSetting?.value || '15000', 10);
 
+  // 미연결 장비 (모니터링 불가하지만 존재하는 GPU — 추정에 포함)
+  const fleetSetting = await prisma.systemSetting.findUnique({ where: { key: 'GPU_UNMONITORED_FLEET' } });
+  const unmonitoredFleet: Array<{ type: string; count: number; label?: string; vramGb?: number }> =
+    fleetSetting?.value ? JSON.parse(fleetSetting.value) : [];
+
   const holidays = await prisma.holiday.findMany({ where: { date: { gte: new Date(Date.now() - 60 * 86400000) } } });
   const holidaySet = new Set(holidays.map(h => h.date.toISOString().split('T')[0]));
   const isBizDay = (d: string) => { const dt = new Date(d + 'T00:00:00+09:00'); return dt.getDay() !== 0 && dt.getDay() !== 6 && !holidaySet.has(d); };
@@ -329,6 +334,23 @@ export async function runGpuCapacityPrediction(): Promise<any> {
   }
 
   const gpuInventory = Array.from(inventoryMap.entries()).map(([type, v]) => ({ type, count: v.count, vramGb: v.vramGb }));
+
+  // 미연결 장비를 인벤토리에 합산 (모니터링 불가하지만 존재하는 GPU)
+  for (const uf of unmonitoredFleet) {
+    if (uf.count <= 0) continue;
+    const spec = lookupGpuSpec(uf.type);
+    const vram = uf.vramGb || spec?.vramGb || 80;
+    totalVramGb += vram * uf.count;
+    gpuInventory.push({ type: `${uf.type} (${uf.label || '미연결'})`, count: uf.count, vramGb: vram });
+    // 인벤토리 맵에도 추가 (이론 최대 계산용)
+    const existingInv = inventoryMap.get(uf.type);
+    if (existingInv) {
+      existingInv.count += uf.count;
+    } else {
+      inventoryMap.set(uf.type, { count: uf.count, vramGb: vram, spec: spec || { fp16Tflops: 989, fp8Tflops: 1979, memBandwidthGBs: 4800, tdpW: 700, vramGb: vram, label: uf.type } });
+    }
+  }
+
   const totalGpuCount = gpuInventory.reduce((s, g) => s + g.count, 0);
 
   // ── 데이터 신뢰도 판단 ──
@@ -575,6 +597,7 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     },
     result: { predictedTotalVram: Math.round(predictedTotalVram), gapVram: Math.round(gapVram), b300Units },
     topServices, dataConfidence, confidenceIssues,
+    unmonitoredFleet: unmonitoredFleet.length > 0 ? unmonitoredFleet.map(f => ({ ...f, totalVramGb: (f.vramGb || lookupGpuSpec(f.type)?.vramGb || 80) * f.count })) : [],
     monthlyForecast: [] as Array<{ month: string; tokenGrowthMultiplier: number; totalScaling: number; predictedVramGb: number; gapVramGb: number; b300Units: number; growthOnlyB300: number }>,
   };
 
@@ -679,6 +702,7 @@ ${topServices.map((s, i) => `${i + 1}. ${s.name}: ${s.tokens.toLocaleString()} �
 
 ## GPU 인벤토리
 ${gpuInventory.map(g => `- ${g.type} x${g.count} (${g.vramGb}GB/장)`).join('\n') || '없음'}
+${unmonitoredFleet.length > 0 ? `\n※ 미연결 장비 포함 (모니터링 불가, 평균 사용률 가정):\n${unmonitoredFleet.map(f => `  - ${f.type} x${f.count} (${f.label || '미연결'}) — VRAM ${(f.vramGb || 80) * f.count}GB`).join('\n')}` : ''}
 - 총 VRAM: ${Math.round(totalVramGb)}GB, GPU 사용률: ${avgGpuUtil ? avgGpuUtil.toFixed(1) + '%' : 'N/A'}, KV Cache: ${avgKvCache ? avgKvCache.toFixed(1) + '%' : 'N/A'}
 - 평균 throughput: ${avgThroughput.toFixed(1)} tok/s, 피크 throughput (영업시간): ${peakThroughput.toFixed(1)} tok/s
 - 이론 최대 throughput (compute-bound): ${weightedMaxTps.toFixed(1)} tok/s

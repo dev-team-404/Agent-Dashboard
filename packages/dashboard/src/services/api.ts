@@ -446,7 +446,8 @@ export const gpuCapacityApi = {
   history: (days = 30) => api.get('/admin/gpu-capacity/history', { params: { days } }),
   run: () => api.post('/admin/gpu-capacity/run'),
   getSettings: () => api.get('/admin/gpu-capacity/settings'),
-  updateSettings: (targetUserCount: number) => api.put('/admin/gpu-capacity/settings', { targetUserCount }),
+  updateSettings: (data: { targetUserCount?: number; unmonitoredFleet?: Array<{ type: string; count: number; label?: string; vramGb?: number }> }) =>
+    api.put('/admin/gpu-capacity/settings', data),
 };
 
 // GPU Power Usage API

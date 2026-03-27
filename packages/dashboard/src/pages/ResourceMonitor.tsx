@@ -442,6 +442,9 @@ export default function ResourceMonitor() {
   const [targetEdit, setTargetEdit] = useState(false);
   const [targetVal, setTargetVal] = useState('');
   const [targetSaving, setTargetSaving] = useState(false);
+  const [fleetEdit, setFleetEdit] = useState(false);
+  const [fleetList, setFleetList] = useState<Array<{ type: string; count: number; label: string; vramGb: number }>>([]);
+  const [fleetSaving, setFleetSaving] = useState(false);
   const ref = useRef<ReturnType<typeof setInterval>>();
 
   const fetch_ = useCallback(async () => { try { const [r, p] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest()]); setData(r.data.data || []); setPred(p.data.prediction); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
@@ -632,6 +635,63 @@ export default function ResourceMonitor() {
             ))}
           </div>
         )}
+        {/* 미연결 장비 (모니터링 불가, 추정에 포함) */}
+        <div className="mb-2">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-[9px] font-bold text-gray-700">미연결 장비 <span className="font-normal text-gray-400">(모니터링 불가, 평균 사용률로 추정에 포함)</span></p>
+            <button onClick={async () => {
+              if (!fleetEdit) {
+                try { const r = await gpuCapacityApi.getSettings(); setFleetList(r.data.unmonitoredFleet || []); } catch {}
+              }
+              setFleetEdit(!fleetEdit);
+            }} className="text-[9px] text-indigo-600 hover:text-indigo-800 underline decoration-dotted">{fleetEdit ? '닫기' : '편집'}</button>
+          </div>
+          {/* 현재 등록된 미연결 장비 표시 */}
+          {cd.unmonitoredFleet?.length > 0 && !fleetEdit && (
+            <div className="flex flex-wrap gap-1">
+              {cd.unmonitoredFleet.map((f: any, i: number) => (
+                <span key={i} className="px-2 py-1 bg-amber-50 rounded-lg text-[9px] border border-amber-200 cursor-help" title={`미연결 장비: 모니터링 데이터 없음\n연결된 장비의 평균 사용률로 가정하여 추정에 포함\nVRAM: ${f.totalVramGb || f.count * (f.vramGb || 80)}GB`}>
+                  <b>{f.type}</b> ×{f.count} <span className="text-amber-600">({f.label || '미연결'})</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {fleetEdit && (
+            <div className="p-2 bg-white/80 rounded-lg border border-gray-200 space-y-2">
+              {fleetList.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 text-[10px]">
+                  <select value={f.type} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, type: e.target.value, vramGb: e.target.value === 'H200' ? 141 : e.target.value === 'H100' ? 80 : e.target.value === 'L40S' ? 48 : e.target.value === 'B300' ? 192 : f.vramGb }; setFleetList(nl); }} className="px-1.5 py-1 border rounded text-[10px]">
+                    <option value="H200">H200 (141GB)</option>
+                    <option value="H100">H100 (80GB)</option>
+                    <option value="L40S">L40S (48GB)</option>
+                    <option value="B300">B300 (192GB)</option>
+                    <option value="A100">A100 (80GB)</option>
+                  </select>
+                  <input type="number" min={0} value={f.count} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, count: parseInt(e.target.value) || 0 }; setFleetList(nl); }} className="w-16 px-1.5 py-1 border rounded text-[10px] text-center" placeholder="수량" />
+                  <span className="text-gray-400">장</span>
+                  <input value={f.label} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, label: e.target.value }; setFleetList(nl); }} className="flex-1 px-1.5 py-1 border rounded text-[10px]" placeholder="라벨 (예: HPC망)" />
+                  <button onClick={() => setFleetList(fleetList.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-xs">×</button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <button onClick={() => setFleetList([...fleetList, { type: 'H200', count: 0, label: '', vramGb: 141 }])} className="px-2 py-1 text-[9px] bg-gray-100 rounded hover:bg-gray-200">+ 장비 추가</button>
+                <button disabled={fleetSaving} onClick={async () => {
+                  setFleetSaving(true);
+                  try {
+                    await gpuCapacityApi.updateSettings({ unmonitoredFleet: fleetList.filter(f => f.count > 0) });
+                    setFleetEdit(false);
+                    // 재분석
+                    setPredRunning(true);
+                    const r = await gpuCapacityApi.run();
+                    setPred(r.data.prediction);
+                  } catch (e: any) { alert(e?.response?.data?.error || '실패'); }
+                  finally { setFleetSaving(false); setPredRunning(false); }
+                }} className="px-2 py-1 text-[9px] bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{fleetSaving ? '저장+재분석...' : '저장 후 재분석'}</button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* 계산 논리 */}
         {cd && (
           <details className="text-[10px]">
