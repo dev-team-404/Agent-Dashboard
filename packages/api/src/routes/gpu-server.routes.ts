@@ -617,63 +617,62 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
     const holidaySet = new Set(holidayDates);
     const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
 
-    let bizGpuUtil = 0, bizMemUtil = 0, bizCount = 0;
-    let offGpuUtil = 0, offMemUtil = 0, offCount = 0;
+    let bizCount = 0, offCount = 0;
     let bizLlmKvCache = 0, bizLlmCount = 0, bizLlmRunning = 0, bizLlmWaiting = 0;
-    let bizLlmThroughput = 0, bizLlmTpCount = 0;
     let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
-    const heatmap: number[][] = Array.from({ length: 24 }, () => Array(7).fill(0));
-    const heatmapCount: number[][] = Array.from({ length: 24 }, () => Array(7).fill(0));
-    const hourlyTps: number[] = Array(24).fill(0);
-    const hourlyCnt: number[] = Array(24).fill(0);
+
+    // 날짜×시간 히트맵 (3차원: tok/s, kv%, 대기건수)
+    const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[] }>();
 
     for (const r of rows) {
-      const h = +r.h, d = +r.d, gpu = +(r.gpu || 0), mem = +(r.mem || 0);
+      const h = +r.h, d = +r.d;
       const kv = r.kv != null ? +r.kv : null;
       const run = +(r.run || 0), wait = +(r.wait || 0), tps = +(r.tps || 0);
       const biz = isBiz(h, d, r.dt);
 
-      heatmap[h][d] += gpu; heatmapCount[h][d]++;
+      // 날짜×시간 히트맵 집계
+      const key = `${r.dt}|${h}`;
+      const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [] };
+      if (tps > 0) entry.tps.push(tps);
+      if (kv != null) entry.kv.push(kv);
+      entry.wait.push(wait);
+      dateHourMap.set(key, entry);
 
       if (biz) {
-        bizGpuUtil += gpu; bizMemUtil += mem; bizCount++;
+        bizCount++;
         if (kv != null) { bizLlmKvCache += kv; bizLlmCount++; }
         bizLlmRunning += run; bizLlmWaiting += wait;
-        if (tps > 0) { bizLlmThroughput += tps; bizLlmTpCount++; bizTotalTps += tps; bizTpsCount++; }
+        if (tps > 0) { bizTotalTps += tps; bizTpsCount++; }
         if (tps > bizPeakTps) bizPeakTps = tps;
       } else {
-        offGpuUtil += gpu; offMemUtil += mem; offCount++;
+        offCount++;
       }
-      if (tps > 0) { hourlyTps[h] += tps; hourlyCnt[h]++; }
     }
 
     const r1 = (v: number) => Math.round(v * 10) / 10;
-    const heatmapData = [];
-    for (let h = 0; h < 24; h++) for (let d = 0; d < 7; d++) {
-      heatmapData.push({ hour: h, dow: d, avgUtil: heatmapCount[h][d] > 0 ? r1(heatmap[h][d] / heatmapCount[h][d]) : null, sampleCount: heatmapCount[h][d] });
-    }
+
+    // 날짜×시간 히트맵 데이터 (6개 히트맵용: 실제값 3 + %값 3)
+    const dateHourHeatmap = Array.from(dateHourMap.entries()).map(([key, v]) => {
+      const [dt, hStr] = key.split('|');
+      const avgTps = v.tps.length > 0 ? v.tps.reduce((a, b) => a + b, 0) / v.tps.length : 0;
+      const avgKv = v.kv.length > 0 ? v.kv.reduce((a, b) => a + b, 0) / v.kv.length : 0;
+      const avgWait = v.wait.length > 0 ? v.wait.reduce((a, b) => a + b, 0) / v.wait.length : 0;
+      return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), samples: v.tps.length || v.wait.length };
+    }).sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
 
     const analyticsResult = {
       period: { days, since: since.toISOString(), holidayCount: holidays.length },
       businessHours: {
-        avgGpuUtil: bizCount > 0 ? r1(bizGpuUtil / bizCount) : null,
-        avgMemUtil: bizCount > 0 ? r1(bizMemUtil / bizCount) : null,
         avgKvCache: bizLlmCount > 0 ? r1(bizLlmKvCache / bizLlmCount) : null,
         avgRunningReqs: bizCount > 0 ? r1(bizLlmRunning / bizCount) : null,
         avgWaitingReqs: bizCount > 0 ? r1(bizLlmWaiting / bizCount) : null,
-        avgThroughputTps: bizLlmTpCount > 0 ? r1(bizLlmThroughput / bizLlmTpCount) : null,
         avgTps: bizTpsCount > 0 ? r1(bizTotalTps / bizTpsCount) : null,
         peakTps: bizPeakTps > 0 ? r1(bizPeakTps) : null,
         sampleCount: bizCount,
       },
-      offHours: {
-        avgGpuUtil: offCount > 0 ? r1(offGpuUtil / offCount) : null,
-        avgMemUtil: offCount > 0 ? r1(offMemUtil / offCount) : null,
-        sampleCount: offCount,
-      },
-      heatmap: heatmapData,
-      peakHours: heatmapData.filter(h => h.avgUtil !== null && h.sampleCount >= 3).sort((a, b) => (b.avgUtil || 0) - (a.avgUtil || 0)).slice(0, 5),
-      throughputByHour: hourlyTps.map((t, h) => ({ hour: h, avgTps: hourlyCnt[h] > 0 ? r1(t / hourlyCnt[h]) : 0 })),
+      offHours: { sampleCount: offCount },
+      // 날짜×시간 히트맵 (3차원)
+      dateHourHeatmap,
       totalSnapshots: rows.length,
     };
     try { const { redis } = await import('../index.js'); await redis.setex(`gpu:analytics:${days}`, 300, JSON.stringify(analyticsResult)); } catch {}

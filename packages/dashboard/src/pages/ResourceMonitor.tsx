@@ -235,14 +235,13 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             </div>
           </div>
 
-          {/* ── 2) 처리량 + 이론 최대 + KV Cache ── */}
+          {/* ── 2) 3대 지표: tok/s + KV% + 대기건수 ── */}
           <div className="flex items-center gap-2 mb-1.5 text-[10px] flex-wrap">
             <span className="text-blue-600 font-semibold">{currentTps > 0 ? currentTps.toFixed(1) : '-'} <span className="font-normal">tok/s</span></span>
-            {ta?.theoreticalMaxTps && <span className="text-gray-400">이론max <b className="text-gray-600">{ta.theoreticalMaxTps.toFixed(0)}</b></span>}
-            {ta?.peakTps != null && ta.peakTps > 0 && <span className="text-gray-400">피크 <b className="text-purple-600">{ta.peakTps.toFixed(1)}</b></span>}
-            {kvPct != null && <span className="text-gray-400">KV <b className={utilTxt(kvPct)}>{kvPct.toFixed(0)}%</b><span className="text-gray-300">/100%</span></span>}
-            {ta?.modelParams && <span className="text-gray-400">{ta.modelParams}</span>}
-            {!ta && !kvPct && <span className="text-gray-300">데이터 수집 중</span>}
+            {kvPct != null && <span className="text-gray-400">KV <b className={kvPct >= 80 ? 'text-red-600' : kvPct >= 50 ? 'text-amber-600' : 'text-emerald-600'}>{kvPct.toFixed(0)}%</b></span>}
+            {(() => { const w = eps.reduce((a, e) => a + (e.waitingRequests || 0), 0); return w > 0 ? <span className="text-red-500 font-semibold">대기 {w}건</span> : <span className="text-emerald-500">대기 0</span>; })()}
+            {ca?.benchmark && <span className="text-gray-300 text-[8px]">벤치마크 {ca.benchmark.peakTps} tok/s</span>}
+            {!ca && !kvPct && <span className="text-gray-300">데이터 수집 중</span>}
           </div>
 
           {/* ── 3) 영업시간 평균 ── */}
