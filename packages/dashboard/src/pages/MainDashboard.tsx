@@ -820,38 +820,35 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">GPU 리소스</span><span className="text-[10px] text-gray-400">서버 {online.length}/{gpuData.length} 온라인</span></div>
               <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
             </div>
-            {/* 영업일 평균 (핵심) */}
-            {gpuPrediction?.calculationDetails?.scaling && (() => {
-              // 예측 결과에서 영업시간 평균 도출
+            {/* 영업일 평균 */}
+            {gpuPrediction && (() => {
               const pred = gpuPrediction;
-              const avgGpuU = pred.currentAvgGpuUtil;
-              const avgKv = pred.currentAvgKvCache;
               return (
-                <div className="mb-2">
-                  <p className="text-[9px] text-emerald-600 font-semibold mb-1">영업일 평균 (KST 9-18)</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-xs">
-                    <div className="bg-emerald-50 rounded p-1.5 border border-emerald-100"><span className="text-emerald-600 font-semibold text-[9px]">GPU</span><p className="text-lg font-bold">{avgGpuU != null ? avgGpuU.toFixed(1) : '-'}%</p></div>
-                    <div><span className="text-gray-500">KV Cache</span><p className="text-lg font-bold text-purple-600">{avgKv != null ? avgKv.toFixed(1) : '-'}%</p></div>
-                    {gpuPrediction && <div className="sm:col-span-2 bg-white/60 rounded p-1.5 border border-indigo-100"><span className="text-gray-500">예측 ({pred.targetUserCount?.toLocaleString()}명)</span><p className="text-lg font-bold text-indigo-700">{pred.predictedB300Units} B300<span className="text-[10px] font-normal text-gray-400 ml-1">추가</span></p></div>}
-                    <div><span className="text-gray-500">인프라</span><p className="text-sm font-bold">{totGpu}GPU · {totLlm}LLM</p></div>
+                <div className="mb-3">
+                  <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">영업일 평균 (KST 9-18)</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                    <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-100"><p className="text-[9px] text-emerald-600 font-semibold">GPU</p><p className="text-lg font-bold">{pred.currentAvgGpuUtil != null ? pred.currentAvgGpuUtil.toFixed(1) : '-'}%</p></div>
+                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">KV Cache</p><p className="text-lg font-bold text-purple-600">{pred.currentAvgKvCache != null ? pred.currentAvgKvCache.toFixed(1) : '-'}%</p></div>
+                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-400">{online.length}/{gpuData.length} 온라인</p></div>
+                    <div className="bg-indigo-50 rounded-lg p-2 border border-indigo-100 sm:col-span-2"><p className="text-[9px] text-indigo-600 font-semibold">GPU 예측 ({pred.targetUserCount?.toLocaleString()}명)</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units} B300<span className="text-sm font-normal text-gray-400 ml-1">추가 필요</span></p></div>
                   </div>
                 </div>
               );
             })()}
             {/* 실시간 */}
-            <p className="text-[9px] text-blue-600 font-semibold mb-1">실시간</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2 text-xs">
+            <p className="text-[9px] text-blue-600 font-semibold mb-1.5">실시간</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
               {(() => {
                 const avgTheorUtil = (() => { const h = gpuData.filter((e: any) => e.throughputAnalysis?.theoreticalUtilPct != null).map((e: any) => e.throughputAnalysis.theoreticalUtilPct); return h.length > 0 ? Math.round(h.reduce((a: number, v: number) => a + v, 0) / h.length) : null; })();
                 const effUtil = (avgTheorUtil != null && avgHealth != null && avgHealth > 0) ? Math.round((avgTheorUtil / avgHealth) * 100) : avgTheorUtil;
                 const headroom = effUtil != null ? 100 - effUtil : null;
                 return (<>
-                  <div className="bg-blue-50 rounded p-1.5 border border-blue-100"><span className="text-blue-600 font-semibold text-[9px]">실효</span><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
-                  {avgHealth != null && <div><span className="text-gray-500">건강도</span><p className={`text-lg font-bold ${avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600'}`}>{avgHealth}%</p></div>}
-                  <div><span className="text-gray-500">여유</span><p className={`text-lg font-bold ${headroom != null && headroom <= 20 ? 'text-red-600' : 'text-emerald-600'}`}>{headroom ?? '-'}%</p></div>
+                  <div className="bg-blue-50 rounded-lg p-2 border border-blue-100"><p className="text-[9px] text-blue-600 font-semibold">실효 사용률</p><p className={`text-lg font-bold ${effUtil != null && effUtil >= 70 ? 'text-red-600' : 'text-gray-900'}`}>{effUtil ?? '-'}%</p></div>
+                  <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">건강도</p><p className={`text-lg font-bold ${avgHealth != null ? (avgHealth >= 25 ? 'text-emerald-600' : avgHealth >= 15 ? 'text-amber-600' : 'text-red-600') : 'text-gray-300'}`}>{avgHealth ?? '-'}%</p></div>
+                  <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">여유</p><p className={`text-lg font-bold ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p></div>
                 </>);
               })()}
-              {totTps > 0 && <div><span className="text-gray-500">처리량</span><p className="text-lg font-bold text-blue-600">{totTps.toFixed(1)}<span className="text-[10px] font-normal"> tok/s</span></p></div>}
+              <div className="bg-gray-50 rounded-lg p-2 border border-gray-100"><p className="text-[9px] text-gray-600 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
             </div>
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
@@ -1010,7 +1007,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   <div><span className="text-gray-500">추가 필요</span><p className="text-2xl font-black text-indigo-700">{gpuPrediction.predictedB300Units} <span className="text-sm font-normal">B300</span></p></div>
                 </div>
                 {gpuPrediction.aiAnalysis && gpuPrediction.modelId !== 'none' && (
-                  <details className="mt-3 text-[10px]"><summary className="cursor-pointer text-indigo-600 font-medium">AI 분석 리포트</summary><div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 whitespace-pre-wrap leading-relaxed">{gpuPrediction.aiAnalysis}</div></details>
+                  <details className="mt-3 text-[10px]"><summary className="cursor-pointer text-indigo-600 font-medium">AI 분석 리포트</summary><div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (gpuPrediction.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} /></details>
                 )}
               </div>
             )}
