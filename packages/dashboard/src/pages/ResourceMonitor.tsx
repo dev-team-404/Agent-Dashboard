@@ -111,7 +111,12 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
   const loadHist = useCallback(async () => { try { const r = await gpuServerApi.history(s.id, hrs); setHist(r.data); } catch {} }, [s.id, hrs]);
   // 영업시간 평균은 항상 로드 (컴팩트 뷰에 표시), 차트 데이터는 open 시
   useEffect(() => { if (!hist) loadHist(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open) loadHist(); }, [open, loadHist]);
+  useEffect(() => {
+    if (open) {
+      loadHist();
+      if (!coach) gpuServerApi.coaching(s.id).then(r => setCoach(r.data.coaching)).catch(() => {});
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cd = hist?.snapshots?.map((snap: any) => {
     const gs = snap.gpuMetrics as GpuInfo[]; const ps = (snap.gpuProcesses || []) as GpuProcess[]; const ls = (snap.llmMetrics || []) as LlmEndpoint[];
@@ -518,7 +523,7 @@ export default function ResourceMonitor() {
         {pred.aiAnalysis && pred.modelId !== 'none' && (
           <details className="text-[10px] mt-1">
             <summary className="cursor-pointer text-purple-600 font-medium hover:text-purple-800">AI 분석 리포트</summary>
-            <div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 whitespace-pre-wrap leading-relaxed">{pred.aiAnalysis}</div>
+            <div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (pred.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^# (.*$)/gm, '<h1>$1</h1>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} />
           </details>
         )}
       </div>
