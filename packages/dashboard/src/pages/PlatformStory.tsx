@@ -87,6 +87,12 @@ const timeline = [
     desc: 'AI 도우미 챗봇(SSE 스트리밍, 권한별 동적 프롬프트, 페이지 자동 이동), 382→6 쿼리 최적화 + Batch API, AI 코칭 리포트, 서비스 품질 메트릭 6종(TTFT/TPOT/E2E/KV Cache/Preemption/Queue), FP8 자동 감지. Prisma napi 한계 극복 — node-postgres 직접 연결로 GPU 스냅샷 대량 조회 안정화. GPU 수요 예측 전면 재설계(실측 기반 B300 산출 + IDC/Deloitte/Gartner 산업 트렌드 반영 + 경영 보고서 자동 생성). 플랫폼 스토리 페이지.',
     tags: ['AI 챗봇', '성능 최적화', 'napi 극복', 'GPU 예측 재설계', '플랫폼 스토리'],
   },
+  {
+    date: '2026.03.27 ~ 진행 중',
+    title: 'Prometheus 통합 & GPU 수요 예측 고도화',
+    desc: 'DTGPT Prometheus 자동 수집기 구현(deploy 즉시 동작, 30초 지연 시작). 실효 사용률 계산 체계 정립(continuous batching 배치 팩터 반영, 280% 버그 수정). 미연결 장비 등록 — 모니터링 불가 GPU도 수요 예측에 포함. GPU 전력 사용률 일별→시간별(timestamp) 전환. DTGPT replica 매핑 1:1→1:N 다중 노드 반영. 추정 조건 공지 배너(편집 가능). 월별 예측 이중 표시(성장 기준 vs 목표 기준 B300).',
+    tags: ['Prometheus', '실효 사용률', '미연결 장비', '전력 시간별', '예측 고도화'],
+  },
 ];
 
 // ── 기능 카테고리 ──
