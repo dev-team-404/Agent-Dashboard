@@ -929,35 +929,33 @@ export default function ResourceMonitor() {
       <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
     )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
-      <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외)</span><div className="flex gap-0.5">{[3, 7, 14, 30].map(d => <button key={d} onClick={() => setAnaDays(d)} className={`px-2 py-1 text-[10px] rounded ${anaDays === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{d}일</button>)}</div></div>
+      <div className="flex items-center justify-between"><span className="text-xs font-medium text-gray-600">기간 분석 (휴일 {ana.period?.holidayCount || 0}일 제외, DTGPT 과거 데이터 포함)</span><div className="flex gap-0.5">{[3, 7, 14, 30].map(d => <button key={d} onClick={() => setAnaDays(d)} className={`px-2 py-1 text-[10px] rounded ${anaDays === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{d}일</button>)}</div></div>
 
-      {/* 서버별 핵심 지표 비교 */}
+      {/* 서버별 종합 용량 비교 (벤치마크 기반) */}
       {data.length > 0 && (
         <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <p className="text-[10px] font-semibold text-gray-600 mb-3">서버별 성능 비교 (실효사용률 / 건강도 / 처리량)</p>
+          <p className="text-[10px] font-semibold text-gray-600 mb-3">서버별 종합 용량 비교 (벤치마크 대비)</p>
           <div className="space-y-2">
             {data.filter(e => e.metrics && !e.metrics.error).map(e => {
-              const t = e.throughputAnalysis;
-              const eu = (t?.theoreticalUtilPct != null && t?.gpuHealthPct && t.gpuHealthPct > 0) ? Math.round((t.theoreticalUtilPct / t.gpuHealthPct) * 100) : t?.theoreticalUtilPct || 0;
+              const ca = e.capacityAnalysis;
+              const comp = ca?.compositeCapacity || 0;
               const tooltip = [
                 `서버: ${e.server.name}`,
-                `이론 최대: ${t?.theoreticalMaxTps?.toFixed(1) || '?'} tok/s (${t?.modelParams || '?'} 모델 × GPU 대역폭 기반)`,
-                `7일 피크: ${t?.peakTps?.toFixed(1) || '?'} tok/s`,
-                `현재: ${t?.currentTps?.toFixed(1) || '0'} tok/s`,
-                ``,
-                `건강도 = 피크(${t?.peakTps?.toFixed(1) || '?'}) / 이론(${t?.theoreticalMaxTps?.toFixed(1) || '?'}) = ${t?.gpuHealthPct ?? '?'}%`,
-                `이론대비 = 현재(${t?.currentTps?.toFixed(1) || '0'}) / 이론(${t?.theoreticalMaxTps?.toFixed(1) || '?'}) = ${t?.theoreticalUtilPct ?? '?'}%`,
-                `실효사용률 = 이론대비(${t?.theoreticalUtilPct ?? '?'}%) / 건강도(${t?.gpuHealthPct ?? '?'}%) = ${eu}%`,
-                `여유 = 100% - ${eu}% = ${100 - eu}%`,
+                `종합 용량: ${comp}% (벤치마크 대비)`,
+                `  처리량: ${ca?.tokPct ?? '-'}% (현재 ${ca?.currentTps ?? 0} / 벤치마크 ${ca?.benchmark?.peakTps ?? '?'} tok/s)`,
+                `  KV 메모리: ${ca?.kvPct ?? '-'}%`,
+                `  동시처리: ${ca?.concPct ?? '-'}%`,
+                `  병목: ${ca?.bottleneck === 'throughput' ? '처리량' : ca?.bottleneck === 'kvMemory' ? 'KV메모리' : ca?.bottleneck === 'concurrency' ? '동시처리' : '-'}`,
+                `  벤치마크 출처: ${ca?.benchmark?.source || '-'}`,
               ].join('\n');
               return (
                 <div key={e.server.id} className="grid grid-cols-12 gap-2 items-center text-[10px] cursor-help" title={tooltip}>
                   <span className="col-span-2 text-gray-700 font-medium truncate">{e.server.name}</span>
-                  <div className="col-span-3"><span className="text-gray-400">실효 {eu}%</span><MiniBar pct={eu} color={utilCls(eu)} h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">이론대비 {t?.theoreticalUtilPct ?? '-'}%</span><MiniBar pct={t?.theoreticalUtilPct || 0} color="bg-indigo-400" h="h-2" /></div>
-                  <div className="col-span-2"><span className="text-gray-400">건강도 {t?.gpuHealthPct ?? '-'}%</span><MiniBar pct={t?.gpuHealthPct || 0} color={t?.gpuHealthPct && t.gpuHealthPct < 80 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
-                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{t?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
-                  <div className="col-span-1 text-right"><span className={`px-1 py-0.5 rounded text-[8px] ${eu > 70 ? 'bg-red-100 text-red-600' : eu < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{eu > 70 ? '과부하' : eu < 20 ? '여유' : '정상'}</span></div>
+                  <div className="col-span-3"><span className="text-gray-400">종합 {Math.round(comp)}%</span><MiniBar pct={comp} color={utilCls(comp)} h="h-2" /></div>
+                  <div className="col-span-2"><span className="text-gray-400">처리량 {ca?.tokPct ?? '-'}%</span><MiniBar pct={ca?.tokPct || 0} color="bg-blue-400" h="h-2" /></div>
+                  <div className="col-span-2"><span className="text-gray-400">KV {ca?.kvPct ?? '-'}%</span><MiniBar pct={ca?.kvPct || 0} color="bg-purple-400" h="h-2" /></div>
+                  <div className="col-span-2 text-right"><span className="text-blue-600 font-bold">{ca?.currentTps?.toFixed(1) || '-'}</span><span className="text-gray-400"> tok/s</span></div>
+                  <div className="col-span-1 text-right"><span className={`px-1 py-0.5 rounded text-[8px] ${comp > 80 ? 'bg-red-100 text-red-600' : comp > 50 ? 'bg-amber-100 text-amber-600' : comp < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{comp > 80 ? '위험' : comp > 50 ? '주의' : comp < 20 ? '여유' : '정상'}</span></div>
                 </div>
               );
             })}
@@ -965,34 +963,56 @@ export default function ResourceMonitor() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <p className="text-[10px] font-semibold text-gray-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3 text-blue-500" />영업시간 평균</p>
-          <p className="text-[8px] text-gray-400 mb-2">KST 9:00-18:00 영업일 (주말·등록 휴일 제외) | 실효사용률 = 현재 tok/s ÷ (이론max × 건강도)</p>
-          <div className="grid grid-cols-3 gap-2 text-[10px]">
-            <div><span className="text-gray-400">GPU</span><p className={`text-lg font-bold ${ana.businessHours?.avgGpuUtil != null ? utilTxt(ana.businessHours.avgGpuUtil) : 'text-gray-300'}`}>{ana.businessHours?.avgGpuUtil ?? '-'}%</p></div>
-            <div><span className="text-gray-400">VRAM</span><p className="text-lg font-bold text-gray-800">{ana.businessHours?.avgMemUtil ?? '-'}%</p></div>
-            <div><span className="text-gray-400">KV Cache</span><p className="text-lg font-bold text-purple-600">{ana.businessHours?.avgKvCache ?? '-'}%</p></div>
-            <div><span className="text-gray-400">실행 요청</span><p className="font-bold text-gray-800">{ana.businessHours?.avgRunningReqs ?? '-'}</p></div>
-            <div><span className="text-gray-400">대기 큐</span><p className={`font-bold ${(ana.businessHours?.avgWaitingReqs || 0) > 1 ? 'text-amber-600' : 'text-gray-800'}`}>{ana.businessHours?.avgWaitingReqs ?? '-'}</p></div>
-            <div><span className="text-gray-400">처리량</span><p className="font-bold text-blue-600">{ana.businessHours?.avgThroughputTps ?? '-'} tok/s</p></div>
-          </div>
+      {/* 시간대별 KPI 카드: 피크/비업무/전체 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bg-white rounded-lg border p-4 shadow-sm border-red-100">
+          <p className="text-[10px] font-semibold text-red-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />피크타임 (14~16시) 평균</p>
+          {(() => {
+            const peakData = (ana.heatmap || []).filter((h: any) => h.hour >= 14 && h.hour <= 16 && h.dow >= 1 && h.dow <= 5);
+            const peakAvgUtil = peakData.length > 0 ? Math.round(peakData.filter((h: any) => h.avgUtil != null).reduce((s: number, h: any) => s + h.avgUtil, 0) / Math.max(peakData.filter((h: any) => h.avgUtil != null).length, 1) * 10) / 10 : null;
+            return (
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div><span className="text-gray-400">GPU 사용률</span><p className={`text-xl font-black ${peakAvgUtil != null ? utilTxt(peakAvgUtil) : 'text-gray-300'}`}>{peakAvgUtil ?? '-'}%</p></div>
+              <div><span className="text-gray-400">처리량</span><p className="text-lg font-bold text-blue-600">{ana.businessHours?.peakTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+              <div><span className="text-gray-400">KV Cache</span><p className="text-lg font-bold text-purple-600">{ana.businessHours?.avgKvCache ?? '-'}%</p></div>
+              <div><span className="text-gray-400">대기 요청</span><p className={`text-lg font-bold ${(ana.businessHours?.avgWaitingReqs || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{ana.businessHours?.avgWaitingReqs ?? '0'}</p></div>
+            </div>);
+          })()}
         </div>
-        <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <p className="text-[10px] font-semibold text-gray-600 mb-2 flex items-center gap-1"><Clock className="w-3 h-3 text-gray-400" />비영업시간</p>
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            <div><span className="text-gray-400">GPU</span><p className="text-lg font-bold text-gray-500">{ana.offHours?.avgGpuUtil ?? '-'}%</p></div>
-            <div><span className="text-gray-400">VRAM</span><p className="text-lg font-bold text-gray-500">{ana.offHours?.avgMemUtil ?? '-'}%</p></div>
-          </div>
+        <div className="bg-white rounded-lg border p-4 shadow-sm border-gray-100">
+          <p className="text-[10px] font-semibold text-gray-500 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />비업무시간 (18시 이후) 평균</p>
+          {(() => {
+            const offData = (ana.heatmap || []).filter((h: any) => (h.hour >= 18 || h.hour < 9));
+            const offAvgUtil = offData.length > 0 ? Math.round(offData.filter((h: any) => h.avgUtil != null).reduce((s: number, h: any) => s + h.avgUtil, 0) / Math.max(offData.filter((h: any) => h.avgUtil != null).length, 1) * 10) / 10 : null;
+            return (
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div><span className="text-gray-400">GPU 사용률</span><p className="text-xl font-black text-gray-500">{offAvgUtil ?? '-'}%</p></div>
+              <div><span className="text-gray-400">VRAM</span><p className="text-lg font-bold text-gray-500">{ana.offHours?.avgMemUtil ?? '-'}%</p></div>
+            </div>);
+          })()}
+        </div>
+        <div className="bg-white rounded-lg border p-4 shadow-sm border-blue-100">
+          <p className="text-[10px] font-semibold text-blue-600 mb-1 flex items-center gap-1"><Clock className="w-3 h-3" />전체 (24시간) 평균</p>
+          {(() => {
+            const allData = (ana.heatmap || []).filter((h: any) => h.avgUtil != null);
+            const allAvgUtil = allData.length > 0 ? Math.round(allData.reduce((s: number, h: any) => s + h.avgUtil, 0) / allData.length * 10) / 10 : null;
+            return (
+            <div className="grid grid-cols-2 gap-2 text-[10px]">
+              <div><span className="text-gray-400">GPU 사용률</span><p className={`text-xl font-black ${allAvgUtil != null ? utilTxt(allAvgUtil) : 'text-gray-300'}`}>{allAvgUtil ?? '-'}%</p></div>
+              <div><span className="text-gray-400">스냅샷</span><p className="text-lg font-bold text-gray-700">{ana.totalSnapshots?.toLocaleString() || '-'}건</p></div>
+            </div>);
+          })()}
         </div>
       </div>
 
+      {/* 히트맵 */}
       <div className="bg-white rounded-lg border p-4 shadow-sm">
-        <p className="text-[10px] font-semibold text-gray-600 mb-2">피크타임 히트맵 (시간 x 요일, GPU %)</p>
+        <p className="text-[10px] font-semibold text-gray-600 mb-2">GPU 사용률 히트맵 (시간 × 요일)</p>
         <Heatmap data={ana.heatmap || []} />
         {ana.peakHours?.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{ana.peakHours.map((p: any, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px]">{DOW[p.dow]} {p.hour}시 {p.avgUtil}%</span>)}</div>}
       </div>
 
+      {/* 시간대별 처리량 */}
       {ana.throughputByHour && <div className="bg-white rounded-lg border p-4 shadow-sm">
         <p className="text-[10px] font-semibold text-gray-600 mb-2">시간대별 LLM 처리량 (tok/s)</p>
         <ResponsiveContainer width="100%" height={150}><BarChart data={ana.throughputByHour}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="hour" tick={{ fontSize: 9 }} tickFormatter={h => `${h}`} /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Bar dataKey="avgTps" name="tok/s" fill="#3b82f6" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer>
