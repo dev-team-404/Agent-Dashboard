@@ -56,15 +56,23 @@ function mdToHtml(md: string): string {
   });
   // 기존 마크다운 변환
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
-  html = html.replace(/^- (.*$)/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  html = html.replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
+  html = html.replace(/^### (.*$)/gm, '<h3 style="font-size:12px;font-weight:700;margin:8px 0 2px">$1</h3>');
+  html = html.replace(/^## (.*$)/gm, '<h2 style="font-size:13px;font-weight:700;margin:10px 0 3px">$1</h2>');
+  html = html.replace(/^# (.*$)/gm, '<h1 style="font-size:14px;font-weight:700;margin:12px 0 4px">$1</h1>');
+  // 번호 리스트: 1. 2. 3. → <ol><li>
+  html = html.replace(/((?:^\d+\. .*$\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => l.replace(/^\d+\.\s*/, ''));
+    return '<ol style="list-style:decimal;padding-left:20px;margin:2px 0">' + items.map(i => `<li style="margin:1px 0">${i}</li>`).join('') + '</ol>';
+  });
+  // 불릿 리스트: - → <ul><li>
+  html = html.replace(/((?:^- .*$\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => l.replace(/^- /, ''));
+    return '<ul style="list-style:disc;padding-left:20px;margin:2px 0">' + items.map(i => `<li style="margin:1px 0">${i}</li>`).join('') + '</ul>';
+  });
   // 링크: [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-blue-600 underline">$1</a>');
-  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#2563eb;text-decoration:underline">$1</a>');
+  // 단락 간격: 빈 줄 = 작은 간격, 단순 줄바꿈 = 줄바꿈
+  html = html.replace(/\n\n/g, '<div style="height:4px"></div>');
   html = html.replace(/\n/g, '<br/>');
   return html;
 }
@@ -560,14 +568,14 @@ export default function ResourceMonitor() {
 
         {/* 추정 조건 공지 (편집 가능) */}
         {(() => {
-          const defaultNotice = `1. vLLM metric의 실시간 값을 현재 가져올 수 없어, **과거 약 10일치 데이터**를 기반으로 추정된 상태입니다. (DTGPT 측 --disable-log-stats 적용으로 vLLM Prometheus 메트릭이 비활성화되어 있습니다)
+          const defaultNotice = `1. vLLM metric의 실시간 값을 현재 가져올 수 없어, **과거 약 10일치 데이터**를 기반으로 추정된 상태입니다. (DTGPT 측에서 vLLM 로깅 활성화 시 서빙 안정성 이슈가 발생하여 비활성화한 상태입니다)
 2. HPC망 내의 GPU는 **보안상 직접 접근이 어려워**, 연결된 장비의 평균 사용률을 가정하여 추정에 포함하였습니다.
 3. 관련 상세 이력은 [DTGPT-122](https://jira.samsungds.net/browse/DTGPT-122)에서 확인하실 수 있습니다.`;
           const activeNotice = noticeText || defaultNotice;
           return (
-          <div className="mb-3 p-2.5 bg-amber-50/80 rounded-lg border border-amber-200 text-[10px] text-amber-800">
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-bold text-amber-700">추정 조건 안내</p>
+          <div className="mb-3 p-3 bg-amber-50 rounded-lg border-2 border-amber-300 text-[11px] text-amber-900 shadow-sm">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="font-bold text-amber-800 text-xs flex items-center gap-1">⚠ 추정 조건 안내</p>
               <button onClick={() => { if (!noticeEdit && !noticeText) setNoticeText(defaultNotice); setNoticeEdit(!noticeEdit); }} className="text-[9px] text-amber-600 hover:text-amber-800 underline">{noticeEdit ? '닫기' : '편집'}</button>
             </div>
             {noticeEdit ? (
@@ -785,13 +793,13 @@ export default function ResourceMonitor() {
               {cd.executiveReport && (
                 <div className="p-3 bg-blue-50/80 rounded-lg border border-blue-200">
                   <p className="text-[10px] font-bold text-blue-700 mb-1">경영 의사결정 보고서</p>
-                  <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1 [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: mdToHtml(cd.executiveReport || '') }} />
+                  <div className="text-gray-700 text-[11px] leading-snug" dangerouslySetInnerHTML={{ __html: mdToHtml(cd.executiveReport || '') }} />
                 </div>
               )}
               {/* 기술 분석 (전문가용) */}
               <div className="p-3 bg-white/70 rounded-lg">
                 <p className="text-[10px] font-bold text-purple-700 mb-1">기술 상세 분석</p>
-                <div className="text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1 [&_a]:text-blue-600 [&_a]:underline" dangerouslySetInnerHTML={{ __html: mdToHtml(pred.aiAnalysis || '') }} />
+                <div className="text-gray-700 text-[11px] leading-snug" dangerouslySetInnerHTML={{ __html: mdToHtml(pred.aiAnalysis || '') }} />
               </div>
             </div>
           </details>
