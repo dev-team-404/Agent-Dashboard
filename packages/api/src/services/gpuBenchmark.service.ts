@@ -41,8 +41,9 @@ export async function computeBenchmark(serverId: string): Promise<GpuBenchmark |
   // 휴일 조회
   const holidays = await prisma.holiday.findMany({ where: { date: { gte: sevenDaysAgo } }, select: { date: true } });
   const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
+  // $1=serverId, $2=sevenDaysAgo, $3+=holidays
   const holidayClause = holidayDates.length > 0
-    ? `AND to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') NOT IN (${holidayDates.map((_, i) => `$${i + 2}`).join(',')})`
+    ? `AND to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') NOT IN (${holidayDates.map((_, i) => `$${i + 3}`).join(',')})`
     : '';
   const params = [sevenDaysAgo, ...holidayDates];
 

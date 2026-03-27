@@ -74,8 +74,8 @@ gpuPowerRoutes.get('/', async (_req: Request, res: Response) => {
       orderBy: { timestamp: 'asc' } as any,
     });
 
-    const data = records.map(r => ({
-      timestamp: r.timestamp.toISOString(),
+    const data = records.map((r: any) => ({
+      timestamp: (r.timestamp || r.date)?.toISOString?.() || '',
       power_avg_usage_ratio: r.powerAvgUsageRatio,
     }));
 

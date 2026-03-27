@@ -208,13 +208,15 @@ export async function runGpuCapacityPrediction(): Promise<any> {
     totalVramGb += vram * uf.count;
     totalGpuCount += uf.count;
     gpuInventory.push({ type: `${uf.type} (${uf.label || '미연결'})`, count: uf.count, vramGb: vram });
-    // 미연결 장비의 벤치마크: 모니터링 장비 평균
-    const avgBmTps = serverBreakdown.length > 0 ? serverBreakdown.reduce((s, b) => s + b.benchmarkTps, 0) / serverBreakdown.length : 0;
-    const avgBmConc = serverBreakdown.length > 0 ? serverBreakdown.reduce((s, b) => s + b.benchmarkConc, 0) / serverBreakdown.length : 0;
+    // 미연결 장비의 벤치마크: 모니터링 장비의 GPU당 평균 × 미연결 GPU 수
+    const avgTpsPerGpu = serverBreakdown.length > 0
+      ? serverBreakdown.reduce((s, b) => s + (b.gpuCount > 0 ? b.benchmarkTps / b.gpuCount : 0), 0) / serverBreakdown.length : 0;
+    const avgConcPerGpu = serverBreakdown.length > 0
+      ? serverBreakdown.reduce((s, b) => s + (b.gpuCount > 0 ? b.benchmarkConc / b.gpuCount : 0), 0) / serverBreakdown.length : 0;
     const avgBmKv = serverBreakdown.length > 0 ? serverBreakdown.reduce((s, b) => s + b.benchmarkKv, 0) / serverBreakdown.length : 0;
-    totalBenchmarkTps += avgBmTps * uf.count / (serverBreakdown[0]?.gpuCount || 8) * uf.count; // GPU 수 비례
-    totalBenchmarkConc += avgBmConc * uf.count / (serverBreakdown[0]?.gpuCount || 8) * uf.count;
-    serverBreakdown.push({ name: `${uf.type} (${uf.label || '미연결'})`, gpuCount: uf.count, vramGb: vram * uf.count, benchmarkTps: Math.round(avgBmTps), benchmarkKv: Math.round(avgBmKv), benchmarkConc: Math.round(avgBmConc), source: 'estimated' });
+    totalBenchmarkTps += avgTpsPerGpu * uf.count;
+    totalBenchmarkConc += avgConcPerGpu * uf.count;
+    serverBreakdown.push({ name: `${uf.type} (${uf.label || '미연결'})`, gpuCount: uf.count, vramGb: vram * uf.count, benchmarkTps: Math.round(avgTpsPerGpu * uf.count), benchmarkKv: Math.round(avgBmKv), benchmarkConc: Math.round(avgConcPerGpu * uf.count), source: 'estimated' });
   }
 
   // ── 데이터 신뢰도 판단 ──
