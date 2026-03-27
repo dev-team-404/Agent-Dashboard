@@ -1029,32 +1029,34 @@ export default function ResourceMonitor() {
 
         return (
         <div className="bg-white rounded-lg border p-4 shadow-sm">
-          <div className="flex items-center gap-1 mb-1 flex-wrap">
-            <p className="text-[10px] font-semibold text-gray-600 mr-2">3대 지표 히트맵 (날짜 × 시간, 30일)</p>
+          <div className="mb-1">
+            <p className="text-[10px] font-semibold text-gray-600 mb-1.5">3대 지표 히트맵 (날짜 × 시간, 30일)</p>
+            <div className="grid grid-cols-7 gap-0.5 mb-1">
             {tabs.map(t => (
-              <button key={t.key} onClick={() => setHmTab(t.key)} className={`px-2 py-0.5 text-[9px] rounded ${hmTab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{t.label}</button>
+              <button key={t.key} onClick={() => setHmTab(t.key)} className={`py-1.5 text-[10px] rounded font-medium ${hmTab === t.key ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{t.label}</button>
             ))}
+            </div>
           </div>
           <p className="text-[9px] text-gray-500 mb-2">{activeTab.desc}</p>
           <div className="overflow-x-auto">
-            <div className="inline-block">
+            <div className="w-full">
               {/* 시간 헤더 */}
               <div className="flex">
-                <div className="w-16 shrink-0" />
+                <div className="w-14 shrink-0" />
                 {Array.from({ length: 24 }, (_, h) => (
-                  <div key={h} className="w-5 text-center text-[7px] text-gray-400">{h}</div>
+                  <div key={h} className="flex-1 text-center text-[8px] text-gray-400 font-medium">{h}</div>
                 ))}
               </div>
               {/* 날짜 행 */}
               {dates.map(dt => (
                 <div key={dt} className="flex items-center">
-                  <div className="w-16 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)}</div>
+                  <div className="w-14 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)}</div>
                   {Array.from({ length: 24 }, (_, h) => {
                     const cell = hm.find(d => d.date === dt && d.hour === h);
                     const val = cell ? getValue(cell) : 0;
                     const bg = activeTab.color(val);
                     return (
-                      <div key={h} className="w-5 h-4 border border-white/50 cursor-help" style={{ backgroundColor: bg }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}`  : ''}`} />
+                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? (val >= 1000 ? `${(val/1000).toFixed(0)}k` : val >= 100 ? Math.round(val) : val.toFixed(val < 10 ? 1 : 0)) : ''}</div>
                     );
                   })}
                 </div>
