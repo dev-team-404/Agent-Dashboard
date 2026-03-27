@@ -136,6 +136,16 @@ gpuServerRoutes.get('/', async (_req: Request, res: Response) => {
 
 gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
   try {
+    // Redis 캐시에서 먼저 확인 (1분 TTL, 백그라운드 갱신)
+    try {
+      const { redis } = await import('../index.js');
+      const cached = await redis.get('gpu:realtime');
+      if (cached) {
+        res.setHeader('X-Cache', 'HIT');
+        return res.json(JSON.parse(cached));
+      }
+    } catch {}
+
     const servers = await prisma.gpuServer.findMany({
       orderBy: { createdAt: 'asc' },
     });
@@ -199,7 +209,10 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
       };
     });
 
-    res.json({ data: result });
+    const response = { data: result };
+    // Redis 캐시 저장 (60초 TTL)
+    try { const { redis } = await import('../index.js'); await redis.setex('gpu:realtime', 60, JSON.stringify(response)); } catch {}
+    res.json(response);
   } catch (error) {
     console.error('Realtime metrics error:', error);
     res.status(500).json({ error: 'Failed to get realtime metrics' });
@@ -439,6 +452,12 @@ gpuServerRoutes.get('/:id/debug', async (req: Request, res: Response) => {
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 7;
+    // Redis 캐시 (5분 TTL — 분석은 실시간일 필요 없음)
+    try {
+      const { redis } = await import('../index.js');
+      const cached = await redis.get(`gpu:analytics:${days}`);
+      if (cached) { res.setHeader('X-Cache', 'HIT'); return res.json(JSON.parse(cached)); }
+    } catch {}
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -553,7 +572,7 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       avgTps: h.count > 0 ? Math.round((h.totalTps / h.count) * 10) / 10 : 0,
     }));
 
-    res.json({
+    const analyticsResult = {
       period: { days, since: since.toISOString(), holidayCount: holidays.length },
       businessHours: {
         avgGpuUtil: bizCount > 0 ? Math.round((bizGpuUtil / bizCount) * 10) / 10 : null,
@@ -573,7 +592,9 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
       peakHours,
       throughputByHour,
       totalSnapshots: snapshots.length,
-    });
+    };
+    try { const { redis } = await import('../index.js'); await redis.setex(`gpu:analytics:${days}`, 300, JSON.stringify(analyticsResult)); } catch {}
+    res.json(analyticsResult);
   } catch (error) {
     console.error('Analytics overview error:', error);
     res.status(500).json({ error: 'Failed to get analytics' });

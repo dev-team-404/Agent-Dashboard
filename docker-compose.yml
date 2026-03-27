@@ -27,7 +27,7 @@ x-api-common: &api-common
   environment:
     <<: *proxy-env
     NODE_ENV: production
-    DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=200&pool_timeout=30
+    DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=1000&pool_timeout=30
     REDIS_URL: redis://redis:6379
     JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
     SSO_CERT_PATH: /app/cert/cert.cer
@@ -75,7 +75,7 @@ services:
     image: postgres:15-alpine
     container_name: agent-registry-db
     restart: unless-stopped
-    command: postgres -c max_connections=1000 -c shared_buffers=2GB -c work_mem=64MB -c effective_cache_size=6GB -c maintenance_work_mem=512MB -c random_page_cost=1.1
+    command: postgres -c max_connections=2000 -c shared_buffers=4GB -c work_mem=128MB -c effective_cache_size=12GB -c maintenance_work_mem=1GB -c random_page_cost=1.1
     environment:
       <<: *timezone
       POSTGRES_DB: ${POSTGRES_DB:-agent_stats}
