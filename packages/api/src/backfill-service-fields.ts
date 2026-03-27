@@ -2,7 +2,6 @@
  * Backfill script: 기존 서비스에 신규 필수 필드 기본값 채우기
  * - targetMM: BACKGROUND → 2.0, STANDARD → 1.0
  * - serviceCategory: BACKGROUND → ['백그라운드 업무 자동화'], STANDARD → ['코드 생성 및 리뷰']
- * - standardMD: BACKGROUND → 0.5, STANDARD → null
  *
  * 이미 값이 있는 서비스는 건너뜁니다.
  */
@@ -37,9 +36,6 @@ async function main() {
     }
     if (!svc.serviceCategory || svc.serviceCategory.length === 0) {
       data.serviceCategory = isBG ? ['백그라운드 업무 자동화'] : ['코드 생성 및 리뷰'];
-    }
-    if (svc.targetMM == null) {
-      data.standardMD = isBG ? 0.5 : null;
     }
     await prisma.service.update({ where: { id: svc.id }, data });
     updated++;

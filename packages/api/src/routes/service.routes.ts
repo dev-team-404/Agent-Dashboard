@@ -140,7 +140,6 @@ const createServiceSchema = z.object({
   apiOnly: z.boolean().default(false),
   // targetMM → 서비스 생성 후 /admin/service-targets 에서 설정 (감사 로그 기록 필수)
   serviceCategory: z.array(z.string()).optional().default([]),
-  standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
 });
 
@@ -158,7 +157,6 @@ const updateServiceSchema = z.object({
   deployScopeValue: z.array(z.string()).optional(),
   // targetMM, savedMM → /admin/service-targets 전용 (감사 로그 기록 필수)
   serviceCategory: z.array(z.string()).optional().default([]),
-  standardMD: z.number().min(0).max(9999).optional().nullable(),
   jiraTicket: z.union([z.string().url(), z.literal('')]).optional().nullable().transform(v => v === '' ? null : v),
   registeredBy: z.string().min(1).max(100).optional(),
 });
@@ -274,7 +272,7 @@ serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res)
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
+        targetMM: true, serviceCategory: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,
@@ -337,7 +335,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
+        targetMM: true, serviceCategory: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,
@@ -383,7 +381,7 @@ serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest,
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
+        targetMM: true, serviceCategory: true, jiraTicket: true,
         type: true,
         apiOnly: true,
         status: true,
@@ -490,7 +488,7 @@ serviceRoutes.get('/my', authenticateToken, async (req: AuthenticatedRequest, re
         iconUrl: true,
         docsUrl: true,
         serviceUrl: true,
-        targetMM: true, serviceCategory: true, standardMD: true, jiraTicket: true,
+        targetMM: true, serviceCategory: true, jiraTicket: true,
         enabled: true,
         type: true,
         apiOnly: true,

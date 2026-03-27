@@ -130,7 +130,6 @@ export const swaggerSpec = {
                           targetMM: { type: 'number', nullable: true, description: 'Target MM (Men/Month). null if not set (목표 MM. 미설정 시 null)' },
                           savedMM: { type: 'number', nullable: true, description: 'Saved MM (Men/Month). Current savings achieved. null if not set (절감 실적 MM. 미설정 시 null)' },
                           serviceCategory: { type: 'array', items: { type: 'string' }, description: 'Service categories, multiple allowed (서비스 카테고리, 복수 선택 가능)' },
-                          standardMD: { type: 'number', nullable: true, description: 'Standard M/D for BACKGROUND services (표준 M/D, BACKGROUND 서비스용)' },
                           jiraTicket: { type: 'string', nullable: true, description: 'Jira ticket URL (Jira 티켓 URL)' },
                           serviceUrl: { type: 'string', nullable: true, description: 'Service URL (서비스 URL)' },
                           docsUrl: { type: 'string', nullable: true, description: 'API documentation URL (API 문서 URL)' },
@@ -147,8 +146,8 @@ export const swaggerSpec = {
                 },
                 example: {
                   data: [
-                    { name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, savedMM: 1.2, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: 'https://docs.example.com/nexus', registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', team: 'S/W Innovation Team', center2Name: 'Platform Technology Center', center1Name: 'none', createdAt: '2025-06-01T09:00:00.000Z' },
-                    { name: 'hanseol', displayName: 'Hanseol', description: '한글 문서 자동 생성', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: null, savedMM: null, serviceCategory: ['문서 및 요구사항 지능형 처리', '코드개발/분석/검증 지원'], standardMD: null, jiraTicket: 'https://jira.example.com/browse/HS-100', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', team: 'AI Platform Team', center2Name: 'AI Development Center', center1Name: 'none', createdAt: '2025-07-15T10:30:00.000Z' },
+                    { name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, savedMM: 1.2, serviceCategory: ['코드개발/분석/검증 지원'], jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: 'https://docs.example.com/nexus', registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', team: 'S/W Innovation Team', center2Name: 'Platform Technology Center', center1Name: 'none', createdAt: '2025-06-01T09:00:00.000Z' },
+                    { name: 'hanseol', displayName: 'Hanseol', description: '한글 문서 자동 생성', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: null, savedMM: null, serviceCategory: ['문서 및 요구사항 지능형 처리', '코드개발/분석/검증 지원'], jiraTicket: 'https://jira.example.com/browse/HS-100', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', team: 'AI Platform Team', center2Name: 'AI Development Center', center1Name: 'none', createdAt: '2025-07-15T10:30:00.000Z' },
                   ],
                 },
               },
@@ -565,7 +564,6 @@ export const swaggerSpec = {
                           targetMM: { type: 'number', nullable: true, description: 'Target MM (Men/Month). null if not set (목표 MM. 미설정 시 null)' },
                           savedMM: { type: 'number', nullable: true, description: 'Saved MM (Men/Month). null if not set (절감 실적 MM. 미설정 시 null)' },
                           serviceCategory: { type: 'array', items: { type: 'string' }, description: 'Service categories (서비스 카테고리)' },
-                          standardMD: { type: 'number', nullable: true, description: 'Standard M/D for BACKGROUND (표준 M/D)' },
                           jiraTicket: { type: 'string', nullable: true, description: 'Jira ticket URL' },
                           serviceUrl: { type: 'string', nullable: true, description: 'Service URL (서비스 URL)' },
                           docsUrl: { type: 'string', nullable: true, description: 'API docs URL (API 문서 URL)' },
@@ -602,8 +600,8 @@ export const swaggerSpec = {
                   year: 2026,
                   month: 3,
                   data: [
-                    { name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, savedMM: 1.2, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: null, jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: null, registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', team: 'S/W Innovation Team', center2Name: 'Platform Technology Center', center1Name: 'none', createdAt: '2025-06-01T09:00:00.000Z', totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
-                    { name: 'auto-review', displayName: 'Auto Review Bot', description: '자동 코드 리뷰 봇', type: 'BACKGROUND', status: 'DEPLOYED', enabled: true, targetMM: null, savedMM: null, serviceCategory: ['코드개발/분석/검증 지원'], standardMD: 0.5, jiraTicket: 'https://jira.example.com/browse/AR-1', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', team: 'AI Platform Team', center2Name: 'AI Development Center', center1Name: 'none', createdAt: '2025-07-15T10:30:00.000Z', totalCallCount: 5060, totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, dau: 15, mau: 33, isEstimated: true, estimationDetail: { avgDailyApiCalls: 230, totalMonthlyApiCalls: 5060, avgCallsPerPersonPerDay: 15.3, avgCallsPerPersonPerMonth: 152.4 } },
+                    { name: 'nexus-coder', displayName: 'Nexus Coder', description: 'AI 코드 리뷰 서비스', type: 'STANDARD', status: 'DEPLOYED', enabled: true, targetMM: 3.0, savedMM: 1.2, serviceCategory: ['코드개발/분석/검증 지원'], jiraTicket: null, serviceUrl: 'https://nexus.example.com', docsUrl: null, registeredBy: 'syngha.han', registeredByDept: 'S/W혁신팀(S.LSI)', team: 'S/W Innovation Team', center2Name: 'Platform Technology Center', center1Name: 'none', createdAt: '2025-06-01T09:00:00.000Z', totalCallCount: 3200, totalInputTokens: 1200000, totalOutputTokens: 600000, totalTokens: 1800000, dau: 45, mau: 128, isEstimated: false },
+                    { name: 'auto-review', displayName: 'Auto Review Bot', description: '자동 코드 리뷰 봇', type: 'BACKGROUND', status: 'DEPLOYED', enabled: true, targetMM: null, savedMM: null, serviceCategory: ['코드개발/분석/검증 지원'], jiraTicket: 'https://jira.example.com/browse/AR-1', serviceUrl: null, docsUrl: null, registeredBy: 'young87.kim', registeredByDept: 'AI플랫폼팀(DS)', team: 'AI Platform Team', center2Name: 'AI Development Center', center1Name: 'none', createdAt: '2025-07-15T10:30:00.000Z', totalCallCount: 5060, totalInputTokens: 800000, totalOutputTokens: 400000, totalTokens: 1200000, dau: 15, mau: 33, isEstimated: true, estimationDetail: { avgDailyApiCalls: 230, totalMonthlyApiCalls: 5060, avgCallsPerPersonPerDay: 15.3, avgCallsPerPersonPerMonth: 152.4 } },
                   ],
                 },
               },

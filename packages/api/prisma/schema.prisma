@@ -46,7 +46,6 @@ model Service {
   targetMM      Float?    @map("target_mm")          // 목표 MM (men/month)
   savedMM       Float?    @map("saved_mm")            // 절감 실적 MM (현재 달성 M/M)
   serviceCategory String[] @default([]) @map("service_category") // 7개 카테고리 중 복수 선택
-  standardMD    Float?    @map("standard_md")         // Background 서비스 표준 공수 (M/D)
   jiraTicket    String?   @map("jira_ticket")          // Jira 티켓 URL (optional)
 
   // API Only: 프록시를 통하지 않고 자체 API로 사용 기록을 직접 전송하는 서비스

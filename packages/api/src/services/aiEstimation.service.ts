@@ -113,7 +113,6 @@ function buildPrompt(service: {
   displayName: string;
   type: string;
   description: string | null;
-  standardMD: number | null;
   targetMM: number | null;
   savedMM: number | null;
   createdAt: Date;
@@ -134,7 +133,7 @@ function buildPrompt(service: {
     `Service: ${service.displayName}`,
     `Type: ${service.type} (${service.type === 'STANDARD' ? 'interactive user-facing' : 'automated batch processing'})`,
     `Description: ${service.description || 'No description'}`,
-    ...(service.type === 'BACKGROUND' && service.standardMD ? [`Standard workload per task: ${service.standardMD} M/D`] : []),
+    ...(service.type === 'BACKGROUND' ? [`Type: automated batch processing`] : []),
     ``,
     `Usage data (avg of last ${numDays} business days):`,
     `- Avg daily DAU: ${avgDau}${isEstimatedDau ? ' (estimated)' : ''}`,
@@ -293,7 +292,7 @@ export async function runAiEstimations(): Promise<{ processed: number; errors: n
     where: { status: 'DEPLOYED' },
     select: {
       id: true, name: true, displayName: true, description: true,
-      type: true, apiOnly: true, standardMD: true, targetMM: true, savedMM: true, createdAt: true,
+      type: true, apiOnly: true, targetMM: true, savedMM: true, createdAt: true,
     },
   });
 

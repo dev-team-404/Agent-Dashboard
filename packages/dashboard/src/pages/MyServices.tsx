@@ -42,7 +42,6 @@ interface Service {
   deployScopeValue?: string[];
   targetMM?: number | null;
   serviceCategory?: string[];
-  standardMD?: number | null;
   jiraTicket?: string | null;
   createdAt: string;
   _count?: { usageLogs: number };
@@ -77,7 +76,6 @@ interface ServiceFormData {
   docsUrl: string;
   serviceUrl: string;
   serviceCategory: string[];
-  standardMD: string;
   jiraTicket: string;
   registeredBy: string;
   registeredByName: string;
@@ -96,7 +94,6 @@ const EMPTY_FORM: ServiceFormData = {
   docsUrl: '',
   serviceUrl: '',
   serviceCategory: [],
-  standardMD: '',
   jiraTicket: '',
   registeredBy: '',
   registeredByName: '',
@@ -284,7 +281,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       docsUrl: service.docsUrl || '',
       serviceUrl: service.serviceUrl || '',
       serviceCategory: service.serviceCategory || [],
-      standardMD: service.standardMD != null ? String(service.standardMD) : '',
       jiraTicket: service.jiraTicket || '',
       registeredBy: service.registeredBy || '',
       registeredByName: '',
@@ -321,7 +317,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       docsUrl: formData.docsUrl.trim() || null,
       serviceUrl: formData.serviceUrl.trim() || null,
       serviceCategory: formData.serviceCategory.length > 0 ? formData.serviceCategory : [],
-      standardMD: formData.standardMD ? parseFloat(formData.standardMD) : null,
       jiraTicket: formData.jiraTicket.trim() || null,
     };
     // 수정 시: name, registeredBy, deployScope 포함
@@ -928,13 +923,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.apiOnly ? 'translate-x-5' : ''}`} />
                 </button>
               </div>
-              {formData.type === 'BACKGROUND' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Standard M/D</label>
-                  <input type="number" step="0.01" min="0" value={formData.standardMD} onChange={(e) => setFormData({ ...formData, standardMD: e.target.value })} placeholder="예: 0.1" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
-                  <p className="mt-1 text-xs text-gray-400">해당 작업을 인간이 수행 시 소요되는 표준 공수 (M/D)</p>
-                </div>
-              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
                 <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />

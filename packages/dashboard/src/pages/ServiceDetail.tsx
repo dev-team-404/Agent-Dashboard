@@ -61,7 +61,6 @@ interface Service {
   deployScopeValue?: string[];
   targetMM?: number | null;
   serviceCategory?: string | null;
-  standardMD?: number | null;
   jiraTicket?: string | null;
   apiOnly?: boolean;
   createdAt: string;
