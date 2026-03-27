@@ -184,7 +184,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            580+ commits · 52,000+ lines of code
+            600+ commits · 52,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
@@ -295,7 +295,7 @@ export default function PlatformStory() {
 
       {/* ════ Development Timeline ════ */}
       <section>
-        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 580+ commits" />
+        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 600+ commits" />
         <div className="relative">
           {/* 수직 라인 */}
           <div className="absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-blue-200 via-violet-200 to-emerald-200" />
