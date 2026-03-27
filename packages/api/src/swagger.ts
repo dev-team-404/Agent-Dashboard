@@ -944,8 +944,8 @@ export const swaggerSpec = {
       post: {
         summary: 'Register/Update GPU Power Usage (GPU 전력 사용률 등록/업데이트)',
         description:
-          'Upsert daily average GPU power usage ratio. If the same date exists, the value is overwritten.\n' +
-          '일자별 GPU 평균 전력 사용률을 등록합니다. 동일 날짜가 존재하면 값이 덮어씌워집니다.\n\n' +
+          'Upsert hourly average GPU power usage ratio. Minutes and seconds are truncated to the hour (e.g. 14:35:20 → 14:00:00). If the same hour exists, the value is overwritten.\n' +
+          '시간별 GPU 평균 전력 사용률을 등록합니다. 분/초는 시간 단위로 정규화됩니다 (예: 14:35:20 → 14:00:00). 동일 시각이 존재하면 값이 덮어씌워집니다.\n\n' +
           '**Authentication**: None (인증 불필요)',
         tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
         requestBody: {
@@ -954,20 +954,20 @@ export const swaggerSpec = {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['date', 'power_avg_usage_ratio'],
+                required: ['timestamp', 'power_avg_usage_ratio'],
                 properties: {
-                  date: { type: 'string', format: 'date', description: 'Date (YYYY-MM-DD) / 날짜', example: '2026-03-25' },
+                  timestamp: { type: 'string', format: 'date-time', description: 'ISO 8601 datetime (truncated to hour) / 시각 (시간 단위로 정규화)', example: '2026-03-27T14:00:00Z' },
                   power_avg_usage_ratio: { type: 'number', minimum: 0, maximum: 100, description: 'Average GPU power usage ratio (%) / GPU 평균 전력 사용률 (%)', example: 72.35 },
                 },
               },
               examples: {
                 'normal': {
                   summary: 'Normal usage / 일반 사용률',
-                  value: { date: '2026-03-25', power_avg_usage_ratio: 72.35 },
+                  value: { timestamp: '2026-03-27T14:00:00Z', power_avg_usage_ratio: 72.35 },
                 },
                 'high': {
                   summary: 'High usage / 높은 사용률',
-                  value: { date: '2026-03-24', power_avg_usage_ratio: 95.12 },
+                  value: { timestamp: '2026-03-27T09:00:00Z', power_avg_usage_ratio: 95.12 },
                 },
               },
             },
@@ -985,7 +985,7 @@ export const swaggerSpec = {
                     data: {
                       type: 'object',
                       properties: {
-                        date: { type: 'string', example: '2026-03-25' },
+                        timestamp: { type: 'string', format: 'date-time', example: '2026-03-27T14:00:00.000Z' },
                         power_avg_usage_ratio: { type: 'number', example: 72.35 },
                       },
                     },
@@ -994,15 +994,15 @@ export const swaggerSpec = {
               },
             },
           },
-          '400': errorResponse('Invalid request (잘못된 요청)', 'Date must be in YYYY-MM-DD format'),
+          '400': errorResponse('Invalid request (잘못된 요청)', 'timestamp must be a valid ISO 8601 datetime'),
           '500': errorResponse('Internal server error (서버 내부 오류)'),
         },
       },
       get: {
-        summary: 'Get Recent 30 Days GPU Power Usage (최근 30일 GPU 전력 사용률 조회)',
+        summary: 'Get Recent 7 Days GPU Power Usage (최근 7일 GPU 전력 사용률 조회)',
         description:
-          'Returns daily GPU power usage data for the last 30 days, sorted by date ascending.\n' +
-          '최근 30일간의 일자별 GPU 전력 사용률 데이터를 날짜 오름차순으로 반환합니다.\n\n' +
+          'Returns hourly GPU power usage data for the last 7 days (up to 168 records), sorted by timestamp ascending.\n' +
+          '최근 7일간의 시간별 GPU 전력 사용률 데이터를 시각 오름차순으로 반환합니다 (최대 168건).\n\n' +
           '**Authentication**: None (인증 불필요)',
         tags: ['GPU Power Usage (DT GPU 전력 사용률)'],
         responses: {
@@ -1018,7 +1018,7 @@ export const swaggerSpec = {
                       items: {
                         type: 'object',
                         properties: {
-                          date: { type: 'string', format: 'date', example: '2026-03-25' },
+                          timestamp: { type: 'string', format: 'date-time', example: '2026-03-27T14:00:00.000Z' },
                           power_avg_usage_ratio: { type: 'number', example: 72.35 },
                         },
                       },
@@ -1030,9 +1030,9 @@ export const swaggerSpec = {
                     summary: 'Sample response / 예시 응답',
                     value: {
                       data: [
-                        { date: '2026-03-23', power_avg_usage_ratio: 65.20 },
-                        { date: '2026-03-24', power_avg_usage_ratio: 71.50 },
-                        { date: '2026-03-25', power_avg_usage_ratio: 72.35 },
+                        { timestamp: '2026-03-27T09:00:00.000Z', power_avg_usage_ratio: 65.20 },
+                        { timestamp: '2026-03-27T10:00:00.000Z', power_avg_usage_ratio: 71.50 },
+                        { timestamp: '2026-03-27T11:00:00.000Z', power_avg_usage_ratio: 72.35 },
                       ],
                     },
                   },
