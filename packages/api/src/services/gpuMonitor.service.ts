@@ -303,9 +303,10 @@ export function calcTheoreticalMaxTps(spec: GpuSpec, gpuCount: number, modelPara
   const flopsPerToken = 2 * modelParamsBillion * 1e9; // 2 * params FLOPs per token
   const totalFlops = spec.fp16Tflops * 1e12 * gpuCount; // total FP16 FLOPS
   const computeBound = totalFlops / flopsPerToken;
-  // 이론 최대 = compute bound (제조사 스펙 그대로, 보정 없음)
-  // 실제 달성률은 30-70% (GPU 수, 통신 오버헤드, KV cache 등에 따라 다름)
-  // 건강도 = 실측 피크 / 이론 최대 → 시간에 따라 하락하면 노후화 시그널
+  // 이론 최대 = compute bound (제조사 스펙 × 물리 법칙, 보정 없음)
+  // 건강도 30-50%: 대형 모델 8GPU 텐서 병렬에서 정상
+  // 건강도 5-15%: 소형 모델 (<20B) — compute를 다 못 씀 (bandwidth 병목)
+  // 핵심은 시간 경과에 따른 건강도 하락 추이 (노후화 감지)
   return computeBound;
 }
 
