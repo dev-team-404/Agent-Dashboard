@@ -1,9 +1,11 @@
+import { useState, useEffect } from 'react';
 import {
   Server, Shield, Brain, BarChart3, Users, Layers, Zap,
   GitBranch, Database, Globe, Sparkles,
   Network, Container, ChevronRight, Terminal,
-  MonitorSpeaker, BookOpen,
+  MonitorSpeaker, BookOpen, ChevronDown,
 } from 'lucide-react';
+import { api } from '../services/api';
 
 // ── 타임라인 데이터 (커밋 히스토리 기반, 상세) ──
 const timeline = [
@@ -360,6 +362,9 @@ export default function PlatformStory() {
         </div>
       </section>
 
+      {/* ════ Commit History (접이식, 작게) ════ */}
+      <CommitHistory />
+
       {/* ════ Footer Quote ════ */}
       <section className="text-center pt-8 border-t border-gray-100">
         <p className="text-lg text-gray-400 italic font-light">
@@ -370,6 +375,83 @@ export default function PlatformStory() {
         </p>
       </section>
     </div>
+  );
+}
+
+// ── Commit History (접이식) ──
+interface Commit { hash: string; date: string; author: string; subject: string; }
+
+const authorColors: Record<string, string> = {
+  'syngha.han': 'text-blue-600',
+  'byeongjulee91-dev': 'text-emerald-600',
+  '한승하': 'text-blue-600',
+  'Claude': 'text-violet-500',
+};
+
+function CommitHistory() {
+  const [open, setOpen] = useState(false);
+  const [commits, setCommits] = useState<Commit[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (open && !loaded) {
+      api.get('/git-log').then(res => {
+        setCommits(res.data.commits || []);
+        setTotal(res.data.total || 0);
+        setLoaded(true);
+      }).catch(() => setLoaded(true));
+    }
+  }, [open, loaded]);
+
+  // 날짜별 그루핑
+  const grouped = commits.reduceRight((acc, c) => {
+    const d = c.date;
+    if (!acc[d]) acc[d] = [];
+    acc[d].push(c);
+    return acc;
+  }, {} as Record<string, Commit[]>);
+  const dates = Object.keys(grouped);
+
+  return (
+    <section className="pt-6">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-[11px] text-gray-300 hover:text-gray-400 transition-colors mx-auto"
+      >
+        <GitBranch className="w-3 h-3" />
+        <span>전체 커밋 히스토리{total > 0 ? ` (${total})` : ''}</span>
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="mt-4 max-h-[500px] overflow-y-auto border border-gray-100 rounded-lg bg-gray-50/50">
+          {!loaded ? (
+            <div className="p-6 text-center text-xs text-gray-400">로딩 중...</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {dates.map(date => (
+                <div key={date}>
+                  <div className="sticky top-0 bg-gray-50 px-4 py-1.5 border-b border-gray-100">
+                    <span className="text-[10px] font-mono font-medium text-gray-400">{date}</span>
+                    <span className="text-[10px] text-gray-300 ml-2">{grouped[date].length}건</span>
+                  </div>
+                  {grouped[date].map(c => (
+                    <div key={c.hash} className="px-4 py-1.5 flex items-start gap-2 hover:bg-white/60 transition-colors">
+                      <code className="text-[10px] font-mono text-gray-300 mt-px flex-shrink-0">{c.hash}</code>
+                      <span className={`text-[10px] font-medium flex-shrink-0 w-24 truncate ${authorColors[c.author] || 'text-gray-400'}`}>
+                        {c.author}
+                      </span>
+                      <span className="text-[10px] text-gray-500 leading-relaxed">{c.subject}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
