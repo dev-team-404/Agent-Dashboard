@@ -179,6 +179,49 @@ authRoutes.post('/login', authenticateToken, async (req: AuthenticatedRequest, r
 });
 
 /**
+ * POST /auth/dev-login
+ * 개발/테스트용 로그인 (SSO 우회) — NODE_ENV !== 'production'일 때만 활성화
+ */
+authRoutes.post('/dev-login', async (req, res) => {
+  if (process.env['ENABLE_DEV_LOGIN'] !== 'true') {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const { loginid } = req.body;
+  if (!loginid) {
+    res.status(400).json({ error: 'loginid is required' });
+    return;
+  }
+
+  try {
+    const user = await prisma.user.upsert({
+      where: { loginid },
+      update: { lastActive: new Date() },
+      create: { loginid, username: loginid, deptname: '' },
+    });
+
+    await trackActiveUser(redis, loginid);
+
+    const admin = await prisma.admin.findUnique({ where: { loginid } });
+    const isHardcodedFallback = !admin && isSuperAdminByEnv(loginid);
+    const sessionToken = signToken({ loginid, deptname: user.deptname, username: user.username });
+
+    res.json({
+      success: true,
+      user: { id: user.id, loginid: user.loginid, deptname: user.deptname, username: user.username },
+      sessionToken,
+      isAdmin: !!admin || isHardcodedFallback,
+      adminRole: admin ? (admin.role as string) : (isHardcodedFallback ? 'SUPER_ADMIN' : null),
+      isSuperAdmin: admin?.role === 'SUPER_ADMIN' || isHardcodedFallback,
+    });
+  } catch (error) {
+    console.error('Dev login error:', error);
+    res.status(500).json({ error: 'Dev login failed' });
+  }
+});
+
+/**
  * GET /auth/check
  * 현재 세션 권한 정보
  */

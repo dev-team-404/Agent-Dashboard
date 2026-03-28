@@ -16,6 +16,10 @@ RUN npm install --include=dev
 # Copy source code
 COPY . .
 
+# Dev login 활성화 여부 (빌드 시 주입)
+ARG VITE_DEV_LOGIN=
+ENV VITE_DEV_LOGIN=${VITE_DEV_LOGIN}
+
 # Build the app (use npx for tsc and vite)
 RUN npx tsc && npx vite build
 

@@ -42,6 +42,8 @@ export const authApi = {
   }),
   // 현재 세션 체크 (admin 아니어도 OK)
   check: () => api.get('/auth/check'),
+  // 개발용 로그인 (SSO 우회)
+  devLogin: (loginid: string) => api.post('/auth/dev-login', { loginid }),
 };
 
 // Service API
@@ -459,6 +461,50 @@ export const gpuCapacityApi = {
 export const gpuPowerApi = {
   list: () => api.get<{ data: Array<{ timestamp: string; power_avg_usage_ratio: number }> }>('/gpu-power'),
   save: (data: { timestamp: string; power_avg_usage_ratio: number }) => api.post('/gpu-power', data),
+};
+
+// 테스트 계정 관리 API (서비스별)
+export interface TestAccount {
+  id: string;
+  serviceId: string;
+  loginid: string;
+  username: string;
+  deptname: string;
+  businessUnit: string | null;
+  departmentCode: string | null;
+  description: string | null;
+  enabled: boolean;
+  expiresAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  service: { id: string; name: string; displayName: string };
+}
+
+export const testAccountApi = {
+  list: (serviceId: string) =>
+    api.get<TestAccount[]>(`/services/${serviceId}/test-accounts`),
+  create: (serviceId: string, data: {
+    loginid: string;
+    username?: string;
+    deptname?: string;
+    businessUnit?: string;
+    departmentCode?: string;
+    description?: string;
+    expiresAt?: string;
+  }) => api.post<TestAccount>(`/services/${serviceId}/test-accounts`, data),
+  update: (serviceId: string, accountId: string, data: Partial<{
+    loginid: string;
+    username: string;
+    deptname: string;
+    businessUnit: string | null;
+    departmentCode: string | null;
+    description: string | null;
+    enabled: boolean;
+    expiresAt: string | null;
+  }>) => api.put<TestAccount>(`/services/${serviceId}/test-accounts/${accountId}`, data),
+  delete: (serviceId: string, accountId: string) =>
+    api.delete(`/services/${serviceId}/test-accounts/${accountId}`),
 };
 
 // 공개 통계 API (인증 불필요)
