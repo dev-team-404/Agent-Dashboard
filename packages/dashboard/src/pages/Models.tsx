@@ -951,7 +951,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                         <span className={healthCheck.allPassed ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
                           {healthCheck.allPassed ? 'Healthy' : 'Unhealthy'}
                         </span>
-                        <span className="text-gray-500">Chat: {healthCheck.checks.chatCompletion.latencyMs}ms</span>
+                        <span className="text-gray-500">Chat: {healthCheck.checks?.chatCompletion?.latencyMs ?? 0}ms</span>
                         {healthCheck.toolCallPassCount !== undefined && (
                           <span className="text-gray-500">Tool: {healthCheck.toolCallPassCount}/4</span>
                         )}

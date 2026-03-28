@@ -111,6 +111,12 @@ const timeline = [
     desc: '배포 전 동작검증용 Dev/QA 서버 도입(포트 8095, 프로덕션 완전 독립). deploy.sh dev/dev-stop/dev-status 명령어. DB 스키마 변경 자동 차단(prisma db push 차단 + 감지 경고 → syngha.han 승인 후 migrate). Redis DB 15번 캐시 분리. --no-deps로 프로덕션 인프라 보호. Redis 캐싱 최적화: withCache fail-open 범용 캐시 유틸, incrementUsage 12회→1회 파이프라인(RTT 92% 절감), 관리자/사용자/공개 통계 엔드포인트 12개에 read-through 캐시 적용(60~300초 TTL), my-usage 3쿼리 병렬화.',
     tags: ['Dev 서버', 'Redis 캐싱', 'Pipeline', 'fail-open', '스키마 보호'],
   },
+  {
+    date: '2026.03.29',
+    title: '전체 엔드포인트 캐싱 + Precompute 워밍 + 실시간 갱신 UI',
+    desc: '미캐싱 22개 stats 엔드포인트에 withCache read-through 캐시 적용(총 28개). 60초 주기 캐시 워밍 서비스 도입 — 대시보드 batch 핵심 엔드포인트(by-service/by-dept/error-rate/health-status 등)를 백그라운드에서 사전 연��하여 Redis에 저장. thundering herd 완전 제거: 첫 유저도 캐시 히트, DB 부하가 유저 수와 무관하게 일정. 프론트엔드 데이터 갱신 시각 표시 + ��동 새로고침 버튼.',
+    tags: ['withCache 전체 적용', 'Precompute 워밍', 'thundering herd 해결', '갱신 시각 UI'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -139,7 +145,7 @@ const featureGroups = [
     features: [
       'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석 (이론·피크·현재)',
       '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
-      'Redis read-through 캐시 + Pipeline 최적화 (12개 엔드포인트, fail-open)',
+      'Redis read-through 캐시 28개 엔드포인트 + 60초 Precompute 워밍 (thundering herd 제거)',
       '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',

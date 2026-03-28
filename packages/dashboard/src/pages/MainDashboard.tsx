@@ -264,6 +264,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyTableOpen, setLatencyTableOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState<Record<string, boolean>>({});
 
+  // 데이터 갱신 시각 (캐시 기반 아키���처에서 stale 감지용)
+  const [dataFetchedAt, setDataFetchedAt] = useState<Date | null>(null);
+
   // 서버 시간 (1분마다 갱신)
   const [serverTimeOffset, setServerTimeOffset] = useState(0);
   const [serverNow, setServerNow] = useState('');
@@ -451,6 +454,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       console.error('Failed to load main dashboard data:', error);
     } finally {
       setLoading(false);
+      setDataFetchedAt(new Date());
     }
   };
 
@@ -783,8 +787,25 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Toggle */}
-      <div className="flex justify-end">
+      {/* Toggle + 데이터 갱신 시각 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          {dataFetchedAt && (
+            <>
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span>
+                데이터 갱신 {dataFetchedAt.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+              </span>
+              <button
+                onClick={loadData}
+                className="ml-1 text-gray-400 hover:text-gray-600 transition-colors"
+                title="새로고침"
+              >
+                ↻
+              </button>
+            </>
+          )}
+        </div>
         <BusinessDayToggle />
       </div>
       {/* Hero Stats */}
