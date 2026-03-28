@@ -105,6 +105,12 @@ const timeline = [
     desc: 'compute-bound 이론 최대(0.8%) → 서버별 관측 P95 피크 벤치마크로 전환. 3대 지표 체계 확립: tok/s + KV Cache% + 대기건수. 종합 용량 = max(3차원) — 체감과 일치하는 0-100% 지표. GPU 부족분 3차원 산출(처리량/KV메모리/동시성 각각 B300, 병목 식별). 8개 히트맵(날짜×시간 30일): tok/s, KV%, 대기, Preemption, 처리량%, KV%, 동시처리%, GPU Util%. 피크(14~16시)/비업무(20~06시)/전체 평균 카드. Prisma napi 한계 → node-postgres 직접 연결로 근본 해결. 벤치마크 자동 산출(P95) + 수동 오버라이드 + 매일 갱신 크론.',
     tags: ['벤치마크', '3대 지표', '종합 용량', '히트맵', 'napi 우회', '3차원 부족분'],
   },
+  {
+    date: '2026.03.29',
+    title: 'Dev/QA 서버 & Redis 캐싱 최적화',
+    desc: '배포 전 동작검증용 Dev/QA 서버 도입(포트 8095, 프로덕션 완전 독립). deploy.sh dev/dev-stop/dev-status 명령어. DB 스키마 변경 자동 차단(prisma db push 차단 + 감지 경고 → syngha.han 승인 후 migrate). Redis DB 15번 캐시 분리. --no-deps로 프로덕션 인프라 보호. Redis 캐싱 최적화: withCache fail-open 범용 캐시 유틸, incrementUsage 12회→1회 파이프라인(RTT 92% 절감), 관리자/사용자/공개 통계 엔드포인트 12개에 read-through 캐시 적용(60~300초 TTL), my-usage 3쿼리 병렬화.',
+    tags: ['Dev 서버', 'Redis 캐싱', 'Pipeline', 'fail-open', '스키마 보호'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -133,6 +139,7 @@ const featureGroups = [
     features: [
       'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석 (이론·피크·현재)',
       '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
+      'Redis read-through 캐시 + Pipeline 최적화 (12개 엔드포인트, fail-open)',
       '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',
@@ -169,6 +176,20 @@ const featureGroups = [
       'Internal API Swagger + 외부 연동 API 문서 자동 생성',
     ],
   },
+  {
+    title: '인프라 & DevOps',
+    icon: Server,
+    color: 'from-cyan-500 to-cyan-600',
+    bg: 'bg-cyan-50',
+    border: 'border-cyan-100',
+    features: [
+      'Blue-Green 무중단 배포 (deploy.sh, 다운타임 0)',
+      'Dev/QA 서버 (포트 8095, DB 공유 + Redis DB 15 캐시 분리)',
+      'DB 스키마 변경 자동 차단 (Dev) + migrate 승인 프로세스',
+      'Docker Compose 멀티 서비스 (PostgreSQL · Redis · Nginx · API · Dashboard)',
+      'DEPLOY.md 배포 가이드 문서',
+    ],
+  },
 ];
 
 // ── 아키텍처 레이어 ──
@@ -176,7 +197,7 @@ const archLayers = [
   { label: 'Nginx', sub: 'Reverse Proxy · :8090', icon: Globe, color: 'bg-slate-700' },
   { label: 'React Dashboard', sub: 'Vite + Tailwind CSS', icon: MonitorSpeaker, color: 'bg-blue-600' },
   { label: 'Express API', sub: 'Prisma ORM · SSE', icon: Server, color: 'bg-emerald-600' },
-  { label: 'PostgreSQL + Redis', sub: '영속 저장소 · 캐시', icon: Database, color: 'bg-violet-600' },
+  { label: 'PostgreSQL + Redis', sub: '영속 저장소 · 캐시 · Pipeline', icon: Database, color: 'bg-violet-600' },
 ];
 
 // ── 기술 스택 ──
@@ -202,7 +223,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            600+ commits · 52,000+ lines of code
+            640+ commits · 54,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
@@ -313,7 +334,7 @@ export default function PlatformStory() {
 
       {/* ════ Development Timeline ════ */}
       <section>
-        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 600+ commits" />
+        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 640+ commits" />
         <div className="relative">
           {/* 수직 라인 */}
           <div className="absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-blue-200 via-violet-200 to-emerald-200" />
