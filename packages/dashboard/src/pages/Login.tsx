@@ -16,10 +16,13 @@ interface LoginProps {
 const SSO_BASE_URL = import.meta.env.VITE_SSO_URL || 'https://genai.samsungds.net:36810';
 const SSO_PATH = '/direct_sso';
 
+const IS_DEV = import.meta.env.DEV || import.meta.env.VITE_DEV_LOGIN === 'true';
+
 export default function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [processingCallback, setProcessingCallback] = useState(false);
+  const [devLoginId, setDevLoginId] = useState('');
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -65,6 +68,25 @@ export default function Login({ onLogin }: LoginProps) {
     const ssoUrl = new URL(SSO_PATH, SSO_BASE_URL);
     ssoUrl.searchParams.set('redirect_url', redirectUrl);
     window.location.href = ssoUrl.toString();
+  };
+
+  const handleDevLogin = async () => {
+    if (!devLoginId.trim()) { setError('Login ID를 입력하세요'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      const response = await authApi.devLogin(devLoginId.trim());
+      const { user, sessionToken, isAdmin, adminRole, isSuperAdmin } = response.data;
+      localStorage.setItem('agent_stats_token', sessionToken);
+      const resolvedRole: 'SUPER_ADMIN' | 'ADMIN' | null =
+        adminRole ?? (isSuperAdmin ? 'SUPER_ADMIN' : isAdmin ? 'ADMIN' : null);
+      onLogin(user, sessionToken, isAdmin, resolvedRole);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg || 'Dev 로그인에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (processingCallback) {
@@ -133,6 +155,30 @@ export default function Login({ onLogin }: LoginProps) {
                   </>
                 )}
               </button>
+
+              {/* Dev Login */}
+              {IS_DEV && (
+                <div className="mt-5 pt-5 border-t border-dashed border-gray-200">
+                  <p className="text-xs font-medium text-amber-600 mb-3">Dev Login (SSO 우회)</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={devLoginId}
+                      onChange={(e) => setDevLoginId(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleDevLogin()}
+                      placeholder="loginid (예: young87.kim)"
+                      className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    />
+                    <button
+                      onClick={handleDevLogin}
+                      disabled={loading}
+                      className="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      Dev 로그인
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Feature cards */}
               <div className="mt-8 pt-7 border-t border-gray-100/80">
