@@ -8,6 +8,9 @@
 #   ./deploy.sh --with-docs  # docs-site 포함 배포 (nginx 재시작, 짧은 끊김)
 #   ./deploy.sh status       # 현재 활성 슬롯 확인
 #   ./deploy.sh init         # 최초 설치 (전체 빌드 + 시작)
+#   ./deploy.sh dev          # Dev/QA 서버 빌드 + 시작 (포트 8095)
+#   ./deploy.sh dev-stop     # Dev/QA 서버 중지
+#   ./deploy.sh dev-status   # Dev/QA 서버 상태 확인
 #
 # 원리:
 #   항상 Blue/Green 2세트 운영.
@@ -35,6 +38,8 @@ cd "$(dirname "$0")"
 STATE_FILE=".deploy-state"
 BACKUP_UPSTREAM=""
 WITH_DOCS=false
+DEV_COMPOSE="docker compose -f docker-compose.yml -f docker-compose.dev.yml"
+DEV_PORT="${DEV_PORT:-8095}"
 
 # ─── 상태 관리 ───
 get_active() {
@@ -333,20 +338,150 @@ cmd_migrate() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# ─── Dev 서버: 헬스체크 대기 (dev compose 전용) ───
+wait_healthy_dev() {
+  local service=$1
+  local max_wait=${2:-90}
+  local elapsed=0
+  local container_id
+
+  info "[DEV] ${service} 헬스체크 대기 중..."
+
+  while [ $elapsed -lt $max_wait ]; do
+    container_id=$($DEV_COMPOSE ps -q "$service" 2>/dev/null || true)
+
+    if [ -z "$container_id" ]; then
+      sleep 2
+      elapsed=$((elapsed + 2))
+      continue
+    fi
+
+    local health
+    health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id" 2>/dev/null || echo "unknown")
+
+    if [ "$health" = "healthy" ]; then
+      log "[DEV] ${service} → healthy (${elapsed}초)"
+      return 0
+    fi
+
+    if [ "$health" = "no-healthcheck" ]; then
+      local state
+      state=$(docker inspect --format='{{.State.Status}}' "$container_id" 2>/dev/null || echo "unknown")
+      if [ "$state" = "running" ]; then
+        log "[DEV] ${service} → running (${elapsed}초)"
+        return 0
+      fi
+    fi
+
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  err "[DEV] ${service}가 ${max_wait}초 내에 ready 상태가 되지 않았습니다"
+  return 1
+}
+
+# ─── dev 명령: Dev/QA 서버 빌드 + 시작 ───
+cmd_dev() {
+  echo ""
+  echo -e "${BOLD}Dev/QA 서버 배포${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "  포트:     ${CYAN}${DEV_PORT}${NC}"
+  echo -e "  DB/Redis: ${GREEN}프로덕션과 공유${NC}"
+  echo -e "  프로덕션: ${GREEN}영향 없음${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+
+  local START_TIME
+  START_TIME=$(date +%s)
+
+  # 인프라(postgres, redis)가 실행 중인지 확인
+  log "[DEV] Step 1/3: 인프라 확인"
+  local pg_running
+  pg_running=$(docker compose ps -q postgres 2>/dev/null || true)
+  if [ -z "$pg_running" ]; then
+    warn "postgres가 실행 중이 아닙니다. 시작합니다..."
+    docker compose up -d postgres redis
+    wait_healthy postgres 60
+    wait_healthy redis 30
+  else
+    log "postgres, redis 실행 중 확인"
+  fi
+  echo ""
+
+  # Dev 이미지 빌드
+  log "[DEV] Step 2/3: 이미지 빌드 (api-dev + dashboard-dev + nginx-dev)"
+  $DEV_COMPOSE build --no-cache api-dev dashboard-dev nginx-dev
+  echo ""
+
+  # 컨테이너 시작 + 헬스체���
+  # --no-deps: postgres/redis 등 공유 인프라를 건드리지 않음 (프로덕션 보호)
+  log "[DEV] Step 3/3: 컨테이너 시작 (프로덕션 인프라 보호 모드)"
+  $DEV_COMPOSE up -d --no-deps api-dev dashboard-dev nginx-dev
+
+  if ! wait_healthy_dev api-dev 90; then
+    err "api-dev 헬스체크 실패"
+    exit 1
+  fi
+  if ! wait_healthy_dev dashboard-dev 30; then
+    err "dashboard-dev 시작 실패"
+    exit 1
+  fi
+  echo ""
+
+  local END_TIME
+  END_TIME=$(date +%s)
+  local ELAPSED=$((END_TIME - START_TIME))
+
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "Dev 서버 배포 완료!"
+  info "접속: http://<서버IP>:${DEV_PORT}"
+  info "총 소요: ${ELAPSED}초"
+  info "프로덕션(8090) 영향: 없음"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  $DEV_COMPOSE ps api-dev dashboard-dev nginx-dev
+}
+
+# ─── dev-stop 명령: Dev/QA 서버 중지 ───
+cmd_dev_stop() {
+  echo ""
+  log "Dev 서버 중지 중..."
+  $DEV_COMPOSE stop api-dev dashboard-dev nginx-dev
+  $DEV_COMPOSE rm -f api-dev dashboard-dev nginx-dev
+  log "Dev 서버 중지 완료 (프로덕션 영향 없음)"
+  echo ""
+}
+
+# ─── dev-status 명령: Dev/QA 서버 상태 확인 ───
+cmd_dev_status() {
+  echo ""
+  echo -e "${BOLD}Dev/QA 서버 상태${NC}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo -e "  포트: ${CYAN}${DEV_PORT}${NC}"
+  echo ""
+  $DEV_COMPOSE ps api-dev dashboard-dev nginx-dev 2>/dev/null || info "Dev 서버가 실행 중이 아닙니다"
+  echo ""
+}
+
 # ─── 옵션 파싱 ───
 COMMAND=""
 for arg in "$@"; do
   case "$arg" in
     --with-docs) WITH_DOCS=true ;;
-    status|init|deploy|migrate) COMMAND="$arg" ;;
+    status|init|deploy|migrate|dev|dev-stop|dev-status) COMMAND="$arg" ;;
     *)
-      echo "사용법: $0 [deploy|status|init|migrate] [--with-docs]"
+      echo "사용법: $0 [deploy|status|init|migrate|dev|dev-stop|dev-status] [--with-docs]"
       echo ""
       echo "  deploy              Blue-Green 무중단 배포 (기본값)"
       echo "  deploy --with-docs  docs-site 포함 배포 (nginx 재시작, 짧은 끊김)"
       echo "  status              현재 활성 슬롯 확인"
       echo "  init                최초 설치 (전체 빌드 + 순차 시작)"
       echo "  migrate             DB 스키마만 동기화 (컨테이너 재빌드 없음, 데이터 보존)"
+      echo ""
+      echo "  dev                 Dev/QA 서버 빌드 + 시작 (포트 ${DEV_PORT})"
+      echo "  dev-stop            Dev/QA 서버 중지"
+      echo "  dev-status          Dev/QA 서버 상태 확인"
       exit 1
       ;;
   esac
@@ -362,6 +497,15 @@ case "${COMMAND:-deploy}" in
     ;;
   migrate)
     cmd_migrate
+    ;;
+  dev)
+    cmd_dev
+    ;;
+  dev-stop)
+    cmd_dev_stop
+    ;;
+  dev-status)
+    cmd_dev_status
     ;;
   deploy|"")
     cmd_deploy

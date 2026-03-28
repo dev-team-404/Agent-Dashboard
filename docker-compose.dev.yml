@@ -1,75 +1,111 @@
-version: '3.8'
-
 # ============================================
-# AI Services Dashboard - Development Mode
+# Agent 사용량 집계 시스템 - Dev/QA 서버
+# 프로덕션과 동일 DB/Redis 공유, 별도 포트(8095)로 운영
 # ============================================
-# UI/UX 테스트용 별도 포트 사용
-# 기존 docker-compose.yml의 postgres, redis, api는 그대로 유지
 #
 # 사용법:
-#   1. 기존 서비스 실행: docker compose up -d
-#   2. Dev 모드 실행: docker compose -f docker-compose.dev.yml up
-#   3. Dashboard: http://서버IP:4093
-#   4. Docs: http://서버IP:4094
+#   ./deploy.sh dev          Dev 서버 빌드 + 시작
+#   ./deploy.sh dev-stop     Dev 서버 중지
+#   ./deploy.sh dev-status   Dev 서버 상태 확인
+#
+# 프로덕션(8090)과 완전 독립 운영, DB/Redis만 공유
+# Dev 서버 포트: 8095 (DEV_PORT 환경변수로 변경 가능)
 
-# 사내 네트워크 프록시 설정
+x-timezone: &timezone
+  TZ: Asia/Seoul
+
 x-proxy-env: &proxy-env
+  <<: *timezone
   HTTP_PROXY: "${HTTP_PROXY:-}"
   HTTPS_PROXY: "${HTTPS_PROXY:-}"
-  NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api,dashboard,nginx}"
+  NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api-dev,dashboard-dev,nginx-dev}"
   http_proxy: "${HTTP_PROXY:-}"
   https_proxy: "${HTTPS_PROXY:-}"
-  no_proxy: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api,dashboard,nginx}"
+  no_proxy: "${NO_PROXY:-localhost,127.0.0.1,.samsungds.net,postgres,redis,api-dev,dashboard-dev,nginx-dev}"
   NODE_TLS_REJECT_UNAUTHORIZED: "${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
 
 services:
-  # Dashboard Dev Server (Vite hot-reload)
+  # ─── Dev API Server ───
+  # 프로덕션과 동일 빌드, 동일 DB 연결
+  # prisma db push 차단 — entrypoint-dev.sh가 스키마 변경 감지 + 경고
+  # Redis DB 15번 사용 (프로덕션 DB 0과 캐시 분리, 1~14는 프로덕션 캐시 확장용)
+  api-dev:
+    build:
+      context: ./packages/api
+      dockerfile: Dockerfile
+      args:
+        <<: *proxy-env
+    container_name: agent-registry-api-dev
+    restart: unless-stopped
+    entrypoint: ["sh", "/app/entrypoint-dev.sh"]
+    command: []
+    environment:
+      <<: *proxy-env
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-agent_stats}:${POSTGRES_PASSWORD:-agent_stats_2026!}@postgres:5432/${POSTGRES_DB:-agent_stats}?connection_limit=1000&pool_timeout=30
+      REDIS_URL: redis://redis:6379/15
+      JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
+      SSO_CERT_PATH: /app/cert/cert.cer
+      DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
+      KNOX_API_URL: ${KNOX_API_URL:-https://openapi.samsung.net/employee/api/v2.0}
+      KNOX_SYSTEM_ID: ${KNOX_SYSTEM_ID:-}
+      KNOX_AUTH_TOKEN: ${KNOX_AUTH_TOKEN:-}
+      KNOX_COMPANY_CODE: ${KNOX_COMPANY_CODE:-C10}
+      PORT: ${API_PORT:-3000}
+    volumes:
+      - ./cert:/app/cert:ro
+      - generated_images:/app/generated-images
+      - ./packages/api/entrypoint-dev.sh:/app/entrypoint-dev.sh:ro
+    expose:
+      - "3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "const h=require('http');h.get('http://localhost:3000/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+  # ─── Dev React Dashboard ───
+  # 프로덕션과 동일 빌드
   dashboard-dev:
     build:
       context: ./packages/dashboard
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
       args:
         <<: *proxy-env
-    container_name: dashboard-dev
+    container_name: agent-registry-frontend-dev
     restart: unless-stopped
     environment:
       <<: *proxy-env
-      # 상대경로 사용 - Vite proxy가 API로 전달
       VITE_API_URL: /api
-    volumes:
-      # 소스 마운트 (hot-reload)
-      - ./packages/dashboard/src:/app/src
-      - ./packages/dashboard/public:/app/public
-      - ./packages/dashboard/index.html:/app/index.html
-    ports:
-      - "${DASHBOARD_DEV_PORT:-4093}:5173"
-    # Production 컨테이너들과 같은 네트워크 사용
-    networks:
-      - default
-      - dashboard_default
+    expose:
+      - "80"
 
-  # Docs Site Dev Server (React Vite hot-reload)
-  docs-dev:
+  # ─── Dev Nginx Reverse Proxy ───
+  # 프로덕션과 동일 nginx, upstream만 dev 서비스로 지정
+  nginx-dev:
     build:
-      context: ./docs-site
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: nginx/Dockerfile
       args:
         <<: *proxy-env
-    container_name: docs-dev
+    container_name: agent-registry-proxy-dev
     restart: unless-stopped
     environment:
-      <<: *proxy-env
-    volumes:
-      # 소스 마운트 (hot-reload)
-      - ./docs-site/src:/app/src
-      - ./docs-site/public:/app/public
-      - ./docs-site/index.html:/app/index.html
+      <<: *timezone
     ports:
-      - "${DOCS_DEV_PORT:-4094}:5173"
-    networks:
-      - default
-
-networks:
-  # Production docker-compose.yml의 네트워크에 연결
-  dashboard_default:
-    external: true
+      - "${DEV_PORT:-8095}:8090"
+    volumes:
+      - ./nginx/upstream-dev.conf:/etc/nginx/conf.d/upstream.conf:ro
+    depends_on:
+      api-dev:
+        condition: service_healthy
+      dashboard-dev:
+        condition: service_started
