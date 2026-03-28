@@ -87,6 +87,7 @@ export async function getTodayUsage(redis: Redis): Promise<{
 
 /**
  * Increment usage stats (per user/model and daily total)
+ * Pipeline으로 9개 HINCRBY + 3개 EXPIRE를 1번의 라운드트립으로 처리
  */
 export async function incrementUsage(
   redis: Redis,
@@ -99,24 +100,55 @@ export async function incrementUsage(
   const dailyKey = `daily_usage:${today}`;
   const userKey = `user_usage:${userId}:${today}`;
   const modelKey = `model_usage:${modelId}:${today}`;
+  const ttl = 7 * 24 * 60 * 60;
+
+  const pipeline = redis.pipeline();
 
   // Daily total
-  await redis.hincrby(dailyKey, 'requests', 1);
-  await redis.hincrby(dailyKey, 'inputTokens', inputTokens);
-  await redis.hincrby(dailyKey, 'outputTokens', outputTokens);
-  await redis.expire(dailyKey, 7 * 24 * 60 * 60);
+  pipeline.hincrby(dailyKey, 'requests', 1);
+  pipeline.hincrby(dailyKey, 'inputTokens', inputTokens);
+  pipeline.hincrby(dailyKey, 'outputTokens', outputTokens);
+  pipeline.expire(dailyKey, ttl);
 
   // Per user
-  await redis.hincrby(userKey, 'requests', 1);
-  await redis.hincrby(userKey, 'inputTokens', inputTokens);
-  await redis.hincrby(userKey, 'outputTokens', outputTokens);
-  await redis.expire(userKey, 7 * 24 * 60 * 60);
+  pipeline.hincrby(userKey, 'requests', 1);
+  pipeline.hincrby(userKey, 'inputTokens', inputTokens);
+  pipeline.hincrby(userKey, 'outputTokens', outputTokens);
+  pipeline.expire(userKey, ttl);
 
   // Per model
-  await redis.hincrby(modelKey, 'requests', 1);
-  await redis.hincrby(modelKey, 'inputTokens', inputTokens);
-  await redis.hincrby(modelKey, 'outputTokens', outputTokens);
-  await redis.expire(modelKey, 7 * 24 * 60 * 60);
+  pipeline.hincrby(modelKey, 'requests', 1);
+  pipeline.hincrby(modelKey, 'inputTokens', inputTokens);
+  pipeline.hincrby(modelKey, 'outputTokens', outputTokens);
+  pipeline.expire(modelKey, ttl);
+
+  await pipeline.exec();
+}
+
+/**
+ * Generic read-through cache
+ * - 캐시 히트: Redis에서 즉시 반환
+ * - 캐시 미스: compute() 실행 → 결과 캐싱 → 반환
+ * - fail-open: Redis 장애 시 항상 compute() 폴백 (기존 동작 100% 보장)
+ */
+export async function withCache<T>(
+  redis: Redis,
+  key: string,
+  ttlSeconds: number,
+  compute: () => Promise<T>,
+): Promise<T> {
+  try {
+    const cached = await redis.get(key);
+    if (cached) return JSON.parse(cached);
+  } catch { /* fail-open */ }
+
+  const result = await compute();
+
+  try {
+    await redis.setex(key, ttlSeconds, JSON.stringify(result));
+  } catch { /* fire-and-forget */ }
+
+  return result;
 }
 
 /**

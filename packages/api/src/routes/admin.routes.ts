@@ -12,7 +12,7 @@ import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
-import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
+import { getActiveUserCount, getTodayUsage, withCache } from '../services/redis.service.js';
 import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
 import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -2521,54 +2521,57 @@ adminRoutes.get('/stats/daily', async (req: AuthenticatedRequest, res) => {
   try {
     const days = parseInt(req.query['days'] as string) || 30;
     const serviceId = req.query['serviceId'] as string | undefined;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
+    const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    // UsageLog를 날짜별로 SQL 집계
-    let whereClause = `WHERE ul.timestamp >= $1`;
-    const params: unknown[] = [startDate];
-    let paramIdx = 2;
+    const result = await withCache(redis, `cache:admin:stats:daily:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
 
-    if (serviceId) {
-      whereClause += ` AND ul.service_id = $${paramIdx}`;
-      params.push(serviceId);
-      paramIdx++;
-    }
-    if (!req.isSuperAdmin && req.adminBusinessUnit) {
-      whereClause += ` AND u.business_unit = $${paramIdx}`;
-      params.push(req.adminBusinessUnit);
-      paramIdx++;
-    }
+      let whereClause = `WHERE ul.timestamp >= $1`;
+      const params: unknown[] = [startDate];
+      let paramIdx = 2;
 
-    const dailyStats = await prisma.$queryRawUnsafe<Array<{
-      date: string;
-      total_input: bigint;
-      total_output: bigint;
-      req_count: bigint;
-    }>>(`
-      SELECT
-        DATE(ul.timestamp) as date,
-        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
-        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
-      FROM usage_logs ul
-      LEFT JOIN users u ON ul.user_id = u.id
-      ${whereClause}
-      GROUP BY DATE(ul.timestamp)
-      ORDER BY date ASC
-    `, ...params);
+      if (serviceId) {
+        whereClause += ` AND ul.service_id = $${paramIdx}`;
+        params.push(serviceId);
+        paramIdx++;
+      }
+      if (bu) {
+        whereClause += ` AND u.business_unit = $${paramIdx}`;
+        params.push(bu);
+        paramIdx++;
+      }
 
-    const result = dailyStats.map(r => ({
-      date: typeof r.date === 'string' ? r.date : new Date(r.date as any).toISOString().split('T')[0],
-      _sum: {
-        totalInputTokens: Number(r.total_input),
-        totalOutputTokens: Number(r.total_output),
-        requestCount: Number(r.req_count),
-      },
-    }));
+      const dailyStats = await prisma.$queryRawUnsafe<Array<{
+        date: string;
+        total_input: bigint;
+        total_output: bigint;
+        req_count: bigint;
+      }>>(`
+        SELECT
+          DATE(ul.timestamp) as date,
+          COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+          COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+          COALESCE(SUM(request_count), 0) as req_count
+        FROM usage_logs ul
+        LEFT JOIN users u ON ul.user_id = u.id
+        ${whereClause}
+        GROUP BY DATE(ul.timestamp)
+        ORDER BY date ASC
+      `, ...params);
 
-    res.json({ dailyStats: result });
+      return { dailyStats: dailyStats.map(r => ({
+        date: typeof r.date === 'string' ? r.date : new Date(r.date as any).toISOString().split('T')[0],
+        _sum: {
+          totalInputTokens: Number(r.total_input),
+          totalOutputTokens: Number(r.total_output),
+          requestCount: Number(r.req_count),
+        },
+      })) };
+    });
+
+    res.json(result);
   } catch (error) {
     console.error('Get daily stats error:', error);
     res.status(500).json({ error: 'Failed to get daily statistics' });
@@ -2584,47 +2587,42 @@ adminRoutes.get('/stats/by-user', async (req: AuthenticatedRequest, res) => {
   try {
     const days = parseInt(req.query['days'] as string) || 30;
     const serviceId = req.query['serviceId'] as string | undefined;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const userStats = await prisma.usageLog.groupBy({
-      by: ['userId'],
-      where: {
-        timestamp: { gte: startDate },
-        user: {
-          loginid: { not: 'anonymous' },
-          ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
+    const result = await withCache(redis, `cache:admin:stats:by-user:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const userStats = await prisma.usageLog.groupBy({
+        by: ['userId'],
+        where: {
+          timestamp: { gte: startDate },
+          user: {
+            loginid: { not: 'anonymous' },
+            ...(bu ? { businessUnit: bu } : {}),
+          },
+          ...getServiceFilter(serviceId),
         },
-        ...getServiceFilter(serviceId),
-      },
-      _sum: {
-        inputTokens: true,
-        outputTokens: true,
-        totalTokens: true,
-      },
-      _count: true,
-      orderBy: {
-        _sum: {
-          totalTokens: 'desc',
-        },
-      },
-      take: 20,
+        _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+        _count: true,
+        orderBy: { _sum: { totalTokens: 'desc' } },
+        take: 20,
+      });
+
+      const userIds = userStats.map((s) => s.userId).filter((id): id is string => id !== null);
+      const users = await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, loginid: true, username: true, deptname: true },
+      });
+
+      const userMap = new Map(users.map((u) => [u.id, u]));
+      return { userStats: userStats.map((s) => ({
+        ...s,
+        user: s.userId ? userMap.get(s.userId) : null,
+      })) };
     });
 
-    // Get user details
-    const userIds = userStats.map((s) => s.userId).filter((id): id is string => id !== null);
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, loginid: true, username: true, deptname: true },
-    });
-
-    const userMap = new Map(users.map((u) => [u.id, u]));
-    const statsWithUsers = userStats.map((s) => ({
-      ...s,
-      user: s.userId ? userMap.get(s.userId) : null,
-    }));
-
-    res.json({ userStats: statsWithUsers });
+    res.json(result);
   } catch (error) {
     console.error('Get user stats error:', error);
     res.status(500).json({ error: 'Failed to get user statistics' });
@@ -2640,43 +2638,38 @@ adminRoutes.get('/stats/by-model', async (req: AuthenticatedRequest, res) => {
   try {
     const days = parseInt(req.query['days'] as string) || 30;
     const serviceId = req.query['serviceId'] as string | undefined;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const modelStats = await prisma.usageLog.groupBy({
-      by: ['modelId'],
-      where: {
-        timestamp: { gte: startDate },
-        ...getServiceFilter(serviceId),
-        ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { user: { businessUnit: req.adminBusinessUnit } } : {}),
-      },
-      _sum: {
-        inputTokens: true,
-        outputTokens: true,
-        totalTokens: true,
-      },
-      _count: true,
-      orderBy: {
-        _sum: {
-          totalTokens: 'desc',
+    const result = await withCache(redis, `cache:admin:stats:by-model:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const modelStats = await prisma.usageLog.groupBy({
+        by: ['modelId'],
+        where: {
+          timestamp: { gte: startDate },
+          ...getServiceFilter(serviceId),
+          ...(bu ? { user: { businessUnit: bu } } : {}),
         },
-      },
+        _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+        _count: true,
+        orderBy: { _sum: { totalTokens: 'desc' } },
+      });
+
+      const modelIds = modelStats.map((s) => s.modelId);
+      const models = await prisma.model.findMany({
+        where: { id: { in: modelIds } },
+        select: { id: true, name: true, displayName: true },
+      });
+
+      const modelMap = new Map(models.map((m) => [m.id, m]));
+      return { modelStats: modelStats.map((s) => ({
+        ...s,
+        model: modelMap.get(s.modelId),
+      })) };
     });
 
-    // Get model details
-    const modelIds = modelStats.map((s) => s.modelId);
-    const models = await prisma.model.findMany({
-      where: { id: { in: modelIds } },
-      select: { id: true, name: true, displayName: true },
-    });
-
-    const modelMap = new Map(models.map((m) => [m.id, m]));
-    const statsWithModels = modelStats.map((s) => ({
-      ...s,
-      model: modelMap.get(s.modelId),
-    }));
-
-    res.json({ modelStats: statsWithModels });
+    res.json(result);
   } catch (error) {
     console.error('Get model stats error:', error);
     res.status(500).json({ error: 'Failed to get model statistics' });
@@ -2692,52 +2685,56 @@ adminRoutes.get('/stats/by-dept', async (req: AuthenticatedRequest, res) => {
   try {
     const days = parseInt(req.query['days'] as string) || 30;
     const serviceId = req.query['serviceId'] as string | undefined;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
+    const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    let whereClause = `WHERE ul.timestamp >= $1`;
-    const params: unknown[] = [startDate];
-    let paramIdx = 2;
+    const result = await withCache(redis, `cache:admin:stats:by-dept:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
 
-    if (serviceId) {
-      whereClause += ` AND ul.service_id = $${paramIdx}`;
-      params.push(serviceId);
-      paramIdx++;
-    }
-    if (!req.isSuperAdmin && req.adminBusinessUnit) {
-      whereClause += ` AND u.business_unit = $${paramIdx}`;
-      params.push(req.adminBusinessUnit);
-      paramIdx++;
-    }
+      let whereClause = `WHERE ul.timestamp >= $1`;
+      const params: unknown[] = [startDate];
+      let paramIdx = 2;
 
-    const deptStats = await prisma.$queryRawUnsafe<Array<{
-      deptname: string;
-      total_input: bigint;
-      total_output: bigint;
-      req_count: bigint;
-    }>>(`
-      SELECT
-        COALESCE(u.deptname, 'Unknown') as deptname,
-        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
-        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
-      FROM usage_logs ul
-      LEFT JOIN users u ON ul.user_id = u.id
-      ${whereClause}
-      GROUP BY u.deptname
-      ORDER BY total_input DESC
-    `, ...params);
+      if (serviceId) {
+        whereClause += ` AND ul.service_id = $${paramIdx}`;
+        params.push(serviceId);
+        paramIdx++;
+      }
+      if (bu) {
+        whereClause += ` AND u.business_unit = $${paramIdx}`;
+        params.push(bu);
+        paramIdx++;
+      }
 
-    const result = deptStats.map(r => ({
-      deptname: r.deptname,
-      _sum: {
-        totalInputTokens: Number(r.total_input),
-        totalOutputTokens: Number(r.total_output),
-        requestCount: Number(r.req_count),
-      },
-    }));
+      const deptStats = await prisma.$queryRawUnsafe<Array<{
+        deptname: string;
+        total_input: bigint;
+        total_output: bigint;
+        req_count: bigint;
+      }>>(`
+        SELECT
+          COALESCE(u.deptname, 'Unknown') as deptname,
+          COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+          COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+          COALESCE(SUM(request_count), 0) as req_count
+        FROM usage_logs ul
+        LEFT JOIN users u ON ul.user_id = u.id
+        ${whereClause}
+        GROUP BY u.deptname
+        ORDER BY total_input DESC
+      `, ...params);
 
-    res.json({ deptStats: result });
+      return { deptStats: deptStats.map(r => ({
+        deptname: r.deptname,
+        _sum: {
+          totalInputTokens: Number(r.total_input),
+          totalOutputTokens: Number(r.total_output),
+          requestCount: Number(r.req_count),
+        },
+      })) };
+    });
+
+    res.json(result);
   } catch (error) {
     console.error('Get dept stats error:', error);
     res.status(500).json({ error: 'Failed to get department statistics' });
@@ -2753,67 +2750,70 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
   try {
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 30));
     const serviceId = req.query['serviceId'] as string | undefined;
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
 
-    // Get distinct users per day from usage logs (excluding anonymous)
-    let dailyUsers: Array<{ date: Date | string; user_count: bigint }>;
+    const result = await withCache(redis, `cache:admin:stats:dau:${days}:${serviceId || 'all'}`, 120, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
 
-    if (serviceId) {
-      dailyUsers = await prisma.$queryRaw`
-        SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY DATE(ul.timestamp)
-        ORDER BY date ASC
-      `;
-    } else {
-      dailyUsers = await prisma.$queryRaw`
-        SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-        GROUP BY DATE(ul.timestamp)
-        ORDER BY date ASC
-      `;
-    }
+      let dailyUsers: Array<{ date: Date | string; user_count: bigint }>;
 
-    const chartData = dailyUsers.map((item) => ({
-      date: formatDateToString(item.date),
-      userCount: Number(item.user_count),
-    }));
+      if (serviceId) {
+        dailyUsers = await prisma.$queryRaw`
+          SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous'
+            AND ul.service_id::text = ${serviceId}
+          GROUP BY DATE(ul.timestamp)
+          ORDER BY date ASC
+        `;
+      } else {
+        dailyUsers = await prisma.$queryRaw`
+          SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous'
+          GROUP BY DATE(ul.timestamp)
+          ORDER BY date ASC
+        `;
+      }
 
-    // Get total unique users in period
-    let totalUsers: Array<{ count: bigint }>;
+      const chartData = dailyUsers.map((item) => ({
+        date: formatDateToString(item.date),
+        userCount: Number(item.user_count),
+      }));
 
-    if (serviceId) {
-      totalUsers = await prisma.$queryRaw`
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id::text = ${serviceId}
-      `;
-    } else {
-      totalUsers = await prisma.$queryRaw`
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-      `;
-    }
+      let totalUsers: Array<{ count: bigint }>;
 
-    res.json({
-      chartData,
-      totalUniqueUsers: Number(totalUsers[0]?.count || 0),
+      if (serviceId) {
+        totalUsers = await prisma.$queryRaw`
+          SELECT COUNT(DISTINCT ul.user_id) as count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous'
+            AND ul.service_id::text = ${serviceId}
+        `;
+      } else {
+        totalUsers = await prisma.$queryRaw`
+          SELECT COUNT(DISTINCT ul.user_id) as count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous'
+        `;
+      }
+
+      return {
+        chartData,
+        totalUniqueUsers: Number(totalUsers[0]?.count || 0),
+      };
     });
+
+    res.json(result);
   } catch (error) {
     console.error('Get daily active users error:', error);
     res.status(500).json({ error: 'Failed to get daily active users' });
@@ -3146,66 +3146,69 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
  */
 adminRoutes.get('/stats/latency', async (req: AuthenticatedRequest, res) => {
   try {
-    const now = new Date();
-    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-    const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const result = await withCache(redis, `cache:admin:stats:latency`, 60, async () => {
+      const now = new Date();
+      const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+      const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // 서비스+모델별 latency 집계 쿼리
-    const latencyStats = await prisma.$queryRaw<Array<{
-      service_id: string;
-      service_name: string;
-      model_id: string;
-      model_name: string;
-      avg_10m: number | null;
-      avg_30m: number | null;
-      avg_1h: number | null;
-      avg_24h: number | null;
-      count_10m: bigint;
-      count_30m: bigint;
-      count_1h: bigint;
-      count_24h: bigint;
-    }>>`
-      SELECT
-        s.id as service_id,
-        s."displayName" as service_name,
-        m.id as model_id,
-        m."displayName" as model_name,
-        AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
-        AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
-        AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
-        AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
-        COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
-        COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
-        COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
-        COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
-      FROM usage_logs ul
-      INNER JOIN services s ON ul.service_id = s.id
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= ${oneDayAgo}
-      GROUP BY s.id, s."displayName", m.id, m."displayName"
-      ORDER BY s."displayName", m."displayName"
-    `;
+      const latencyStats = await prisma.$queryRaw<Array<{
+        service_id: string;
+        service_name: string;
+        model_id: string;
+        model_name: string;
+        avg_10m: number | null;
+        avg_30m: number | null;
+        avg_1h: number | null;
+        avg_24h: number | null;
+        count_10m: bigint;
+        count_30m: bigint;
+        count_1h: bigint;
+        count_24h: bigint;
+      }>>`
+        SELECT
+          s.id as service_id,
+          s."displayName" as service_name,
+          m.id as model_id,
+          m."displayName" as model_name,
+          AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
+          AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
+          AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
+          AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
+          COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
+          COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
+          COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
+          COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
+        FROM usage_logs ul
+        INNER JOIN services s ON ul.service_id = s.id
+        INNER JOIN models m ON ul.model_id = m.id
+        WHERE ul.latency_ms IS NOT NULL
+          AND ul.timestamp >= ${oneDayAgo}
+        GROUP BY s.id, s."displayName", m.id, m."displayName"
+        ORDER BY s."displayName", m."displayName"
+      `;
 
-    // 결과 포맷팅
-    const stats = latencyStats.map(row => ({
-      serviceId: row.service_id,
-      serviceName: row.service_name,
-      modelId: row.model_id,
-      modelName: row.model_name,
-      avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
-      avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
-      avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
-      avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
-      count10m: Number(row.count_10m),
-      count30m: Number(row.count_30m),
-      count1h: Number(row.count_1h),
-      count24h: Number(row.count_24h),
-    }));
+      return {
+        stats: latencyStats.map(row => ({
+          serviceId: row.service_id,
+          serviceName: row.service_name,
+          modelId: row.model_id,
+          modelName: row.model_name,
+          avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
+          avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
+          avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
+          avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
+          count10m: Number(row.count_10m),
+          count30m: Number(row.count_30m),
+          count1h: Number(row.count_1h),
+          count24h: Number(row.count_24h),
+        })),
+        timestamp: now.toISOString(),
+      };
+    });
 
-    res.json({ stats, timestamp: now.toISOString() });
+    res.json(result);
   } catch (error) {
     console.error('Get latency stats error:', error);
     res.status(500).json({ error: 'Failed to get latency statistics' });
