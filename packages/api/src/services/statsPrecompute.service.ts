@@ -14,9 +14,9 @@
 
 import { prisma, redis } from '../index.js';
 
-const PRECOMPUTE_INTERVAL_MS = 30_000;    // 30초 — overview precompute
-const CACHE_WARM_INTERVAL_MS = 60_000;    // 60초 — batch 캐시 워밍
-const REDIS_TTL_SECONDS = 120;            // 안전 TTL (cron 멈추면 자동 만료)
+const PRECOMPUTE_INTERVAL_MS = 15_000;    // 15초 — overview precompute (실시간성 강화)
+const CACHE_WARM_INTERVAL_MS = 30_000;    // 30초 — batch 캐시 워밍 (실시간성 강화)
+const REDIS_TTL_SECONDS = 60;             // 안전 TTL (워밍 주기의 2배)
 
 const KEY_PER_SERVICE = 'precomputed:overview:per_service';
 const KEY_GLOBAL = 'precomputed:overview:global';
@@ -194,7 +194,7 @@ async function warmBatchCache(): Promise<void> {
   // 1. global/by-service (days=30) — 서비스별 시계열
   warmTargets.push({
     key: 'cache:admin:stats:global:by-service:30',
-    ttl: 120,
+    ttl: 60,
     compute: async () => {
       const days = 30;
       const startDate = new Date();
@@ -250,7 +250,7 @@ async function warmBatchCache(): Promise<void> {
   // 2. error-rate (days=10) — 에러 빈도
   warmTargets.push({
     key: 'cache:admin:stats:error-rate:10',
-    ttl: 300,
+    ttl: 90,
     compute: async () => {
       const days = 10;
       const calendarDays = days * 2;
@@ -348,7 +348,7 @@ async function warmBatchCache(): Promise<void> {
   // 3. health-status — 모델 헬스체크 최신 결과
   warmTargets.push({
     key: 'cache:admin:stats:health-status',
-    ttl: 120,
+    ttl: 60,
     compute: async () => {
       const latestChecks: Array<{
         model_id: string; model_name: string; latency_ms: number | null;
@@ -369,6 +369,252 @@ async function warmBatchCache(): Promise<void> {
       return { statuses, totalEnabledModels: totalEnabled };
     },
   });
+
+  // 4. global/by-dept (days=30) — 사업부별 통계
+  warmTargets.push({
+    key: 'cache:admin:stats:global:by-dept:30:all',
+    ttl: 60,
+    compute: async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      startDate.setHours(0, 0, 0, 0);
+
+      const [buUsers, buDailyAvg, buModelTokens] = await Promise.all([
+        prisma.$queryRaw<Array<{ business_unit: string; user_count: bigint }>>`
+          SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != ''
+          GROUP BY u.business_unit ORDER BY user_count DESC
+        `,
+        prisma.$queryRaw<Array<{ business_unit: string; avg_daily_users: number }>>`
+          SELECT business_unit, COALESCE(AVG(daily_count), 0)::float as avg_daily_users
+          FROM (
+            SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
+            FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+            GROUP BY u.business_unit, DATE(ul.timestamp)
+          ) daily_stats GROUP BY business_unit
+        `,
+        prisma.$queryRaw<Array<{ business_unit: string; model_name: string; total_tokens: bigint }>>`
+          SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN models m ON ul.model_id = m.id
+          WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != ''
+          GROUP BY u.business_unit, m.name ORDER BY u.business_unit, total_tokens DESC
+        `,
+      ]);
+
+      const buUserMap = new Map(buUsers.map(d => [d.business_unit, Number(d.user_count)]));
+      const buAvgMap = new Map(buDailyAvg.map(d => [d.business_unit, Math.round(d.avg_daily_users || 0)]));
+      const buTokensMap = new Map<string, Record<string, number>>();
+      for (const row of buModelTokens) {
+        if (!buTokensMap.has(row.business_unit)) buTokensMap.set(row.business_unit, {});
+        buTokensMap.get(row.business_unit)![row.model_name] = Number(row.total_tokens);
+      }
+
+      const allBUs = [...new Set([...buUserMap.keys(), ...buAvgMap.keys(), ...buTokensMap.keys()])];
+      const deptStats = allBUs.map(bu => {
+        const tokensObj = buTokensMap.get(bu) || {};
+        const tokensByModel = Object.entries(tokensObj).map(([modelName, tokens]) => ({ modelName, tokens })).sort((a, b) => b.tokens - a.tokens);
+        return {
+          deptname: bu,
+          cumulativeUsers: buUserMap.get(bu) || 0,
+          avgDailyActiveUsers: buAvgMap.get(bu) || 0,
+          tokensByModel,
+          totalTokens: tokensByModel.reduce((sum, t) => sum + t.tokens, 0),
+        };
+      }).sort((a, b) => b.totalTokens - a.totalTokens);
+
+      return { deptStats, totalDepts: deptStats.length, periodDays: 30, serviceId: null };
+    },
+  });
+
+  // 5. global/by-dept-daily (days=30, topN=5) — 사업부별 일별 토큰
+  warmTargets.push({
+    key: 'cache:admin:stats:global:by-dept-daily:30:all:5',
+    ttl: 60,
+    compute: async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      startDate.setHours(0, 0, 0, 0);
+
+      const topBUs = await prisma.$queryRaw<Array<{ business_unit: string; total_tokens: bigint }>>`
+        SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        GROUP BY u.business_unit ORDER BY total_tokens DESC LIMIT 5
+      `;
+      const topBUNames = topBUs.map(b => b.business_unit);
+
+      const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; total_tokens: bigint }>>`
+        SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        GROUP BY DATE(ul.timestamp), u.business_unit ORDER BY date ASC
+      `;
+
+      const dailyMap = new Map<string, Record<string, number>>();
+      const endDate = new Date();
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = toLocalDate(d);
+        const init: Record<string, number> = {};
+        for (const bu of topBUNames) init[bu] = 0;
+        dailyMap.set(dateStr, init);
+      }
+      for (const stat of dailyStats) {
+        const dateStr = fmtDate(stat.date);
+        const existing = dailyMap.get(dateStr);
+        if (existing) existing[stat.business_unit] = Number(stat.total_tokens);
+      }
+
+      const sortedDates = Array.from(dailyMap.keys()).sort();
+      const cumulativeSum: Record<string, number> = {};
+      for (const bu of topBUNames) cumulativeSum[bu] = 0;
+
+      const chartData = sortedDates.map(date => {
+        const dd = dailyMap.get(date)!;
+        const result: Record<string, string | number> = { date };
+        for (const bu of topBUNames) {
+          cumulativeSum[bu] += dd[bu] || 0;
+          result[bu] = cumulativeSum[bu];
+        }
+        return result;
+      });
+
+      return { businessUnits: topBUNames, chartData, periodDays: 30, serviceId: null };
+    },
+  });
+
+  // 6. global/by-dept-users-daily (days=30, topN=5) — 사업부별 일별 사용자
+  warmTargets.push({
+    key: 'cache:admin:stats:global:by-dept-users-daily:30:5',
+    ttl: 60,
+    compute: async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      startDate.setHours(0, 0, 0, 0);
+
+      const topBUs = await prisma.$queryRaw<Array<{ business_unit: string; user_count: bigint }>>`
+        SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        GROUP BY u.business_unit ORDER BY user_count DESC LIMIT 5
+      `;
+      const topBUNames = topBUs.map(b => b.business_unit);
+
+      const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; active_users: bigint }>>`
+        SELECT DATE(ul.timestamp) as date, u.business_unit, COUNT(DISTINCT ul.user_id) as active_users
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        GROUP BY DATE(ul.timestamp), u.business_unit ORDER BY date ASC
+      `;
+
+      const usersByDayBU = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; user_id: string }>>`
+        SELECT DISTINCT DATE(ul.timestamp) as date, u.business_unit, ul.user_id::text
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        ORDER BY date ASC
+      `;
+
+      const cumulativeUsers = new Map<string, Set<string>>();
+      for (const bu of topBUNames) cumulativeUsers.set(bu, new Set());
+
+      const usersByDateBU = new Map<string, Map<string, string[]>>();
+      for (const row of usersByDayBU) {
+        const dateStr = fmtDate(row.date);
+        if (!usersByDateBU.has(dateStr)) usersByDateBU.set(dateStr, new Map());
+        const buMap = usersByDateBU.get(dateStr)!;
+        if (!buMap.has(row.business_unit)) buMap.set(row.business_unit, []);
+        buMap.get(row.business_unit)!.push(row.user_id);
+      }
+
+      const chartData: Array<Record<string, string | number>> = [];
+      const endDate = new Date();
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = toLocalDate(d);
+        const dayData = usersByDateBU.get(dateStr);
+        if (dayData) {
+          for (const [bu, userIds] of dayData.entries()) {
+            const buSet = cumulativeUsers.get(bu);
+            if (buSet) for (const uid of userIds) buSet.add(uid);
+          }
+        }
+        const item: Record<string, string | number> = { date: dateStr };
+        for (const bu of topBUNames) {
+          item[`${bu}_cumulative`] = cumulativeUsers.get(bu)?.size || 0;
+          item[`${bu}_active`] = 0;
+        }
+        chartData.push(item);
+      }
+      for (const stat of dailyStats) {
+        const dateStr = fmtDate(stat.date);
+        const dp = chartData.find(d => d.date === dateStr);
+        if (dp) dp[`${stat.business_unit}_active`] = Number(stat.active_users);
+      }
+
+      return { businessUnits: topBUNames, chartData, periodDays: 30 };
+    },
+  });
+
+  // 7. global/by-dept-service-requests-daily (days=30, topN=10) — 사업부+서비스별
+  warmTargets.push({
+    key: 'cache:admin:stats:global:by-dept-service-requests-daily:30:10',
+    ttl: 60,
+    compute: async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+      startDate.setHours(0, 0, 0, 0);
+
+      const topCombos = await prisma.$queryRaw<Array<{ business_unit: string; service_name: string; request_count: bigint }>>`
+        SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN services s ON ul.service_id = s.id
+        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        GROUP BY u.business_unit, s.name ORDER BY request_count DESC LIMIT 10
+      `;
+      const comboNames = topCombos.map(c => `${c.business_unit}/${c.service_name}`);
+      const topBUs = [...new Set(topCombos.map(c => c.business_unit))];
+      const topServices = [...new Set(topCombos.map(c => c.service_name))];
+
+      const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; service_name: string; requests: bigint }>>`
+        SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
+        FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN services s ON ul.service_id = s.id
+        WHERE u.loginid != 'anonymous' AND ul.timestamp >= ${startDate} AND u.business_unit = ANY(${topBUs}) AND s.name = ANY(${topServices})
+        GROUP BY DATE(ul.timestamp), u.business_unit, s.name ORDER BY date ASC
+      `;
+
+      const dailyMap = new Map<string, Record<string, number>>();
+      const endDate = new Date();
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = toLocalDate(d);
+        const init: Record<string, number> = {};
+        for (const combo of comboNames) init[combo] = 0;
+        dailyMap.set(dateStr, init);
+      }
+      for (const stat of dailyStats) {
+        const dateStr = fmtDate(stat.date);
+        const key = `${stat.business_unit}/${stat.service_name}`;
+        const existing = dailyMap.get(dateStr);
+        if (existing && comboNames.includes(key)) existing[key] = Number(stat.requests);
+      }
+
+      const sortedDates = Array.from(dailyMap.keys()).sort();
+      const cumulativeSum: Record<string, number> = {};
+      for (const combo of comboNames) cumulativeSum[combo] = 0;
+      const chartData = sortedDates.map(date => {
+        const dd = dailyMap.get(date)!;
+        const result: Record<string, string | number> = { date };
+        for (const combo of comboNames) {
+          cumulativeSum[combo] += dd[combo] || 0;
+          result[combo] = cumulativeSum[combo];
+        }
+        return result;
+      });
+
+      return { combinations: comboNames, chartData, periodDays: 30 };
+    },
+  });
+
+  // 8. global/mau-by-service (months=6) — TTL 이미 90으로 설정됨, 워밍 대상 추가
+  // (이미 error-rate에서 커버되는 수준의 복잡도 → 실제 엔드포인트 withCache에 맡김)
 
   // 실행: 병렬로 모든 타겟을 워밍 (하나 실패해도 나머지 계속)
   const results = await Promise.allSettled(

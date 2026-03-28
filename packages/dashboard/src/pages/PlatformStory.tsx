@@ -117,6 +117,12 @@ const timeline = [
     desc: '미캐싱 22개 stats 엔드포인트에 withCache read-through 캐시 적용(총 28개). 60초 주기 캐시 워밍 서비스 도입 — 대시보드 batch 핵심 엔드포인트(by-service/by-dept/error-rate/health-status 등)를 백그라운드에서 사전 연��하여 Redis에 저장. thundering herd 완전 제거: 첫 유저도 캐시 히트, DB 부하가 유저 수와 무관하게 일정. 프론트엔드 데이터 갱신 시각 표시 + ��동 새로고침 버튼.',
     tags: ['withCache 전체 적용', 'Precompute 워밍', 'thundering herd 해결', '갱신 시각 UI'],
   },
+  {
+    date: '2026.03.29',
+    title: '300명 동시접속 대응 — 쓰기 버퍼링 + 커넥션 풀 + TTL 단축',
+    desc: 'DGX H200 기준 3000 DAU / 300 동시접속 최적화. usage_logs/request_logs 쓰기 버퍼링(1초 간격 bulk INSERT, 개별 INSERT 대비 DB 부하 90%↓). 커넥션 풀 확장(pgPool 10→50, Prisma connection_limit 동기화). 캐시 TTL 전면 단축(120→60, 300→90, 실시간성 2배 향상). Precompute 주기 15초/워밍 주기 30초로 단축. 워밍 대상 3→7개 확대(by-dept 계열 4개 추가). Graceful shutdown 시 잔여 버퍼 flush 보장.',
+    tags: ['쓰기 버퍼링', 'bulk INSERT', '커넥션 풀', 'TTL 단축', 'DGX 최적화'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -145,7 +151,7 @@ const featureGroups = [
     features: [
       'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석 (이론·피크·현재)',
       '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
-      'Redis read-through 캐시 28개 엔드포인트 + 60초 Precompute 워밍 (thundering herd 제거)',
+      'Redis read-through 캐시 28개 + 15~30초 Precompute 워밍 + 쓰기 버퍼링 bulk INSERT',
       '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',

@@ -2529,7 +2529,7 @@ adminRoutes.get('/stats/daily', async (req: AuthenticatedRequest, res) => {
     const serviceId = req.query['serviceId'] as string | undefined;
     const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const result = await withCache(redis, `cache:admin:stats:daily:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:daily:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -2595,7 +2595,7 @@ adminRoutes.get('/stats/by-user', async (req: AuthenticatedRequest, res) => {
     const serviceId = req.query['serviceId'] as string | undefined;
     const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const result = await withCache(redis, `cache:admin:stats:by-user:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:by-user:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
@@ -2646,7 +2646,7 @@ adminRoutes.get('/stats/by-model', async (req: AuthenticatedRequest, res) => {
     const serviceId = req.query['serviceId'] as string | undefined;
     const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const result = await withCache(redis, `cache:admin:stats:by-model:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:by-model:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
@@ -2693,7 +2693,7 @@ adminRoutes.get('/stats/by-dept', async (req: AuthenticatedRequest, res) => {
     const serviceId = req.query['serviceId'] as string | undefined;
     const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
 
-    const result = await withCache(redis, `cache:admin:stats:by-dept:${days}:${serviceId || 'all'}:${bu}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:by-dept:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
@@ -2757,7 +2757,7 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 30));
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:dau:${days}:${serviceId || 'all'}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:dau:${days}:${serviceId || 'all'}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -2836,7 +2836,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 30));
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:cumulative-users:${days}:${serviceId || 'all'}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:cumulative-users:${days}:${serviceId || 'all'}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -2939,7 +2939,7 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 30));
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:model-daily-trend:${days}:${serviceId || 'all'}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:model-daily-trend:${days}:${serviceId || 'all'}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -3050,7 +3050,7 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
     const topN = Math.min(100, Math.max(10, parseInt(req.query['topN'] as string) || 10));
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:model-user-trend:${modelId}:${days}:${topN}:${serviceId || 'all'}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:model-user-trend:${modelId}:${days}:${topN}:${serviceId || 'all'}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -3344,7 +3344,7 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
   try {
     const hours = Math.min(72, Math.max(1, parseInt(req.query['hours'] as string) || 24));
 
-    const result = await withCache(redis, `cache:admin:stats:latency:healthcheck:${hours}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:latency:healthcheck:${hours}`, 60, async () => {
       const startTime = new Date();
       startTime.setHours(startTime.getHours() - hours);
 
@@ -3400,7 +3400,7 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
     const defaultDays = granularity === 'monthly' ? 180 : granularity === 'weekly' ? 84 : 30;
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || defaultDays));
 
-    const result = await withCache(redis, `cache:admin:stats:latency:trend:${granularity}:${days}`, 300, async () => {
+    const result = await withCache(redis, `cache:admin:stats:latency:trend:${granularity}:${days}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -3499,7 +3499,7 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
   try {
     const days = Math.min(60, Math.max(1, parseInt(req.query['days'] as string) || 10));
 
-    const result = await withCache(redis, `cache:admin:stats:error-rate:${days}`, 300, async () => {
+    const result = await withCache(redis, `cache:admin:stats:error-rate:${days}`, 90, async () => {
       // 영업일 10일 ≈ 달력일 약 14일. 넉넉하게 days*2 달력일 조회
       const calendarDays = days * 2;
       const startDate = new Date();
@@ -3639,7 +3639,7 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
  */
 adminRoutes.get('/stats/health-status', async (req: AuthenticatedRequest, res) => {
   try {
-    const result = await withCache(redis, `cache:admin:stats:health-status`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:health-status`, 60, async () => {
       // PostgreSQL DISTINCT ON: 모델별 최신 1건 (현재 displayName JOIN)
       const latestChecks: Array<{
         model_id: string;
@@ -3888,7 +3888,7 @@ adminRoutes.get('/stats/global/by-service', async (req: AuthenticatedRequest, re
   try {
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 30));
 
-    const result = await withCache(redis, `cache:admin:stats:global:by-service:${days}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:by-service:${days}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -3981,7 +3981,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
     const days = Math.min(365, Math.max(14, parseInt(req.query['days'] as string) || 90));
     const granularity = (req.query['granularity'] as string) === 'daily' ? 'daily' : 'weekly';
 
-    const result = await withCache(redis, `cache:admin:stats:weekly-business-dau:${days}:${granularity}`, 300, async () => {
+    const result = await withCache(redis, `cache:admin:stats:weekly-business-dau:${days}:${granularity}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -4283,7 +4283,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
     const days = parseInt(req.query['days'] as string) || 30;
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:global:by-dept:${days}:${serviceId || 'all'}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:by-dept:${days}:${serviceId || 'all'}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -4439,7 +4439,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
     const serviceId = req.query['serviceId'] as string | undefined;
     const topN = Math.min(10, Math.max(3, parseInt(req.query['topN'] as string) || 5));
 
-    const result = await withCache(redis, `cache:admin:stats:global:by-dept-daily:${days}:${serviceId || 'all'}:${topN}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:by-dept-daily:${days}:${serviceId || 'all'}:${topN}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -4569,7 +4569,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
     const days = parseInt(req.query['days'] as string) || 30;
     const topN = Math.min(10, Math.max(3, parseInt(req.query['topN'] as string) || 5));
 
-    const result = await withCache(redis, `cache:admin:stats:global:by-dept-users-daily:${days}:${topN}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:by-dept-users-daily:${days}:${topN}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -4696,7 +4696,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
     const days = parseInt(req.query['days'] as string) || 30;
     const topN = Math.min(10, Math.max(3, parseInt(req.query['topN'] as string) || 5));
 
-    const result = await withCache(redis, `cache:admin:stats:global:by-dept-service-requests-daily:${days}:${topN}`, 120, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:by-dept-service-requests-daily:${days}:${topN}`, 60, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -4799,7 +4799,7 @@ adminRoutes.get('/stats/global/cumulative-users-by-service', async (req: Authent
   try {
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
 
-    const result = await withCache(redis, `cache:admin:stats:global:cumulative-users-by-service:${days}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:cumulative-users-by-service:${days}`, 90, async () => {
       // KST 기준 오늘 날짜
       const now = new Date();
       const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -4909,7 +4909,7 @@ adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req: Authen
   try {
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
 
-    const result = await withCache(redis, `cache:admin:stats:global:cumulative-tokens-by-service:${days}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:cumulative-tokens-by-service:${days}`, 90, async () => {
       const now = new Date();
       const startDate = new Date(now);
       startDate.setDate(startDate.getDate() - days);
@@ -5000,7 +5000,7 @@ adminRoutes.get('/stats/global/dau-by-service', async (req: AuthenticatedRequest
   try {
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
 
-    const result = await withCache(redis, `cache:admin:stats:global:dau-by-service:${days}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:dau-by-service:${days}`, 90, async () => {
       const now = new Date();
       const startDate = new Date(now);
       startDate.setDate(startDate.getDate() - days);
@@ -5147,7 +5147,7 @@ adminRoutes.get('/stats/global/dept-usage-by-service', async (req: Authenticated
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
     const topN = Math.min(50, Math.max(1, parseInt(req.query['topN'] as string) || 10));
 
-    const result = await withCache(redis, `cache:admin:stats:global:dept-usage-by-service:${days}:${topN}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:dept-usage-by-service:${days}:${topN}`, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
@@ -5206,7 +5206,7 @@ adminRoutes.get('/stats/global/service-daily-requests', async (req: Authenticate
   try {
     const days = Math.min(365, Math.max(1, parseInt(req.query['days'] as string) || 30));
 
-    const result = await withCache(redis, `cache:admin:stats:global:service-daily-requests:${days}`, 180, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:service-daily-requests:${days}`, 90, async () => {
       const now = new Date();
       const startDate = new Date(now);
       startDate.setDate(startDate.getDate() - days);
@@ -5524,7 +5524,7 @@ adminRoutes.get('/stats/global/mau-by-service', async (req: AuthenticatedRequest
   try {
     const months = Math.min(12, Math.max(1, parseInt(req.query['months'] as string) || 6));
 
-    const result = await withCache(redis, `cache:admin:stats:global:mau-by-service:${months}`, 300, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:mau-by-service:${months}`, 90, async () => {
       // Calculate start date
       const now = new Date();
       const startDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
@@ -5709,7 +5709,7 @@ adminRoutes.get('/stats/global/mau-by-service', async (req: AuthenticatedRequest
  */
 adminRoutes.get('/stats/global/estimated-dau-mau', async (_req: AuthenticatedRequest, res) => {
   try {
-    const result = await withCache(redis, `cache:admin:stats:global:estimated-dau-mau`, 300, async () => {
+    const result = await withCache(redis, `cache:admin:stats:global:estimated-dau-mau`, 90, async () => {
       const services = await prisma.service.findMany({
         where: { enabled: true },
         select: { id: true, name: true, displayName: true, type: true },

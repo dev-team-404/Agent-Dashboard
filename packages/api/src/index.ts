@@ -55,6 +55,7 @@ import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
 import { startPrometheusCollector } from './services/prometheusCollector.service.js';
 import { startBenchmarkCron, refreshAllBenchmarks } from './services/gpuBenchmark.service.js';
 import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
+import { startWriteBuffer, stopWriteBuffer } from './services/writeBuffer.service.js';
 import { extractBusinessUnit } from './middleware/auth.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
@@ -68,13 +69,23 @@ const PORT = process.env['PORT'] || 3000;
 
 app.set('trust proxy', 1);
 
-export const prisma = new PrismaClient();
+export const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env['DATABASE_URL']?.includes('connection_limit')
+        ? process.env['DATABASE_URL']
+        : (process.env['DATABASE_URL'] || '') + '?connection_limit=50&pool_timeout=30',
+    },
+  },
+});
 export const redis = createRedisClient();
 
 // Prisma napi 한계 우회: JSON-heavy 쿼리용 직접 pg Pool
+// DGX H200 기준: 300 동시접속 × 쓰기+읽기 부하 대응
 export const pgPool = new pg.Pool({
   connectionString: process.env['DATABASE_URL'],
-  max: 10,
+  max: 50,
+  idleTimeoutMillis: 30_000,
 });
 
 // Middleware
@@ -209,6 +220,7 @@ process.on('unhandledRejection', (reason) => {
 // Graceful shutdown
 async function shutdown() {
   console.log('Shutting down gracefully...');
+  await stopWriteBuffer();  // 잔여 버퍼 flush
   await prisma.$disconnect();
   await redis.quit();
   process.exit(0);
@@ -445,6 +457,7 @@ async function main() {
     startGpuCapacityPredictionCron();
     startGpuCoachingCron();
     startStatsPrecomputeCron();
+    startWriteBuffer();
     startBenchmarkCron();
 
     // DTGPT Prometheus 수집 (30초 후 시작 — DB 안정화 대기)

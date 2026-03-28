@@ -15,6 +15,7 @@ import multer from 'multer';
 import { prisma, redis } from '../index.js';
 import { logErrorToRequestLog } from '../services/requestLog.js';
 import { incrementUsage, trackActiveUser } from '../services/redis.service.js';
+import { recordUsageBuffered, recordRequestLogBuffered } from '../services/writeBuffer.service.js';
 import { validateProxyHeaders, ProxyAuthRequest, checkDeployScope } from '../middleware/proxyAuth.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
@@ -676,6 +677,10 @@ async function checkRateLimit(
 /**
  * Usage 저장
  */
+/**
+ * Usage 기록 — writeBuffer를 통한 bulk INSERT 버전
+ * Redis 카운터/UserService는 즉시 실행, DB INSERT만 버퍼링
+ */
 async function recordUsage(
   userId: string | null,
   loginid: string | null,
@@ -688,50 +693,17 @@ async function recordUsage(
   modelName?: string,
   serviceName?: string
 ) {
-  const totalTokens = inputTokens + outputTokens;
-
-  await prisma.usageLog.create({
-    data: {
-      userId,
-      modelId,
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      serviceId,
-      deptname,
-      latencyMs,
-    },
-  });
-
-  // UserService 업데이트 (user가 있을 때만)
-  if (userId && serviceId) {
-    await prisma.userService.upsert({
-      where: { userId_serviceId: { userId, serviceId } },
-      update: {
-        lastActive: new Date(),
-        requestCount: { increment: 1 },
-      },
-      create: {
-        userId,
-        serviceId,
-        firstSeen: new Date(),
-        lastActive: new Date(),
-        requestCount: 1,
-      },
-    });
-  }
-
-  // Redis 카운터
-  if (userId && loginid) {
-    await incrementUsage(redis, userId, modelId, inputTokens, outputTokens);
-    await trackActiveUser(redis, loginid);
-  }
-
-  console.log(`[Usage] user=${loginid || 'background'}, model=${modelName || modelId}, service=${serviceName || serviceId}, tokens=${totalTokens}, latency=${latencyMs || 'N/A'}ms`);
+  await recordUsageBuffered(
+    userId, loginid, modelId, inputTokens, outputTokens,
+    serviceId, deptname, latencyMs, modelName, serviceName,
+  );
 }
 
 /**
  * RequestLog 저장 (요청 로그) — 메타데이터만 기록, 요청/응답 본문은 수집하지 않음
+ */
+/**
+ * RequestLog 기록 — writeBuffer를 통한 bulk INSERT 버전
  */
 async function recordRequestLog(params: {
   serviceId: string;
@@ -751,30 +723,7 @@ async function recordRequestLog(params: {
   ipAddress?: string | null;
   stream?: boolean;
 }) {
-  try {
-    await prisma.requestLog.create({
-      data: {
-        serviceId: params.serviceId,
-        userId: params.userId || null,
-        deptname: params.deptname || null,
-        modelName: params.modelName,
-        resolvedModel: params.resolvedModel || null,
-        method: params.method,
-        path: params.path,
-        statusCode: params.statusCode,
-        inputTokens: params.inputTokens || null,
-        outputTokens: params.outputTokens || null,
-        latencyMs: params.latencyMs || null,
-        errorMessage: params.errorMessage ? params.errorMessage.substring(0, 2000) : null,
-        errorDetails: params.errorDetails ? JSON.parse(JSON.stringify(params.errorDetails)) : undefined,
-        userAgent: params.userAgent || null,
-        ipAddress: params.ipAddress || null,
-        stream: params.stream || false,
-      },
-    });
-  } catch (err) {
-    console.error('[RequestLog] Failed to record:', err);
-  }
+  recordRequestLogBuffered(params);
 }
 
 function buildChatCompletionsUrl(endpointUrl: string): string {
