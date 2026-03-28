@@ -71,6 +71,7 @@ model Service {
   requestLogs         RequestLog[]
   aiEstimations       AiEstimation[]
   deptSavedMMs        DeptServiceSavedMM[]
+  testAccounts        TestAccount[]
 
   @@map("services")
 }
@@ -700,5 +701,31 @@ model OrgNode {
 
   @@index([parentDepartmentCode])
   @@map("org_nodes")
+}
+
+// ============================================
+// 테스트 계정 (서비스별 Knox 인증 우회용)
+// ============================================
+model TestAccount {
+  id              String    @id @default(uuid())
+  serviceId       String    @map("service_id")               // 연결된 서비스
+  loginid         String                                     // 테스트용 로그인 ID (예: "test-user-1")
+  username        String    @default("테스트 사용자")          // 표시 이름
+  deptname        String    @default("")                     // 부서명 (예: "S/W혁신팀(S.LSI)")
+  businessUnit    String?   @map("business_unit")            // 사업부
+  departmentCode  String?   @map("department_code")          // 부서코드 (scope 매칭용)
+  description     String?                                    // 용도 설명
+  enabled         Boolean   @default(true)
+  expiresAt       DateTime? @map("expires_at")               // 만료일 (null=무기한)
+  createdBy       String    @map("created_by")               // 생성한 admin loginid
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, loginid])                             // 같은 서비스 내 loginid 유니크
+  @@index([loginid])
+  @@index([serviceId])
+  @@map("test_accounts")
 }
 

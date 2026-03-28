@@ -499,6 +499,50 @@ async function getOrCreateUser(
   const loginid = proxyReq.userLoginId;
   const ipAddress = proxyReq.ip || (proxyReq.headers['x-forwarded-for'] as string) || undefined;
 
+  // 0. 테스트 계정 체크 (서비스별, Knox 인증 우회)
+  const testAccount = await prisma.testAccount.findUnique({
+    where: { serviceId_loginid: { serviceId: proxyReq.serviceId, loginid } },
+  });
+
+  if (testAccount) {
+    if (!testAccount.enabled) {
+      return { user: null, error: { status: 403, body: { error: 'Test account disabled', message: `테스트 계정 '${loginid}'이(가) 비활성화되어 있습니다.` } } };
+    }
+    if (testAccount.expiresAt && testAccount.expiresAt < new Date()) {
+      return { user: null, error: { status: 403, body: { error: 'Test account expired', message: `테스트 계정 '${loginid}'이(가) 만료되었습니다.` } } };
+    }
+
+    // 테스트 계정 부서 정보 세팅
+    proxyReq.deptName = testAccount.deptname || '';
+    proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+    proxyReq.businessUnit = testAccount.businessUnit || extractBusinessUnit(proxyReq.deptName);
+    proxyReq.userDeptCode = testAccount.departmentCode || '';
+
+    // 배포 범위 접근 제어
+    const scopeError = checkDeployScope(
+      proxyReq.deployScope, proxyReq.deployScopeValue,
+      proxyReq.userDeptCode, proxyReq.serviceName,
+    );
+    if (scopeError) {
+      return { user: null, error: { status: 403, body: { error: 'Access denied', message: scopeError } } };
+    }
+
+    // 테스트 계정용 User upsert (사용량 추적용)
+    const user = await prisma.user.upsert({
+      where: { loginid },
+      update: { lastActive: new Date() },
+      create: {
+        loginid,
+        username: testAccount.username,
+        deptname: testAccount.deptname,
+        businessUnit: testAccount.businessUnit,
+        departmentCode: testAccount.departmentCode,
+        knoxVerified: false,
+      },
+    });
+    return { user };
+  }
+
   // 1. DB에서 사용자 조회
   const existingUser = await prisma.user.findUnique({ where: { loginid } });
 
