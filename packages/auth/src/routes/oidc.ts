@@ -277,6 +277,20 @@ router.post('/oidc/sso-callback', (req: Request, res: Response) => {
 
   console.log(`\x1b[36m[OIDC]\x1b[0m User authenticated: ${user.loginid} (${user.username})`);
 
+  // 대시보드 로그인 기록
+  try {
+    import('./dashboard.js').then(({ recordLogin }) => {
+      recordLogin({
+        loginid: user.loginid,
+        username: user.username,
+        deptname: user.deptname,
+        clientId: session.clientId,
+        ip: req.ip || req.headers['x-forwarded-for'] as string || 'unknown',
+        method: config.mockSso.enabled ? 'mock-sso' : 'oidc',
+      });
+    }).catch(() => {});
+  } catch { /* dashboard not loaded */ }
+
   // Generate one-time authorization code
   const authCode = uuidv4();
   authCodes.set(authCode, {

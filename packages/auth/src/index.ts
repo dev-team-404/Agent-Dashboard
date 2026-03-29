@@ -14,6 +14,7 @@ import { config } from './config.js';
 import { mockSsoRouter } from './routes/mock-sso.js';
 import { toolsRouter } from './routes/tools.js';
 import { oidcRouter } from './routes/oidc.js';
+import { dashboardRouter } from './routes/dashboard.js';
 
 // ============================================
 // Mock SSO Server (:9999) — 항상 HTTP
@@ -65,6 +66,9 @@ function startAuthServer() {
       mockSso: config.mockSso.enabled,
     });
   });
+
+  // 관리 대시보드 UI
+  app.use('/dashboard', dashboardRouter);
 
   // 토큰 디코더 도구
   app.use('/tools', toolsRouter);

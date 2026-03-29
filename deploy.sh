@@ -51,7 +51,32 @@ fi
 # SSL 인증서 자동 생성 (cert/ 디렉토리에 없으면)
 _ensure_ssl_certs() {
   local cert_dir="./cert"
-  # HTTPS 서버 인증서
+  local _PFX_PW="Samsung260310"
+
+  # ── PFX 자동 추출: cert/ 안에 .pfx 파일이 있으면 server.crt/key 자동 생성 ──
+  if [ ! -f "${cert_dir}/server.crt" ] || [ ! -f "${cert_dir}/server.key" ]; then
+    local _PFX=$(find "${cert_dir}" -maxdepth 1 -name "*.pfx" -o -name "*.p12" 2>/dev/null | head -1)
+    if [ -n "$_PFX" ]; then
+      log "PFX 파일 발견: $_PFX → server.crt/server.key 추출"
+      openssl pkcs12 -in "$_PFX" -clcerts -nokeys -out "${cert_dir}/server.crt" -passin "pass:${_PFX_PW}" 2>/dev/null
+      openssl pkcs12 -in "$_PFX" -nocerts -nodes -out "${cert_dir}/server.key" -passin "pass:${_PFX_PW}" 2>/dev/null
+      # P7B 체인이 있으면 server.crt에 합치기
+      local _P7B=$(find "${cert_dir}" -maxdepth 1 -name "*.p7b" 2>/dev/null | head -1)
+      if [ -n "$_P7B" ]; then
+        log "P7B 체인 발견: $_P7B → server.crt에 합치기"
+        openssl pkcs7 -in "$_P7B" -inform DER -print_certs >> "${cert_dir}/server.crt" 2>/dev/null || \
+        openssl pkcs7 -in "$_P7B" -print_certs >> "${cert_dir}/server.crt" 2>/dev/null
+      fi
+      if [ -f "${cert_dir}/server.crt" ] && [ -f "${cert_dir}/server.key" ]; then
+        info "PFX에서 인증서 추출 완료"
+        openssl x509 -in "${cert_dir}/server.crt" -noout -subject -dates 2>/dev/null
+      else
+        warn "PFX 추출 실패 — 자체서명 인증서로 대체"
+      fi
+    fi
+  fi
+
+  # ── 여전히 없으면 자체서명 인증서 자동 생성 ──
   if [ ! -f "${cert_dir}/server.crt" ] || [ ! -f "${cert_dir}/server.key" ]; then
     log "SSL 인증서 없음 → 자체서명 인증서 자동 생성"
     local _IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
@@ -63,7 +88,8 @@ _ensure_ssl_certs() {
     info "자체서명 인증서 생성 완료: ${cert_dir}/server.crt"
     warn "운영 환경에서는 사내 CA 인증서로 교체하세요"
   fi
-  # SSO 인증서: sso.cer 없으면 기존 cert.cer을 복사 (동일 SSO 인증서)
+
+  # ── SSO 인증서: sso.cer 없으면 cert.cer → sso.cer 복사 ──
   if [ ! -f "${cert_dir}/sso.cer" ]; then
     if [ -f "${cert_dir}/cert.cer" ]; then
       cp "${cert_dir}/cert.cer" "${cert_dir}/sso.cer"
@@ -474,10 +500,10 @@ cmd_dev() {
   _ensure_ssl_certs
   echo ""
 
-  # Auth Server (프로덕션과 공유 — stateless)
-  log "[DEV] Step 2/4: Auth Server 시작"
-  docker compose build auth 2>/dev/null
-  docker compose up -d auth
+  # Auth Server (Dev: Mock SSO 활성화)
+  log "[DEV] Step 2/4: Auth Server 시작 (Mock SSO 활성화)"
+  ENABLE_MOCK_SSO=true docker compose build auth 2>/dev/null
+  ENABLE_MOCK_SSO=true docker compose up -d auth
   wait_healthy auth 240 || warn "auth 헬스체크 실패"
   echo ""
 
