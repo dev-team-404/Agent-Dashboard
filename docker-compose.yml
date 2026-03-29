@@ -150,7 +150,7 @@ services:
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-41211cae-1fda-49f7-a462-f01d51ed4b6d}
       IDP_ENTITY_ID: ${IDP_ENTITY_ID:-https://sso.samsung.com/oauth2/authorize}
       SSO_CERT_FILE: /app/cert/sso.cer
-      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER must be set - deploy.sh sets it automatically}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://a2g.samsungds.net:9050}
       PORT: ${AUTH_PORT:-9050}
     volumes:
       - ./cert:/app/cert:ro
