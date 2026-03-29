@@ -69,6 +69,11 @@ export const guideSections: GuideSection[] = [
       { path: '/api/chat-completions', label: 'Chat Completions API', description: 'POST /v1/chat/completions' },
       { path: '/api/models', label: 'Models API', description: 'GET /v1/models' },
       { path: '/api/api-only-services', label: 'API Only 서비스', description: '프록시 미경유 서비스 연동 가이드' },
+      { path: '/api/oidc-overview', label: 'OIDC 인증 개요', description: 'OpenID Connect 인증 체계 및 아키텍처' },
+      { path: '/api/oidc-openwebui', label: 'Open WebUI 연동', description: 'Open WebUI OIDC 인증 연동 가이드' },
+      { path: '/api/oidc-adk', label: 'ADK / Python SDK 연동', description: 'Google ADK 및 Python SDK OIDC 연동 가이드' },
+      { path: '/api/oidc-examples', label: 'OIDC 연동 예제 코드', description: 'Python, JavaScript, LangChain, ADK, curl 예제' },
+      { path: '/api/oidc-prompt', label: 'Agent용 프롬프트', description: 'AI Agent에게 복사해서 주는 경량 연동 지침' },
     ],
   },
 ];

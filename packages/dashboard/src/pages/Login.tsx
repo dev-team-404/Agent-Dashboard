@@ -13,8 +13,24 @@ interface LoginProps {
   onLogin: (user: User, token: string, isAdmin: boolean, adminRole: string | null) => void;
 }
 
+// --- Auth mode ---
+const AUTH_MODE = import.meta.env.VITE_AUTH_MODE || 'oidc'; // 'oidc' (default) | 'legacy'
+
+// --- Legacy SSO config ---
 const SSO_BASE_URL = import.meta.env.VITE_SSO_URL || 'https://genai.samsungds.net:36810';
 const SSO_PATH = '/direct_sso';
+
+// --- OIDC config ---
+const OIDC_ISSUER = import.meta.env.VITE_OIDC_ISSUER || 'https://localhost:9050';
+const OIDC_CLIENT_ID = import.meta.env.VITE_OIDC_CLIENT_ID || 'agent-dashboard';
+
+/** Generate a random state parameter for OIDC */
+function generateOidcState(): string {
+  const array = new Uint8Array(24);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 
 export default function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState('');
@@ -23,6 +39,17 @@ export default function Login({ onLogin }: LoginProps) {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+
+    // OIDC callback: ?code=xxx&state=yyy  (check BEFORE legacy ?data=)
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    if (code) {
+      setProcessingCallback(true);
+      handleOidcCallback(code, state);
+      return;
+    }
+
+    // Legacy SSO callback: ?data=xxx
     const data = urlParams.get('data');
     if (data) {
       setProcessingCallback(true);
@@ -30,6 +57,46 @@ export default function Login({ onLogin }: LoginProps) {
     }
   }, []);
 
+  // ── OIDC callback handler ──────────────────────────────────────────
+  const handleOidcCallback = async (code: string, state: string | null) => {
+    try {
+      // Validate state
+      const savedState = sessionStorage.getItem('oidc_state');
+      if (!savedState || state !== savedState) {
+        throw new Error('OIDC state mismatch — possible CSRF attack');
+      }
+      sessionStorage.removeItem('oidc_state');
+
+      // Exchange authorization code for tokens
+      const tokenResponse = await authApi.oidcTokenExchange({
+        code,
+        redirectUri: window.location.origin + '/',
+        clientId: OIDC_CLIENT_ID,
+      });
+
+      const { id_token } = tokenResponse.data;
+      if (!id_token) throw new Error('OIDC token response missing id_token');
+
+      // Send id_token to existing /auth/login — the backend decodeJWT handles it
+      const response = await authApi.login(id_token);
+      const { user, sessionToken, isAdmin, adminRole, isSuperAdmin } = response.data;
+
+      window.history.replaceState({}, document.title, window.location.pathname);
+      const resolvedRole: 'SUPER_ADMIN' | 'ADMIN' | null =
+        adminRole ?? (isSuperAdmin ? 'SUPER_ADMIN' : isAdmin ? 'ADMIN' : null);
+      onLogin(user, sessionToken, isAdmin, resolvedRole);
+    } catch (err: unknown) {
+      console.error('OIDC callback error:', err);
+      const message =
+        err instanceof Error ? err.message : 'OIDC 인증 처리 중 오류가 발생했습니다.';
+      setError(message);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } finally {
+      setProcessingCallback(false);
+    }
+  };
+
+  // ── Legacy SSO callback handler ────────────────────────────────────
   const handleSSOCallback = async (dataString: string) => {
     try {
       const decodedData = decodeURIComponent(dataString);
@@ -58,9 +125,35 @@ export default function Login({ onLogin }: LoginProps) {
     }
   };
 
-  const handleSSOLogin = () => {
+  // ── Login button handler (dispatches by AUTH_MODE) ─────────────────
+  const handleLogin = () => {
     setLoading(true);
     setError('');
+
+    if (AUTH_MODE === 'legacy') {
+      handleLegacySSOLogin();
+    } else {
+      handleOidcLogin();
+    }
+  };
+
+  const handleOidcLogin = () => {
+    const state = generateOidcState();
+    sessionStorage.setItem('oidc_state', state);
+
+    const redirectUri = window.location.origin + '/';
+    const authorizeUrl =
+      `${OIDC_ISSUER}/oidc/authorize` +
+      `?client_id=${encodeURIComponent(OIDC_CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent('openid profile')}` +
+      `&state=${encodeURIComponent(state)}`;
+
+    window.location.href = authorizeUrl;
+  };
+
+  const handleLegacySSOLogin = () => {
     const redirectUrl = window.location.origin + '/';
     const ssoUrl = new URL(SSO_PATH, SSO_BASE_URL);
     ssoUrl.searchParams.set('redirect_url', redirectUrl);
@@ -111,7 +204,7 @@ export default function Login({ onLogin }: LoginProps) {
               )}
 
               <button
-                onClick={handleSSOLogin}
+                onClick={handleLogin}
                 disabled={loading}
                 className="w-full group relative py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl
                            focus:outline-none focus:ring-4 focus:ring-blue-600/20

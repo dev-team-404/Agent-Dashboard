@@ -36,12 +36,23 @@ export const authApi = {
   callback: (token: string) => api.post('/auth/callback', {}, {
     headers: { Authorization: `Bearer ${token}` }
   }),
-  // SSO 기반 로그인 (토큰으로 인증)
+  // SSO / OIDC 기반 로그인 (토큰으로 인증)
   login: (token: string) => api.post('/auth/login', {}, {
     headers: { Authorization: `Bearer ${token}` }
   }),
   // 현재 세션 체크 (admin 아니어도 OK)
   check: () => api.get('/auth/check'),
+  // OIDC authorization code → token exchange (proxied through backend to avoid CORS)
+  oidcTokenExchange: (params: {
+    code: string;
+    redirectUri: string;
+    clientId: string;
+  }) =>
+    api.post('/auth/oidc-token', {
+      code: params.code,
+      redirect_uri: params.redirectUri,
+      client_id: params.clientId,
+    }),
 };
 
 // Service API

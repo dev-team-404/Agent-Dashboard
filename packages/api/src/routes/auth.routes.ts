@@ -1,7 +1,7 @@
 /**
  * Auth Routes (v2)
  *
- * SSO 기반 인증 (Dashboard용)
+ * SSO / OIDC 기반 인증 (Dashboard용)
  * 3단계 권한: SUPER_ADMIN / ADMIN / USER
  * Knox 임직원 인증 연동 (최초 1회)
  */
@@ -24,6 +24,58 @@ function safeDecodeURIComponent(text: string): string {
     return text;
   }
 }
+
+/**
+ * POST /auth/oidc-token
+ * OIDC authorization code → token exchange (server-side proxy to avoid CORS)
+ * Frontend sends: { code, redirect_uri, client_id }
+ * Returns: OIDC token response { access_token, id_token, ... }
+ */
+authRoutes.post('/oidc-token', async (req, res) => {
+  try {
+    const { code, redirect_uri, client_id } = req.body;
+    if (!code || !redirect_uri || !client_id) {
+      res.status(400).json({ error: 'Missing required OIDC parameters' });
+      return;
+    }
+
+    // Use server-side issuer — never trust the frontend value (SSRF prevention)
+    const issuer = process.env['OIDC_ISSUER'] || 'https://localhost:9050';
+    // Use server-side client secret — never expose in frontend bundle
+    const client_secret = process.env['OIDC_CLIENT_SECRET'] || '';
+
+    const tokenUrl = `${issuer}/oidc/token`;
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri,
+      client_id,
+      ...(client_secret ? { client_secret } : {}),
+    });
+
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error('[OIDC] Token exchange failed:', tokenResponse.status, errorText);
+      res.status(tokenResponse.status).json({
+        error: 'OIDC token exchange failed',
+        details: errorText,
+      });
+      return;
+    }
+
+    const tokenData = await tokenResponse.json();
+    res.json(tokenData);
+  } catch (error) {
+    console.error('[OIDC] Token exchange error:', error);
+    res.status(500).json({ error: 'OIDC token exchange failed' });
+  }
+});
 
 /**
  * POST /auth/callback

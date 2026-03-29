@@ -96,6 +96,8 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   // 3. 헤더 검증 분기: Standard vs Background
   const deptNameHeader = safeDecodeURIComponent(req.headers['x-dept-name'] as string || '');
   const userIdHeader = req.headers['x-user-id'] as string | undefined;
+  // body.user fallback: OIDC 클라이언트(Open WebUI, ADK)가 OpenAI 표준 user 필드로 사용자 전달
+  let effectiveUserId = userIdHeader;
   let teamName = '';
   let businessUnit = '';
 
@@ -135,12 +137,17 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
       return;
     }
   } else {
-    // ── Standard 서비스: x-user-id 필수, x-dept-name 불필요 (DB/Knox 자동 resolve) ──
-    if (!userIdHeader) {
-      logErrorToRequestLog({ req, statusCode: 401, errorMessage: 'x-user-id header is required for standard services', serviceId: service.id }).catch(() => {});
+    // ── Standard 서비스: x-user-id 또는 body.user 필요, x-dept-name 불필요 (DB/Knox 자동 resolve) ──
+    // 우선순위: 1) x-user-id 헤더  2) body.user (OIDC 클라이언트: Open WebUI, ADK 등)  3) 없으면 401
+    if (!userIdHeader && typeof req.body?.user === 'string' && req.body.user.trim()) {
+      effectiveUserId = req.body.user.trim();
+    }
+
+    if (!effectiveUserId) {
+      logErrorToRequestLog({ req, statusCode: 401, errorMessage: 'x-user-id header (or body.user) is required for standard services', serviceId: service.id }).catch(() => {});
       res.status(401).json({
         error: 'x-user-id header is required for standard services',
-        message: 'Standard services must include x-user-id header. If this is a background service, register it as BACKGROUND type.',
+        message: 'Standard services must include x-user-id header (or body.user field). If this is a background service, register it as BACKGROUND type.',
       });
       return;
     }
@@ -149,7 +156,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
     // → Knox 인증 완료 사용자는 미들웨어 단계에서 deployScope 체크 가능
     // → 미인증 사용자는 getOrCreateUser에서 Knox 인증 후 체크
     const existingUser = await prisma.user.findUnique({
-      where: { loginid: userIdHeader },
+      where: { loginid: effectiveUserId },
       select: { deptname: true, businessUnit: true, departmentCode: true, knoxVerified: true },
     });
 
@@ -163,7 +170,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
         existingUser.departmentCode || '', service.name,
       );
       if (scopeError) {
-        logErrorToRequestLog({ req, statusCode: 403, errorMessage: scopeError, serviceId: service.id, deptname: existingUser.deptname, userId: userIdHeader }).catch(() => {});
+        logErrorToRequestLog({ req, statusCode: 403, errorMessage: scopeError, serviceId: service.id, deptname: existingUser.deptname, userId: effectiveUserId }).catch(() => {});
         res.status(403).json({ error: 'Access denied', message: scopeError });
         return;
       }
@@ -175,7 +182,7 @@ export async function validateProxyHeaders(req: Request, res: Response, next: Ne
   proxyReq.serviceId = service.id;
   proxyReq.serviceName = service.name;
   proxyReq.serviceType = service.type as 'STANDARD' | 'BACKGROUND';
-  proxyReq.userLoginId = userIdHeader;
+  proxyReq.userLoginId = effectiveUserId;
   proxyReq.deptName = isBackground ? deptNameHeader : '';  // Standard는 getOrCreateUser에서 최종 세팅
   proxyReq.teamName = teamName;
   proxyReq.businessUnit = businessUnit;

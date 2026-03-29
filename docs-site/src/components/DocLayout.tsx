@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ChevronRight, Menu, X } from 'lucide-react';
+import { ChevronRight, Menu, X, Copy, Check, FileDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -18,9 +18,60 @@ interface DocLayoutProps {
   contentPath: string;
 }
 
+/** 코드 블록에 복사 버튼 추가 */
+function CodeBlockWithCopy({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+  const [codeCopied, setCodeCopied] = useState(false);
+  const copyCode = () => {
+    const el = document.createElement('div');
+    el.innerHTML = (children as React.ReactElement)?.props?.children || '';
+    const text = typeof (children as React.ReactElement)?.props?.children === 'string'
+      ? (children as React.ReactElement).props.children
+      : el.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="relative group">
+      <button
+        onClick={copyCode}
+        className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 text-[10px] font-medium bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white rounded transition-all opacity-0 group-hover:opacity-100"
+        title="코드 복사"
+      >
+        {codeCopied ? <><Check className="w-3 h-3" /> 복사됨</> : <><Copy className="w-3 h-3" /> 복사</>}
+      </button>
+      <pre {...props}>{children}</pre>
+    </div>
+  );
+}
+
 export default function DocLayout({ title, sidebarItems, contentPath }: DocLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const location = useLocation();
+
+  /** 원본 마크다운을 클립보드에 복사 */
+  const copyMarkdown = useCallback(() => {
+    const raw = getContent(contentPath);
+    navigator.clipboard.writeText(raw).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [contentPath]);
+
+  /** 원본 마크다운을 .md 파일로 다운로드 */
+  const downloadMarkdown = useCallback(() => {
+    const raw = getContent(contentPath);
+    const filename = contentPath.replace(/\//g, '-').replace(/\.md$/, '') + '.md';
+    const blob = new Blob([raw], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [contentPath]);
 
   const content = useMemo(() => {
     const raw = getContent(contentPath);
@@ -102,8 +153,35 @@ export default function DocLayout({ title, sidebarItems, contentPath }: DocLayou
 
         {/* Content */}
         <main className="flex-1 min-w-0 px-6 lg:px-12 py-10 lg:ml-0">
+          {/* 마크다운 복사/다운로드 버튼 */}
+          <div className="flex items-center gap-2 mb-6 max-w-3xl">
+            <button
+              onClick={copyMarkdown}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+              title="마크다운 원본을 클립보드에 복사합니다 (Claude, ChatGPT 등에 붙여넣기 가능)"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? '복사됨' : 'Copy as Markdown'}
+            </button>
+            <button
+              onClick={downloadMarkdown}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+              title="마크다운 파일(.md)로 다운로드합니다"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              Download .md
+            </button>
+          </div>
           <article className="prose max-w-3xl">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
+              components={{
+                pre({ children, ...props }) {
+                  return <CodeBlockWithCopy {...props}>{children}</CodeBlockWithCopy>;
+                },
+              }}
+            >
               {content}
             </ReactMarkdown>
           </article>

@@ -123,6 +123,12 @@ const timeline = [
     desc: 'DGX H200 기준 3000 DAU / 300 동시접속 최적화. usage_logs/request_logs 쓰기 버퍼링(1초 간격 bulk INSERT, 개별 INSERT 대비 DB 부하 90%↓). 커넥션 풀 확장(pgPool 10→50, Prisma connection_limit 동기화). 캐시 TTL 전면 단축(120→60, 300→90, 실시간성 2배 향상). Precompute 주기 15초/워밍 주기 30초로 단축. 워밍 대상 3→7개 확대(by-dept 계열 4개 추가). Graceful shutdown 시 잔여 버퍼 flush 보장.',
     tags: ['쓰기 버퍼링', 'bulk INSERT', '커넥션 풀', 'TTL 단축', 'DGX 최적화'],
   },
+  {
+    date: '2026.03.29',
+    title: 'OIDC 인증 체계 구축 — 사용자별 사용량 자동 추적',
+    desc: 'Open WebUI, Google ADK, LangChain 등 외부 서비스에서 사용자별 사용량을 자동 추적하기 위한 OIDC(OpenID Connect) 인증 체계 전면 구축. Auth Server(HTTPS :9050) — OIDC Provider(authorize/token/userinfo) + Mock SSO(개발용). 삼성 SSO 직통 연동(form_post, RS256 인증서 검증, genai.samsungds.net 중간자 제거). Gateway body.user 지원 — OpenAI 표준 user 필드로 사용자 식별(x-user-id 헤더 대체). Python SDK(agent_platform_auth.py) — setup_auth() 한 줄로 OpenAI/LangChain/ADK 전부 자동 user 주입(OpenAI SDK monkey-patch + LiteLLM 콜백 이중 커버). Dashboard OIDC 로그인 모드 추가(기존 SSO 호환 유지). Open WebUI Playwright E2E 검증 완료. Google ADK 1.28 + 2.0 Alpha 호환 검증. 보안 리뷰 8건 수정(SSRF 차단, 클라이언트 시크릿 프론트엔드 제거, open redirect 방지 등). docs-site 가이드 5페이지 + Agent용 프롬프트 + 예제 zip. deploy.sh SSL 자동 생성 + OIDC_ISSUER 자동 감지.',
+    tags: ['OIDC', 'Auth Server', 'body.user', 'Open WebUI', 'ADK', 'LangChain', 'SSO 직통', 'Python SDK', '보안 리뷰'],
+  },
 ];
 
 // ── 기능 카테고리 ──

@@ -41,6 +41,39 @@ WITH_DOCS=false
 DEV_COMPOSE="docker compose -f docker-compose.yml -f docker-compose.dev.yml"
 DEV_PORT="${DEV_PORT:-8095}"
 
+# ─── Auth Server 자동 설정 ───
+# OIDC_ISSUER를 서버 IP로 자동 설정 (사내 배포 시 수동 설정 불필요)
+if [ -z "${OIDC_ISSUER:-}" ]; then
+  _HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+  export OIDC_ISSUER="https://${_HOST_IP}:${AUTH_PORT:-9050}"
+fi
+
+# SSL 인증서 자동 생성 (cert/ 디렉토리에 없으면)
+_ensure_ssl_certs() {
+  local cert_dir="./cert"
+  # HTTPS 서버 인증서
+  if [ ! -f "${cert_dir}/server.crt" ] || [ ! -f "${cert_dir}/server.key" ]; then
+    log "SSL 인증서 없음 → 자체서명 인증서 자동 생성"
+    local _IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "${cert_dir}/server.key" -out "${cert_dir}/server.crt" \
+      -subj "/C=KR/O=Samsung DS/CN=agent-platform-auth" \
+      -addext "subjectAltName=DNS:localhost,DNS:auth,IP:127.0.0.1,IP:${_IP},IP:172.17.0.1" \
+      2>/dev/null
+    info "자체서명 인증서 생성 완료: ${cert_dir}/server.crt"
+    warn "운영 환경에서는 사내 CA 인증서로 교체하세요"
+  fi
+  # SSO 인증서: sso.cer 없으면 기존 cert.cer을 복사 (동일 SSO 인증서)
+  if [ ! -f "${cert_dir}/sso.cer" ]; then
+    if [ -f "${cert_dir}/cert.cer" ]; then
+      cp "${cert_dir}/cert.cer" "${cert_dir}/sso.cer"
+      info "cert/cert.cer → cert/sso.cer 복사 (SSO 인증서)"
+    elif [ "${ENABLE_MOCK_SSO:-false}" != "true" ]; then
+      warn "SSO 인증서(cert/sso.cer 또는 cert/cert.cer) 없음 — 실제 SSO 연동 시 필요합니다"
+    fi
+  fi
+}
+
 # ─── 상태 관리 ───
 get_active() {
   local state
@@ -152,15 +185,22 @@ cmd_init() {
   log "최초 설치 시작 — 전체 빌드 + 시작"
   echo ""
 
+  # SSL 인증서 확인/자동 생성
+  _ensure_ssl_certs
+  echo ""
+
+  info "OIDC_ISSUER=${OIDC_ISSUER}"
+  echo ""
+
   # 인프라 먼저
-  log "1/4 인프라 시작 (postgres, redis)"
+  log "1/5 인프라 시작 (postgres, redis)"
   docker compose up -d postgres redis
   wait_healthy postgres 60
   wait_healthy redis 30
   echo ""
 
   # Blue 먼저 (DB 마이그레이션 실행)
-  log "2/4 Blue 슬롯 빌드 + 시작"
+  log "2/5 Blue 슬롯 빌드 + 시작"
   docker compose build --no-cache api-blue dashboard-blue
   docker compose up -d api-blue dashboard-blue
   wait_healthy api-blue 90
@@ -168,15 +208,22 @@ cmd_init() {
   echo ""
 
   # Green (Blue가 마이그레이션 완료 후)
-  log "3/4 Green 슬롯 빌드 + 시작"
+  log "3/5 Green 슬롯 빌드 + 시작"
   docker compose build --no-cache api-green dashboard-green
   docker compose up -d api-green dashboard-green
   wait_healthy api-green 90
   wait_healthy dashboard-green 30
   echo ""
 
+  # Auth Server (stateless, no Blue-Green needed)
+  log "4/5 Auth Server 빌드 + 시작"
+  docker compose build --no-cache auth
+  docker compose up -d auth
+  wait_healthy auth 30
+  echo ""
+
   # Nginx + docs-site
-  log "4/4 Nginx(docs 포함) 빌드 + 시작"
+  log "5/5 Nginx(docs 포함) 빌드 + 시작"
   docker compose build --no-cache nginx
   docker compose up -d nginx
   echo ""
@@ -200,11 +247,15 @@ cmd_deploy() {
   local INACTIVE
   INACTIVE=$(get_inactive)
 
+  # SSL 인증서 확인/자동 생성
+  _ensure_ssl_certs
+
   echo ""
   echo -e "${BOLD}Blue-Green 무중단 배포${NC}"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo -e "  현재 활성: ${GREEN}${ACTIVE}${NC}"
   echo -e "  배포 대상: ${CYAN}${INACTIVE}${NC} (먼저 업데이트)"
+  echo -e "  OIDC: ${OIDC_ISSUER}"
   if [ "$WITH_DOCS" = true ]; then
     echo -e "  docs-site: ${YELLOW}포함${NC} (nginx 컨테이너 교체됨)"
   fi
@@ -265,6 +316,15 @@ cmd_deploy() {
     warn "api-${ACTIVE} 헬스체크 실패 — 서비스에는 영향 없음 (${INACTIVE} 활성 중)"
   fi
   wait_healthy "dashboard-${ACTIVE}" 30 || true
+  echo ""
+
+  # ──────────────────────────────────────────
+  # Auth Server 업데이트 (stateless, no Blue-Green needed)
+  # ──────────────────────────────────────────
+  log "Auth Server 빌드 + 재시작"
+  docker compose build --no-cache auth
+  docker compose up -d auth
+  wait_healthy auth 30 || warn "auth 헬스체크 실패 — 서비스에 영향 없음"
   echo ""
 
   # ──────────────────────────────────────────
@@ -410,13 +470,24 @@ cmd_dev() {
   echo ""
 
   # Dev 이미지 빌드
-  log "[DEV] Step 2/3: 이미지 빌드 (api-dev + dashboard-dev + nginx-dev)"
+  # SSL 인증서 확인/자동 생성
+  _ensure_ssl_certs
+  echo ""
+
+  # Auth Server (프로덕션과 공유 — stateless)
+  log "[DEV] Step 2/4: Auth Server 시작"
+  docker compose build auth 2>/dev/null
+  docker compose up -d auth
+  wait_healthy auth 30 || warn "auth 헬스체크 실패"
+  echo ""
+
+  log "[DEV] Step 3/4: 이미지 빌드 (api-dev + dashboard-dev + nginx-dev)"
   $DEV_COMPOSE build --no-cache api-dev dashboard-dev nginx-dev
   echo ""
 
   # 컨테이너 시작 + 헬스체���
   # --no-deps: postgres/redis 등 공유 인프라를 건드리지 않음 (프로덕션 보호)
-  log "[DEV] Step 3/3: 컨테이너 시작 (프로덕션 인프라 보호 모드)"
+  log "[DEV] Step 4/4: 컨테이너 시작 (프로덕션 인프라 보호 모드)"
   $DEV_COMPOSE up -d --no-deps api-dev dashboard-dev nginx-dev
 
   if ! wait_healthy_dev api-dev 90; then
