@@ -434,7 +434,7 @@ wait_healthy_dev() {
   info "[DEV] ${service} 헬스체크 대기 중..."
 
   while [ $elapsed -lt $max_wait ]; do
-    container_id=$($DEV_COMPOSE ps -q "$service" 2>/dev/null || true)
+    container_id=$(docker ps -q --filter "name=agent-registry-${service}" 2>/dev/null | head -1 || true)
 
     if [ -z "$container_id" ]; then
       sleep 2
