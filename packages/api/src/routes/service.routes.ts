@@ -61,6 +61,14 @@ async function recordAudit(req: AuthenticatedRequest, action: string, target: st
 // ============================================
 async function detectAdminInfo(req: AuthenticatedRequest): Promise<void> {
   if (!req.user || req.adminRole) return; // 이미 설정되었으면 스킵
+
+  // 사용자의 departmentCode 조회 (visibilityScope 매칭용 — 관리자 여부와 무관하게 필요)
+  const userRecord = await prisma.user.findUnique({
+    where: { loginid: req.user.loginid },
+    select: { departmentCode: true },
+  });
+  req.adminDeptCode = userRecord?.departmentCode || '';
+
   const admin = await prisma.admin.findUnique({ where: { loginid: req.user.loginid } });
   if (admin) {
     req.isAdmin = true;
@@ -237,6 +245,7 @@ serviceRoutes.get('/employees/search', authenticateToken, async (req: Authentica
 // ============================================
 serviceRoutes.get('/', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
+    await detectAdminInfo(req);
     const loginid = req.user?.loginid || '';
     const userDeptCode = req.adminDeptCode || '';
     const isAdmin = req.adminRole === 'SUPER_ADMIN' || req.adminRole === 'ADMIN';
@@ -365,6 +374,7 @@ serviceRoutes.get('/all', authenticateToken, requireAdmin as RequestHandler, asy
 // ============================================
 serviceRoutes.get('/names', authenticateToken, async (req: AuthenticatedRequest, res) => {
   try {
+    await detectAdminInfo(req);
     const loginid = req.user?.loginid || '';
     const userDeptCode = req.adminDeptCode || '';
 
