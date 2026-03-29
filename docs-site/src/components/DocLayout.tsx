@@ -19,14 +19,13 @@ interface DocLayoutProps {
 }
 
 /** 코드 블록에 복사 버튼 추가 */
-function CodeBlockWithCopy({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+function CodeBlockWithCopy({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) {
   const [codeCopied, setCodeCopied] = useState(false);
   const copyCode = () => {
-    const el = document.createElement('div');
-    el.innerHTML = (children as React.ReactElement)?.props?.children || '';
-    const text = typeof (children as React.ReactElement)?.props?.children === 'string'
-      ? (children as React.ReactElement).props.children
-      : el.textContent || '';
+    // children에서 텍스트 추출
+    const child = children as React.ReactElement<{ children?: string }> | undefined;
+    const raw = child?.props?.children || '';
+    const text = typeof raw === 'string' ? raw : String(raw);
     navigator.clipboard.writeText(text).then(() => {
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 2000);
