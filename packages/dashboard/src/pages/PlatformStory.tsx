@@ -114,7 +114,7 @@ const timeline = [
   {
     date: '2026.03.29',
     title: '전체 엔드포인트 캐싱 + Precompute 워밍 + 실시간 갱신 UI',
-    desc: '미캐싱 22개 stats 엔드포인트에 withCache read-through 캐시 적용(총 28개). 60초 주기 캐시 워밍 서비스 도입 — 대시보드 batch 핵심 엔드포인트(by-service/by-dept/error-rate/health-status 등)를 백그라운드에서 사전 연��하여 Redis에 저장. thundering herd 완전 제거: 첫 유저도 캐시 히트, DB 부하가 유저 수와 무관하게 일정. 프론트엔드 데이터 갱신 시각 표시 + ��동 새로고침 버튼.',
+    desc: '미캐싱 22개 stats 엔드포인트에 withCache read-through 캐시 적용(총 28개). 60초 주기 캐시 워밍 서비스 도입 — 대시보드 batch 핵심 엔드포인트(by-service/by-dept/error-rate/health-status 등)를 백그라운드에서 사전 연산하여 Redis에 저장. thundering herd 완전 제거: 첫 유저도 캐시 히트, DB 부하가 유저 수와 무관하게 일정. 프론트엔드 데이터 갱신 시각 표시 + 수동 새로고침 버튼.',
     tags: ['withCache 전체 적용', 'Precompute 워밍', 'thundering herd 해결', '갱신 시각 UI'],
   },
   {
