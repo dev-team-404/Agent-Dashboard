@@ -64,6 +64,9 @@ x-dashboard-common: &dashboard-common
     args:
       <<: *proxy-env
       VITE_DEV_LOGIN: ${ENABLE_DEV_LOGIN:-}
+      VITE_AUTH_MODE: oidc
+      VITE_OIDC_ISSUER: ${OIDC_ISSUER:-https://a2g.samsungds.net:9050}
+      VITE_OIDC_CLIENT_ID: agent-dashboard
   restart: unless-stopped
   environment:
     <<: *proxy-env

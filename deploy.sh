@@ -229,16 +229,16 @@ cmd_init() {
   log "2/5 Blue 슬롯 빌드 + 시작"
   docker compose build --no-cache api-blue dashboard-blue
   docker compose up -d api-blue dashboard-blue
-  wait_healthy api-blue 90
-  wait_healthy dashboard-blue 30
+  wait_healthy api-blue 180
+  wait_healthy dashboard-blue 180
   echo ""
 
   # Green (Blue가 마이그레이션 완료 후)
   log "3/5 Green 슬롯 빌드 + 시작"
   docker compose build --no-cache api-green dashboard-green
   docker compose up -d api-green dashboard-green
-  wait_healthy api-green 90
-  wait_healthy dashboard-green 30
+  wait_healthy api-green 180
+  wait_healthy dashboard-green 180
   echo ""
 
   # Auth Server (stateless, no Blue-Green needed)
@@ -309,11 +309,11 @@ cmd_deploy() {
   log "Step 2/5: ${INACTIVE} 슬롯 컨테이너 재시작"
   docker compose up -d "api-${INACTIVE}" "dashboard-${INACTIVE}"
 
-  if ! wait_healthy "api-${INACTIVE}" 90; then
+  if ! wait_healthy "api-${INACTIVE}" 180; then
     err "api-${INACTIVE} 헬스체크 실패 — 배포 중단 (기존 서비스 영향 없음)"
     exit 1
   fi
-  if ! wait_healthy "dashboard-${INACTIVE}" 30; then
+  if ! wait_healthy "dashboard-${INACTIVE}" 180; then
     err "dashboard-${INACTIVE} 시작 실패 — 배포 중단 (기존 서비스 영향 없음)"
     exit 1
   fi
@@ -338,10 +338,10 @@ cmd_deploy() {
   docker compose build --no-cache "api-${ACTIVE}" "dashboard-${ACTIVE}"
   docker compose up -d "api-${ACTIVE}" "dashboard-${ACTIVE}"
 
-  if ! wait_healthy "api-${ACTIVE}" 90; then
+  if ! wait_healthy "api-${ACTIVE}" 180; then
     warn "api-${ACTIVE} 헬스체크 실패 — 서비스에는 영향 없음 (${INACTIVE} 활성 중)"
   fi
-  wait_healthy "dashboard-${ACTIVE}" 30 || true
+  wait_healthy "dashboard-${ACTIVE}" 180 || true
   echo ""
 
   # ──────────────────────────────────────────
@@ -523,11 +523,11 @@ cmd_dev() {
   log "[DEV] Step 4/4: 컨테이너 시작 (프로덕션 인프라 보호 모드)"
   $DEV_COMPOSE up -d api-dev dashboard-dev nginx-dev
 
-  if ! wait_healthy_dev api-dev 90; then
+  if ! wait_healthy_dev api-dev 180; then
     err "api-dev 헬스체크 실패"
     exit 1
   fi
-  if ! wait_healthy_dev dashboard-dev 30; then
+  if ! wait_healthy_dev dashboard-dev 180; then
     err "dashboard-dev 시작 실패"
     exit 1
   fi
