@@ -11,4 +11,4 @@ COPY src/ ./src/
 COPY tools/ ./tools/
 RUN npx tsc || true
 EXPOSE 9050
-CMD ["node", "--loader", "tsx", "src/index.ts"]
+CMD ["node", "--import", "tsx", "src/index.ts"]
