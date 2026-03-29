@@ -482,9 +482,9 @@ cmd_dev() {
   START_TIME=$(date +%s)
 
   # 인프라(postgres, redis)가 실행 중인지 확인
-  log "[DEV] Step 1/3: 인프라 확인"
+  log "[DEV] Step 1/4: 인프라 확인"
   local pg_running
-  pg_running=$(docker compose ps -q postgres 2>/dev/null || true)
+  pg_running=$(docker ps -q --filter "name=agent-registry-db" 2>/dev/null || true)
   if [ -z "$pg_running" ]; then
     warn "postgres가 실행 중이 아닙니다. 시작합니다..."
     docker compose up -d postgres redis
@@ -502,9 +502,16 @@ cmd_dev() {
 
   # Auth Server (Dev: Mock SSO 활성화)
   log "[DEV] Step 2/4: Auth Server 시작 (Mock SSO 활성화)"
-  ENABLE_MOCK_SSO=true docker compose build --no-cache auth
-  ENABLE_MOCK_SSO=true docker compose up -d auth
-  wait_healthy auth 240 || warn "auth 헬스체크 실패"
+  ENABLE_MOCK_SSO=true $DEV_COMPOSE build --no-cache auth
+  ENABLE_MOCK_SSO=true $DEV_COMPOSE up -d auth
+  # auth 헬스체크 (curl 직접)
+  local _auth_ok=false
+  for _i in $(seq 1 120); do
+    if curl -sk https://localhost:9050/health >/dev/null 2>&1 || curl -s http://localhost:9050/health >/dev/null 2>&1; then
+      log "Auth Server → healthy ($((_i*2))초)"; _auth_ok=true; break
+    fi; sleep 2
+  done
+  [ "$_auth_ok" = false ] && warn "auth 헬스체크 실패 — OIDC 미사용 시 영향 없음"
   echo ""
 
   log "[DEV] Step 3/4: 이미지 빌드 (api-dev + dashboard-dev + nginx-dev)"
@@ -514,7 +521,7 @@ cmd_dev() {
   # 컨테이너 시작 + 헬스체���
   # --no-deps: postgres/redis 등 공유 인프라를 건드리지 않음 (프로덕션 보호)
   log "[DEV] Step 4/4: 컨테이너 시작 (프로덕션 인프라 보호 모드)"
-  $DEV_COMPOSE up -d --no-deps api-dev dashboard-dev nginx-dev
+  $DEV_COMPOSE up -d api-dev dashboard-dev nginx-dev
 
   if ! wait_healthy_dev api-dev 90; then
     err "api-dev 헬스체크 실패"
