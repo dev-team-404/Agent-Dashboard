@@ -502,7 +502,7 @@ cmd_dev() {
 
   # Auth Server (Dev: Mock SSO 활성화)
   log "[DEV] Step 2/4: Auth Server 시작 (Mock SSO 활성화)"
-  ENABLE_MOCK_SSO=true docker compose build auth 2>/dev/null
+  ENABLE_MOCK_SSO=true docker compose build --no-cache auth
   ENABLE_MOCK_SSO=true docker compose up -d auth
   wait_healthy auth 240 || warn "auth 헬스체크 실패"
   echo ""
