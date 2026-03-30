@@ -303,20 +303,28 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   const loadData = async () => {
     try {
-      // 전체 병렬 로드 — Phase 1/2/3를 동시에 시작 (순차 대기 제거)
-      const [globalRes, healthStatusRes, gpuRes, predRes] = await Promise.all([
+      // Phase 1(Hero Stats) + Phase 2(GPU)를 동시 시작하되, GPU는 await하지 않음
+      // GPU SSH 타임아웃(30초)이 Hero Stats 표시를 차단하지 않도록 분리
+      const phase1 = Promise.all([
         statsApi.globalOverview(),
         statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
+      ]);
+
+      // GPU는 백그라운드 (느려도 Hero Stats에 영향 없음)
+      Promise.all([
         gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
         gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
-      ]);
+      ]).then(([gpuRes, predRes]) => {
+        setGpuData(gpuRes.data.data || []);
+        setGpuPrediction(predRes.data.prediction);
+      }).catch(() => {});
+
+      const [globalRes, healthStatusRes] = await phase1;
 
       setGlobalOverview(globalRes.data.services || []);
       setGlobalTotals(globalRes.data.totals || null);
       setHealthStatuses(healthStatusRes.data.statuses || {});
       setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
-      setGpuData(gpuRes.data.data || []);
-      setGpuPrediction(predRes.data.prediction);
 
       // Phase 3 stats — apply helper (shared by batch & fallback)
       const applyPhase3 = (d: Record<string, any>) => {
