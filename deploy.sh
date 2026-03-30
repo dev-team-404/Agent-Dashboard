@@ -244,7 +244,7 @@ cmd_init() {
   log "4/5 Auth Server 빌드 + 시작"
   docker compose build --no-cache auth
   docker compose up -d auth
-  wait_healthy auth 240
+  wait_healthy auth 30
   echo ""
 
   # Nginx + docs-site
@@ -349,7 +349,7 @@ cmd_deploy() {
   log "Auth Server 빌드 + 재시작"
   docker compose build --no-cache auth
   docker compose up -d auth
-  wait_healthy auth 240 || warn "auth 헬스체크 실패 — 서비스에 영향 없음"
+  wait_healthy auth 30 || warn "auth 헬스체크 실패 — 서비스에 영향 없음"
   echo ""
 
   # ──────────────────────────────────────────

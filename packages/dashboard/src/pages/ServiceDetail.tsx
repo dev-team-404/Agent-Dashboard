@@ -5,14 +5,14 @@ import {
   ArrowLeft, Plus, Edit2, Trash2, ChevronDown, ChevronRight, Loader2,
   Layers, ToggleLeft, ToggleRight, Search, Filter,
   Zap, MessageSquare, Image, Cpu, Sparkles, Mic,
-  AlertTriangle, X, Check, UserPlus, Users, FlaskConical,
+  AlertTriangle, X, Check, UserPlus, Users,
   Crown, Shield, User, Gauge, Server,
   Activity, TrendingUp, Hash, BarChart3, CalendarDays,
   Globe, Building2, Lock, ExternalLink,
   Ticket, Clock, Tag, Wifi, WifiOff, Timer,
   Copy,
 } from 'lucide-react';
-import { api, serviceApi, serviceRateLimitScopedApi, statsApi, testAccountApi, TestAccount } from '../services/api';
+import { api, serviceApi, serviceRateLimitScopedApi, statsApi } from '../services/api';
 import {
   Tooltip as RTooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -33,7 +33,7 @@ import UsageAnalytics from '../components/Charts/UsageAnalytics';
 // ════════════════════════════════════════════
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
-type TabId = 'dashboard' | 'members' | 'ratelimit' | 'models' | 'errors' | 'logs' | 'test-accounts';
+type TabId = 'dashboard' | 'members' | 'ratelimit' | 'models' | 'errors' | 'logs';
 
 interface ServiceDetailProps {
   user: { id: string; loginid: string; username: string; deptname: string };
@@ -140,7 +140,6 @@ const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
   { id: 'ratelimit', label: 'Rate Limit', icon: Gauge },
   { id: 'models', label: '모델 관리', icon: Layers },
   { id: 'errors', label: '에러 관리', icon: AlertTriangle },
-  { id: 'test-accounts', label: '테스트 계정', icon: FlaskConical },
 ];
 
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
@@ -429,7 +428,6 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
         {activeTab === 'ratelimit' && <RateLimitTab serviceId={serviceId!} />}
         {activeTab === 'models' && <ModelsTab serviceId={serviceId!} />}
         {activeTab === 'errors' && <ServiceErrorsTab serviceId={serviceId!} />}
-        {activeTab === 'test-accounts' && <TestAccountsTab serviceId={serviceId!} serviceName={service?.name || ''} />}
       </div>
 
       {showDetailGuide && (
@@ -2129,234 +2127,6 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════
-// Test Accounts Tab
-// ════════════════════════════════════════════
-
-function TestAccountsTab({ serviceId, serviceName }: { serviceId: string; serviceName: string }) {
-  const [accounts, setAccounts] = useState<TestAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const emptyForm = { loginid: '', username: '테스트 사용자', deptname: '', businessUnit: '', departmentCode: '', description: '', expiresAt: '' };
-  const [form, setForm] = useState(emptyForm);
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await testAccountApi.list(serviceId);
-      setAccounts(res.data);
-    } catch (err) {
-      console.error('Failed to load test accounts:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [serviceId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const openCreate = () => { setEditId(null); setForm(emptyForm); setError(null); setShowModal(true); };
-
-  const openEdit = (acct: TestAccount) => {
-    setEditId(acct.id);
-    setForm({
-      loginid: acct.loginid, username: acct.username, deptname: acct.deptname,
-      businessUnit: acct.businessUnit || '', departmentCode: acct.departmentCode || '',
-      description: acct.description || '', expiresAt: acct.expiresAt ? acct.expiresAt.slice(0, 16) : '',
-    });
-    setError(null); setShowModal(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.loginid) { setError('Login ID는 필수입니다.'); return; }
-    setSaving(true); setError(null);
-    try {
-      if (editId) {
-        await testAccountApi.update(serviceId, editId, {
-          loginid: form.loginid, username: form.username, deptname: form.deptname,
-          businessUnit: form.businessUnit || null, departmentCode: form.departmentCode || null,
-          description: form.description || null, expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
-        });
-      } else {
-        await testAccountApi.create(serviceId, {
-          loginid: form.loginid, username: form.username || undefined, deptname: form.deptname || undefined,
-          businessUnit: form.businessUnit || undefined, departmentCode: form.departmentCode || undefined,
-          description: form.description || undefined, expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined,
-        });
-      }
-      setShowModal(false); load();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
-    } finally { setSaving(false); }
-  };
-
-  const handleToggle = async (acct: TestAccount) => {
-    try { await testAccountApi.update(serviceId, acct.id, { enabled: !acct.enabled }); load(); } catch {}
-  };
-
-  const handleDelete = async (acct: TestAccount) => {
-    if (!confirm(`테스트 계정 '${acct.loginid}'을 삭제하시겠습니까?`)) return;
-    try { await testAccountApi.delete(serviceId, acct.id); load(); } catch {}
-  };
-
-  const isExpired = (acct: TestAccount) => acct.expiresAt && new Date(acct.expiresAt) < new Date();
-
-  if (loading) return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Knox 인증 없이 이 서비스에 접근할 수 있는 테스트 ID ({accounts.length}개)</p>
-        <button onClick={openCreate} className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium">
-          <Plus className="w-3.5 h-3.5" /> 추가
-        </button>
-      </div>
-
-      {/* Table */}
-      {accounts.length === 0 ? (
-        <div className="bg-gray-50 rounded-xl p-10 text-center">
-          <FlaskConical className="w-10 h-10 mx-auto mb-2 text-gray-300" />
-          <p className="text-gray-500">등록된 테스트 계정이 없습니다</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">Login ID</th>
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">이름</th>
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">부서</th>
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">설명</th>
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">상태</th>
-                <th className="text-left px-4 py-2.5 font-medium text-gray-600">만료</th>
-                <th className="text-right px-4 py-2.5 font-medium text-gray-600">작업</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {accounts.map(acct => (
-                <tr key={acct.id} className={`hover:bg-gray-50 ${!acct.enabled || isExpired(acct) ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-2.5 font-mono text-violet-700 font-medium">{acct.loginid}</td>
-                  <td className="px-4 py-2.5 text-gray-700">{acct.username}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{acct.deptname || '-'}</td>
-                  <td className="px-4 py-2.5 text-gray-500 max-w-[200px] truncate">{acct.description || '-'}</td>
-                  <td className="px-4 py-2.5">
-                    {isExpired(acct)
-                      ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700"><Clock className="w-3 h-3" />만료</span>
-                      : acct.enabled
-                        ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700">활성</span>
-                        : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">비활성</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-gray-500 text-xs">{acct.expiresAt ? new Date(acct.expiresAt).toLocaleDateString('ko-KR') : '무기한'}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => handleToggle(acct)} title={acct.enabled ? '비활성화' : '활성화'} className="p-1.5 rounded-md hover:bg-gray-100">
-                        {acct.enabled ? <ToggleRight className="w-4 h-4 text-green-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
-                      </button>
-                      <button onClick={() => openEdit(acct)} title="수정" className="p-1.5 rounded-md hover:bg-gray-100">
-                        <Edit2 className="w-4 h-4 text-gray-500" />
-                      </button>
-                      <button onClick={() => handleDelete(acct)} title="삭제" className="p-1.5 rounded-md hover:bg-red-50">
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Usage Guide */}
-      <div className="bg-violet-50 rounded-xl border border-violet-200 p-4">
-        <h3 className="text-xs font-semibold text-violet-900 mb-1.5">사용법</h3>
-        <pre className="bg-violet-100 rounded-lg p-3 text-xs font-mono overflow-x-auto text-violet-800">
-{`curl -X POST https://your-gateway/v1/chat/completions \\
-  -H "x-service-id: ${serviceName}" \\
-  -H "x-user-id: <테스트-login-id>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model": "your-model", "messages": [...]}'`}
-        </pre>
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-gray-900">{editId ? '테스트 계정 수정' : '테스트 계정 추가'}</h2>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-md hover:bg-gray-100"><X className="w-5 h-5 text-gray-400" /></button>
-            </div>
-
-            {error && (
-              <div className="mb-4 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />{error}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Login ID *</label>
-                <input type="text" value={form.loginid} onChange={e => setForm({ ...form, loginid: e.target.value })}
-                  placeholder="test-user-1 (영문, 숫자, ., _, -)"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
-                  <input type="text" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="테스트 사용자"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">부서명</label>
-                  <input type="text" value={form.deptname} onChange={e => setForm({ ...form, deptname: e.target.value })} placeholder="S/W혁신팀(S.LSI)"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">사업부</label>
-                  <input type="text" value={form.businessUnit} onChange={e => setForm({ ...form, businessUnit: e.target.value })} placeholder="S.LSI"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">부서코드</label>
-                  <input type="text" value={form.departmentCode} onChange={e => setForm({ ...form, departmentCode: e.target.value })} placeholder="scope 매칭용"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">용도 설명</label>
-                <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="통합 테스트용"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">만료일 (선택)</label>
-                <input type="datetime-local" value={form.expiresAt} onChange={e => setForm({ ...form, expiresAt: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" />
-                <p className="text-xs text-gray-500 mt-1">비워두면 무기한</p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-5">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">취소</button>
-              <button onClick={handleSave} disabled={saving}
-                className="px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50">
-                {saving ? '저장 중...' : editId ? '수정' : '생성'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

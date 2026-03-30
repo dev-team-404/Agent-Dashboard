@@ -36,7 +36,6 @@ x-api-common: &api-common
     KNOX_SYSTEM_ID: ${KNOX_SYSTEM_ID:-}
     KNOX_AUTH_TOKEN: ${KNOX_AUTH_TOKEN:-}
     KNOX_COMPANY_CODE: ${KNOX_COMPANY_CODE:-C10}
-    ENABLE_DEV_LOGIN: ${ENABLE_DEV_LOGIN:-}
     PORT: ${API_PORT:-3000}
   volumes:
     - ./cert:/app/cert:ro
@@ -63,7 +62,6 @@ x-dashboard-common: &dashboard-common
     dockerfile: Dockerfile
     args:
       <<: *proxy-env
-      VITE_DEV_LOGIN: ${ENABLE_DEV_LOGIN:-}
       VITE_AUTH_MODE: oidc
       VITE_OIDC_ISSUER: ${OIDC_ISSUER:-http://a2g.samsungds.net:8090}
       VITE_OIDC_CLIENT_ID: agent-dashboard

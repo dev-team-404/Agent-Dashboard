@@ -18,7 +18,6 @@ import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from '../services/orgTree.service.js';
-import { z } from 'zod';
 import { generateLogoForService } from '../services/logoGenerator.service.js';
 
 /**
@@ -35,6 +34,7 @@ function filterServiceHierarchy<T extends Record<string, unknown>>(service: T): 
   else if (nc1 && isTopLevelDivision(nc1)) { nc1 = 'none'; }
   return { ...service, center2Name: nc2, center1Name: nc1 };
 }
+import { z } from 'zod';
 
 export const serviceRoutes = Router();
 
@@ -2378,165 +2378,5 @@ serviceRoutes.get('/:id/error-logs', authenticateToken, (async (req: Authenticat
     console.error('Get service error logs error:', error);
     res.status(500).json({ error: 'Failed to get service error logs' });
   }
-}) as RequestHandler);
-
-// ============================================
-// 서비스별 테스트 계정 (Knox 인증 우회)
-// ============================================
-
-const testAccountCreateSchema = z.object({
-  loginid: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/, 'loginid는 영문, 숫자, ., _, - 만 허용'),
-  username: z.string().min(1).max(100).default('테스트 사용자'),
-  deptname: z.string().default(''),
-  businessUnit: z.string().optional(),
-  departmentCode: z.string().optional(),
-  description: z.string().optional(),
-  expiresAt: z.string().datetime().optional(),
-});
-
-const testAccountUpdateSchema = z.object({
-  loginid: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/).optional(),
-  username: z.string().min(1).max(100).optional(),
-  deptname: z.string().optional(),
-  businessUnit: z.string().optional().nullable(),
-  departmentCode: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  enabled: z.boolean().optional(),
-  expiresAt: z.string().datetime().optional().nullable(),
-});
-
-/**
- * GET /services/:id/test-accounts
- * 서비스의 테스트 계정 목록 (서비스 관리자만)
- */
-serviceRoutes.get('/:id/test-accounts', authenticateToken, (async (req: AuthenticatedRequest, res) => {
-  const serviceId = req.params.id;
-  if (!await canManageService(req, serviceId)) {
-    res.status(403).json({ error: 'Permission denied' });
-    return;
-  }
-
-  const accounts = await prisma.testAccount.findMany({
-    where: { serviceId },
-    orderBy: { createdAt: 'desc' },
-  });
-  res.json(accounts);
-}) as RequestHandler);
-
-/**
- * POST /services/:id/test-accounts
- * 테스트 계정 생성
- */
-serviceRoutes.post('/:id/test-accounts', authenticateToken, (async (req: AuthenticatedRequest, res) => {
-  const serviceId = req.params.id;
-  if (!await canManageService(req, serviceId)) {
-    res.status(403).json({ error: 'Permission denied' });
-    return;
-  }
-
-  const parsed = testAccountCreateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-    return;
-  }
-
-  const data = parsed.data;
-
-  const existing = await prisma.testAccount.findUnique({
-    where: { serviceId_loginid: { serviceId, loginid: data.loginid } },
-  });
-  if (existing) {
-    res.status(409).json({ error: `이미 '${data.loginid}' 테스트 계정이 존재합니다.` });
-    return;
-  }
-
-  const account = await prisma.testAccount.create({
-    data: {
-      serviceId,
-      loginid: data.loginid,
-      username: data.username,
-      deptname: data.deptname,
-      businessUnit: data.businessUnit,
-      departmentCode: data.departmentCode,
-      description: data.description,
-      expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
-      createdBy: req.user!.loginid,
-    },
-  });
-
-  res.status(201).json(account);
-}) as RequestHandler);
-
-/**
- * PUT /services/:id/test-accounts/:accountId
- * 테스트 계정 수정
- */
-serviceRoutes.put('/:id/test-accounts/:accountId', authenticateToken, (async (req: AuthenticatedRequest, res) => {
-  const { id: serviceId, accountId } = req.params;
-  if (!await canManageService(req, serviceId)) {
-    res.status(403).json({ error: 'Permission denied' });
-    return;
-  }
-
-  const existing = await prisma.testAccount.findFirst({ where: { id: accountId, serviceId } });
-  if (!existing) {
-    res.status(404).json({ error: 'Test account not found' });
-    return;
-  }
-
-  const parsed = testAccountUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Validation failed', details: parsed.error.flatten() });
-    return;
-  }
-
-  const data = parsed.data;
-
-  if (data.loginid && data.loginid !== existing.loginid) {
-    const dup = await prisma.testAccount.findUnique({
-      where: { serviceId_loginid: { serviceId, loginid: data.loginid } },
-    });
-    if (dup) {
-      res.status(409).json({ error: `이미 '${data.loginid}' 테스트 계정이 존재합니다.` });
-      return;
-    }
-  }
-
-  const account = await prisma.testAccount.update({
-    where: { id: accountId },
-    data: {
-      ...(data.loginid !== undefined && { loginid: data.loginid }),
-      ...(data.username !== undefined && { username: data.username }),
-      ...(data.deptname !== undefined && { deptname: data.deptname }),
-      ...(data.businessUnit !== undefined && { businessUnit: data.businessUnit }),
-      ...(data.departmentCode !== undefined && { departmentCode: data.departmentCode }),
-      ...(data.description !== undefined && { description: data.description }),
-      ...(data.enabled !== undefined && { enabled: data.enabled }),
-      ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt ? new Date(data.expiresAt) : null }),
-    },
-  });
-
-  res.json(account);
-}) as RequestHandler);
-
-/**
- * DELETE /services/:id/test-accounts/:accountId
- * 테스트 계정 삭제
- */
-serviceRoutes.delete('/:id/test-accounts/:accountId', authenticateToken, (async (req: AuthenticatedRequest, res) => {
-  const { id: serviceId, accountId } = req.params;
-  if (!await canManageService(req, serviceId)) {
-    res.status(403).json({ error: 'Permission denied' });
-    return;
-  }
-
-  const existing = await prisma.testAccount.findFirst({ where: { id: accountId, serviceId } });
-  if (!existing) {
-    res.status(404).json({ error: 'Test account not found' });
-    return;
-  }
-
-  await prisma.testAccount.delete({ where: { id: accountId } });
-  res.json({ success: true });
 }) as RequestHandler);
 
