@@ -207,9 +207,11 @@ async function checkAsrModel(model: {
       // Whisper 호환: multipart → /audio/transcriptions
       url = buildEndpointUrl(model.endpointUrl, '/audio/transcriptions');
       const formData = new FormData();
-      formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'healthcheck.wav');
+      // File API 사용 (Node.js Blob보다 안정적 — Content-Disposition filename 보장)
+      formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'healthcheck.wav', { type: 'audio/wav' }));
       formData.append('model', model.name);
       formData.append('response_format', 'json');
+      console.log(`[HealthCheck] ASR OPENAI_TRANSCRIBE → ${url} model=${model.name}`);
       response = await fetch(url, { method: 'POST', headers, body: formData, signal: controller.signal });
     } else {
       // AUDIO_URL: base64 → /chat/completions
@@ -234,6 +236,9 @@ async function checkAsrModel(model: {
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       errorMessage = `HTTP ${response.status}: ${text.substring(0, 500)}`;
+      console.warn(`[HealthCheck] ASR ${model.name} method=${method} url=${url} FAIL: ${errorMessage}`);
+    } else {
+      console.log(`[HealthCheck] ASR ${model.name} method=${method} url=${url} OK (${Date.now() - startTime}ms)`);
     }
   } catch (err) {
     url = model.endpointUrl;
@@ -245,6 +250,7 @@ async function checkAsrModel(model: {
       isTimeout = true;
     } else {
       errorMessage = msg;
+      console.warn(`[HealthCheck] ASR ${model.name} method=${method} url=${url} ERROR: ${msg}`);
     }
   }
 

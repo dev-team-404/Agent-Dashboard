@@ -569,62 +569,10 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runHealthCheck = async (model: Model) => {
     setHealthChecks(prev => ({ ...prev, [model.id]: 'loading' }));
-    const basePayload = {
-      endpointUrl: model.endpointUrl,
-      modelName: model.name,
-      apiKey: model.apiKey || undefined,
-      extraHeaders: model.extraHeaders || undefined,
-      extraBody: model.extraBody || undefined,
-    };
     try {
-      let result: HealthCheckResult;
-
-      if (model.type === 'IMAGE') {
-        const res = await modelsApi.testImage({ ...basePayload, imageProvider: model.imageProvider || undefined });
-        const d = res.data;
-        result = {
-          healthy: d.passed,
-          checks: { chatCompletion: { passed: d.imageGen?.passed ?? false, message: d.imageGen?.message || '', latencyMs: d.imageGen?.latencyMs || 0 } },
-          allPassed: d.passed,
-          message: d.passed ? 'Image generation OK' : (d.imageGen?.message || 'Image test failed'),
-          totalLatencyMs: d.imageGen?.latencyMs || 0,
-        };
-      } else if (model.type === 'EMBEDDING') {
-        const res = await modelsApi.testEmbedding(basePayload);
-        const d = res.data;
-        result = {
-          healthy: d.passed,
-          checks: { chatCompletion: { passed: d.embedding?.passed ?? false, message: d.embedding?.message || '', latencyMs: d.embedding?.latencyMs || 0 } },
-          allPassed: d.passed,
-          message: d.passed ? 'Embedding OK' : (d.embedding?.message || 'Embedding test failed'),
-          totalLatencyMs: d.embedding?.latencyMs || 0,
-        };
-      } else if (model.type === 'RERANKING') {
-        const res = await modelsApi.testRerank(basePayload);
-        const d = res.data;
-        result = {
-          healthy: d.passed,
-          checks: { chatCompletion: { passed: d.rerank?.passed ?? false, message: d.rerank?.message || '', latencyMs: d.rerank?.latencyMs || 0 } },
-          allPassed: d.passed,
-          message: d.passed ? 'Reranking OK' : (d.rerank?.message || 'Rerank test failed'),
-          totalLatencyMs: d.rerank?.latencyMs || 0,
-        };
-      } else if (model.type === 'ASR') {
-        const res = await modelsApi.testAsr({ ...basePayload, asrMethod: model.asrMethod || undefined });
-        const d = res.data;
-        result = {
-          healthy: d.passed,
-          checks: { chatCompletion: { passed: d.asr?.passed ?? false, message: d.asr?.message || '', latencyMs: d.asr?.latencyMs || 0 } },
-          allPassed: d.passed,
-          message: d.passed ? 'ASR OK' : (d.asr?.message || 'ASR test failed'),
-          totalLatencyMs: d.asr?.latencyMs || 0,
-        };
-      } else {
-        // CHAT (default)
-        const res = await modelsApi.testEndpoint(basePayload);
-        result = res.data.healthCheck || res.data;
-      }
-
+      // 서버사이드 헬스체크: DB에서 실제 API 키 사용 (마스킹된 키 전송 방지)
+      const res = await modelsApi.runHealthCheck(model.id);
+      const result: HealthCheckResult = res.data.healthCheck || res.data;
       setHealthChecks(prev => ({ ...prev, [model.id]: result }));
     } catch (error: any) {
       setHealthChecks(prev => ({

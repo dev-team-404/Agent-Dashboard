@@ -124,6 +124,8 @@ export const modelsApi = {
     api.post('/admin/models/test-rerank', data),
   testAsr: (data: { endpointUrl: string; modelName: string; apiKey?: string; extraHeaders?: Record<string, string>; asrMethod?: string }) =>
     api.post('/admin/models/test-asr', data),
+  // 서버사이드 헬스체크 (DB에서 실제 API 키 조회, 마스킹 이슈 없음)
+  runHealthCheck: (id: string) => api.post(`/admin/models/${id}/health-check`),
 };
 
 // Scope options API (for visibility dropdowns)

@@ -1699,10 +1699,12 @@ adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
         const url = buildAudioTranscriptionsUrl(endpointUrl);
 
         const formData = new FormData();
-        formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'test.wav');
+        // File API 사용 (Node.js Blob보다 안정적 — Content-Disposition filename 보장)
+        formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'test.wav', { type: 'audio/wav' }));
         formData.append('model', modelName);
         formData.append('response_format', 'json');
 
+        console.log(`[Test-ASR] OPENAI_TRANSCRIBE → ${url} model=${modelName} wavSize=${wavBuffer.byteLength}`);
         const response = await fetchWithTimeout(url, {
           method: 'POST',
           headers,
@@ -1779,11 +1781,172 @@ adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
       asr = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
     }
 
-    console.log(`[Test-ASR] Model "${modelName}" method=${method} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+    console.log(`[Test-ASR] Model "${modelName}" method=${method} url=${method === 'OPENAI_TRANSCRIBE' ? buildAudioTranscriptionsUrl(endpointUrl) : buildChatCompletionsUrl(endpointUrl)} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms) ${asr.message}`);
     res.json({ asr, passed: asr.passed });
   } catch (error) {
     console.error('Model test-asr error:', error);
     res.status(500).json({ error: 'Failed to test ASR model' });
+  }
+});
+
+/**
+ * POST /admin/models/:id/health-check
+ * 서버사이드 헬스체크 (DB에서 실제 API 키 조회 → 마스킹 이슈 없음)
+ * 모델 목록의 헬스체크 버튼용
+ */
+adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const model = await prisma.model.findUnique({
+      where: { id },
+      select: {
+        id: true, name: true, displayName: true, endpointUrl: true,
+        apiKey: true, extraHeaders: true, type: true,
+        asrMethod: true, imageProvider: true, extraBody: true,
+      },
+    });
+    if (!model) {
+      res.status(404).json({ error: 'Model not found' });
+      return;
+    }
+
+    const headers: Record<string, string> = {};
+    if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+    if (model.extraHeaders && typeof model.extraHeaders === 'object') {
+      for (const [k, v] of Object.entries(model.extraHeaders as Record<string, string>)) {
+        const lk = k.toLowerCase();
+        if (lk !== 'content-type' && lk !== 'authorization') headers[k] = v;
+      }
+    }
+
+    const startTime = Date.now();
+    let result: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+    try {
+      if (model.type === 'ASR') {
+        const method = model.asrMethod || 'AUDIO_URL';
+        const wavBuffer = generateSilentWavBuffer(1);
+
+        if (method === 'OPENAI_TRANSCRIBE') {
+          const url = buildAudioTranscriptionsUrl(model.endpointUrl);
+          const formData = new FormData();
+          formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'healthcheck.wav', { type: 'audio/wav' }));
+          formData.append('model', model.name);
+          formData.append('response_format', 'json');
+
+          console.log(`[HealthCheck-Manual] ASR OPENAI_TRANSCRIBE → ${url} model=${model.name}`);
+          const response = await fetchWithTimeout(url, { method: 'POST', headers, body: formData }, 60000);
+          const latencyMs = Date.now() - startTime;
+          const responseText = await response.text();
+
+          if (!response.ok) {
+            result = { passed: false, status: response.status, message: `HTTP ${response.status}: ${responseText.substring(0, 500)}`, latencyMs };
+          } else {
+            try {
+              const data = JSON.parse(responseText);
+              if (data.text !== undefined) {
+                result = { passed: true, status: response.status, message: `OK: ${data.text.length} chars`, latencyMs };
+              } else {
+                result = { passed: false, status: response.status, message: `Response missing "text" field: ${responseText.substring(0, 300)}`, latencyMs };
+              }
+            } catch {
+              result = { passed: false, status: response.status, message: `Not valid JSON: ${responseText.substring(0, 300)}`, latencyMs };
+            }
+          }
+        } else {
+          // AUDIO_URL
+          const url = buildChatCompletionsUrl(model.endpointUrl);
+          headers['Content-Type'] = 'application/json';
+          const response = await fetchWithTimeout(url, {
+            method: 'POST', headers,
+            body: JSON.stringify({
+              model: model.name,
+              messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: wavBuffer.toString('base64'), format: 'wav' } }] }],
+              max_tokens: 256, temperature: 0.0, stream: false,
+            }),
+          }, 60000);
+          const latencyMs = Date.now() - startTime;
+          const responseText = await response.text();
+
+          if (!response.ok) {
+            result = { passed: false, status: response.status, message: `HTTP ${response.status}: ${responseText.substring(0, 500)}`, latencyMs };
+          } else {
+            try {
+              const data = JSON.parse(responseText);
+              const content = data?.choices?.[0]?.message?.content;
+              result = content !== undefined
+                ? { passed: true, status: response.status, message: `OK: ${String(content).length} chars`, latencyMs }
+                : { passed: false, status: response.status, message: `Missing choices[0].message.content: ${responseText.substring(0, 300)}`, latencyMs };
+            } catch {
+              result = { passed: false, status: response.status, message: `Not valid JSON: ${responseText.substring(0, 300)}`, latencyMs };
+            }
+          }
+        }
+      } else if (model.type === 'IMAGE') {
+        // ComfyUI 등 이미지 모델
+        const url = model.endpointUrl.replace(/\/+$/, '');
+        const response = await fetchWithTimeout(`${url}/system_stats`, { method: 'GET', headers }, 30000);
+        const latencyMs = Date.now() - startTime;
+        result = response.ok
+          ? { passed: true, status: response.status, message: 'Image endpoint OK', latencyMs }
+          : { passed: false, status: response.status, message: `HTTP ${response.status}`, latencyMs };
+      } else if (model.type === 'EMBEDDING') {
+        const url = buildEmbeddingsUrl(model.endpointUrl);
+        headers['Content-Type'] = 'application/json';
+        const response = await fetchWithTimeout(url, {
+          method: 'POST', headers,
+          body: JSON.stringify({ model: model.name, input: 'health check' }),
+        }, 30000);
+        const latencyMs = Date.now() - startTime;
+        result = response.ok
+          ? { passed: true, status: response.status, message: 'Embedding OK', latencyMs }
+          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
+      } else if (model.type === 'RERANKING') {
+        const url = buildRerankUrl(model.endpointUrl);
+        headers['Content-Type'] = 'application/json';
+        const response = await fetchWithTimeout(url, {
+          method: 'POST', headers,
+          body: JSON.stringify({ model: model.name, query: 'test', documents: ['doc'], top_n: 1 }),
+        }, 30000);
+        const latencyMs = Date.now() - startTime;
+        result = response.ok
+          ? { passed: true, status: response.status, message: 'Rerank OK', latencyMs }
+          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
+      } else {
+        // CHAT (default)
+        const url = buildChatCompletionsUrl(model.endpointUrl);
+        headers['Content-Type'] = 'application/json';
+        const body: Record<string, unknown> = {
+          model: model.name,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 8, stream: false,
+        };
+        if (model.extraBody && typeof model.extraBody === 'object') {
+          Object.assign(body, model.extraBody);
+        }
+        const response = await fetchWithTimeout(url, {
+          method: 'POST', headers, body: JSON.stringify(body),
+        }, 30000);
+        const latencyMs = Date.now() - startTime;
+        result = response.ok
+          ? { passed: true, status: response.status, message: 'Chat OK', latencyMs }
+          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
+      }
+    } catch (err: any) {
+      result = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+    }
+
+    console.log(`[HealthCheck-Manual] ${model.displayName} (${model.type}) -> ${result.passed ? 'PASS' : 'FAIL'} (${result.latencyMs}ms) ${result.message}`);
+    res.json({
+      healthy: result.passed,
+      checks: { chatCompletion: { passed: result.passed, message: result.message, latencyMs: result.latencyMs } },
+      allPassed: result.passed,
+      message: result.message,
+      totalLatencyMs: result.latencyMs,
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({ error: 'Failed to run health check' });
   }
 });
 
