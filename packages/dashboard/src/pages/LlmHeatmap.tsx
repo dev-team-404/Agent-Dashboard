@@ -416,6 +416,44 @@ export default function LlmHeatmap() {
                 <p className="text-[10px] text-gray-500">{activeTab.desc}</p>
               </div>
 
+              {/* ── 피크/비피크/전체 평균 카드 ── */}
+              {(() => {
+                const peak = heatmap.filter(c => c.hour >= 14 && c.hour <= 16);
+                const offPeak = heatmap.filter(c => c.hour >= 20 || c.hour < 6);
+                const all = heatmap;
+
+                const calcAvg = (cells: HeatmapCell[]): { avg: string; count: number } => {
+                  const vals = cells.map(c => activeTab.getValue(c)).filter(v => v > 0);
+                  if (vals.length === 0) return { avg: '-', count: cells.length };
+                  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                  return { avg: activeTab.format(Math.round(mean * 10) / 10), count: vals.length };
+                };
+
+                const peakStats = calcAvg(peak);
+                const offStats = calcAvg(offPeak);
+                const allStats = calcAvg(all);
+
+                return (
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="bg-red-50 border border-red-100 rounded-lg p-2.5">
+                      <p className="text-[9px] font-semibold text-red-600 mb-0.5">피크타임 (14~16시)</p>
+                      <p className="text-lg font-black text-red-700 tabular-nums">{peakStats.avg}</p>
+                      <p className="text-[9px] text-red-400">{peakStats.count}건 평균</p>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                      <p className="text-[9px] font-semibold text-gray-500 mb-0.5">비업무시간 (20~06시)</p>
+                      <p className="text-lg font-black text-gray-700 tabular-nums">{offStats.avg}</p>
+                      <p className="text-[9px] text-gray-400">{offStats.count}건 평균</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5">
+                      <p className="text-[9px] font-semibold text-blue-600 mb-0.5">전체 (24시간)</p>
+                      <p className="text-lg font-black text-blue-700 tabular-nums">{allStats.avg}</p>
+                      <p className="text-[9px] text-blue-400">{allStats.count}건 평균</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Heatmap Grid */}
               <div className="overflow-x-auto">
                 <div className="min-w-[700px]">
