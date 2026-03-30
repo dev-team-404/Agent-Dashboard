@@ -293,6 +293,7 @@ export interface ServicePermission {
 
 export const unifiedUsersApi = {
   list: (filters?: UnifiedUserFilters) => api.get('/admin/unified-users', { params: filters }),
+  exportAll: (filters?: Omit<UnifiedUserFilters, 'page' | 'limit'>) => api.get('/admin/unified-users/export', { params: filters }),
   updatePermissions: (id: string, data: { globalRole?: string; servicePermissions?: ServicePermission[] }) =>
     api.put(`/admin/unified-users/${id}/permissions`, data),
 };

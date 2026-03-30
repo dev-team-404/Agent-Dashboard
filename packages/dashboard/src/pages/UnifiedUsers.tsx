@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle, UserPlus, RefreshCw, CheckCircle } from 'lucide-react';
+import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle, UserPlus, RefreshCw, CheckCircle, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { unifiedUsersApi, usersApi, knoxApi } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
 
@@ -83,6 +84,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
   const [knoxRegisterRole, setKnoxRegisterRole] = useState<'ADMIN' | 'SUPER_ADMIN'>('ADMIN');
   const [knoxRegistering, setKnoxRegistering] = useState(false);
   const [knoxRegisterSuccess, setKnoxRegisterSuccess] = useState('');
+
+  // Excel export state
+  const [exporting, setExporting] = useState(false);
 
   // Column resize state
   const [columnWidths, setColumnWidths] = useState({
@@ -315,6 +319,71 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
     setKnoxRegisterSuccess('');
   };
 
+  // Excel 전체 내보내기
+  const handleExportExcel = async () => {
+    try {
+      setExporting(true);
+      const res = await unifiedUsersApi.exportAll({
+        search: search || undefined,
+        serviceId: serviceFilter || undefined,
+        businessUnit: businessUnitFilter || undefined,
+        role: roleFilter || undefined,
+      });
+      const exportUsers: UnifiedUser[] = res.data.users;
+      if (exportUsers.length === 0) {
+        alert('내보낼 사용자가 없습니다.');
+        return;
+      }
+
+      // 전체 서비스 이름 목록 수집 (열 헤더용)
+      const serviceNameSet = new Set<string>();
+      exportUsers.forEach(u => u.serviceStats.forEach(s => serviceNameSet.add(s.serviceName)));
+      const serviceNames = [...serviceNameSet].sort();
+
+      // 행 데이터 생성
+      const rows = exportUsers.map((u, idx) => {
+        const row: Record<string, string | number> = {
+          'No': idx + 1,
+          '이름': decodeURIComponent(u.username),
+          'ID': u.loginid,
+          '부서': u.deptname,
+          '사업부': u.businessUnit || '',
+          '권한': u.globalRole === 'SUPER_ADMIN' ? '슈퍼관리자' : u.globalRole === 'ADMIN' ? '시스템 관리자' : '사용자',
+          '총 요청수': u.totalRequests,
+        };
+        // 서비스별 요청수 열
+        serviceNames.forEach(name => {
+          const stat = u.serviceStats.find(s => s.serviceName === name);
+          row[name] = stat ? stat.requestCount : 0;
+        });
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      // 열 너비 자동 조정
+      const colWidths = Object.keys(rows[0]).map(key => {
+        const maxLen = Math.max(
+          key.length,
+          ...rows.map(r => String(r[key] ?? '').length)
+        );
+        return { wch: Math.min(maxLen + 2, 30) };
+      });
+      ws['!cols'] = colWidths;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '사용자 목록');
+
+      const today = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `사용자_관리_${today}.xlsx`);
+    } catch (error) {
+      console.error('Excel export failed:', error);
+      alert('Excel 내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Knox 인증 초기화
   const handleResetVerification = async (userId: string) => {
     if (!confirm('Knox 인증을 초기화하시겠습니까? 다음 접근 시 재인증됩니다.')) return;
@@ -342,6 +411,14 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportExcel}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold"
+          >
+            <Download className="w-4 h-4" />
+            {exporting ? '내보내는 중...' : 'Excel 저장'}
+          </button>
           {isSuperAdmin && (
             <button
               onClick={() => setShowKnoxModal(true)}

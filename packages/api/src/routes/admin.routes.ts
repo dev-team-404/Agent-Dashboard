@@ -2187,6 +2187,117 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
 });
 
 /**
+ * GET /admin/unified-users/export
+ * 전체 사용자 목록 내보내기 (페이지네이션 없음)
+ * Query: ?search=, ?serviceId=, ?businessUnit=, ?role=
+ */
+adminRoutes.get('/unified-users/export', async (req: AuthenticatedRequest, res) => {
+  try {
+    const search = req.query['search'] as string | undefined;
+    const serviceId = req.query['serviceId'] as string | undefined;
+    const businessUnit = req.query['businessUnit'] as string | undefined;
+    const role = req.query['role'] as string | undefined;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whereClause: any = {
+      loginid: { not: 'anonymous' },
+    };
+
+    if (req.adminRole !== 'SUPER_ADMIN') {
+      const adminDept = req.adminDept || req.user?.deptname || '';
+      if (adminDept) {
+        whereClause.deptname = adminDept;
+      }
+    }
+
+    if (search) {
+      whereClause.OR = [
+        { loginid: { contains: search, mode: 'insensitive' } },
+        { username: { contains: search, mode: 'insensitive' } },
+        { deptname: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (businessUnit) {
+      whereClause.businessUnit = businessUnit;
+    }
+
+    if (serviceId) {
+      whereClause.userServices = { some: { serviceId } };
+    }
+
+    let adminLoginIds: string[] | undefined;
+    if (role === 'SUPER_ADMIN') {
+      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const dbSuperAdmins = await prisma.admin.findMany({
+        where: { role: 'SUPER_ADMIN' },
+        select: { loginid: true },
+      });
+      adminLoginIds = [...developers, ...dbSuperAdmins.map(a => a.loginid)];
+      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+    } else if (role === 'ADMIN') {
+      const dbAdmins = await prisma.admin.findMany({
+        where: { role: 'ADMIN' },
+        select: { loginid: true },
+      });
+      adminLoginIds = dbAdmins.map(a => a.loginid);
+      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+    } else if (role === 'USER') {
+      const allAdmins = await prisma.admin.findMany({ select: { loginid: true } });
+      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const adminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
+      whereClause.loginid = { notIn: [...adminIds], not: 'anonymous' };
+    }
+
+    const users = await prisma.user.findMany({
+      where: whereClause,
+      orderBy: { lastActive: 'desc' },
+      include: {
+        userServices: {
+          include: {
+            service: { select: { id: true, name: true, displayName: true } },
+          },
+        },
+        _count: { select: { usageLogs: true } },
+      },
+    });
+
+    const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
+    const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
+    const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    const mappedUsers = users.map(u => {
+      let globalRole: string = 'USER';
+      if (developers.includes(u.loginid)) {
+        globalRole = 'SUPER_ADMIN';
+      } else if (adminMap.has(u.loginid)) {
+        globalRole = adminMap.get(u.loginid)!;
+      }
+
+      return {
+        id: u.id,
+        loginid: u.loginid,
+        username: u.username,
+        deptname: u.deptname,
+        businessUnit: u.businessUnit,
+        globalRole,
+        totalRequests: u._count.usageLogs,
+        serviceStats: u.userServices.map(us => ({
+          serviceId: us.service.id,
+          serviceName: us.service.displayName,
+          requestCount: us.requestCount,
+        })),
+      };
+    });
+
+    res.json({ users: mappedUsers });
+  } catch (error) {
+    console.error('Export unified users error:', error);
+    res.status(500).json({ error: 'Failed to export unified users' });
+  }
+});
+
+/**
  * PUT /admin/unified-users/:id/permissions
  * 사용자 권한 변경
  * - SUPER_ADMIN: 모든 역할 변경 가능 (ADMIN, SUPER_ADMIN, USER)
