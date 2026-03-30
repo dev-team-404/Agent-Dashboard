@@ -145,9 +145,7 @@ services:
       <<: *proxy-env
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
-      SSL_ENABLED: "true"
-      SSL_CERT_FILE: /app/cert/server.crt
-      SSL_KEY_FILE: /app/cert/server.key
+      SSL_ENABLED: "false"
       ENABLE_MOCK_SSO: ${ENABLE_MOCK_SSO:-false}
       SSO_ENABLED: ${SSO_ENABLED:-true}
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-41211cae-1fda-49f7-a462-f01d51ed4b6d}
