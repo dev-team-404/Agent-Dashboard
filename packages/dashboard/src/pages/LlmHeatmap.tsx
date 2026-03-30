@@ -5,10 +5,15 @@ import LoadingSpinner from '../components/LoadingSpinner';
 
 // ── Types ──
 interface ModelEntry {
+  modelId: string;
   modelName: string;
-  resolvedModel: string | null;
+  displayName: string;
+  modelType: string;
+  enabled: boolean;
   totalCalls: number;
-  lastCall: string;
+  usageCalls: number;
+  requestCalls: number;
+  lastCall: string | null;
 }
 
 interface HeatmapCell {
@@ -101,7 +106,7 @@ export default function LlmHeatmap() {
       const list: ModelEntry[] = res.data.models || [];
       setModels(list);
       if (list.length > 0 && !selectedModel) {
-        setSelectedModel(list[0].modelName);
+        setSelectedModel(list[0].modelId);
       }
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -116,7 +121,7 @@ export default function LlmHeatmap() {
     try {
       setHeatmapLoading(true);
       const res = await api.get('/admin/stats/model-heatmap', {
-        params: { modelName: selectedModel, days },
+        params: { modelId: selectedModel, days },
       });
       setHeatmap(res.data.heatmap || []);
       setDaily(res.data.daily || []);
@@ -159,8 +164,8 @@ export default function LlmHeatmap() {
     if (!modelSearch) return models;
     const q = modelSearch.toLowerCase();
     return models.filter(m =>
-      m.modelName.toLowerCase().includes(q) ||
-      (m.resolvedModel && m.resolvedModel.toLowerCase().includes(q))
+      m.displayName.toLowerCase().includes(q) ||
+      m.modelName.toLowerCase().includes(q)
     );
   }, [models, modelSearch]);
 
@@ -270,19 +275,21 @@ export default function LlmHeatmap() {
         <div className="p-3 max-h-60 overflow-y-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
             {filteredModels.map(m => {
-              const isActive = m.modelName === selectedModel;
+              const isActive = m.modelId === selectedModel;
               const callRatio = m.totalCalls / maxModelCalls;
-              const lastCallAgo = getTimeAgo(m.lastCall);
-              const isRecent = Date.now() - new Date(m.lastCall).getTime() < 3600000; // 1h
+              const lastCallAgo = m.lastCall ? getTimeAgo(m.lastCall) : '-';
+              const isRecent = m.lastCall ? Date.now() - new Date(m.lastCall).getTime() < 3600000 : false;
 
               return (
                 <button
-                  key={m.modelName}
-                  onClick={() => setSelectedModel(m.modelName)}
+                  key={m.modelId}
+                  onClick={() => setSelectedModel(m.modelId)}
                   className={`relative text-left p-3 rounded-lg border-2 transition-all duration-200 group overflow-hidden ${
                     isActive
                       ? 'border-purple-500 bg-purple-50/80 shadow-md shadow-purple-100 ring-1 ring-purple-200'
-                      : 'border-gray-100 bg-white hover:border-gray-300 hover:shadow-sm'
+                      : m.enabled
+                        ? 'border-gray-100 bg-white hover:border-gray-300 hover:shadow-sm'
+                        : 'border-gray-100 bg-gray-50 opacity-60 hover:opacity-80'
                   }`}
                 >
                   {/* Activity bar background */}
@@ -295,14 +302,15 @@ export default function LlmHeatmap() {
 
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <span className={`text-xs font-bold truncate leading-tight ${isActive ? 'text-purple-800' : 'text-gray-800'}`}>
-                      {m.modelName}
+                      {m.displayName}
                     </span>
-                    <span className={`flex-shrink-0 w-2 h-2 rounded-full mt-0.5 ${isRecent ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`} />
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!m.enabled && <span className="text-[8px] text-red-400 font-medium">OFF</span>}
+                      <span className={`w-2 h-2 rounded-full mt-0.5 ${isRecent ? 'bg-green-400 animate-pulse' : m.enabled ? 'bg-gray-300' : 'bg-red-300'}`} />
+                    </div>
                   </div>
 
-                  {m.resolvedModel && m.resolvedModel !== m.modelName && (
-                    <p className="text-[10px] text-gray-400 truncate mb-1">→ {m.resolvedModel}</p>
-                  )}
+                  <p className="text-[10px] text-gray-400 truncate mb-1">{m.modelName} · {m.modelType}</p>
 
                   <div className="flex items-center justify-between">
                     <span className={`text-[11px] font-semibold tabular-nums ${isActive ? 'text-purple-600' : 'text-gray-600'}`}>
@@ -336,7 +344,7 @@ export default function LlmHeatmap() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
           {heatmapLoading ? (
             <div className="flex items-center justify-center py-20">
-              <LoadingSpinner message={`${selectedModel} 데이터 로딩 중...`} />
+              <LoadingSpinner message={`${models.find(m => m.modelId === selectedModel)?.displayName || ''} 데이터 로딩 중...`} />
             </div>
           ) : heatmap.length === 0 ? (
             <div className="text-center py-20 text-gray-400">

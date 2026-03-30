@@ -6328,33 +6328,47 @@ adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
 
 /**
  * GET /admin/stats/model-heatmap/models
- * 히트맵용 모델 목록 (RequestLog에 실제 기록이 있는 모델만)
+ * 히트맵용 모델 목록 — models 테이블 기준 (displayName 표시)
+ * usage_logs + request_logs 양쪽에서 호출 수/마지막 호출 집계
  */
 adminRoutes.get('/stats/model-heatmap/models', requireSuperAdmin as RequestHandler, async (_req: AuthenticatedRequest, res) => {
   try {
     const result = await withCache(redis, 'cache:admin:model-heatmap:models', 120, async () => {
       const models = await prisma.$queryRaw<Array<{
-        model_name: string;
-        resolved_model: string | null;
-        total_calls: bigint;
-        last_call: Date;
+        id: string;
+        name: string;
+        display_name: string;
+        model_type: string;
+        enabled: boolean;
+        usage_calls: bigint;
+        request_calls: bigint;
+        last_usage: Date | null;
+        last_request: Date | null;
       }>>`
         SELECT
-          model_name,
-          resolved_model,
-          COUNT(*)::bigint as total_calls,
-          MAX(timestamp) as last_call
-        FROM request_logs
-        WHERE timestamp >= NOW() - INTERVAL '30 days'
-        GROUP BY model_name, resolved_model
-        ORDER BY COUNT(*) DESC
+          m.id,
+          m.name,
+          m."displayName" as display_name,
+          m.model_type,
+          m.enabled,
+          COALESCE((SELECT COUNT(*)::bigint FROM usage_logs ul WHERE ul.model_id = m.id AND ul.timestamp >= NOW() - INTERVAL '90 days'), 0) as usage_calls,
+          COALESCE((SELECT COUNT(*)::bigint FROM request_logs rl WHERE (rl.model_name = m.name OR rl.resolved_model = m.name) AND rl.timestamp >= NOW() - INTERVAL '90 days'), 0) as request_calls,
+          (SELECT MAX(ul.timestamp) FROM usage_logs ul WHERE ul.model_id = m.id) as last_usage,
+          (SELECT MAX(rl.timestamp) FROM request_logs rl WHERE (rl.model_name = m.name OR rl.resolved_model = m.name)) as last_request
+        FROM models m
+        ORDER BY m.sort_order, m."displayName"
       `;
 
       return models.map(m => ({
-        modelName: m.model_name,
-        resolvedModel: m.resolved_model,
-        totalCalls: Number(m.total_calls),
-        lastCall: m.last_call,
+        modelId: m.id,
+        modelName: m.name,
+        displayName: m.display_name,
+        modelType: m.model_type,
+        enabled: m.enabled,
+        totalCalls: Number(m.usage_calls) + Number(m.request_calls),
+        usageCalls: Number(m.usage_calls),
+        requestCalls: Number(m.request_calls),
+        lastCall: m.last_usage || m.last_request || null,
       }));
     });
 
@@ -6367,94 +6381,180 @@ adminRoutes.get('/stats/model-heatmap/models', requireSuperAdmin as RequestHandl
 
 /**
  * GET /admin/stats/model-heatmap
- * 모델별 날짜×시간 히트맵 데이터
- * Query: ?modelName=xxx&days=30
- * Returns: date × hour grid with avgLatency, timeoutCount, callCount
+ * 모델별 날짜×시간 히트맵 데이터 — modelId 기준
+ * Query: ?modelId=xxx&days=30
+ * usage_logs (성공) + request_logs (에러 포함) 양쪽 집계
  */
 adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
-    const modelName = (req.query['modelName'] as string) || '';
+    const modelId = (req.query['modelId'] as string) || '';
     const days = Math.min(90, Math.max(7, parseInt(req.query['days'] as string) || 30));
 
-    if (!modelName) {
-      return res.status(400).json({ error: 'modelName is required' });
+    if (!modelId) {
+      return res.status(400).json({ error: 'modelId is required' });
     }
 
-    const cacheKey = `cache:admin:model-heatmap:${modelName}:${days}`;
+    // 모델 존재 확인 + name 조회
+    const model = await prisma.model.findUnique({ where: { id: modelId }, select: { id: true, name: true, displayName: true } });
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    const cacheKey = `cache:admin:model-heatmap:${modelId}:${days}`;
     const result = await withCache(redis, cacheKey, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // 날짜×시간 집계 — KST 기준
-      const heatmapData = await prisma.$queryRaw<Array<{
+      // usage_logs 기반 히트맵 (성공 호출 — latency, token 정보 있음)
+      const usageHeatmap = await prisma.$queryRaw<Array<{
         dt: string;
         hr: number;
         avg_latency: number | null;
         p95_latency: number | null;
-        timeout_count: bigint;
-        error_count: bigint;
         call_count: bigint;
-        success_count: bigint;
+        total_tokens: bigint;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
-          AVG(CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as avg_latency,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as p95_latency,
-          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count,
+          AVG(latency_ms)::float as avg_latency,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float as p95_latency,
           COUNT(*)::bigint as call_count,
-          COUNT(CASE WHEN status_code >= 200 AND status_code < 400 THEN 1 END)::bigint as success_count
-        FROM request_logs
-        WHERE model_name = ${modelName}
+          SUM(COALESCE(total_tokens, 0))::bigint as total_tokens
+        FROM usage_logs
+        WHERE model_id = ${modelId}
           AND timestamp >= ${startDate}
         GROUP BY dt, hr
         ORDER BY dt, hr
       `;
 
-      // 일별 요약
+      // request_logs 기반 에러/타임아웃 집계
+      const errorHeatmap = await prisma.$queryRaw<Array<{
+        dt: string;
+        hr: number;
+        timeout_count: bigint;
+        error_count: bigint;
+        total_requests: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count,
+          COUNT(*)::bigint as total_requests
+        FROM request_logs
+        WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
+          AND timestamp >= ${startDate}
+        GROUP BY dt, hr
+        ORDER BY dt, hr
+      `;
+
+      // 두 소스 병합 — (date, hour) 기준
+      const merged = new Map<string, {
+        date: string; hour: number;
+        avgLatency: number | null; p95Latency: number | null;
+        callCount: number; totalTokens: number;
+        timeoutCount: number; errorCount: number; totalRequests: number;
+      }>();
+
+      for (const u of usageHeatmap) {
+        const key = `${u.dt}|${u.hr}`;
+        merged.set(key, {
+          date: u.dt, hour: u.hr,
+          avgLatency: u.avg_latency ? Math.round(u.avg_latency) : null,
+          p95Latency: u.p95_latency ? Math.round(u.p95_latency) : null,
+          callCount: Number(u.call_count),
+          totalTokens: Number(u.total_tokens),
+          timeoutCount: 0, errorCount: 0, totalRequests: 0,
+        });
+      }
+      for (const e of errorHeatmap) {
+        const key = `${e.dt}|${e.hr}`;
+        const existing = merged.get(key);
+        if (existing) {
+          existing.timeoutCount = Number(e.timeout_count);
+          existing.errorCount = Number(e.error_count);
+          existing.totalRequests = Number(e.total_requests);
+        } else {
+          merged.set(key, {
+            date: e.dt, hour: e.hr,
+            avgLatency: null, p95Latency: null,
+            callCount: 0, totalTokens: 0,
+            timeoutCount: Number(e.timeout_count),
+            errorCount: Number(e.error_count),
+            totalRequests: Number(e.total_requests),
+          });
+        }
+      }
+
+      const heatmap = [...merged.values()]
+        .sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour)
+        .map(cell => ({
+          date: cell.date,
+          hour: cell.hour,
+          avgLatency: cell.avgLatency,
+          p95Latency: cell.p95Latency,
+          timeoutCount: cell.timeoutCount,
+          errorCount: cell.errorCount,
+          callCount: cell.callCount + cell.errorCount, // 성공(usage) + 에러(request)
+          successCount: cell.callCount,
+        }));
+
+      // 일별 요약 (usage_logs 기준)
       const dailySummary = await prisma.$queryRaw<Array<{
         dt: string;
         avg_latency: number | null;
         call_count: bigint;
-        timeout_count: bigint;
-        error_count: bigint;
         unique_users: bigint;
+        total_tokens: bigint;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
-          AVG(CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as avg_latency,
+          AVG(latency_ms)::float as avg_latency,
           COUNT(*)::bigint as call_count,
-          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count,
-          COUNT(DISTINCT user_id)::bigint as unique_users
-        FROM request_logs
-        WHERE model_name = ${modelName}
+          COUNT(DISTINCT user_id)::bigint as unique_users,
+          SUM(COALESCE(total_tokens, 0))::bigint as total_tokens
+        FROM usage_logs
+        WHERE model_id = ${modelId}
           AND timestamp >= ${startDate}
         GROUP BY dt
         ORDER BY dt
       `;
 
+      // 일별 에러 집계 (request_logs)
+      const dailyErrors = await prisma.$queryRaw<Array<{
+        dt: string;
+        timeout_count: bigint;
+        error_count: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count
+        FROM request_logs
+        WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
+          AND timestamp >= ${startDate}
+        GROUP BY dt
+      `;
+
+      const errorMap = new Map(dailyErrors.map(e => [e.dt, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+
       return {
-        heatmap: heatmapData.map(row => ({
-          date: row.dt,
-          hour: row.hr,
-          avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
-          p95Latency: row.p95_latency ? Math.round(row.p95_latency) : null,
-          timeoutCount: Number(row.timeout_count),
-          errorCount: Number(row.error_count),
-          callCount: Number(row.call_count),
-          successCount: Number(row.success_count),
-        })),
-        daily: dailySummary.map(row => ({
-          date: row.dt,
-          avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
-          callCount: Number(row.call_count),
-          timeoutCount: Number(row.timeout_count),
-          errorCount: Number(row.error_count),
-          uniqueUsers: Number(row.unique_users),
-        })),
-        modelName,
+        heatmap,
+        daily: dailySummary.map(row => {
+          const errs = errorMap.get(row.dt);
+          return {
+            date: row.dt,
+            avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
+            callCount: Number(row.call_count) + (errs?.error || 0),
+            timeoutCount: errs?.timeout || 0,
+            errorCount: errs?.error || 0,
+            uniqueUsers: Number(row.unique_users),
+          };
+        }),
+        modelId,
+        modelName: model.name,
+        displayName: model.displayName,
         days,
       };
     });
