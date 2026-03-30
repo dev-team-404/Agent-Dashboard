@@ -187,7 +187,7 @@ function isServiceVisibleByScope(
     case 'BUSINESS_UNIT':
       return isUnderAnyScope(userDeptCode, service.deployScopeValue);
     case 'TEAM':
-      return service.deployScopeValue.includes(userDeptCode);
+      return isUnderAnyScope(userDeptCode, service.deployScopeValue);
     default:
       return true;
   }
