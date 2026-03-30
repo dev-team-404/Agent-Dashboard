@@ -319,7 +319,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
     setKnoxRegisterSuccess('');
   };
 
-  // Excel 전체 내보내기 (월별 탭)
+  // Excel 전체 내보내기 (월별 탭 + 외부 서비스 포함)
   const handleExportExcel = async () => {
     try {
       setExporting(true);
@@ -332,14 +332,18 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       const exportUsers: UnifiedUser[] = res.data.users;
       const monthly: Record<string, Record<string, Record<string, number>>> = res.data.monthly || {};
       const serviceMapRaw: Record<string, string> = res.data.serviceMap || {};
+      // 외부 API 데이터: { "2026-03": { "username": { count, dept, lwrDept } } }
+      const externalRoo: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = res.data.externalRoo || {};
+      const externalCodemate: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = res.data.externalCodemate || {};
 
-      if (exportUsers.length === 0) {
+      if (exportUsers.length === 0 && Object.keys(externalRoo).length === 0 && Object.keys(externalCodemate).length === 0) {
         alert('내보낼 사용자가 없습니다.');
         return;
       }
 
-      // 유저 맵 (id → user)
+      // 유저 맵 (id → user), loginid → user
       const userMap = new Map(exportUsers.map(u => [u.id, u]));
+      const loginMap = new Map(exportUsers.map(u => [u.loginid, u]));
 
       // 전체 서비스 이름 목록 수집
       const serviceNameSet = new Set<string>();
@@ -363,10 +367,41 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
       const wb = XLSX.utils.book_new();
 
+      // 외부 데이터 전체 합산 (loginid → { roo: total, codemate: total })
+      const externalTotals = new Map<string, { roo: number; codemate: number; dept: string; lwrDept: string }>();
+      for (const monthData of Object.values(externalRoo)) {
+        for (const [uname, info] of Object.entries(monthData)) {
+          const prev = externalTotals.get(uname) || { roo: 0, codemate: 0, dept: info.dept, lwrDept: info.lwrDept };
+          prev.roo += info.count;
+          if (info.dept) prev.dept = info.dept;
+          if (info.lwrDept) prev.lwrDept = info.lwrDept;
+          externalTotals.set(uname, prev);
+        }
+      }
+      for (const monthData of Object.values(externalCodemate)) {
+        for (const [uname, info] of Object.entries(monthData)) {
+          const prev = externalTotals.get(uname) || { roo: 0, codemate: 0, dept: info.dept, lwrDept: info.lwrDept };
+          prev.codemate += info.count;
+          if (info.dept) prev.dept = info.dept;
+          if (info.lwrDept) prev.lwrDept = info.lwrDept;
+          externalTotals.set(uname, prev);
+        }
+      }
+
+      // 외부에만 존재하는 사용자 수집
+      const externalOnlyUsers = new Set<string>();
+      externalTotals.forEach((_, uname) => {
+        if (!loginMap.has(uname)) externalOnlyUsers.add(uname);
+      });
+
       // 1) 전체 합산 시트
-      const totalRows = exportUsers.map((u, idx) => {
+      const totalRows: Record<string, string | number>[] = [];
+      let no = 0;
+      // 내부 사용자
+      exportUsers.forEach(u => {
+        no++;
         const row: Record<string, string | number> = {
-          'No': idx + 1,
+          'No': no,
           '이름': decodeURIComponent(u.username),
           'ID': u.loginid,
           '부서': u.deptname,
@@ -378,56 +413,105 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
           const stat = u.serviceStats.find(s => s.serviceName === name);
           row[name] = stat ? stat.requestCount : 0;
         });
-        return row;
+        const ext = externalTotals.get(u.loginid);
+        row['Codemate with Roo'] = ext?.roo || 0;
+        row['Codemate'] = ext?.codemate || 0;
+        totalRows.push(row);
+      });
+      // 외부에만 존재하는 사용자
+      externalOnlyUsers.forEach(uname => {
+        no++;
+        const ext = externalTotals.get(uname)!;
+        const row: Record<string, string | number> = {
+          'No': no,
+          '이름': uname,
+          'ID': uname,
+          '부서': ext.lwrDept || ext.dept || '',
+          '사업부': ext.dept || '',
+          '권한': '-',
+          '총 요청수': 0,
+        };
+        serviceNames.forEach(name => { row[name] = 0; });
+        row['Codemate with Roo'] = ext.roo;
+        row['Codemate'] = ext.codemate;
+        totalRows.push(row);
       });
       XLSX.utils.book_append_sheet(wb, createSheet(totalRows), '전체');
 
-      // 2) 월별 시트 (최신 월 순)
-      const months = Object.keys(monthly).sort().reverse();
-      for (const month of months) {
-        const monthData = monthly[month];
-        // 해당 월에 활동이 있는 유저만 포함
-        const activeUserIds = Object.keys(monthData);
-        if (activeUserIds.length === 0) continue;
+      // 2) 월별 시트 (모든 월 통합: 내부 + 외부)
+      const allMonthsSet = new Set([
+        ...Object.keys(monthly),
+        ...Object.keys(externalRoo),
+        ...Object.keys(externalCodemate),
+      ]);
+      const months = [...allMonthsSet].sort().reverse();
 
-        // 해당 월에 사용된 서비스 이름 수집
+      for (const month of months) {
+        const monthData = monthly[month] || {};
+        const rooMonth = externalRoo[month] || {};
+        const cmMonth = externalCodemate[month] || {};
+
+        // 해당 월 활동 사용자 수집 (loginid 기준)
+        const monthLoginIds = new Set<string>();
+
+        // 내부 유저 (userId → loginid 변환)
+        Object.keys(monthData).forEach(uid => {
+          const user = userMap.get(uid);
+          if (user) monthLoginIds.add(user.loginid);
+        });
+        // 외부 유저
+        Object.keys(rooMonth).forEach(u => monthLoginIds.add(u));
+        Object.keys(cmMonth).forEach(u => monthLoginIds.add(u));
+
+        if (monthLoginIds.size === 0) continue;
+
+        // 해당 월 내부 서비스 이름 수집
         const monthServiceIds = new Set<string>();
-        activeUserIds.forEach(uid => {
+        Object.keys(monthData).forEach(uid => {
           Object.keys(monthData[uid]).forEach(sid => monthServiceIds.add(sid));
         });
         const monthServiceNames = [...monthServiceIds]
           .map(sid => svcIdToName.get(sid) || sid)
           .sort();
 
-        let rowNum = 0;
-        const rows = activeUserIds
-          .map(uid => {
-            const user = userMap.get(uid);
-            if (!user) return null;
-            rowNum++;
-            const row: Record<string, string | number> = {
-              'No': rowNum,
-              '이름': decodeURIComponent(user.username),
-              'ID': user.loginid,
-              '부서': user.deptname,
-              '사업부': user.businessUnit || '',
-              '권한': user.globalRole === 'SUPER_ADMIN' ? '슈퍼관리자' : user.globalRole === 'ADMIN' ? '시스템 관리자' : '사용자',
-            };
-            let monthTotal = 0;
+        const rows: Record<string, string | number>[] = [];
+        monthLoginIds.forEach(loginid => {
+          const user = loginMap.get(loginid);
+          const row: Record<string, string | number> = {
+            'No': 0,
+            '이름': user ? decodeURIComponent(user.username) : loginid,
+            'ID': loginid,
+            '부서': user?.deptname || rooMonth[loginid]?.lwrDept || cmMonth[loginid]?.lwrDept || '',
+            '사업부': user?.businessUnit || rooMonth[loginid]?.dept || cmMonth[loginid]?.dept || '',
+          };
+
+          let monthTotal = 0;
+          // 내부 서비스 수치
+          if (user) {
+            const uid = user.id;
             monthServiceNames.forEach(svcName => {
-              // 서비스 이름으로 ID 역조회
               const svcId = [...svcIdToName.entries()].find(([, n]) => n === svcName)?.[0] || '';
-              const count = monthData[uid][svcId] || 0;
+              const count = monthData[uid]?.[svcId] || 0;
               row[svcName] = count;
               monthTotal += count;
             });
-            row['월 합계'] = monthTotal;
-            return row;
-          })
-          .filter((r): r is Record<string, string | number> => r !== null)
-          .sort((a, b) => (b['월 합계'] as number) - (a['월 합계'] as number));
+          } else {
+            monthServiceNames.forEach(svcName => { row[svcName] = 0; });
+          }
 
-        // 시트 이름에 / 사용 불가 → YYYY-MM 형식 그대로 사용
+          const rooCount = rooMonth[loginid]?.count || 0;
+          const cmCount = cmMonth[loginid]?.count || 0;
+          row['Codemate with Roo'] = rooCount;
+          row['Codemate'] = cmCount;
+          monthTotal += rooCount + cmCount;
+          row['월 합계'] = monthTotal;
+          rows.push(row);
+        });
+
+        // 월 합계 내림차순 정렬 + No 재부여
+        rows.sort((a, b) => (b['월 합계'] as number) - (a['월 합계'] as number));
+        rows.forEach((r, i) => { r['No'] = i + 1; });
+
         XLSX.utils.book_append_sheet(wb, createSheet(rows), month);
       }
 
