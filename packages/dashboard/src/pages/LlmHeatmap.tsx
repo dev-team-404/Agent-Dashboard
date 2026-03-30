@@ -99,6 +99,7 @@ export default function LlmHeatmap() {
   const [daily, setDaily] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [heatmapError, setHeatmapError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
   const [hmTab, setHmTab] = useState<HeatmapTab>('callCount');
   const [modelSearch, setModelSearch] = useState('');
@@ -125,12 +126,17 @@ export default function LlmHeatmap() {
     if (!selectedModel) return;
     try {
       setHeatmapLoading(true);
+      setHeatmapError(null);
       const res = await api.get('/admin/stats/model-heatmap', {
         params: { modelId: selectedModel, days },
       });
       setHeatmap(res.data.heatmap || []);
       setDaily(res.data.daily || []);
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string }; status?: number } })?.response?.data?.error
+        || (err as { response?: { status?: number } })?.response?.status
+        || (err as Error)?.message || 'Unknown error';
+      setHeatmapError(String(msg));
       console.error('Failed to load heatmap:', err);
     } finally {
       setHeatmapLoading(false);
@@ -372,6 +378,12 @@ export default function LlmHeatmap() {
           {heatmapLoading ? (
             <div className="flex items-center justify-center py-20">
               <LoadingSpinner message={`${models.find(m => m.modelId === selectedModel)?.displayName || ''} 데이터 로딩 중...`} />
+            </div>
+          ) : heatmapError ? (
+            <div className="text-center py-16">
+              <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+              <p className="text-sm font-medium text-red-600 mb-1">데이터 로딩 실패</p>
+              <p className="text-xs text-red-400 font-mono">{heatmapError}</p>
             </div>
           ) : heatmap.length === 0 ? (
             <div className="text-center py-20 text-gray-400">

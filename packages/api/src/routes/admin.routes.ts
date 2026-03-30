@@ -6396,15 +6396,15 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
       const heatmapData = await prisma.$queryRaw<Array<{
         dt: string; hr: number;
         avg_latency: number | null; p95_latency: number | null;
-        call_count: bigint; total_tokens: bigint;
+        call_count: number; total_tokens: number;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
           AVG(latency_ms)::float as avg_latency,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float as p95_latency,
-          COUNT(*)::bigint as call_count,
-          SUM(COALESCE(total_tokens, 0))::bigint as total_tokens
+          CASE WHEN COUNT(latency_ms) > 0 THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float END as p95_latency,
+          COUNT(*)::int as call_count,
+          SUM(COALESCE(total_tokens, 0))::int as total_tokens
         FROM usage_logs
         WHERE model_id = ${modelId} AND timestamp >= ${startDate}
         GROUP BY dt, hr
@@ -6414,13 +6414,13 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
       // request_logs — 에러/타임아웃 히트맵
       const errorData = await prisma.$queryRaw<Array<{
         dt: string; hr: number;
-        timeout_count: bigint; error_count: bigint;
+        timeout_count: number; error_count: number;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
-          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
         FROM request_logs
         WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
           AND timestamp >= ${startDate}
@@ -6431,16 +6431,18 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
       const healthData = await prisma.$queryRaw<Array<{
         dt: string; hr: number;
         avg_latency: number | null; p95_latency: number | null;
-        check_count: bigint; success_count: bigint; fail_count: bigint;
+        check_count: number; success_count: number; fail_count: number;
       }>>`
         SELECT
           TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           EXTRACT(HOUR FROM checked_at AT TIME ZONE 'Asia/Seoul')::int as hr,
           AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as p95_latency,
-          COUNT(*)::bigint as check_count,
-          COUNT(CASE WHEN success THEN 1 END)::bigint as success_count,
-          COUNT(CASE WHEN NOT success THEN 1 END)::bigint as fail_count
+          CASE WHEN COUNT(CASE WHEN success AND latency_ms >= 0 THEN 1 END) > 0
+            THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float
+          END as p95_latency,
+          COUNT(*)::int as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::int as success_count,
+          COUNT(CASE WHEN NOT success THEN 1 END)::int as fail_count
         FROM health_check_logs
         WHERE model_id = ${modelId} AND checked_at >= ${startDate}
         GROUP BY dt, hr
@@ -6519,25 +6521,25 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
       // 일별 요약
       const dailyData = await prisma.$queryRaw<Array<{
         dt: string; avg_latency: number | null;
-        call_count: bigint; unique_users: bigint;
+        call_count: number; unique_users: number;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           AVG(latency_ms)::float as avg_latency,
-          COUNT(*)::bigint as call_count,
-          COUNT(DISTINCT user_id)::bigint as unique_users
+          COUNT(*)::int as call_count,
+          COUNT(DISTINCT user_id)::int as unique_users
         FROM usage_logs
         WHERE model_id = ${modelId} AND timestamp >= ${startDate}
         GROUP BY dt ORDER BY dt
       `;
 
       const dailyErrors = await prisma.$queryRaw<Array<{
-        dt: string; timeout_count: bigint; error_count: bigint;
+        dt: string; timeout_count: number; error_count: number;
       }>>`
         SELECT
           TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
-          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
-          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
         FROM request_logs
         WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
           AND timestamp >= ${startDate}
@@ -6546,13 +6548,13 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
 
       const dailyHealth = await prisma.$queryRaw<Array<{
         dt: string; avg_latency: number | null;
-        check_count: bigint; success_count: bigint;
+        check_count: number; success_count: number;
       }>>`
         SELECT
           TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
           AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
-          COUNT(*)::bigint as check_count,
-          COUNT(CASE WHEN success THEN 1 END)::bigint as success_count
+          COUNT(*)::int as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::int as success_count
         FROM health_check_logs
         WHERE model_id = ${modelId} AND checked_at >= ${startDate}
         GROUP BY dt ORDER BY dt
