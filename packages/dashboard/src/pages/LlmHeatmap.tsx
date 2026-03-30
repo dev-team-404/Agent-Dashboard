@@ -134,6 +134,15 @@ export default function LlmHeatmap() {
   const maxCalls = useMemo(() => Math.max(...heatmap.map(h => h.callCount), 1), [heatmap]);
   const dates = useMemo(() => [...new Set(heatmap.map(h => h.date))].sort(), [heatmap]);
 
+  // O(1) lookup map for heatmap cells: "YYYY-MM-DD|hour" → cell
+  const heatmapMap = useMemo(() => {
+    const m = new Map<string, HeatmapCell>();
+    for (const cell of heatmap) {
+      m.set(`${cell.date}|${cell.hour}`, cell);
+    }
+    return m;
+  }, [heatmap]);
+
   const totals = useMemo(() => {
     const totalCalls = daily.reduce((s, d) => s + d.callCount, 0);
     const totalTimeouts = daily.reduce((s, d) => s + d.timeoutCount, 0);
@@ -154,6 +163,8 @@ export default function LlmHeatmap() {
       (m.resolvedModel && m.resolvedModel.toLowerCase().includes(q))
     );
   }, [models, modelSearch]);
+
+  const maxModelCalls = useMemo(() => Math.max(...models.map(m => m.totalCalls), 1), [models]);
 
   // Tabs config
   const tabs: Array<{
@@ -260,7 +271,7 @@ export default function LlmHeatmap() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
             {filteredModels.map(m => {
               const isActive = m.modelName === selectedModel;
-              const callRatio = models.length > 0 ? m.totalCalls / Math.max(...models.map(x => x.totalCalls), 1) : 0;
+              const callRatio = m.totalCalls / maxModelCalls;
               const lastCallAgo = getTimeAgo(m.lastCall);
               const isRecent = Date.now() - new Date(m.lastCall).getTime() < 3600000; // 1h
 
@@ -378,7 +389,7 @@ export default function LlmHeatmap() {
                           {dt.slice(5)} {dayOfWeek}
                         </div>
                         {Array.from({ length: 24 }, (_, h) => {
-                          const cell = heatmap.find(c => c.date === dt && c.hour === h);
+                          const cell = heatmapMap.get(`${dt}|${h}`);
                           const val = cell ? activeTab.getValue(cell) : 0;
                           const bg = cell ? activeTab.getColor(val) : '#f8fafc';
                           const textColor = val > 0
@@ -457,8 +468,9 @@ export default function LlmHeatmap() {
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-[10px] font-semibold text-gray-600 mb-2">일별 추이</p>
                   <div className="flex items-end gap-[2px] h-16">
-                    {daily.map((d, i) => {
+                    {(() => {
                       const maxDaily = Math.max(...daily.map(x => x.callCount), 1);
+                      return daily.map((d, i) => {
                       const h = Math.max((d.callCount / maxDaily) * 100, 2);
                       const hasTimeout = d.timeoutCount > 0;
                       const dayOfWeek = new Date(d.date + 'T00:00:00+09:00').getDay();
@@ -476,7 +488,8 @@ export default function LlmHeatmap() {
                           title={`${d.date}\n호출: ${d.callCount.toLocaleString()}\n평균: ${d.avgLatency ?? '-'}ms\n타임아웃: ${d.timeoutCount}\n에러: ${d.errorCount}\n사용자: ${d.uniqueUsers}명`}
                         />
                       );
-                    })}
+                    });
+                    })()}
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="text-[8px] text-gray-400">{daily[0]?.date.slice(5)}</span>
