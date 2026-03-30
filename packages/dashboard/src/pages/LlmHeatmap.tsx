@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Activity, Clock, AlertTriangle, BarChart3, TrendingUp, Users, CheckCircle2, XCircle } from 'lucide-react';
+import { Activity, Clock, AlertTriangle, BarChart3, TrendingUp, Users, CheckCircle2, XCircle, HeartPulse, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -22,6 +22,11 @@ interface HeatmapCell {
   errorCount: number;
   callCount: number;
   successCount: number;
+  hcAvgLatency: number | null;
+  hcP95Latency: number | null;
+  hcCount: number;
+  hcSuccess: number;
+  hcFail: number;
 }
 
 interface DailySummary {
@@ -31,9 +36,12 @@ interface DailySummary {
   timeoutCount: number;
   errorCount: number;
   uniqueUsers: number;
+  hcAvgLatency: number | null;
+  hcCount: number;
+  hcSuccess: number;
 }
 
-type HeatmapTab = 'latency' | 'p95' | 'timeout' | 'callCount' | 'errorRate' | 'successRate';
+type HeatmapTab = 'callCount' | 'latency' | 'p95' | 'timeout' | 'errorRate' | 'successRate' | 'hcLatency' | 'hcSuccess';
 
 // ── Color Functions ──
 const latencyColor = (v: number | null): string => {
@@ -154,7 +162,14 @@ export default function LlmHeatmap() {
       ? Math.round(withLatency.reduce((s, d) => s + (d.avgLatency || 0), 0) / withLatency.length)
       : null;
     const maxUsers = Math.max(...daily.map(d => d.uniqueUsers), 0);
-    return { totalCalls, totalTimeouts, totalErrors, avgLatency, maxUsers };
+    const totalHc = daily.reduce((s, d) => s + (d.hcCount || 0), 0);
+    const totalHcSuccess = daily.reduce((s, d) => s + (d.hcSuccess || 0), 0);
+    const hcSuccessRate = totalHc > 0 ? Math.round(totalHcSuccess / totalHc * 100) : null;
+    const hcWithLatency = daily.filter(d => d.hcAvgLatency !== null);
+    const hcAvgLatency = hcWithLatency.length > 0
+      ? Math.round(hcWithLatency.reduce((s, d) => s + (d.hcAvgLatency || 0), 0) / hcWithLatency.length)
+      : null;
+    return { totalCalls, totalTimeouts, totalErrors, avgLatency, maxUsers, totalHc, hcSuccessRate, hcAvgLatency };
   }, [daily]);
 
   const filteredModels = useMemo(() => {
@@ -217,6 +232,20 @@ export default function LlmHeatmap() {
       key: 'successRate', label: '성공률 %', desc: '2xx/3xx 응답 비율. 95% 이상 녹색, 80% 미만 빨간색.',
       icon: CheckCircle2,
       getValue: c => c.callCount > 0 ? Math.round(c.successCount / c.callCount * 100) : 0,
+      getColor: v => successRateColor(v),
+      format: v => `${v}%`,
+    },
+    {
+      key: 'hcLatency', label: 'HC 응답시간', desc: '헬스체크 프로빙(10분 간격) 평균 응답시간(ms). 실제 사용과 별개로 엔드포인트 상태를 모니터링합니다.',
+      icon: HeartPulse,
+      getValue: c => c.hcAvgLatency ?? 0,
+      getColor: v => latencyColor(v || null),
+      format: v => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}`,
+    },
+    {
+      key: 'hcSuccess', label: 'HC 성공률 %', desc: '헬스체크 성공률. 100% = 해당 시간대에 모든 프로빙 성공. 90% 미만이면 엔드포인트 불안정.',
+      icon: ShieldCheck,
+      getValue: c => c.hcCount > 0 ? Math.round(c.hcSuccess / c.hcCount * 100) : 0,
       getColor: v => successRateColor(v),
       format: v => `${v}%`,
     },
@@ -325,12 +354,15 @@ export default function LlmHeatmap() {
 
       {/* ── Summary Cards ── */}
       {selectedModel && !heatmapLoading && heatmap.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
           <SummaryCard icon={BarChart3} label="총 호출" value={totals.totalCalls.toLocaleString()} sub="건" color="purple" />
           <SummaryCard icon={Clock} label="평균 응답" value={totals.avgLatency !== null ? `${totals.avgLatency}` : '-'} sub="ms" color="blue" />
           <SummaryCard icon={AlertTriangle} label="타임아웃" value={totals.totalTimeouts.toLocaleString()} sub="건" color="red" />
           <SummaryCard icon={XCircle} label="에러" value={totals.totalErrors.toLocaleString()} sub="건" color="amber" />
           <SummaryCard icon={Users} label="최대 DAU" value={String(totals.maxUsers)} sub="명" color="green" />
+          <SummaryCard icon={HeartPulse} label="HC 프로빙" value={totals.totalHc.toLocaleString()} sub="회" color="blue" />
+          <SummaryCard icon={ShieldCheck} label="HC 성공률" value={totals.hcSuccessRate !== null ? `${totals.hcSuccessRate}` : '-'} sub="%" color="green" />
+          <SummaryCard icon={Clock} label="HC 평균" value={totals.hcAvgLatency !== null ? `${totals.hcAvgLatency}` : '-'} sub="ms" color="purple" />
         </div>
       )}
 
@@ -350,7 +382,7 @@ export default function LlmHeatmap() {
             <>
               {/* Tab Selector */}
               <div className="mb-3">
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 mb-2">
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1 mb-2">
                   {tabs.map(t => {
                     const Icon = t.icon;
                     return (
@@ -406,13 +438,15 @@ export default function LlmHeatmap() {
                               style={{ backgroundColor: bg, color: textColor }}
                               title={[
                                 `${dt} ${h}시`,
-                                `호출: ${cell?.callCount ?? 0}건`,
-                                `평균: ${cell?.avgLatency ?? '-'}ms`,
-                                `P95: ${cell?.p95Latency ?? '-'}ms`,
-                                `타임아웃: ${cell?.timeoutCount ?? 0}건`,
-                                `에러: ${cell?.errorCount ?? 0}건`,
-                                `성공: ${cell?.successCount ?? 0}건`,
+                                `── 실제 사용 ──`,
+                                `호출: ${cell?.callCount ?? 0}건 (성공 ${cell?.successCount ?? 0})`,
+                                `평균: ${cell?.avgLatency ?? '-'}ms · P95: ${cell?.p95Latency ?? '-'}ms`,
+                                `타임아웃: ${cell?.timeoutCount ?? 0} · 에러: ${cell?.errorCount ?? 0}`,
                                 cell && cell.callCount > 0 ? `성공률: ${Math.round(cell.successCount / cell.callCount * 100)}%` : '',
+                                `── 헬스체크 ──`,
+                                `프로빙: ${cell?.hcCount ?? 0}회 (성공 ${cell?.hcSuccess ?? 0} / 실패 ${cell?.hcFail ?? 0})`,
+                                `HC 평균: ${cell?.hcAvgLatency ?? '-'}ms`,
+                                cell && cell.hcCount > 0 ? `HC 성공률: ${Math.round(cell.hcSuccess / cell.hcCount * 100)}%` : '',
                               ].filter(Boolean).join('\n')}
                             >
                               {val > 0 ? activeTab.format(val) : ''}
@@ -456,9 +490,16 @@ export default function LlmHeatmap() {
                     ))}
                   </>
                 )}
-                {activeTab.key === 'successRate' && (
+                {(activeTab.key === 'successRate' || activeTab.key === 'hcSuccess') && (
                   <>
                     {['#dc2626', '#f59e0b', '#86efac', '#22c55e', '#15803d'].map((c, i) => (
+                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
+                    ))}
+                  </>
+                )}
+                {activeTab.key === 'hcLatency' && (
+                  <>
+                    {['#f0fdf4', '#22d3ee', '#3b82f6', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => (
                       <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
                     ))}
                   </>

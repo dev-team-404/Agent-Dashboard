@@ -6427,35 +6427,94 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
         GROUP BY dt, hr
       `;
 
-      // 병합
-      const errorMap = new Map(errorData.map(e => [`${e.dt}|${e.hr}`, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+      // health_check_logs — 헬스체크 프로빙 (10분 간격)
+      const healthData = await prisma.$queryRaw<Array<{
+        dt: string; hr: number;
+        avg_latency: number | null; p95_latency: number | null;
+        check_count: bigint; success_count: bigint; fail_count: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM checked_at AT TIME ZONE 'Asia/Seoul')::int as hr,
+          AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as p95_latency,
+          COUNT(*)::bigint as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::bigint as success_count,
+          COUNT(CASE WHEN NOT success THEN 1 END)::bigint as fail_count
+        FROM health_check_logs
+        WHERE model_id = ${modelId} AND checked_at >= ${startDate}
+        GROUP BY dt, hr
+        ORDER BY dt, hr
+      `;
 
-      const heatmap = heatmapData.map(row => {
-        const errs = errorMap.get(`${row.dt}|${row.hr}`);
-        errorMap.delete(`${row.dt}|${row.hr}`);
-        const callCount = Number(row.call_count);
-        const errorCount = errs?.error || 0;
-        return {
-          date: row.dt, hour: row.hr,
-          avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
-          p95Latency: row.p95_latency ? Math.round(row.p95_latency) : null,
-          timeoutCount: errs?.timeout || 0,
-          errorCount,
-          callCount: callCount + errorCount,
-          successCount: callCount,
-        };
-      });
-      // 에러만 있는 시간대 추가
-      for (const [key, errs] of errorMap) {
-        const [dt, hr] = key.split('|');
-        heatmap.push({
-          date: dt!, hour: Number(hr),
-          avgLatency: null, p95Latency: null,
-          timeoutCount: errs.timeout, errorCount: errs.error,
-          callCount: errs.error, successCount: 0,
+      // 3개 소스 병합 — (date, hour) 기준
+      const merged = new Map<string, {
+        date: string; hour: number;
+        avgLatency: number | null; p95Latency: number | null;
+        callCount: number; successCount: number;
+        timeoutCount: number; errorCount: number;
+        hcAvgLatency: number | null; hcP95Latency: number | null;
+        hcCount: number; hcSuccess: number; hcFail: number;
+      }>();
+
+      // usage_logs (성공 호출)
+      for (const u of heatmapData) {
+        const key = `${u.dt}|${u.hr}`;
+        merged.set(key, {
+          date: u.dt, hour: u.hr,
+          avgLatency: u.avg_latency ? Math.round(u.avg_latency) : null,
+          p95Latency: u.p95_latency ? Math.round(u.p95_latency) : null,
+          callCount: Number(u.call_count), successCount: Number(u.call_count),
+          timeoutCount: 0, errorCount: 0,
+          hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
         });
       }
-      heatmap.sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
+
+      // request_logs (에러)
+      const errorMap = new Map(errorData.map(e => [`${e.dt}|${e.hr}`, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+      for (const [key, errs] of errorMap) {
+        const existing = merged.get(key);
+        if (existing) {
+          existing.timeoutCount = errs.timeout;
+          existing.errorCount = errs.error;
+          existing.callCount += errs.error;
+        } else {
+          const [dt, hr] = key.split('|');
+          merged.set(key, {
+            date: dt!, hour: Number(hr),
+            avgLatency: null, p95Latency: null,
+            callCount: errs.error, successCount: 0,
+            timeoutCount: errs.timeout, errorCount: errs.error,
+            hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
+          });
+        }
+      }
+
+      // health_check_logs
+      for (const h of healthData) {
+        const key = `${h.dt}|${h.hr}`;
+        const existing = merged.get(key);
+        if (existing) {
+          existing.hcAvgLatency = h.avg_latency ? Math.round(h.avg_latency) : null;
+          existing.hcP95Latency = h.p95_latency ? Math.round(h.p95_latency) : null;
+          existing.hcCount = Number(h.check_count);
+          existing.hcSuccess = Number(h.success_count);
+          existing.hcFail = Number(h.fail_count);
+        } else {
+          merged.set(key, {
+            date: h.dt, hour: h.hr,
+            avgLatency: null, p95Latency: null,
+            callCount: 0, successCount: 0, timeoutCount: 0, errorCount: 0,
+            hcAvgLatency: h.avg_latency ? Math.round(h.avg_latency) : null,
+            hcP95Latency: h.p95_latency ? Math.round(h.p95_latency) : null,
+            hcCount: Number(h.check_count),
+            hcSuccess: Number(h.success_count),
+            hcFail: Number(h.fail_count),
+          });
+        }
+      }
+
+      const heatmap = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
 
       // 일별 요약
       const dailyData = await prisma.$queryRaw<Array<{
@@ -6484,21 +6543,47 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
           AND timestamp >= ${startDate}
         GROUP BY dt
       `;
+
+      const dailyHealth = await prisma.$queryRaw<Array<{
+        dt: string; avg_latency: number | null;
+        check_count: bigint; success_count: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+          COUNT(*)::bigint as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::bigint as success_count
+        FROM health_check_logs
+        WHERE model_id = ${modelId} AND checked_at >= ${startDate}
+        GROUP BY dt ORDER BY dt
+      `;
+
       const dailyErrMap = new Map(dailyErrors.map(e => [e.dt, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+      const dailyHcMap = new Map(dailyHealth.map(h => [h.dt, { avgLatency: h.avg_latency ? Math.round(h.avg_latency) : null, count: Number(h.check_count), success: Number(h.success_count) }]));
+
+      // 모든 날짜 합치기
+      const allDates = new Set([...dailyData.map(d => d.dt), ...dailyErrors.map(d => d.dt), ...dailyHealth.map(d => d.dt)]);
+      const dailyMap = new Map(dailyData.map(d => [d.dt, d]));
+
+      const daily = [...allDates].sort().map(dt => {
+        const usage = dailyMap.get(dt);
+        const errs = dailyErrMap.get(dt);
+        const hc = dailyHcMap.get(dt);
+        return {
+          date: dt,
+          avgLatency: usage?.avg_latency ? Math.round(usage.avg_latency) : null,
+          callCount: Number(usage?.call_count || 0) + (errs?.error || 0),
+          timeoutCount: errs?.timeout || 0,
+          errorCount: errs?.error || 0,
+          uniqueUsers: Number(usage?.unique_users || 0),
+          hcAvgLatency: hc?.avgLatency || null,
+          hcCount: hc?.count || 0,
+          hcSuccess: hc?.success || 0,
+        };
+      });
 
       return {
-        heatmap,
-        daily: dailyData.map(row => {
-          const errs = dailyErrMap.get(row.dt);
-          return {
-            date: row.dt,
-            avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
-            callCount: Number(row.call_count) + (errs?.error || 0),
-            timeoutCount: errs?.timeout || 0,
-            errorCount: errs?.error || 0,
-            uniqueUsers: Number(row.unique_users),
-          };
-        }),
+        heatmap, daily,
         modelId, modelName: model.name, displayName: model.displayName, days,
       };
     });
