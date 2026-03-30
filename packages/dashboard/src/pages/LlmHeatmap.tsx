@@ -11,9 +11,6 @@ interface ModelEntry {
   modelType: string;
   enabled: boolean;
   totalCalls: number;
-  usageCalls: number;
-  requestCalls: number;
-  lastCall: string | null;
 }
 
 interface HeatmapCell {
@@ -277,8 +274,6 @@ export default function LlmHeatmap() {
             {filteredModels.map(m => {
               const isActive = m.modelId === selectedModel;
               const callRatio = m.totalCalls / maxModelCalls;
-              const lastCallAgo = m.lastCall ? getTimeAgo(m.lastCall) : '-';
-              const isRecent = m.lastCall ? Date.now() - new Date(m.lastCall).getTime() < 3600000 : false;
 
               return (
                 <button
@@ -306,17 +301,17 @@ export default function LlmHeatmap() {
                     </span>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       {!m.enabled && <span className="text-[8px] text-red-400 font-medium">OFF</span>}
-                      <span className={`w-2 h-2 rounded-full mt-0.5 ${isRecent ? 'bg-green-400 animate-pulse' : m.enabled ? 'bg-gray-300' : 'bg-red-300'}`} />
+                      <span className={`w-2 h-2 rounded-full mt-0.5 ${m.enabled ? 'bg-green-400' : 'bg-red-300'}`} />
                     </div>
                   </div>
 
-                  <p className="text-[10px] text-gray-400 truncate mb-1">{m.modelName} · {m.modelType}</p>
+                  <p className="text-[10px] text-gray-400 truncate mb-1">{m.modelName}</p>
 
                   <div className="flex items-center justify-between">
                     <span className={`text-[11px] font-semibold tabular-nums ${isActive ? 'text-purple-600' : 'text-gray-600'}`}>
                       {m.totalCalls.toLocaleString()}회
                     </span>
-                    <span className="text-[10px] text-gray-400">{lastCallAgo}</span>
+                    <span className="text-[10px] text-gray-400">{m.modelType}</span>
                   </div>
                 </button>
               );
@@ -519,17 +514,6 @@ export default function LlmHeatmap() {
 }
 
 // ── Helpers ──
-function getTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '방금';
-  if (mins < 60) return `${mins}분 전`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  const days = Math.floor(hours / 24);
-  return `${days}일 전`;
-}
-
 function SummaryCard({ icon: Icon, label, value, sub, color }: {
   icon: React.ElementType; label: string; value: string; sub: string; color: string;
 }) {
