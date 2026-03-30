@@ -66,7 +66,7 @@ URL: https://dashboard.example.com/?data=%7B%22loginid%22%3A%22syngha.han%22%2C.
 
 | 파라미터 | 값 | 설명 |
 |---|---|---|
-| `client_id` | `41211cae-1fda-49f7-a462-f01d51ed4b6d` | SSO 등록 시 발급받은 클라이언트 ID |
+| `client_id` | `1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7` | SSO 등록 시 발급받은 클라이언트 ID |
 | `redirect_uri` | `https://{서버IP}:{PORT}/oidc/callback` | 인증 후 콜백 URL (**HTTPS 필수**) |
 | `response_mode` | `form_post` | 응답 방식: HTML form 자동 submit |
 | `response_type` | `code id_token` | 인증 코드 + ID 토큰 동시 수신 |
@@ -119,7 +119,7 @@ URL: https://dashboard.example.com/?data=%7B%22loginid%22%3A%22syngha.han%22%2C.
   "iat": 1709000000,
   "exp": 1709003600,
   "iss": "samsung-sso",
-  "aud": "41211cae-1fda-49f7-a462-f01d51ed4b6d"
+  "aud": "1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7"
 }
 ```
 
@@ -253,7 +253,7 @@ SSO_JWT_ALGORITHM=HS256
 # 운영 환경 (.env)
 ENABLE_MOCK_SSO=false
 SSO_ENABLED=true
-SSO_CLIENT_ID=41211cae-1fda-49f7-a462-f01d51ed4b6d
+SSO_CLIENT_ID=1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7
 IDP_ENTITY_ID=https://sso.samsung.com/oauth2/authorize
 SSO_CERT_FILE=/app/cert/sso.cer
 SSO_JWT_ALGORITHM=RS256
