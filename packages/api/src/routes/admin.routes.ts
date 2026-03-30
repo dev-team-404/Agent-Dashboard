@@ -6404,7 +6404,7 @@ adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, asy
           AVG(latency_ms)::float as avg_latency,
           CASE WHEN COUNT(latency_ms) > 0 THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float END as p95_latency,
           COUNT(*)::int as call_count,
-          SUM(COALESCE(total_tokens, 0))::int as total_tokens
+          SUM(COALESCE("totalTokens", 0))::int as total_tokens
         FROM usage_logs
         WHERE model_id = ${modelId} AND timestamp >= ${startDate}
         GROUP BY dt, hr
