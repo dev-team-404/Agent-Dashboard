@@ -94,7 +94,7 @@ const successRateColor = (v: number): string => {
 // ── Component ──
 export default function LlmHeatmap() {
   const [models, setModels] = useState<ModelEntry[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
   const [daily, setDaily] = useState<DailySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +104,15 @@ export default function LlmHeatmap() {
   const [hmTab, setHmTab] = useState<HeatmapTab>('callCount');
   const [modelSearch, setModelSearch] = useState('');
 
+  const toggleModel = (modelId: string) => {
+    setSelectedModels(prev => {
+      const next = new Set(prev);
+      if (next.has(modelId)) next.delete(modelId);
+      else next.add(modelId);
+      return next;
+    });
+  };
+
   // Load model list
   const loadModels = useCallback(async () => {
     try {
@@ -111,8 +120,8 @@ export default function LlmHeatmap() {
       const res = await api.get('/admin/stats/model-heatmap/models');
       const list: ModelEntry[] = res.data.models || [];
       setModels(list);
-      if (list.length > 0 && !selectedModel) {
-        setSelectedModel(list[0].modelId);
+      if (list.length > 0 && selectedModels.size === 0) {
+        setSelectedModels(new Set([list[0].modelId]));
       }
     } catch (err) {
       console.error('Failed to load models:', err);
@@ -121,17 +130,81 @@ export default function LlmHeatmap() {
     }
   }, []);
 
-  // Load heatmap data for selected model
+  // selectedModels를 stable key로 변환 (useEffect dep용)
+  const selectedKey = useMemo(() => [...selectedModels].sort().join(','), [selectedModels]);
+
+  // Load & merge heatmap data for all selected models
   const loadHeatmap = useCallback(async () => {
-    if (!selectedModel) return;
+    const ids = selectedKey.split(',').filter(Boolean);
+    if (ids.length === 0) { setHeatmap([]); setDaily([]); return; }
     try {
       setHeatmapLoading(true);
       setHeatmapError(null);
-      const res = await api.get('/admin/stats/model-heatmap', {
-        params: { modelId: selectedModel, days },
-      });
-      setHeatmap(res.data.heatmap || []);
-      setDaily(res.data.daily || []);
+
+      const results = await Promise.all(
+        ids.map(id => api.get('/admin/stats/model-heatmap', { params: { modelId: id, days } }).then(r => r.data))
+      );
+
+      // 히트맵 병합 (date|hour 기준 합산)
+      const hm = new Map<string, HeatmapCell>();
+      for (const r of results) {
+        for (const cell of (r.heatmap || []) as HeatmapCell[]) {
+          const key = `${cell.date}|${cell.hour}`;
+          const existing = hm.get(key);
+          if (existing) {
+            // latency: 가중 평균 (callCount 기준)
+            const eW = existing.successCount, cW = cell.successCount;
+            existing.avgLatency = eW + cW > 0
+              ? Math.round(((existing.avgLatency || 0) * eW + (cell.avgLatency || 0) * cW) / (eW + cW))
+              : null;
+            existing.p95Latency = Math.max(existing.p95Latency || 0, cell.p95Latency || 0) || null;
+            existing.callCount += cell.callCount;
+            existing.successCount += cell.successCount;
+            existing.timeoutCount += cell.timeoutCount;
+            existing.errorCount += cell.errorCount;
+            // HC: 가중 평균
+            const ehW = existing.hcSuccess, chW = cell.hcSuccess;
+            existing.hcAvgLatency = ehW + chW > 0
+              ? Math.round(((existing.hcAvgLatency || 0) * ehW + (cell.hcAvgLatency || 0) * chW) / (ehW + chW))
+              : null;
+            existing.hcP95Latency = Math.max(existing.hcP95Latency || 0, cell.hcP95Latency || 0) || null;
+            existing.hcCount += cell.hcCount;
+            existing.hcSuccess += cell.hcSuccess;
+            existing.hcFail += cell.hcFail;
+          } else {
+            hm.set(key, { ...cell });
+          }
+        }
+      }
+
+      // 일별 병합
+      const dm = new Map<string, DailySummary>();
+      for (const r of results) {
+        for (const d of (r.daily || []) as DailySummary[]) {
+          const existing = dm.get(d.date);
+          if (existing) {
+            const eW = existing.callCount - existing.errorCount, cW = d.callCount - d.errorCount;
+            existing.avgLatency = eW + cW > 0
+              ? Math.round(((existing.avgLatency || 0) * eW + (d.avgLatency || 0) * cW) / (eW + cW))
+              : null;
+            existing.callCount += d.callCount;
+            existing.timeoutCount += d.timeoutCount;
+            existing.errorCount += d.errorCount;
+            existing.uniqueUsers = Math.max(existing.uniqueUsers, d.uniqueUsers);
+            const ehW = existing.hcSuccess || 0, chW = d.hcSuccess || 0;
+            existing.hcAvgLatency = ehW + chW > 0
+              ? Math.round(((existing.hcAvgLatency || 0) * ehW + (d.hcAvgLatency || 0) * chW) / (ehW + chW))
+              : null;
+            existing.hcCount = (existing.hcCount || 0) + (d.hcCount || 0);
+            existing.hcSuccess = (existing.hcSuccess || 0) + (d.hcSuccess || 0);
+          } else {
+            dm.set(d.date, { ...d });
+          }
+        }
+      }
+
+      setHeatmap([...hm.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour));
+      setDaily([...dm.values()].sort((a, b) => a.date.localeCompare(b.date)));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string }; status?: number } })?.response?.data?.error
         || (err as { response?: { status?: number } })?.response?.status
@@ -141,7 +214,7 @@ export default function LlmHeatmap() {
     } finally {
       setHeatmapLoading(false);
     }
-  }, [selectedModel, days]);
+  }, [selectedKey, days]);
 
   useEffect(() => { loadModels(); }, [loadModels]);
   useEffect(() => { loadHeatmap(); }, [loadHeatmap]);
@@ -278,8 +351,19 @@ export default function LlmHeatmap() {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-4 pt-4 pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">모델 선택</p>
             <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">모델 선택</p>
+              {selectedModels.size > 0 && (
+                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded-full">{selectedModels.size}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedModels(prev => prev.size === models.length ? new Set() : new Set(models.map(m => m.modelId)))}
+                className="text-[10px] text-purple-600 hover:text-purple-800 font-medium"
+              >
+                {selectedModels.size === models.length ? '전체 해제' : '전체 선택'}
+              </button>
               <span className="text-xs text-gray-400">{models.length}개 모델</span>
               <select
                 value={days}
@@ -307,13 +391,13 @@ export default function LlmHeatmap() {
         <div className="p-3 max-h-60 overflow-y-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
             {filteredModels.map(m => {
-              const isActive = m.modelId === selectedModel;
+              const isActive = selectedModels.has(m.modelId);
               const callRatio = m.totalCalls / maxModelCalls;
 
               return (
                 <button
                   key={m.modelId}
-                  onClick={() => setSelectedModel(m.modelId)}
+                  onClick={() => toggleModel(m.modelId)}
                   className={`relative text-left p-3 rounded-lg border-2 transition-all duration-200 group overflow-hidden ${
                     isActive
                       ? 'border-purple-500 bg-purple-50/80 shadow-md shadow-purple-100 ring-1 ring-purple-200'
@@ -359,7 +443,7 @@ export default function LlmHeatmap() {
       </div>
 
       {/* ── Summary Cards ── */}
-      {selectedModel && !heatmapLoading && heatmap.length > 0 && (
+      {selectedModels.size > 0 && !heatmapLoading && heatmap.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
           <SummaryCard icon={BarChart3} label="총 호출" value={totals.totalCalls.toLocaleString()} sub="건" color="purple" />
           <SummaryCard icon={Clock} label="평균 응답" value={totals.avgLatency !== null ? `${totals.avgLatency}` : '-'} sub="ms" color="blue" />
@@ -373,11 +457,11 @@ export default function LlmHeatmap() {
       )}
 
       {/* ── Heatmap ── */}
-      {selectedModel && (
+      {selectedModels.size > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
           {heatmapLoading ? (
             <div className="flex items-center justify-center py-20">
-              <LoadingSpinner message={`${models.find(m => m.modelId === selectedModel)?.displayName || ''} 데이터 로딩 중...`} />
+              <LoadingSpinner message={`${selectedModels.size}개 모델 데이터 로딩 중...`} />
             </div>
           ) : heatmapError ? (
             <div className="text-center py-16">
