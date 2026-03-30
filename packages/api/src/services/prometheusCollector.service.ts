@@ -23,6 +23,7 @@ const SERVER_DESC_PREFIX = '[DTGPT-Prometheus]';
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let backfillDone = false;
+let lastPowerHour: number | null = null;
 
 // ── Prometheus API 호출 ──
 async function promQuery(query: string, time?: number): Promise<any[]> {
@@ -105,11 +106,12 @@ async function ensureServers(nodes: Map<string, any>): Promise<Map<string, strin
 
 // ── DCGM 메트릭 → 스냅샷 변환 ──
 async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise<void> {
-  const [gpuUtil, fbUsed, fbFree, power, dramActive, tensorActive] = await Promise.all([
+  const [gpuUtil, fbUsed, fbFree, power, powerLimit, dramActive, tensorActive] = await Promise.all([
     promQuery('DCGM_FI_DEV_GPU_UTIL'),
     promQuery('DCGM_FI_DEV_FB_USED'),
     promQuery('DCGM_FI_DEV_FB_FREE'),
     promQuery('DCGM_FI_DEV_POWER_USAGE'),
+    promQuery('DCGM_FI_DEV_POWER_MGMT_LIMIT'),
     promQuery('DCGM_FI_PROF_DRAM_ACTIVE'),
     promQuery('DCGM_FI_PROF_PIPE_TENSOR_ACTIVE'),
   ]);
@@ -138,6 +140,7 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     const free = findVal(fbFree);
     const util = findVal(gpuUtil);
     const pw = findVal(power);
+    const pwLimit = findVal(powerLimit) || 700; // fallback H200 TDP
     const dram = findVal(dramActive);
     const tensor = findVal(tensorActive);
 
@@ -145,7 +148,7 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
       index: idx, uuid, name: gpuModel,
       memTotalMb: used + free, memUsedMb: used,
       utilGpu: util, utilMem: (used + free) > 0 ? (used / (used + free)) * 100 : 0,
-      temp: 0, powerW: pw, powerMaxW: 700, // H200 TDP
+      temp: 0, powerW: pw, powerMaxW: pwLimit,
       dramActivePct: dram * 100, // 0-1 → 0-100%
       tensorActivePct: tensor * 100,
       pod, // LLM 모델 식별용
@@ -508,6 +511,131 @@ async function backfillHistoricalVllm(nodeToServerId: Map<string, string>): Prom
   backfillDone = true;
 }
 
+// ── 시간별 전력 사용률 집계 → gpu_power_usages 저장 ──
+async function flushHourlyPowerUsage(): Promise<void> {
+  try {
+    // 직전 정시 기준
+    const now = new Date();
+    const hourStart = new Date(now);
+    hourStart.setMinutes(0, 0, 0);
+    const prevHourStart = new Date(hourStart.getTime() - 3600_000);
+
+    // Prometheus 서버 ID 목록
+    const promServers = await prisma.gpuServer.findMany({
+      where: { description: { startsWith: SERVER_DESC_PREFIX } },
+      select: { id: true },
+    });
+    if (promServers.length === 0) return;
+    const serverIds = promServers.map((s: { id: string }) => s.id);
+
+    // 직전 1시간의 스냅샷 조회
+    const snapshots = await prisma.gpuMetricSnapshot.findMany({
+      where: {
+        serverId: { in: serverIds },
+        timestamp: { gte: prevHourStart, lt: hourStart },
+      },
+      select: { gpuMetrics: true },
+    });
+
+    if (snapshots.length === 0) return;
+
+    // sum(power) / sum(limit) — 기존 Prometheus 쿼리와 동일한 수식
+    // (sum(avg_over_time(DCGM_FI_DEV_POWER_USAGE[1h])) / sum(avg_over_time(DCGM_FI_DEV_POWER_MGMT_LIMIT[1h]))) * 100
+    let totalPower = 0;
+    let totalLimit = 0;
+    for (const snap of snapshots) {
+      const gpus = snap.gpuMetrics as any[];
+      if (!Array.isArray(gpus)) continue;
+      for (const gpu of gpus) {
+        const pw = gpu.powerW ?? 0;
+        const maxPw = gpu.powerMaxW ?? 0;
+        if (maxPw > 0 && pw > 0) {
+          totalPower += pw;
+          totalLimit += maxPw;
+        }
+      }
+    }
+
+    if (totalLimit === 0) return;
+    const avgRatio = (totalPower / totalLimit) * 100; // %
+
+    // upsert (timestamp unique)
+    await prisma.gpuPowerUsage.upsert({
+      where: { timestamp: prevHourStart },
+      create: { timestamp: prevHourStart, powerAvgUsageRatio: Math.round(avgRatio * 100) / 100 },
+      update: { powerAvgUsageRatio: Math.round(avgRatio * 100) / 100 },
+    });
+
+    console.log(`[PromCollector] Power usage saved: ${prevHourStart.toISOString()} → ${avgRatio.toFixed(1)}% (${snapshots.length} snapshots)`);
+  } catch (err: any) {
+    console.error('[PromCollector] Power usage flush error:', err.message);
+  }
+}
+
+// ── 기존 스냅샷 기반 전력 백필 ──
+async function backfillPowerUsage(): Promise<void> {
+  try {
+    const promServers = await prisma.gpuServer.findMany({
+      where: { description: { startsWith: SERVER_DESC_PREFIX } },
+      select: { id: true },
+    });
+    if (promServers.length === 0) return;
+    const serverIds = promServers.map((s: { id: string }) => s.id);
+
+    // powerW > 0인 스냅샷의 시간 범위 확인
+    const snapshots = await prisma.$queryRaw<{ hour: Date; avg_ratio: number }[]>`
+      SELECT
+        date_trunc('hour', timestamp) AS hour,
+        AVG(
+          (SELECT AVG((g->>'powerW')::float / NULLIF((g->>'powerMaxW')::float, 0))
+           FROM jsonb_array_elements(gpu_metrics::jsonb) AS g
+           WHERE (g->>'powerW')::float > 0 AND (g->>'powerMaxW')::float > 0)
+        ) AS avg_ratio
+      FROM gpu_metric_snapshots
+      WHERE server_id = ANY(${serverIds})
+        AND gpu_metrics IS NOT NULL
+        AND gpu_metrics::text LIKE '%powerW%'
+      GROUP BY date_trunc('hour', timestamp)
+      HAVING AVG(
+        (SELECT AVG((g->>'powerW')::float / NULLIF((g->>'powerMaxW')::float, 0))
+         FROM jsonb_array_elements(gpu_metrics::jsonb) AS g
+         WHERE (g->>'powerW')::float > 0 AND (g->>'powerMaxW')::float > 0)
+      ) IS NOT NULL
+      ORDER BY hour`;
+
+    if (snapshots.length === 0) {
+      console.log('[PromCollector] Power usage backfill: no snapshots with powerW data');
+      return;
+    }
+
+    // 이미 존재하는 시간대 조회
+    const existing = await prisma.gpuPowerUsage.findMany({
+      select: { timestamp: true },
+    });
+    const existingSet = new Set(existing.map((e: { timestamp: Date }) => e.timestamp.getTime()));
+
+    let inserted = 0;
+    for (const row of snapshots) {
+      const hourTs = new Date(row.hour);
+      if (existingSet.has(hourTs.getTime())) continue;
+      const ratio = Number(row.avg_ratio) * 100;
+      if (isNaN(ratio) || ratio <= 0) continue;
+
+      await prisma.gpuPowerUsage.create({
+        data: {
+          timestamp: hourTs,
+          powerAvgUsageRatio: Math.round(ratio * 100) / 100,
+        },
+      });
+      inserted++;
+    }
+
+    console.log(`[PromCollector] Power usage backfill: ${inserted} hours inserted (${snapshots.length} total hours found)`);
+  } catch (err: any) {
+    console.error('[PromCollector] Power usage backfill error:', err.message);
+  }
+}
+
 // ── 메인 크론 ──
 export async function startPrometheusCollector(): Promise<void> {
   console.log('[PromCollector] Starting DTGPT Prometheus collector...');
@@ -533,6 +661,12 @@ export async function startPrometheusCollector(): Promise<void> {
       );
     }
 
+    // 3-1. 전력 사용률 백필 (기존 스냅샷 기반, 1회)
+    await backfillPowerUsage().catch(err =>
+      console.error('[PromCollector] Power backfill error:', err.message)
+    );
+    lastPowerHour = new Date().getHours();
+
     // 4. 실시간 수집 시작
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(async () => {
@@ -544,6 +678,13 @@ export async function startPrometheusCollector(): Promise<void> {
           for (const [k, v] of freshMapping) nodeToServerId.set(k, v);
         }
         await collectDcgmSnapshot(nodeToServerId);
+
+        // 시간 변경 시 전력 사용률 집계
+        const currentHour = new Date().getHours();
+        if (lastPowerHour !== null && currentHour !== lastPowerHour) {
+          await flushHourlyPowerUsage();
+        }
+        lastPowerHour = currentHour;
       } catch (err: any) {
         console.error('[PromCollector] Poll error:', err.message);
       }
