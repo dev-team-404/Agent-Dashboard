@@ -21,7 +21,7 @@ const SSO_BASE_URL = import.meta.env.VITE_SSO_URL || 'https://genai.samsungds.ne
 const SSO_PATH = '/direct_sso';
 
 // --- OIDC config ---
-const OIDC_ISSUER = import.meta.env.VITE_OIDC_ISSUER || 'https://a2g.samsungds.net:9050';
+const OIDC_ISSUER = import.meta.env.VITE_OIDC_ISSUER || 'http://a2g.samsungds.net:8090';
 const OIDC_CLIENT_ID = import.meta.env.VITE_OIDC_CLIENT_ID || 'agent-dashboard';
 
 const IS_DEV = import.meta.env.DEV || import.meta.env.VITE_DEV_LOGIN === 'true';

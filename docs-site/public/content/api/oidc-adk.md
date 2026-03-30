@@ -43,7 +43,7 @@ zip에 포함된 파일:
 ```python
 # 앱 시작 시 1회 호출
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 # 이후 모든 LLM 호출에 자동으로 user 주입
 ```
@@ -76,7 +76,7 @@ from agent_platform_auth import setup_auth
 from google.adk import Agent
 
 # 1. 인증 설정 (첫 실행 시 브라우저 로그인)
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 # 2. ADK 에이전트 생성 및 실행
 agent = Agent(
@@ -109,7 +109,7 @@ agent = Agent(
 )
 
 # 앱 시작 시 1회
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 @app.post("/chat")
 async def chat(request: Request):
@@ -153,7 +153,7 @@ from agent_platform_auth import setup_auth
 from google.adk import Agent
 
 # 환경변수 PLATFORM_USER가 설정되어 있으면 브라우저 로그인 생략
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 agent = Agent(
     model="gpt-4o",
@@ -175,7 +175,7 @@ Agent Platform Auth — OIDC 인증 및 사용자별 사용량 추적 모듈
 
 사용법:
     from agent_platform_auth import setup_auth, set_user
-    setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+    setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 """
 
 import json
@@ -210,7 +210,7 @@ def setup_auth(gateway_url: str) -> str:
     3. 둘 다 없으면 브라우저 OIDC 로그인 수행
 
     Args:
-        gateway_url: Auth Server URL (예: "https://a2g.samsungds.net:9050")
+        gateway_url: Auth Server URL (예: "http://a2g.samsungds.net:8090")
 
     Returns:
         사용자 ID (예: "syngha.han")
@@ -344,7 +344,6 @@ def _do_oidc_login(gateway_url: str) -> str:
             "redirect_uri": redirect_uri,
             "client_id": CLIENT_ID,
         },
-        verify=False,  # 자체서명 인증서 허용
     )
     token_resp.raise_for_status()
     token_data = token_resp.json()
@@ -353,7 +352,6 @@ def _do_oidc_login(gateway_url: str) -> str:
     userinfo_resp = requests.get(
         f"{gateway_url}/oidc/userinfo",
         headers={"Authorization": f"Bearer {token_data['access_token']}"},
-        verify=False,
     )
     userinfo_resp.raise_for_status()
     userinfo = userinfo_resp.json()
@@ -422,23 +420,6 @@ export PLATFORM_USER=syngha.han
 python my_agent.py
 ```
 
-### SSL 인증서 오류
-
-자체서명 인증서 사용 시 `requests` 라이브러리에서 SSL 오류가 발생할 수 있습니다.
-
-```bash
-# 개발 환경에서만 사용
-export REQUESTS_CA_BUNDLE=""
-export CURL_CA_BUNDLE=""
-```
-
-또는 Python 코드에서:
-
-```python
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-```
-
 ### LiteLLM 콜백이 동작하지 않음
 
 `litellm`이 설치되지 않은 경우 콜백 대신 환경변수 `OPENAI_USER`를 설정합니다. OpenAI SDK를 직접 사용하는 경우에는 수동으로 `user` 파라미터를 전달해야 합니다.
@@ -471,7 +452,7 @@ from google.adk.sessions import InMemorySessionService
 from agent_platform_auth import setup_auth
 
 # 1. 인증 (한 번만)
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 # 2. Gateway 연결 LLM
 llm = LiteLlm(model="openai/gpt-4o", api_base="http://a2g.samsungds.net:8090/v1")
@@ -492,7 +473,7 @@ from google.adk.agents import Agent, ParallelAgent
 from google.adk.models.lite_llm import LiteLlm
 from agent_platform_auth import setup_auth
 
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 llm = LiteLlm(model="openai/gpt-4o", api_base="http://a2g.samsungds.net:8090/v1")
 
@@ -509,7 +490,7 @@ from google.adk.agents import Agent, LoopAgent
 from google.adk.models.lite_llm import LiteLlm
 from agent_platform_auth import setup_auth
 
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 llm = LiteLlm(model="openai/gpt-4o", api_base="http://a2g.samsungds.net:8090/v1")
 
@@ -531,7 +512,7 @@ from agent_platform_auth import setup_auth, set_user
 app = FastAPI()
 
 # 앱 시작 시 1회
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 llm = LiteLlm(model="openai/gpt-4o", api_base="http://a2g.samsungds.net:8090/v1")
 agent = Agent(name="assistant", model=llm, instruction="친절한 AI 어시스턴트")
 runner = Runner(agent=agent, app_name="web_app", session_service=InMemorySessionService())

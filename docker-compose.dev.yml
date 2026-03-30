@@ -81,7 +81,7 @@ services:
       args:
         <<: *proxy-env
         VITE_AUTH_MODE: oidc
-        VITE_OIDC_ISSUER: ${OIDC_ISSUER:-https://a2g.samsungds.net:9050}
+        VITE_OIDC_ISSUER: ${OIDC_ISSUER:-http://a2g.samsungds.net:8090}
         VITE_OIDC_CLIENT_ID: agent-dashboard
     container_name: agent-registry-frontend-dev
     restart: unless-stopped

@@ -11,7 +11,7 @@ AI Agent(Claude Code, Cursor 등)에게 **코드 블록 하나만 복사**해서
 ```text
 다음을 순서대로 실행해.
 
-서버: Gateway http://a2g.samsungds.net:8090 (HTTP), Auth https://a2g.samsungds.net:9050 (HTTPS)
+서버: http://a2g.samsungds.net:8090 (Gateway + OIDC 전부)
 규칙: api_key는 아무 값, x-service-id는 대시보드에 등록된 서비스ID 필수 (없으면 사용자에게 서비스 등록 여부와 ID를 먼저 확인할 것)
 
 1. SDK 다운로드
@@ -19,7 +19,7 @@ curl http://a2g.samsungds.net:8090/sdk/agent_platform_auth.py -o agent_platform_
 
 2. test_openai.py 파일 생성 (내용):
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 from openai import OpenAI
 client = OpenAI(base_url="http://a2g.samsungds.net:8090/v1", api_key="sk-placeholder", default_headers={"x-service-id": "내서비스ID"})
 r = client.chat.completions.create(model="모델명", messages=[{"role": "user", "content": "안녕"}], max_tokens=20)
@@ -36,7 +36,7 @@ print(r.choices[0].message.content)
 ```text
 다음을 순서대로 실행해.
 
-서버: Gateway http://a2g.samsungds.net:8090 (HTTP), Auth https://a2g.samsungds.net:9050 (HTTPS)
+서버: http://a2g.samsungds.net:8090 (Gateway + OIDC 전부)
 규칙: api_key는 아무 값, x-service-id는 대시보드에 등록된 서비스ID 필수 (없으면 사용자에게 서비스 등록 여부와 ID를 먼저 확인할 것)
 
 1. SDK 다운로드
@@ -47,7 +47,7 @@ pip install langchain-openai
 
 3. test_langchain.py 파일 생성 (내용):
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(model="모델명", base_url="http://a2g.samsungds.net:8090/v1", api_key="sk-placeholder", default_headers={"x-service-id": "내서비스ID"})
 print(llm.invoke("안녕하세요").content)
@@ -62,7 +62,7 @@ print(llm.invoke("안녕하세요").content)
 ```text
 다음을 순서대로 실행해.
 
-서버: Gateway http://a2g.samsungds.net:8090 (HTTP), Auth https://a2g.samsungds.net:9050 (HTTPS)
+서버: http://a2g.samsungds.net:8090 (Gateway + OIDC 전부)
 규칙: api_key는 아무 값, x-service-id는 대시보드에 등록된 서비스ID 필수 (없으면 사용자에게 서비스 등록 여부와 ID를 먼저 확인할 것)
 
 1. SDK 다운로드
@@ -77,7 +77,7 @@ export OPENAI_API_KEY=sk-placeholder
 
 4. test_adk.py 파일 생성 (내용):
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -95,7 +95,7 @@ print("Agent 생성 성공:", agent.name)
 ```text
 다음을 순서대로 실행해.
 
-서버: Gateway http://a2g.samsungds.net:8090 (HTTP), Auth https://a2g.samsungds.net:9050 (HTTPS)
+서버: http://a2g.samsungds.net:8090 (Gateway + OIDC 전부)
 규칙: api_key는 아무 값, x-service-id는 대시보드에 등록된 서비스ID 필수 (없으면 사용자에게 서비스 등록 여부와 ID를 먼저 확인할 것)
 
 1. SDK 다운로드
@@ -109,7 +109,7 @@ from fastapi import FastAPI
 from agent_platform_auth import setup_auth, set_user
 from langchain_openai import ChatOpenAI
 app = FastAPI()
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 llm = ChatOpenAI(model="모델명", base_url="http://a2g.samsungds.net:8090/v1", api_key="sk-placeholder", default_headers={"x-service-id": "내서비스ID"})
 @app.get("/chat")
 async def chat(q: str = "안녕", user: str = "test.user"):
@@ -142,7 +142,7 @@ curl -s -X POST http://a2g.samsungds.net:8090/v1/chat/completions -H "Content-Ty
 ```text
 Open WebUI를 OIDC 연동해서 Docker로 띄워:
 
-docker run -d --name open-webui -p 3000:8080 -e ENABLE_OAUTH_SIGNUP=true -e OAUTH_PROVIDER_NAME="Agent Platform" -e OPENID_PROVIDER_URL="https://a2g.samsungds.net:9050/.well-known/openid-configuration" -e OAUTH_CLIENT_ID=open-webui -e OAUTH_CLIENT_SECRET=open-webui-secret -e OAUTH_SCOPES="openid profile email" -e AIOHTTP_CLIENT_SESSION_SSL=false -e OPENAI_API_BASE_URL="http://a2g.samsungds.net:8090/v1" -e OPENAI_API_KEY=sk-placeholder ghcr.io/open-webui/open-webui:main
+docker run -d --name open-webui -p 3000:8080 -e ENABLE_OAUTH_SIGNUP=true -e OAUTH_PROVIDER_NAME="Agent Platform" -e OPENID_PROVIDER_URL="http://a2g.samsungds.net:8090/.well-known/openid-configuration" -e OAUTH_CLIENT_ID=open-webui -e OAUTH_CLIENT_SECRET=open-webui-secret -e OAUTH_SCOPES="openid profile email" -e OPENAI_API_BASE_URL="http://a2g.samsungds.net:8090/v1" -e OPENAI_API_KEY=sk-placeholder ghcr.io/open-webui/open-webui:main
 
 http://localhost:3000 접속해서 "Continue with Agent Platform" 버튼이 보이면 성공.
 ```

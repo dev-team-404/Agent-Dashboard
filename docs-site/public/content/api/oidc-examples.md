@@ -25,7 +25,7 @@ import requests
 
 # 1. 사용자 인증 (setup_auth 사용)
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 # 2. LLM 호출 (user 자동 주입됨)
 import litellm
@@ -188,7 +188,7 @@ from google.adk.sessions import InMemorySessionService
 
 # 1. OIDC 인증 (브라우저 기반 로그인)
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://a2g.samsungds.net:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 
 # 2. Agent 정의
 agent = Agent(
