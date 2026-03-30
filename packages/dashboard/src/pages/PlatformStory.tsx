@@ -130,6 +130,18 @@ const timeline = [
     tags: ['쿼리 최적화', '캐시 무효화', 'morgan 제거', 'WAL 튜닝', 'Phase 병렬화', 'memo'],
   },
   {
+    date: '2026.03.30',
+    title: 'Excel 내보내기 & Codemate 외부 API 통합',
+    desc: '사용자 관리 Excel 전체 내보내기 기능 추가. 월별 탭 분리 — 서비스별 사용량을 월 단위로 시트 분리하여 집계. Codemate with Roo / Codemate 외부 API 데이터를 Excel 내보내기에 통합하여 전체 AI 서비스 사용량을 한눈에 파악 가능.',
+    tags: ['Excel 내보내기', '월별 탭', 'Codemate 통합', '외부 API'],
+  },
+  {
+    date: '2026.03.30',
+    title: 'LLM 모델 히트맵 & SSO 직통 디버깅',
+    desc: '슈퍼관리자 전용 LLM 모델 히트맵 페이지 — 등록된 모델별 날짜×시간 호출 패턴 분석. 카드형 모델 셀렉터(호출 수 바, 실시간 인디케이터), 6탭 히트맵(호출 수/평균 응답시간/P95/타임아웃/에러율/성공률), 일별 추이 바 차트. SSO 직통 연동 안정화 — 도메인 오타(secsso→secso) 수정, CLIENT_ID 교체, sid 쿠키 전달, redirect_uri 정확 일치 등 6건의 연속 디버깅으로 삼성 SSO 인증 완전 안정화.',
+    tags: ['LLM 히트맵', '모델 분석', 'SSO 디버깅', '슈퍼관리자'],
+  },
+  {
     date: '2026.03.29',
     title: 'OIDC 인증 체계 구축 — 사용자별 사용량 자동 추적',
     desc: 'Open WebUI, Google ADK, LangChain 등 외부 서비스에서 사용자별 사용량을 자동 추적하기 위한 OIDC(OpenID Connect) 인증 체계 전면 구축. Auth Server(HTTPS :9050) — OIDC Provider(authorize/token/userinfo) + Mock SSO(개발용). 삼성 SSO 직통 연동(form_post, RS256 인증서 검증, genai.samsungds.net 중간자 제거). Gateway body.user 지원 — OpenAI 표준 user 필드로 사용자 식별(x-user-id 헤더 대체). Python SDK(agent_platform_auth.py) — setup_auth() 한 줄로 OpenAI/LangChain/ADK 전부 자동 user 주입(OpenAI SDK monkey-patch + LiteLLM 콜백 이중 커버). Dashboard OIDC 로그인 모드 추가(기존 SSO 호환 유지). Open WebUI Playwright E2E 검증 완료. Google ADK 1.28 + 2.0 Alpha 호환 검증. 보안 리뷰 8건 수정(SSRF 차단, 클라이언트 시크릿 프론트엔드 제거, open redirect 방지 등). docs-site 가이드 5페이지 + Agent용 프롬프트 + 예제 zip. deploy.sh SSL 자동 생성 + OIDC_ISSUER 자동 감지.',
@@ -152,6 +164,7 @@ const featureGroups = [
       '토큰 기반 Rate Limiting (서비스 공통 / 사용자별)',
       '서비스 마켓플레이스 & 배포 범위 관리 (전체·본부·팀)',
       '공개 대시보드 & 관리자 권한 신청 워크플로우',
+      '사용자 관리 Excel 내보내기 (월별 탭 + Codemate 외부 API 통합)',
     ],
   },
   {
@@ -165,6 +178,7 @@ const featureGroups = [
       '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
       'Redis read-through 캐시 28개 + 15~30초 Precompute 워밍 + 쓰기 버퍼링 bulk INSERT',
       '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
+      'LLM 모델 히트맵 — 모델별 날짜×시간 호출/응답시간/에러 분석 (6탭)',
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',
       '서비스 품질 메트릭 6종 (TTFT · TPOT · E2E · KV Cache · Preemption · Queue)',
@@ -194,6 +208,8 @@ const featureGroups = [
     features: [
       '3단계 권한 체계 (SUPER_ADMIN → ADMIN → USER)',
       '5단계 모델 가시성 (PUBLIC · BUSINESS_UNIT · TEAM · ADMIN · SUPER_ADMIN)',
+      'OIDC 인증 체계 — Open WebUI/ADK/LangChain 사용자별 추적 + SSO 직통',
+      'OIDC 클라이언트 관리 UI (Super Admin 전용)',
       '감사 로그 & 요청 로그 — 전체 관리자 액션 추적',
       'Knox 임직원 인증 연동 & 조직도 동기화 (해외 R&D 센터 포함)',
       '휴일 관리 & 영업일 기반 통계 필터링',
@@ -211,6 +227,7 @@ const featureGroups = [
       'Dev/QA 서버 (포트 8095, DB 공유 + Redis DB 15 캐시 분리)',
       'DB 스키마 변경 자동 차단 (Dev) + migrate 승인 프로세스',
       'Docker Compose 멀티 서비스 (PostgreSQL · Redis · Nginx · API · Dashboard)',
+      'Prometheus GPU 전력 사용률 자동 집계 (1시간 단위)',
       'DEPLOY.md 배포 가이드 문서',
     ],
   },
@@ -247,7 +264,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            640+ commits · 54,000+ lines of code
+            670+ commits · 56,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
@@ -260,8 +277,8 @@ export default function PlatformStory() {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { value: '27', label: '페이지', icon: Layers, color: 'text-blue-600 bg-blue-50' },
-            { value: '50+', label: 'API 엔드포인트', icon: Network, color: 'text-emerald-600 bg-emerald-50' },
+            { value: '30', label: '페이지', icon: Layers, color: 'text-blue-600 bg-blue-50' },
+            { value: '80+', label: 'API 엔드포인트', icon: Network, color: 'text-emerald-600 bg-emerald-50' },
             { value: '6', label: 'AI 기능', icon: Brain, color: 'text-violet-600 bg-violet-50' },
             { value: '3단계', label: '권한 체계', icon: Shield, color: 'text-amber-600 bg-amber-50' },
           ].map((stat) => (
@@ -358,7 +375,7 @@ export default function PlatformStory() {
 
       {/* ════ Development Timeline ════ */}
       <section>
-        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 640+ commits" />
+        <SectionHeader icon={GitBranch} title="Development Timeline" subtitle="개발 여정 · 670+ commits" />
         <div className="relative">
           {/* 수직 라인 */}
           <div className="absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-blue-200 via-violet-200 to-emerald-200" />
