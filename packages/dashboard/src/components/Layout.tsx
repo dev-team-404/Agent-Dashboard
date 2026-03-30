@@ -1,6 +1,6 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, KeyRound, FolderTree, Zap, Activity } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, KeyRound, FolderTree, Zap, Activity, Flame } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -109,6 +109,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     if (location.pathname === '/gpu-power') return 'DT GPU Power Usage';
     if (location.pathname === '/resource-monitor') return '리소스 모니터링';
     if (location.pathname === '/oidc-clients') return 'OIDC 클라이언트 관리';
+    if (location.pathname === '/llm-heatmap') return 'LLM 모델 히트맵';
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
       if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
@@ -230,6 +231,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
                 <NavLink path="/org-tree" label="조직도" icon={FolderTree} />
                 <NavLink path="/gpu-power" label="DT GPU Power Usage" icon={Zap} />
+                <NavLink path="/llm-heatmap" label="LLM 모델 히트맵" icon={Flame} />
                 <NavLink path="/resource-monitor" label="리소스 모니터링" icon={Activity} />
                 <NavLink path="/oidc-clients" label="OIDC 클라이언트" icon={KeyRound} />
                 <ExternalNavLink href="/internal/docs" label="Internal API" icon={Code} />

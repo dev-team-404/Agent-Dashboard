@@ -12,7 +12,7 @@ import { Router, RequestHandler } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, AuthenticatedRequest, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
-import { getActiveUserCount, getTodayUsage, withCache } from '../services/redis.service.js';
+import { getActiveUserCount, getTodayUsage, withCache, invalidateCache } from '../services/redis.service.js';
 import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
 import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -537,6 +537,7 @@ adminRoutes.post('/models', async (req: AuthenticatedRequest, res) => {
       },
     });
 
+    invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => {});
     res.status(201).json({ model });
   } catch (error) {
     console.error('Create model error:', error);
@@ -681,6 +682,7 @@ adminRoutes.put('/models/:id', async (req: AuthenticatedRequest, res) => {
       console.log(`[Model] displayName changed: "${oldName}" → "${newName}" — updated logs`);
     }
 
+    invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => {});
     res.json({ model });
   } catch (error) {
     console.error('Update model error:', error);
@@ -724,6 +726,7 @@ adminRoutes.delete('/models/:id', requireSuperAdmin as RequestHandler, async (re
       where: { id },
     });
 
+    invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => {});
     res.json({
       success: true,
       deletedUsageLogs: force ? usageCount : 0,
@@ -1977,6 +1980,7 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin as RequestHandler, asyn
     });
 
     recordAudit(req, 'PROMOTE_USER', user.loginid, 'User', { username: user.username, role }).catch(() => {});
+    invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => {});
     res.json({
       success: true,
       admin,
@@ -2022,6 +2026,7 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
     });
 
     recordAudit(req, 'DEMOTE_USER', user.loginid, 'User', { username: user.username, previousRole: admin.role }).catch(() => {});
+    invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => {});
     res.json({
       success: true,
       message: `${user.username} demoted from admin`,
@@ -2080,31 +2085,26 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
       whereClause.userServices = { some: { serviceId } };
     }
 
-    // Role filter: need to check admin table
-    let adminLoginIds: string[] | undefined;
+    // Admin 목록 1회만 조회 (role filter + admin lookup 공용)
+    const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
+    const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
+    const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+
+    // Role filter
     if (role === 'SUPER_ADMIN') {
-      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
-      const dbSuperAdmins = await prisma.admin.findMany({
-        where: { role: 'SUPER_ADMIN' },
-        select: { loginid: true },
-      });
-      adminLoginIds = [...developers, ...dbSuperAdmins.map(a => a.loginid)];
-      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+      const superAdminIds = [...developers, ...allAdmins.filter(a => a.role === 'SUPER_ADMIN').map(a => a.loginid)];
+      whereClause.loginid = { in: superAdminIds, not: 'anonymous' };
     } else if (role === 'ADMIN') {
-      const dbAdmins = await prisma.admin.findMany({
-        where: { role: 'ADMIN' },
-        select: { loginid: true },
-      });
-      adminLoginIds = dbAdmins.map(a => a.loginid);
-      whereClause.loginid = { in: adminLoginIds, not: 'anonymous' };
+      const adminIds = allAdmins.filter(a => a.role === 'ADMIN').map(a => a.loginid);
+      whereClause.loginid = { in: adminIds, not: 'anonymous' };
     } else if (role === 'USER') {
-      const allAdmins = await prisma.admin.findMany({ select: { loginid: true } });
-      const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
-      const adminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
-      whereClause.loginid = { notIn: [...adminIds], not: 'anonymous' };
+      const allAdminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
+      whereClause.loginid = { notIn: [...allAdminIds], not: 'anonymous' };
     }
 
-    const [users, total] = await Promise.all([
+    // 유저 목록 + 카운트 + 필터옵션 전부 병렬
+    // _count: usageLogs 제거 → userServices.requestCount 합산으로 대체 (50x COUNT 서브쿼리 제거)
+    const [users, total, services, businessUnits] = await Promise.all([
       prisma.user.findMany({
         where: whereClause,
         skip,
@@ -2116,16 +2116,20 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
               service: { select: { id: true, name: true, displayName: true } },
             },
           },
-          _count: { select: { usageLogs: true } },
         },
       }),
       prisma.user.count({ where: whereClause }),
+      prisma.service.findMany({
+        where: { enabled: true },
+        select: { id: true, name: true, displayName: true },
+        orderBy: { displayName: 'asc' },
+      }),
+      prisma.user.findMany({
+        where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
+        select: { businessUnit: true },
+        distinct: ['businessUnit'],
+      }),
     ]);
-
-    // Admin lookup
-    const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
-    const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
-    const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
 
     const mappedUsers = users.map(u => {
       let globalRole: string = 'USER';
@@ -2145,7 +2149,7 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
         globalRole,
         firstSeen: u.firstSeen,
         lastActive: u.lastActive,
-        totalRequests: u._count.usageLogs,
+        totalRequests: u.userServices.reduce((sum, us) => sum + us.requestCount, 0),
         serviceStats: u.userServices.map(us => ({
           serviceId: us.service.id,
           serviceName: us.service.displayName,
@@ -2155,20 +2159,6 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
         })),
       };
     });
-
-    // Filter options
-    const [services, businessUnits] = await Promise.all([
-      prisma.service.findMany({
-        where: { enabled: true },
-        select: { id: true, name: true, displayName: true },
-        orderBy: { displayName: 'asc' },
-      }),
-      prisma.user.findMany({
-        where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
-        select: { businessUnit: true },
-        distinct: ['businessUnit'],
-      }),
-    ]);
 
     res.json({
       users: mappedUsers,
@@ -5498,19 +5488,21 @@ adminRoutes.get('/business-units', async (_req: AuthenticatedRequest, res) => {
  */
 adminRoutes.get('/scope/business-units', async (_req: AuthenticatedRequest, res) => {
   try {
-    const users = await prisma.user.findMany({
-      select: { businessUnit: true },
-      distinct: ['businessUnit'],
-      where: {
-        AND: [
-          { businessUnit: { not: null } },
-          { businessUnit: { not: '' } },
-        ],
-      },
-      orderBy: { businessUnit: 'asc' },
+    const result = await withCache(redis, 'cache:admin:scope:business-units', 300, async () => {
+      const users = await prisma.user.findMany({
+        select: { businessUnit: true },
+        distinct: ['businessUnit'],
+        where: {
+          AND: [
+            { businessUnit: { not: null } },
+            { businessUnit: { not: '' } },
+          ],
+        },
+        orderBy: { businessUnit: 'asc' },
+      });
+      return { businessUnits: users.map(u => u.businessUnit).filter(Boolean) as string[] };
     });
-    const businessUnits = users.map(u => u.businessUnit).filter(Boolean) as string[];
-    res.json({ businessUnits });
+    res.json(result);
   } catch (error) {
     console.error('Failed to get business units:', error);
     res.status(500).json({ error: 'Failed to get business units' });
@@ -5523,16 +5515,18 @@ adminRoutes.get('/scope/business-units', async (_req: AuthenticatedRequest, res)
  */
 adminRoutes.get('/scope/departments', async (_req: AuthenticatedRequest, res) => {
   try {
-    const users = await prisma.user.findMany({
-      select: { deptname: true },
-      distinct: ['deptname'],
-      where: {
-        deptname: { not: '' },
-      },
-      orderBy: { deptname: 'asc' },
+    const result = await withCache(redis, 'cache:admin:scope:departments', 300, async () => {
+      const users = await prisma.user.findMany({
+        select: { deptname: true },
+        distinct: ['deptname'],
+        where: {
+          deptname: { not: '' },
+        },
+        orderBy: { deptname: 'asc' },
+      });
+      return { departments: users.map(u => u.deptname).filter(Boolean) };
     });
-    const departments = users.map(u => u.deptname).filter(Boolean);
-    res.json({ departments });
+    res.json(result);
   } catch (error) {
     console.error('Failed to get departments:', error);
     res.status(500).json({ error: 'Failed to get departments' });
@@ -5545,21 +5539,24 @@ adminRoutes.get('/scope/departments', async (_req: AuthenticatedRequest, res) =>
  */
 adminRoutes.get('/scope/org-tree', async (_req: AuthenticatedRequest, res) => {
   try {
-    const nodes = await prisma.orgNode.findMany({
-      select: {
-        departmentCode: true,
-        departmentName: true,
-        enDepartmentName: true,
-        parentDepartmentCode: true,
-        hasChildren: true,
-        userCount: true,
-      },
-      orderBy: [
-        { departmentLevel: 'asc' },
-        { departmentName: 'asc' },
-      ],
+    const result = await withCache(redis, 'cache:admin:scope:org-tree', 300, async () => {
+      const nodes = await prisma.orgNode.findMany({
+        select: {
+          departmentCode: true,
+          departmentName: true,
+          enDepartmentName: true,
+          parentDepartmentCode: true,
+          hasChildren: true,
+          userCount: true,
+        },
+        orderBy: [
+          { departmentLevel: 'asc' },
+          { departmentName: 'asc' },
+        ],
+      });
+      return { nodes };
     });
-    res.json({ nodes });
+    res.json(result);
   } catch (error) {
     console.error('Failed to get scope org-tree:', error);
     res.status(500).json({ error: 'Failed to get organization tree for scope' });
@@ -5600,6 +5597,7 @@ adminRoutes.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
     await prisma.user.delete({ where: { id } });
 
     console.log(`[User Delete] ${req.user!.loginid} deleted user ${user.loginid} (${user.username})`);
+    invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => {});
     res.json({
       success: true,
       message: `사용자 ${user.username} (${user.loginid})의 모든 기록이 삭제되었습니다.`,
@@ -6319,5 +6317,149 @@ adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
   } catch (error) {
     console.error('Batch stats error:', error);
     res.status(500).json({ error: 'Batch request failed' });
+  }
+});
+
+// ============================================
+// LLM 모델 히트맵 — 날짜×시간 집계
+// ============================================
+
+/**
+ * GET /admin/stats/model-heatmap/models
+ * 히트맵용 모델 목록 (RequestLog에 실제 기록이 있는 모델만)
+ */
+adminRoutes.get('/stats/model-heatmap/models', async (_req: AuthenticatedRequest, res) => {
+  try {
+    const result = await withCache(redis, 'cache:admin:model-heatmap:models', 120, async () => {
+      const models = await prisma.$queryRaw<Array<{
+        model_name: string;
+        resolved_model: string | null;
+        total_calls: bigint;
+        last_call: Date;
+      }>>`
+        SELECT
+          model_name,
+          resolved_model,
+          COUNT(*)::bigint as total_calls,
+          MAX(timestamp) as last_call
+        FROM request_logs
+        WHERE timestamp >= NOW() - INTERVAL '30 days'
+        GROUP BY model_name, resolved_model
+        ORDER BY COUNT(*) DESC
+      `;
+
+      return models.map(m => ({
+        modelName: m.model_name,
+        resolvedModel: m.resolved_model,
+        totalCalls: Number(m.total_calls),
+        lastCall: m.last_call,
+      }));
+    });
+
+    res.json({ models: result });
+  } catch (error) {
+    console.error('Get model heatmap models error:', error);
+    res.status(500).json({ error: 'Failed to get model list' });
+  }
+});
+
+/**
+ * GET /admin/stats/model-heatmap
+ * 모델별 날짜×시간 히트맵 데이터
+ * Query: ?modelName=xxx&days=30
+ * Returns: date × hour grid with avgLatency, timeoutCount, callCount
+ */
+adminRoutes.get('/stats/model-heatmap', async (req: AuthenticatedRequest, res) => {
+  try {
+    const modelName = (req.query['modelName'] as string) || '';
+    const days = Math.min(90, Math.max(7, parseInt(req.query['days'] as string) || 30));
+
+    if (!modelName) {
+      return res.status(400).json({ error: 'modelName is required' });
+    }
+
+    const cacheKey = `cache:admin:model-heatmap:${modelName}:${days}`;
+    const result = await withCache(redis, cacheKey, 90, async () => {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      // 날짜×시간 집계 — KST 기준
+      const heatmapData = await prisma.$queryRaw<Array<{
+        dt: string;
+        hr: number;
+        avg_latency: number | null;
+        p95_latency: number | null;
+        timeout_count: bigint;
+        error_count: bigint;
+        call_count: bigint;
+        success_count: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+          AVG(CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as avg_latency,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as p95_latency,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count,
+          COUNT(*)::bigint as call_count,
+          COUNT(CASE WHEN status_code >= 200 AND status_code < 400 THEN 1 END)::bigint as success_count
+        FROM request_logs
+        WHERE model_name = ${modelName}
+          AND timestamp >= ${startDate}
+        GROUP BY dt, hr
+        ORDER BY dt, hr
+      `;
+
+      // 일별 요약
+      const dailySummary = await prisma.$queryRaw<Array<{
+        dt: string;
+        avg_latency: number | null;
+        call_count: bigint;
+        timeout_count: bigint;
+        error_count: bigint;
+        unique_users: bigint;
+      }>>`
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          AVG(CASE WHEN latency_ms IS NOT NULL AND status_code < 500 THEN latency_ms END)::float as avg_latency,
+          COUNT(*)::bigint as call_count,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::bigint as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::bigint as error_count,
+          COUNT(DISTINCT user_id)::bigint as unique_users
+        FROM request_logs
+        WHERE model_name = ${modelName}
+          AND timestamp >= ${startDate}
+        GROUP BY dt
+        ORDER BY dt
+      `;
+
+      return {
+        heatmap: heatmapData.map(row => ({
+          date: row.dt,
+          hour: row.hr,
+          avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
+          p95Latency: row.p95_latency ? Math.round(row.p95_latency) : null,
+          timeoutCount: Number(row.timeout_count),
+          errorCount: Number(row.error_count),
+          callCount: Number(row.call_count),
+          successCount: Number(row.success_count),
+        })),
+        daily: dailySummary.map(row => ({
+          date: row.dt,
+          avgLatency: row.avg_latency ? Math.round(row.avg_latency) : null,
+          callCount: Number(row.call_count),
+          timeoutCount: Number(row.timeout_count),
+          errorCount: Number(row.error_count),
+          uniqueUsers: Number(row.unique_users),
+        })),
+        modelName,
+        days,
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Get model heatmap error:', error);
+    res.status(500).json({ error: 'Failed to get model heatmap data' });
   }
 });

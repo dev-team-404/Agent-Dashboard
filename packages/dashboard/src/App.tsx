@@ -51,6 +51,7 @@ const GpuPowerUsage = lazyWithRetry(() => import('./pages/GpuPowerUsage'));
 const ResourceMonitor = lazyWithRetry(() => import('./pages/ResourceMonitor'));
 const OidcClients = lazyWithRetry(() => import('./pages/OidcClients'));
 const PlatformStory = lazyWithRetry(() => import('./pages/PlatformStory'));
+const LlmHeatmap = lazyWithRetry(() => import('./pages/LlmHeatmap'));
 
 interface User {
   id: string;
@@ -173,6 +174,7 @@ function App() {
               <Route path="/gpu-power" element={<GpuPowerUsage />} />
               <Route path="/resource-monitor" element={<ResourceMonitor />} />
               <Route path="/oidc-clients" element={<OidcClients adminRole={adminRole} />} />
+              <Route path="/llm-heatmap" element={<LlmHeatmap />} />
             </>
           )}
 
