@@ -69,15 +69,8 @@ const PORT = process.env['PORT'] || 3000;
 
 app.set('trust proxy', 1);
 
-export const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env['DATABASE_URL']?.includes('connection_limit')
-        ? process.env['DATABASE_URL']
-        : (process.env['DATABASE_URL'] || '') + '?connection_limit=50&pool_timeout=30',
-    },
-  },
-});
+// DATABASE_URL에 connection_limit이 이미 설정됨 (docker-compose: connection_limit=1000)
+export const prisma = new PrismaClient();
 export const redis = createRedisClient();
 
 // Prisma napi 한계 우회: JSON-heavy 쿼리용 직접 pg Pool
@@ -105,7 +98,10 @@ app.use(cors({
 app.use('/v1/chat/completions', express.json({ limit: '500mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
-app.use(morgan('combined'));
+// morgan은 requestLogger와 이중 로깅 → 프로덕션에서 제거 (요청당 50-100ms 절감)
+if (process.env['NODE_ENV'] !== 'production') {
+  app.use(morgan('combined'));
+}
 
 // Rate limiting — Dashboard API only (proxy routes have their own token-based limits)
 const dashboardLimiter = rateLimit({

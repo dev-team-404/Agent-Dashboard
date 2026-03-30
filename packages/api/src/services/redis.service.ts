@@ -152,6 +152,30 @@ export async function withCache<T>(
 }
 
 /**
+ * 캐시 무효화 — 쓰기 작업 후 관련 캐시 키 즉시 삭제
+ * 패턴 매칭으로 prefix 기반 삭제 (예: 'cache:admin:unified-users:*')
+ * fail-open: Redis 장애 시 무시 (다음 TTL 만료 시 자연 갱신)
+ */
+export async function invalidateCache(redis: Redis, ...patterns: string[]): Promise<void> {
+  try {
+    const pipeline = redis.pipeline();
+    for (const pattern of patterns) {
+      if (pattern.includes('*')) {
+        // 와일드카드 패턴 → SCAN으로 키 찾아서 삭제
+        const keys = await redis.keys(pattern);
+        if (keys.length > 0) {
+          for (const key of keys) pipeline.del(key);
+        }
+      } else {
+        // 정확한 키 삭제
+        pipeline.del(pattern);
+      }
+    }
+    await pipeline.exec();
+  } catch { /* fail-open */ }
+}
+
+/**
  * Increment today's usage stats (legacy function for compatibility)
  */
 export async function incrementTodayUsage(

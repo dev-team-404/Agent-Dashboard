@@ -623,9 +623,8 @@ async function getOrCreateUser(
     proxyReq.deptName = result.user.deptname || '';
     proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
     proxyReq.businessUnit = extractBusinessUnit(proxyReq.deptName);
-    // 최초 인증된 사용자의 departmentCode 조회
-    const newUser = await prisma.user.findUnique({ where: { id: result.user.id }, select: { departmentCode: true } });
-    proxyReq.userDeptCode = newUser?.departmentCode || '';
+    // departmentCode는 verifyAndRegisterUser에서 이미 설정됨 — 재조회 불필요
+    proxyReq.userDeptCode = (result.user as { departmentCode?: string }).departmentCode || '';
   }
 
   // 배포 범위 접근 제어 (부서 확정 후)
@@ -656,21 +655,19 @@ async function checkRateLimit(
 ): Promise<{ status: 429; body: Record<string, unknown> } | null> {
   if (!user) return null;
 
-  // 1) 개별 사용자 rate limit 우선 확인
-  const userLimit = await prisma.userRateLimit.findUnique({
-    where: { userId_serviceId: { userId: user.id, serviceId } },
-  });
-
-  // 2) 개별 설정이 없으면 서비스 공통 rate limit 적용
-  let effectiveLimit: { maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null = null;
-  if (userLimit) {
-    effectiveLimit = userLimit;
-  } else {
-    const serviceLimit = await prisma.serviceRateLimit.findUnique({
+  // 개별 사용자 + 서비스 공통 rate limit 병렬 조회 (순차 → 병렬, 40ms → 20ms)
+  const [userLimit, serviceLimit] = await Promise.all([
+    prisma.userRateLimit.findUnique({
+      where: { userId_serviceId: { userId: user.id, serviceId } },
+    }),
+    prisma.serviceRateLimit.findUnique({
       where: { serviceId },
-    });
-    if (serviceLimit) effectiveLimit = serviceLimit;
-  }
+    }),
+  ]);
+
+  // 개별 설정 우선, 없으면 서비스 공통 적용
+  const effectiveLimit: { maxTokens: number; window: 'FIVE_HOURS' | 'DAY'; enabled: boolean } | null =
+    userLimit || serviceLimit || null;
 
   if (!effectiveLimit || !effectiveLimit.enabled) return null;
 

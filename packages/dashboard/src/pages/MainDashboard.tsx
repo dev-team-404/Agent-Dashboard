@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   Users, Activity, Zap, TrendingUp,
   Clock, BarChart3, Layers, CalendarDays,
@@ -139,8 +139,8 @@ function useAnimatedCounter(target: number, duration = 1200) {
   return value;
 }
 
-// ── Stat Card ──
-function StatCard({
+// ── Stat Card (memo로 불필요한 재렌더링 방지) ──
+const StatCard = memo(function StatCard({
   label, value, icon: Icon, gradient, description, highlight, delay,
 }: {
   label: string;
@@ -183,7 +183,7 @@ function StatCard({
       </div>
     </div>
   );
-}
+});
 
 // ── Chart Tabs ──
 type ChartTab = 'gpu' | 'latency' | 'dept' | 'mm' | 'analysis' | 'dau-mau' | 'service-metrics' | 'usage' | 'bu-stats';
@@ -303,25 +303,20 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
   const loadData = async () => {
     try {
-      // Phase 1: 핵심 데이터 (Hero Stats + 모델 상태 + GPU)
-      const [globalRes, healthStatusRes] = await Promise.all([
+      // 전체 병렬 로드 — Phase 1/2/3를 동시에 시작 (순차 대기 제거)
+      const [globalRes, healthStatusRes, gpuRes, predRes] = await Promise.all([
         statsApi.globalOverview(),
         statsApi.healthStatus().catch(() => ({ data: { statuses: {}, totalEnabledModels: 0 } })),
+        gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
+        gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
       ]);
 
       setGlobalOverview(globalRes.data.services || []);
       setGlobalTotals(globalRes.data.totals || null);
       setHealthStatuses(healthStatusRes.data.statuses || {});
       setTotalEnabledModels(healthStatusRes.data.totalEnabledModels || 0);
-
-      // Phase 2: GPU + 나머지 데이터 (백그라운드 로드 — UI 먼저 보여줌)
-      Promise.all([
-        gpuServerApi.realtime().catch(() => ({ data: { data: [] } })),
-        gpuCapacityApi.latest().catch(() => ({ data: { prediction: null } })),
-      ]).then(([gpuRes, predRes]) => {
-        setGpuData(gpuRes.data.data || []);
-        setGpuPrediction(predRes.data.prediction);
-      }).catch(() => {});
+      setGpuData(gpuRes.data.data || []);
+      setGpuPrediction(predRes.data.prediction);
 
       // Phase 3 stats — apply helper (shared by batch & fallback)
       const applyPhase3 = (d: Record<string, any>) => {

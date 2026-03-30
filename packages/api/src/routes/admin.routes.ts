@@ -6328,7 +6328,7 @@ adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
  * GET /admin/stats/model-heatmap/models
  * 히트맵용 모델 목록 (RequestLog에 실제 기록이 있는 모델만)
  */
-adminRoutes.get('/stats/model-heatmap/models', async (_req: AuthenticatedRequest, res) => {
+adminRoutes.get('/stats/model-heatmap/models', requireSuperAdmin as RequestHandler, async (_req: AuthenticatedRequest, res) => {
   try {
     const result = await withCache(redis, 'cache:admin:model-heatmap:models', 120, async () => {
       const models = await prisma.$queryRaw<Array<{
@@ -6369,7 +6369,7 @@ adminRoutes.get('/stats/model-heatmap/models', async (_req: AuthenticatedRequest
  * Query: ?modelName=xxx&days=30
  * Returns: date × hour grid with avgLatency, timeoutCount, callCount
  */
-adminRoutes.get('/stats/model-heatmap', async (req: AuthenticatedRequest, res) => {
+adminRoutes.get('/stats/model-heatmap', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const modelName = (req.query['modelName'] as string) || '';
     const days = Math.min(90, Math.max(7, parseInt(req.query['days'] as string) || 30));

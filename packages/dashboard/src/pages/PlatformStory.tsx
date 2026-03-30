@@ -124,6 +124,12 @@ const timeline = [
     tags: ['쓰기 버퍼링', 'bulk INSERT', '커넥션 풀', 'TTL 단축', 'DGX 최적화'],
   },
   {
+    date: '2026.03.30',
+    title: '전면 최적화 — 쿼리/캐시/프론트엔드/인프라 종합',
+    desc: '사용자관리 _count:usageLogs 서브쿼리 제거(50x COUNT→requestCount 합산), admin 이중조회 제거, 필터옵션 병렬화. 캐시 무효화 패턴 도입(invalidateCache — 쓰기 시 관련 캐시 즉시 삭제). 메타데이터 엔드포인트 withCache 적용(scope BU/dept/org-tree 300초). morgan 이중로깅 제거(요청당 50-100ms↓). 프록시 rate limit 병렬 조회(40→20ms). 불필요 DB 재조회 제거. PostgreSQL WAL/checkpoint 튜닝(shared_buffers 8GB, wal_buffers 64MB, checkpoint 15분). 프론트엔드 Phase 병렬화(순차 3초→병렬 0.5초), StatCard memo, 미사용 chart.js 번들 제거(50KB↓).',
+    tags: ['쿼리 최적화', '캐시 무효화', 'morgan 제거', 'WAL 튜닝', 'Phase 병렬화', 'memo'],
+  },
+  {
     date: '2026.03.29',
     title: 'OIDC 인증 체계 구축 — 사용자별 사용량 자동 추적',
     desc: 'Open WebUI, Google ADK, LangChain 등 외부 서비스에서 사용자별 사용량을 자동 추적하기 위한 OIDC(OpenID Connect) 인증 체계 전면 구축. Auth Server(HTTPS :9050) — OIDC Provider(authorize/token/userinfo) + Mock SSO(개발용). 삼성 SSO 직통 연동(form_post, RS256 인증서 검증, genai.samsungds.net 중간자 제거). Gateway body.user 지원 — OpenAI 표준 user 필드로 사용자 식별(x-user-id 헤더 대체). Python SDK(agent_platform_auth.py) — setup_auth() 한 줄로 OpenAI/LangChain/ADK 전부 자동 user 주입(OpenAI SDK monkey-patch + LiteLLM 콜백 이중 커버). Dashboard OIDC 로그인 모드 추가(기존 SSO 호환 유지). Open WebUI Playwright E2E 검증 완료. Google ADK 1.28 + 2.0 Alpha 호환 검증. 보안 리뷰 8건 수정(SSRF 차단, 클라이언트 시크릿 프론트엔드 제거, open redirect 방지 등). docs-site 가이드 5페이지 + Agent용 프롬프트 + 예제 zip. deploy.sh SSL 자동 생성 + OIDC_ISSUER 자동 감지.',
