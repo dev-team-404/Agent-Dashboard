@@ -97,6 +97,8 @@ export default function LlmHeatmap() {
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
   const [daily, setDaily] = useState<DailySummary[]>([]);
+  const [perModelData, setPerModelData] = useState<Map<string, { heatmap: HeatmapCell[]; daily: DailySummary[]; displayName: string }>>(new Map());
+  const [viewMode, setViewMode] = useState<'merge' | 'compare'>('merge');
   const [loading, setLoading] = useState(true);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
@@ -142,6 +144,17 @@ export default function LlmHeatmap() {
       const results = await Promise.all(
         ids.map(id => api.get('/admin/stats/model-heatmap', { params: { modelId: id, days } }).then(r => r.data))
       );
+
+      // 개별 모델 데이터 저장 (비교 모드용)
+      const perModel = new Map<string, { heatmap: HeatmapCell[]; daily: DailySummary[]; displayName: string }>();
+      for (let i = 0; i < ids.length; i++) {
+        perModel.set(ids[i], {
+          heatmap: results[i].heatmap || [],
+          daily: results[i].daily || [],
+          displayName: results[i].displayName || models.find(m => m.modelId === ids[i])?.displayName || ids[i],
+        });
+      }
+      setPerModelData(perModel);
 
       // 히트맵 병합 (date|hour 기준 합산)
       const hm = new Map<string, HeatmapCell>();
@@ -356,6 +369,12 @@ export default function LlmHeatmap() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {selectedModels.size >= 2 && (
+                <div className="flex bg-gray-100 rounded-lg p-0.5">
+                  <button onClick={() => setViewMode('merge')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'merge' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>합산</button>
+                  <button onClick={() => setViewMode('compare')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'compare' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>비교</button>
+                </div>
+              )}
               <button
                 onClick={() => setSelectedModels(prev => prev.size === models.length ? new Set() : new Set(models.map(m => m.modelId)))}
                 className="text-[10px] text-purple-600 hover:text-purple-800 font-medium"
@@ -536,111 +555,30 @@ export default function LlmHeatmap() {
                 );
               })()}
 
-              {/* Heatmap Grid */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[700px]">
-                  {/* Hour header */}
-                  <div className="flex">
-                    <div className="w-20 shrink-0" />
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <div key={h} className="flex-1 text-center text-[8px] text-gray-400 font-semibold pb-1">{h}</div>
-                    ))}
-                  </div>
-                  {/* Date rows */}
-                  {dates.map(dt => {
-                    const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][new Date(dt + 'T00:00:00+09:00').getDay()];
-                    const isWeekend = dayOfWeek === '토' || dayOfWeek === '일';
-                    return (
-                      <div key={dt} className="flex items-center">
-                        <div className={`w-20 shrink-0 text-[9px] pr-1.5 text-right tabular-nums ${isWeekend ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
-                          {dt.slice(5)} {dayOfWeek}
-                        </div>
-                        {Array.from({ length: 24 }, (_, h) => {
-                          const cell = heatmapMap.get(`${dt}|${h}`);
-                          const val = cell ? activeTab.getValue(cell) : 0;
-                          const bg = cell ? activeTab.getColor(val) : '#f8fafc';
-                          const textColor = val > 0
-                            ? (['#7f1d1d', '#dc2626', '#7c3aed', '#15803d'].includes(bg) ? '#fff' : ['#f59e0b', '#fb923c', '#8b5cf6'].includes(bg) ? '#fff' : '#1e293b')
-                            : '#d1d5db';
+              {/* ── 합산 모드: 히트맵 1개 ── */}
+              {(viewMode === 'merge' || selectedModels.size === 1) && (
+                <HeatmapGrid dates={dates} cellMap={heatmapMap} activeTab={activeTab} hmTab={hmTab} />
+              )}
 
-                          return (
-                            <div
-                              key={h}
-                              className="flex-1 h-7 border border-white/60 cursor-help flex items-center justify-center text-[8px] font-bold transition-colors"
-                              style={{ backgroundColor: bg, color: textColor }}
-                              title={[
-                                `${dt} ${h}시`,
-                                `── 실제 사용 ──`,
-                                `호출: ${cell?.callCount ?? 0}건 (성공 ${cell?.successCount ?? 0})`,
-                                `평균: ${cell?.avgLatency ?? '-'}ms · P95: ${cell?.p95Latency ?? '-'}ms`,
-                                `타임아웃: ${cell?.timeoutCount ?? 0} · 에러: ${cell?.errorCount ?? 0}`,
-                                cell && cell.callCount > 0 ? `성공률: ${Math.round(cell.successCount / cell.callCount * 100)}%` : '',
-                                `── 헬스체크 ──`,
-                                `프로빙: ${cell?.hcCount ?? 0}회 (성공 ${cell?.hcSuccess ?? 0} / 실패 ${cell?.hcFail ?? 0})`,
-                                `HC 평균: ${cell?.hcAvgLatency ?? '-'}ms`,
-                                cell && cell.hcCount > 0 ? `HC 성공률: ${Math.round(cell.hcSuccess / cell.hcCount * 100)}%` : '',
-                              ].filter(Boolean).join('\n')}
-                            >
-                              {val > 0 ? activeTab.format(val) : val === 0 && (hmTab === 'errorRate' || hmTab === 'successRate' || hmTab === 'hcSuccess') && cell && (hmTab.startsWith('hc') ? cell.hcCount > 0 : cell.callCount > 0) ? activeTab.format(val) : ''}
-                            </div>
-                          );
-                        })}
+              {/* ── 비교 모드: 모델별 히트맵 ── */}
+              {viewMode === 'compare' && selectedModels.size >= 2 && (
+                <div className="space-y-4">
+                  {[...perModelData.entries()].map(([modelId, data]) => {
+                    const modelDates = [...new Set(data.heatmap.map(h => h.date))].sort();
+                    const modelCellMap = new Map<string, HeatmapCell>();
+                    for (const c of data.heatmap) modelCellMap.set(`${c.date}|${c.hour}`, c);
+                    return (
+                      <div key={modelId} className="border border-gray-100 rounded-lg p-3">
+                        <p className="text-[11px] font-bold text-gray-800 mb-2">{data.displayName}</p>
+                        <HeatmapGrid dates={modelDates} cellMap={modelCellMap} activeTab={activeTab} hmTab={hmTab} compact />
                       </div>
                     );
                   })}
                 </div>
-              </div>
-
-              {/* Legend */}
-              <div className="mt-3 flex items-center gap-2 text-[9px] text-gray-500">
-                <span>낮음</span>
-                {activeTab.key === 'callCount' && (
-                  <>
-                    {['#ddd6fe', '#c4b5fd', '#a78bfa', '#8b5cf6', '#7c3aed'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                {(activeTab.key === 'latency' || activeTab.key === 'p95') && (
-                  <>
-                    {['#f0fdf4', '#22d3ee', '#3b82f6', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                {activeTab.key === 'timeout' && (
-                  <>
-                    {['#f0fdf4', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                {activeTab.key === 'errorRate' && (
-                  <>
-                    {['#f0fdf4', '#fde68a', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                {(activeTab.key === 'successRate' || activeTab.key === 'hcSuccess') && (
-                  <>
-                    {['#dc2626', '#f59e0b', '#86efac', '#22c55e', '#15803d'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                {activeTab.key === 'hcLatency' && (
-                  <>
-                    {['#f0fdf4', '#22d3ee', '#3b82f6', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => (
-                      <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />
-                    ))}
-                  </>
-                )}
-                <span>높음</span>
-              </div>
+              )}
 
               {/* ── Daily Trend Mini Chart ── */}
-              {daily.length > 1 && (
+              {daily.length > 1 && (viewMode === 'merge' || selectedModels.size === 1) && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-[10px] font-semibold text-gray-600 mb-2">일별 추이</p>
                   <div className="flex items-end gap-[2px] h-16">
@@ -687,6 +625,77 @@ export default function LlmHeatmap() {
 }
 
 // ── Helpers ──
+function HeatmapGrid({ dates, cellMap, activeTab, hmTab, compact }: {
+  dates: string[];
+  cellMap: Map<string, HeatmapCell>;
+  activeTab: { key: string; getValue: (c: HeatmapCell) => number; getColor: (v: number) => string; format: (v: number) => string };
+  hmTab: string;
+  compact?: boolean;
+}) {
+  const cellH = compact ? 'h-5' : 'h-7';
+  const fontSize = compact ? 'text-[6px]' : 'text-[8px]';
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <div className="min-w-[700px]">
+          <div className="flex">
+            <div className="w-20 shrink-0" />
+            {Array.from({ length: 24 }, (_, h) => (
+              <div key={h} className={`flex-1 text-center ${fontSize} text-gray-400 font-semibold pb-1`}>{h}</div>
+            ))}
+          </div>
+          {dates.map(dt => {
+            const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][new Date(dt + 'T00:00:00+09:00').getDay()];
+            const isWeekend = dayOfWeek === '토' || dayOfWeek === '일';
+            return (
+              <div key={dt} className="flex items-center">
+                <div className={`w-20 shrink-0 text-[9px] pr-1.5 text-right tabular-nums ${isWeekend ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
+                  {dt.slice(5)} {dayOfWeek}
+                </div>
+                {Array.from({ length: 24 }, (_, h) => {
+                  const cell = cellMap.get(`${dt}|${h}`);
+                  const val = cell ? activeTab.getValue(cell) : 0;
+                  const bg = cell ? activeTab.getColor(val) : '#f8fafc';
+                  const textColor = val > 0
+                    ? (['#7f1d1d', '#dc2626', '#7c3aed', '#15803d'].includes(bg) ? '#fff' : ['#f59e0b', '#fb923c', '#8b5cf6'].includes(bg) ? '#fff' : '#1e293b')
+                    : '#d1d5db';
+                  return (
+                    <div
+                      key={h}
+                      className={`flex-1 ${cellH} border border-white/60 cursor-help flex items-center justify-center ${fontSize} font-bold`}
+                      style={{ backgroundColor: bg, color: textColor }}
+                      title={[
+                        `${dt} ${h}시`,
+                        `호출: ${cell?.callCount ?? 0} (성공 ${cell?.successCount ?? 0})`,
+                        `평균: ${cell?.avgLatency ?? '-'}ms · P95: ${cell?.p95Latency ?? '-'}ms`,
+                        `타임아웃: ${cell?.timeoutCount ?? 0} · 에러: ${cell?.errorCount ?? 0}`,
+                        `HC: ${cell?.hcCount ?? 0}회 (${cell?.hcAvgLatency ?? '-'}ms)`,
+                      ].join('\n')}
+                    >
+                      {val > 0 ? activeTab.format(val) : val === 0 && (hmTab === 'errorRate' || hmTab === 'successRate' || hmTab === 'hcSuccess') && cell && (hmTab.startsWith('hc') ? cell.hcCount > 0 : cell.callCount > 0) ? activeTab.format(val) : ''}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {!compact && (
+        <div className="mt-3 flex items-center gap-2 text-[9px] text-gray-500">
+          <span>낮음</span>
+          {activeTab.key === 'callCount' && ['#ddd6fe', '#c4b5fd', '#a78bfa', '#8b5cf6', '#7c3aed'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          {(activeTab.key === 'latency' || activeTab.key === 'p95' || activeTab.key === 'hcLatency') && ['#f0fdf4', '#22d3ee', '#3b82f6', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          {activeTab.key === 'timeout' && ['#f0fdf4', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          {activeTab.key === 'errorRate' && ['#f0fdf4', '#fde68a', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          {(activeTab.key === 'successRate' || activeTab.key === 'hcSuccess') && ['#dc2626', '#f59e0b', '#86efac', '#22c55e', '#15803d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
+          <span>높음</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SummaryCard({ icon: Icon, label, value, sub, color }: {
   icon: React.ElementType; label: string; value: string; sub: string; color: string;
 }) {
