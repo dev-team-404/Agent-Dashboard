@@ -35,6 +35,8 @@ function filterServiceHierarchy<T extends Record<string, unknown>>(service: T): 
   return { ...service, center2Name: nc2, center1Name: nc1 };
 }
 import { z } from 'zod';
+import { invalidateCache } from '../services/redis.service.js';
+import { redis } from '../index.js';
 
 export const serviceRoutes = Router();
 
@@ -2377,6 +2379,221 @@ serviceRoutes.get('/:id/error-logs', authenticateToken, (async (req: Authenticat
   } catch (error) {
     console.error('Get service error logs error:', error);
     res.status(500).json({ error: 'Failed to get service error logs' });
+  }
+}) as RequestHandler);
+
+// ============================================
+// 테스트 계정 관리 (서비스별 최대 3개)
+// ============================================
+
+const MAX_TEST_ACCOUNTS_PER_SERVICE = 3;
+
+/**
+ * GET /services/:id/test-accounts
+ */
+serviceRoutes.get('/:id/test-accounts', authenticateToken, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const accounts = await prisma.testAccount.findMany({
+      where: { serviceId: req.params['id']! },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(accounts);
+  } catch (error) {
+    console.error('Get test accounts error:', error);
+    res.status(500).json({ error: 'Failed to get test accounts' });
+  }
+}) as RequestHandler);
+
+/**
+ * POST /services/:id/test-accounts
+ */
+serviceRoutes.post('/:id/test-accounts', authenticateToken, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const serviceId = req.params['id']!;
+    const { loginid, username, deptname, departmentCode, description } = req.body;
+
+    if (!loginid || typeof loginid !== 'string' || !loginid.trim()) {
+      res.status(400).json({ error: 'loginid는 필수입니다' });
+      return;
+    }
+
+    const trimmedLoginid = loginid.trim().toLowerCase();
+
+    // 서비스당 3개 제한
+    const count = await prisma.testAccount.count({ where: { serviceId } });
+    if (count >= MAX_TEST_ACCOUNTS_PER_SERVICE) {
+      res.status(400).json({ error: `서비스당 테스트 계정은 최대 ${MAX_TEST_ACCOUNTS_PER_SERVICE}개입니다` });
+      return;
+    }
+
+    // loginid 중복 체크 (테스트 계정 + 실제 사용자)
+    const [existingTestAccount, existingUser] = await Promise.all([
+      prisma.testAccount.findUnique({ where: { loginid: trimmedLoginid } }),
+      prisma.user.findUnique({ where: { loginid: trimmedLoginid } }),
+    ]);
+
+    if (existingTestAccount) {
+      res.status(409).json({ error: `'${trimmedLoginid}'는 이미 다른 서비스의 테스트 계정으로 등록되어 있습니다` });
+      return;
+    }
+
+    if (existingUser && !existingUser.isTestAccount) {
+      res.status(409).json({ error: `'${trimmedLoginid}'는 이미 실제 사용자로 등록되어 있습니다` });
+      return;
+    }
+
+    // TestAccount 생성 + User upsert (isTestAccount=true)
+    const [account] = await prisma.$transaction([
+      prisma.testAccount.create({
+        data: {
+          serviceId,
+          loginid: trimmedLoginid,
+          username: username || '테스트 사용자',
+          deptname: deptname || '',
+          departmentCode: departmentCode || null,
+          description: description || null,
+          createdBy: req.user!.loginid,
+        },
+      }),
+      prisma.user.upsert({
+        where: { loginid: trimmedLoginid },
+        update: {
+          username: username || '테스트 사용자',
+          deptname: deptname || '',
+          departmentCode: departmentCode || null,
+          isTestAccount: true,
+          knoxVerified: true,
+          lastActive: new Date(),
+        },
+        create: {
+          loginid: trimmedLoginid,
+          username: username || '테스트 사용자',
+          deptname: deptname || '',
+          departmentCode: departmentCode || null,
+          isTestAccount: true,
+          knoxVerified: true,
+        },
+      }),
+    ]);
+
+    recordAudit(req, 'CREATE_TEST_ACCOUNT', trimmedLoginid, 'TestAccount', { serviceId, deptname }).catch(() => {});
+    res.status(201).json(account);
+  } catch (error) {
+    console.error('Create test account error:', error);
+    res.status(500).json({ error: 'Failed to create test account' });
+  }
+}) as RequestHandler);
+
+/**
+ * PUT /services/:id/test-accounts/:accountId
+ */
+serviceRoutes.put('/:id/test-accounts/:accountId', authenticateToken, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const { accountId } = req.params;
+    const { loginid, username, deptname, departmentCode, description, enabled } = req.body;
+
+    const existing = await prisma.testAccount.findUnique({ where: { id: accountId } });
+    if (!existing) {
+      res.status(404).json({ error: 'Test account not found' });
+      return;
+    }
+
+    const newLoginid = loginid ? loginid.trim().toLowerCase() : existing.loginid;
+
+    // loginid 변경 시 중복 체크
+    if (newLoginid !== existing.loginid) {
+      const [dupTest, dupUser] = await Promise.all([
+        prisma.testAccount.findUnique({ where: { loginid: newLoginid } }),
+        prisma.user.findUnique({ where: { loginid: newLoginid } }),
+      ]);
+      if (dupTest) {
+        res.status(409).json({ error: `'${newLoginid}'는 이미 다른 테스트 계정으로 등록되어 있습니다` });
+        return;
+      }
+      if (dupUser && !dupUser.isTestAccount) {
+        res.status(409).json({ error: `'${newLoginid}'는 이미 실제 사용자로 등록되어 있습니다` });
+        return;
+      }
+    }
+
+    // Transaction: TestAccount 수정 + User 동기화
+    const updatedDeptname = deptname !== undefined ? deptname : existing.deptname;
+    const updatedUsername = username !== undefined ? username : existing.username;
+    const updatedDeptCode = departmentCode !== undefined ? departmentCode : existing.departmentCode;
+
+    const updateTestAccount = prisma.testAccount.update({
+      where: { id: accountId },
+      data: {
+        ...(loginid !== undefined && { loginid: newLoginid }),
+        ...(username !== undefined && { username }),
+        ...(deptname !== undefined && { deptname }),
+        ...(departmentCode !== undefined && { departmentCode }),
+        ...(description !== undefined && { description }),
+        ...(enabled !== undefined && { enabled }),
+      },
+    });
+
+    let account;
+    // loginid 변경 시: 이전 User를 isTestAccount=false로 + 새 User 생성
+    if (newLoginid !== existing.loginid) {
+      [account] = await prisma.$transaction([
+        updateTestAccount,
+        prisma.user.update({
+          where: { loginid: existing.loginid },
+          data: { isTestAccount: false },
+        }),
+        prisma.user.upsert({
+          where: { loginid: newLoginid },
+          update: { username: updatedUsername, deptname: updatedDeptname, departmentCode: updatedDeptCode, isTestAccount: true, knoxVerified: true },
+          create: { loginid: newLoginid, username: updatedUsername, deptname: updatedDeptname, departmentCode: updatedDeptCode, isTestAccount: true, knoxVerified: true },
+        }),
+      ]);
+    } else {
+      // loginid 동일 → User 정보 동기화
+      [account] = await prisma.$transaction([
+        updateTestAccount,
+        prisma.user.update({
+          where: { loginid: existing.loginid },
+          data: { username: updatedUsername, deptname: updatedDeptname, departmentCode: updatedDeptCode },
+        }),
+      ]);
+    }
+
+    recordAudit(req, 'UPDATE_TEST_ACCOUNT', newLoginid, 'TestAccount', { accountId }).catch(() => {});
+    res.json(account);
+  } catch (error) {
+    console.error('Update test account error:', error);
+    res.status(500).json({ error: 'Failed to update test account' });
+  }
+}) as RequestHandler);
+
+/**
+ * DELETE /services/:id/test-accounts/:accountId
+ */
+serviceRoutes.delete('/:id/test-accounts/:accountId', authenticateToken, (async (req: AuthenticatedRequest, res) => {
+  try {
+    const { accountId } = req.params;
+
+    const existing = await prisma.testAccount.findUnique({ where: { id: accountId } });
+    if (!existing) {
+      res.status(404).json({ error: 'Test account not found' });
+      return;
+    }
+
+    // TestAccount 삭제 + User.isTestAccount=false
+    await prisma.$transaction([
+      prisma.testAccount.delete({ where: { id: accountId } }),
+      prisma.user.update({
+        where: { loginid: existing.loginid },
+        data: { isTestAccount: false },
+      }),
+    ]);
+
+    recordAudit(req, 'DELETE_TEST_ACCOUNT', existing.loginid, 'TestAccount', { serviceId: existing.serviceId }).catch(() => {});
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete test account error:', error);
+    res.status(500).json({ error: 'Failed to delete test account' });
   }
 }) as RequestHandler);
 

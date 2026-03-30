@@ -502,6 +502,19 @@ async function getOrCreateUser(
   // 1. DB에서 사용자 조회
   const existingUser = await prisma.user.findUnique({ where: { loginid } });
 
+  // 테스트 계정: Knox 인증 스킵, 부서 정보 그대로 사용
+  if (existingUser && existingUser.isTestAccount) {
+    proxyReq.deptName = existingUser.deptname || '';
+    proxyReq.teamName = proxyReq.deptName.match(/^([^(]+)/)?.[1]?.trim() || proxyReq.deptName;
+    proxyReq.businessUnit = existingUser.businessUnit || extractBusinessUnit(proxyReq.deptName);
+    proxyReq.userDeptCode = existingUser.departmentCode || '';
+    const user = await prisma.user.update({
+      where: { id: existingUser.id },
+      data: { lastActive: new Date() },
+    });
+    return { user };
+  }
+
   if (existingUser && existingUser.knoxVerified) {
     // ── 주기적 Knox 재검증: 부서 변경 자동 감지 + 조직도 갱신 ──
     // Redis TTL로 재검증 주기 관리 (기본 7일)
@@ -678,6 +691,20 @@ async function checkRateLimit(
  * Usage 기록 — writeBuffer를 통한 bulk INSERT 버전
  * Redis 카운터/UserService는 즉시 실행, DB INSERT만 버퍼링
  */
+// 테스트 계정 loginid 캐시 (30초 TTL, Redis 기반)
+const _testAccountCache = new Map<string, { isTest: boolean; ts: number }>();
+const TEST_CACHE_TTL = 30_000;
+
+async function isTestAccountLoginid(loginid: string | null): Promise<boolean> {
+  if (!loginid) return false;
+  const cached = _testAccountCache.get(loginid);
+  if (cached && Date.now() - cached.ts < TEST_CACHE_TTL) return cached.isTest;
+  const user = await prisma.user.findUnique({ where: { loginid }, select: { isTestAccount: true } });
+  const isTest = user?.isTestAccount ?? false;
+  _testAccountCache.set(loginid, { isTest, ts: Date.now() });
+  return isTest;
+}
+
 async function recordUsage(
   userId: string | null,
   loginid: string | null,
@@ -690,6 +717,9 @@ async function recordUsage(
   modelName?: string,
   serviceName?: string
 ) {
+  // 테스트 계정은 통계에서 제외
+  if (await isTestAccountLoginid(loginid)) return;
+
   await recordUsageBuffered(
     userId, loginid, modelId, inputTokens, outputTokens,
     serviceId, deptname, latencyMs, modelName, serviceName,
@@ -720,6 +750,9 @@ async function recordRequestLog(params: {
   ipAddress?: string | null;
   stream?: boolean;
 }) {
+  // 테스트 계정은 통계에서 제외
+  if (await isTestAccountLoginid(params.userId || null)) return;
+
   recordRequestLogBuffered(params);
 }
 

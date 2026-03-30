@@ -71,6 +71,7 @@ model Service {
   requestLogs         RequestLog[]
   aiEstimations       AiEstimation[]
   deptSavedMMs        DeptServiceSavedMM[]
+  testAccounts        TestAccount[]
 
   @@map("services")
 }
@@ -87,6 +88,7 @@ model User {
   enDeptName     String?  @map("en_dept_name")       // 영문 부서명 (Knox enDepartmentName)
   departmentCode String?  @map("department_code")    // Knox 부서코드
   knoxVerified   Boolean  @default(false) @map("knox_verified")
+  isTestAccount  Boolean  @default(false) @map("is_test_account")
   firstSeen     DateTime @default(now())
   lastActive    DateTime @default(now())
   isActive      Boolean  @default(true)
@@ -700,5 +702,27 @@ model OrgNode {
 
   @@index([parentDepartmentCode])
   @@map("org_nodes")
+}
+
+// ============================================
+// 테스트 계정 (서비스별 개발/테스트용)
+// ============================================
+model TestAccount {
+  id              String    @id @default(uuid())
+  serviceId       String    @map("service_id")
+  loginid         String    @unique                          // 전체 시스템에서 유니크
+  username        String    @default("테스트 사용자")
+  deptname        String    @default("")
+  departmentCode  String?   @map("department_code")
+  description     String?
+  enabled         Boolean   @default(true)
+  createdBy       String    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId])
+  @@map("test_accounts")
 }
 

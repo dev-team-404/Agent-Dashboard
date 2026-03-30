@@ -2059,6 +2059,7 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const whereClause: any = {
       loginid: { not: 'anonymous' },
+      isTestAccount: false,
     };
 
     // SYSTEM ADMIN: 본인 팀 사용자만 보이게 제한
@@ -2125,7 +2126,7 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
         orderBy: { displayName: 'asc' },
       }),
       prisma.user.findMany({
-        where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
+        where: { businessUnit: { not: null }, loginid: { not: 'anonymous' }, isTestAccount: false },
         select: { businessUnit: true },
         distinct: ['businessUnit'],
       }),
@@ -2191,6 +2192,7 @@ adminRoutes.get('/unified-users/export', async (req: AuthenticatedRequest, res) 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const whereClause: any = {
       loginid: { not: 'anonymous' },
+      isTestAccount: false,
     };
 
     if (req.adminRole !== 'SUPER_ADMIN') {
@@ -2957,7 +2959,7 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id::text = ${serviceId}
           GROUP BY DATE(ul.timestamp)
           ORDER BY date ASC
@@ -2968,7 +2970,7 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
           GROUP BY DATE(ul.timestamp)
           ORDER BY date ASC
         `;
@@ -2987,7 +2989,7 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id::text = ${serviceId}
         `;
       } else {
@@ -2996,7 +2998,7 @@ adminRoutes.get('/stats/daily-active-users', async (req: AuthenticatedRequest, r
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
         `;
       }
 
@@ -3039,7 +3041,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
             SELECT ul.user_id, MIN(ul.timestamp) as first_usage
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
               AND ul.service_id::text = ${serviceId}
             GROUP BY ul.user_id
           ) as user_first
@@ -3053,7 +3055,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp < ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id::text = ${serviceId}
         `;
       } else {
@@ -3063,7 +3065,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
             SELECT ul.user_id, MIN(ul.timestamp) as first_usage
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             GROUP BY ul.user_id
           ) as user_first
           WHERE first_usage >= ${startDate}
@@ -3076,7 +3078,7 @@ adminRoutes.get('/stats/cumulative-users', async (req: AuthenticatedRequest, res
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp < ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
         `;
       }
 
@@ -3899,7 +3901,7 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
         SELECT
           ul.service_id::text as service_id,
           COALESCE(SUM(ul.request_count), 0) as today_requests,
-          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as today_active_users
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' AND u.is_test_account = false THEN ul.user_id END) as today_active_users
         FROM usage_logs ul
         LEFT JOIN users u ON ul.user_id = u.id
         WHERE ul.service_id IS NOT NULL
@@ -3910,7 +3912,7 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
         SELECT COUNT(DISTINCT ul.user_id) as today_active
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND ul.timestamp >= ${todayStart}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= ${todayStart}
       `,
     ]);
 
@@ -3960,7 +3962,7 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
       prisma.$queryRaw<Array<{ service_id: string; total_users: bigint; total_tokens: bigint; total_requests: bigint }>>`
         SELECT
           ul.service_id::text as service_id,
-          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as total_users,
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' AND u.is_test_account = false THEN ul.user_id END) as total_users,
           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
           COALESCE(SUM(ul.request_count), 0) as total_requests
         FROM usage_logs ul
@@ -3976,7 +3978,7 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
           GROUP BY ul.service_id, DATE(ul.timestamp)
         ) daily_counts
         GROUP BY service_id
@@ -3989,7 +3991,7 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
@@ -4003,20 +4005,20 @@ adminRoutes.get('/stats/global/overview', async (req: AuthenticatedRequest, res)
         SELECT COUNT(DISTINCT ul.user_id) as total_unique_users
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
       `,
       prisma.$queryRaw<Array<{ avg_all: number; avg_excl: number }>>`
         SELECT
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
             GROUP BY DATE(ul.timestamp)
           ) dc) as avg_all,
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp) as ld, COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
             GROUP BY DATE(ul.timestamp)
@@ -4203,7 +4205,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${startDate}
               AND ul.service_id::text = ANY(${standardServiceIds})
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
             GROUP BY DATE(ul.timestamp)
@@ -4233,7 +4235,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
@@ -4347,7 +4349,7 @@ adminRoutes.get('/stats/weekly-business-dau', async (req: AuthenticatedRequest, 
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${startDate}
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (
                 SELECT 1 FROM holidays h
@@ -4486,7 +4488,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
           SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
             AND ul.service_id::text = ${serviceId}
@@ -4498,7 +4500,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
           SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
           GROUP BY u.business_unit
@@ -4514,7 +4516,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
             SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
               AND u.business_unit IS NOT NULL
               AND u.business_unit != ''
               AND ul.timestamp >= ${startDate}
@@ -4530,7 +4532,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
             SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
               AND u.business_unit IS NOT NULL
               AND u.business_unit != ''
               AND ul.timestamp >= ${startDate}
@@ -4547,7 +4549,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           INNER JOIN models m ON ul.model_id = m.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
             AND ul.service_id::text = ${serviceId}
@@ -4560,7 +4562,7 @@ adminRoutes.get('/stats/global/by-dept', async (req: AuthenticatedRequest, res) 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           INNER JOIN models m ON ul.model_id = m.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
           GROUP BY u.business_unit, m.name
@@ -4639,7 +4641,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
           SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
             AND ul.timestamp >= ${startDate}
@@ -4653,7 +4655,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
           SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
             AND ul.timestamp >= ${startDate}
@@ -4673,7 +4675,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
           SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit = ANY(${topBUNames})
             AND ul.timestamp >= ${startDate}
             AND ul.service_id::text = ${serviceId}
@@ -4685,7 +4687,7 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req: AuthenticatedRequest,
           SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit = ANY(${topBUNames})
             AND ul.timestamp >= ${startDate}
           GROUP BY DATE(ul.timestamp), u.business_unit
@@ -4766,7 +4768,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
         SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
           AND u.business_unit IS NOT NULL
           AND u.business_unit != ''
           AND ul.timestamp >= ${startDate}
@@ -4782,7 +4784,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
         SELECT DATE(ul.timestamp) as date, u.business_unit, COUNT(DISTINCT ul.user_id) as active_users
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
           AND u.business_unit = ANY(${topBUNames})
           AND ul.timestamp >= ${startDate}
         GROUP BY DATE(ul.timestamp), u.business_unit
@@ -4801,7 +4803,7 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req: AuthenticatedRe
         SELECT DISTINCT DATE(ul.timestamp) as date, u.business_unit, ul.user_id::text
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
           AND u.business_unit = ANY(${topBUNames})
           AND ul.timestamp >= ${startDate}
         ORDER BY date ASC
@@ -4894,7 +4896,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
         INNER JOIN services s ON ul.service_id = s.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
           AND u.business_unit IS NOT NULL
           AND u.business_unit != ''
           AND ul.timestamp >= ${startDate}
@@ -4913,7 +4915,7 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req: Auth
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
         INNER JOIN services s ON ul.service_id = s.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
           AND ul.timestamp >= ${startDate}
           AND u.business_unit = ANY(${topBUs})
           AND s.name = ANY(${topServices})
@@ -5747,7 +5749,7 @@ adminRoutes.get('/stats/global/mau-by-service', async (req: AuthenticatedRequest
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
         WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
           AND ul.service_id::text = ANY(${standardServiceIds})
         GROUP BY ul.service_id, TO_CHAR(ul.timestamp, 'YYYY-MM')
         ORDER BY month ASC
@@ -5766,7 +5768,7 @@ adminRoutes.get('/stats/global/mau-by-service', async (req: AuthenticatedRequest
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
             AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
           GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM')
         ),
         daily_stats AS (
@@ -5779,7 +5781,7 @@ adminRoutes.get('/stats/global/mau-by-service', async (req: AuthenticatedRequest
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
             AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
           GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM'), DATE(ul.timestamp)
@@ -5939,7 +5941,7 @@ adminRoutes.get('/stats/global/estimated-dau-mau', async (_req: AuthenticatedReq
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${thisMonthStart}
               AND ul.service_id::text = ANY(${standardServiceIds})
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
             GROUP BY DATE(ul.timestamp)
@@ -5952,7 +5954,7 @@ adminRoutes.get('/stats/global/estimated-dau-mau', async (_req: AuthenticatedReq
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${thisMonthStart}
             AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
         `,
       ]);
 

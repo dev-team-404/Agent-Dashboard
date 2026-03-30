@@ -186,7 +186,7 @@ async function getRecentBusinessDayStats(todayKST: Date) {
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
-      AND u.loginid != 'anonymous'
+      AND u.loginid != 'anonymous' AND u.is_test_account = false
       AND ul.service_id IS NOT NULL
       AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
       AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -533,7 +533,7 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp <= ${rangeEnd}
-      AND u.loginid != 'anonymous'
+      AND u.loginid != 'anonymous' AND u.is_test_account = false
       AND ul.service_id IS NOT NULL
       AND u.deptname IS NOT NULL AND u.deptname != ''
       AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
@@ -580,7 +580,7 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${lastMonth.start} AND ul.timestamp < ${lastMonth.end}
-      AND u.loginid != 'anonymous'
+      AND u.loginid != 'anonymous' AND u.is_test_account = false
       AND ul.service_id IS NOT NULL
       AND u.deptname IS NOT NULL AND u.deptname != ''
       AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
@@ -603,7 +603,7 @@ export async function runDeptAiEstimations(): Promise<{ processed: number; error
     FROM usage_logs ul
     INNER JOIN users u ON ul.user_id = u.id
     WHERE ul.timestamp >= ${currentMonth.start} AND ul.timestamp < ${currentMonth.end}
-      AND u.loginid != 'anonymous'
+      AND u.loginid != 'anonymous' AND u.is_test_account = false
       AND ul.service_id IS NOT NULL
       AND u.deptname IS NOT NULL AND u.deptname != ''
       AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)

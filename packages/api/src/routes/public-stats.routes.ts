@@ -581,7 +581,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND ul.service_id::text = ANY(${standardIds})
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -597,7 +597,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id::text = ANY(${standardIds})
           GROUP BY ul.service_id
         `
@@ -631,7 +631,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
               INNER JOIN users u ON ul.user_id = u.id
               WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
                 AND ul.service_id::text = ANY(${standardIds})
-                AND u.loginid != 'anonymous'
+                AND u.loginid != 'anonymous' AND u.is_test_account = false
                 AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
                 AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
               GROUP BY DATE(ul.timestamp)
@@ -644,7 +644,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${baselineStart} AND ul.timestamp <= ${baselineEnd}
               AND ul.service_id::text = ANY(${standardIds})
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
           `,
         ])
       : [[{ avg_daily_calls: 0 }], [{ avg_daily_dau: 0 }], [{ total_calls: BigInt(0), mau: BigInt(0) }]];
@@ -690,7 +690,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
       GROUP BY ul.service_id, DATE(ul.timestamp)
       ORDER BY d ASC
@@ -702,7 +702,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${startDate} AND ul.timestamp <= ${endDate}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
       GROUP BY DATE(ul.timestamp)
       ORDER BY d ASC

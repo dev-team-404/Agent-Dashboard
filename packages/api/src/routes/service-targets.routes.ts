@@ -155,7 +155,7 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id IS NOT NULL
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -173,7 +173,7 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND ul.service_id IS NOT NULL
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -191,7 +191,7 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${currentMonthEnd}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id IS NOT NULL
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -209,7 +209,7 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
             FROM usage_logs ul
             INNER JOIN users u ON ul.user_id = u.id
             WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${currentMonthEnd}
-              AND u.loginid != 'anonymous'
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
               AND ul.service_id IS NOT NULL
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -240,7 +240,7 @@ serviceTargetsRoutes.get('/service-targets', (async (req: AuthenticatedRequest, 
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id IS NOT NULL
             AND u.deptname = ${adminDept}
           GROUP BY ul.service_id

@@ -46,7 +46,7 @@ async function computeAndStore(): Promise<void> {
       prisma.$queryRaw<Array<{ service_id: string; total_users: bigint; total_tokens: bigint; total_requests: bigint }>>`
         SELECT
           ul.service_id::text as service_id,
-          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as total_users,
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' AND u.is_test_account = false THEN ul.user_id END) as total_users,
           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
           COALESCE(SUM(ul.request_count), 0) as total_requests
         FROM usage_logs ul
@@ -64,7 +64,7 @@ async function computeAndStore(): Promise<void> {
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
           GROUP BY ul.service_id, DATE(ul.timestamp)
         ) daily_counts
         GROUP BY service_id
@@ -79,7 +79,7 @@ async function computeAndStore(): Promise<void> {
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
@@ -95,7 +95,7 @@ async function computeAndStore(): Promise<void> {
         SELECT COUNT(DISTINCT ul.user_id) as total_unique_users
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
       `,
 
       // Global avg daily active (all + excl weekends/holidays)
@@ -104,13 +104,13 @@ async function computeAndStore(): Promise<void> {
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
             GROUP BY DATE(ul.timestamp)
           ) dc) as avg_all,
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp) as ld, COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
             GROUP BY DATE(ul.timestamp)
@@ -383,7 +383,7 @@ async function warmBatchCache(): Promise<void> {
         prisma.$queryRaw<Array<{ business_unit: string; user_count: bigint }>>`
           SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != ''
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != ''
           GROUP BY u.business_unit ORDER BY user_count DESC
         `,
         prisma.$queryRaw<Array<{ business_unit: string; avg_daily_users: number }>>`
@@ -391,14 +391,14 @@ async function warmBatchCache(): Promise<void> {
           FROM (
             SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
             GROUP BY u.business_unit, DATE(ul.timestamp)
           ) daily_stats GROUP BY business_unit
         `,
         prisma.$queryRaw<Array<{ business_unit: string; model_name: string; total_tokens: bigint }>>`
           SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
           FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN models m ON ul.model_id = m.id
-          WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != ''
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != ''
           GROUP BY u.business_unit, m.name ORDER BY u.business_unit, total_tokens DESC
         `,
       ]);
@@ -440,7 +440,7 @@ async function warmBatchCache(): Promise<void> {
       const topBUs = await prisma.$queryRaw<Array<{ business_unit: string; total_tokens: bigint }>>`
         SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
         GROUP BY u.business_unit ORDER BY total_tokens DESC LIMIT 5
       `;
       const topBUNames = topBUs.map(b => b.business_unit);
@@ -448,7 +448,7 @@ async function warmBatchCache(): Promise<void> {
       const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; total_tokens: bigint }>>`
         SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
         GROUP BY DATE(ul.timestamp), u.business_unit ORDER BY date ASC
       `;
 
@@ -496,7 +496,7 @@ async function warmBatchCache(): Promise<void> {
       const topBUs = await prisma.$queryRaw<Array<{ business_unit: string; user_count: bigint }>>`
         SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
         GROUP BY u.business_unit ORDER BY user_count DESC LIMIT 5
       `;
       const topBUNames = topBUs.map(b => b.business_unit);
@@ -504,14 +504,14 @@ async function warmBatchCache(): Promise<void> {
       const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; active_users: bigint }>>`
         SELECT DATE(ul.timestamp) as date, u.business_unit, COUNT(DISTINCT ul.user_id) as active_users
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
         GROUP BY DATE(ul.timestamp), u.business_unit ORDER BY date ASC
       `;
 
       const usersByDayBU = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; user_id: string }>>`
         SELECT DISTINCT DATE(ul.timestamp) as date, u.business_unit, ul.user_id::text
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit = ANY(${topBUNames}) AND ul.timestamp >= ${startDate}
         ORDER BY date ASC
       `;
 
@@ -567,7 +567,7 @@ async function warmBatchCache(): Promise<void> {
       const topCombos = await prisma.$queryRaw<Array<{ business_unit: string; service_name: string; request_count: bigint }>>`
         SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN services s ON ul.service_id = s.id
-        WHERE u.loginid != 'anonymous' AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND u.business_unit IS NOT NULL AND u.business_unit != '' AND ul.timestamp >= ${startDate}
         GROUP BY u.business_unit, s.name ORDER BY request_count DESC LIMIT 10
       `;
       const comboNames = topCombos.map(c => `${c.business_unit}/${c.service_name}`);
@@ -577,7 +577,7 @@ async function warmBatchCache(): Promise<void> {
       const dailyStats = await prisma.$queryRaw<Array<{ date: Date; business_unit: string; service_name: string; requests: bigint }>>`
         SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
         FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id INNER JOIN services s ON ul.service_id = s.id
-        WHERE u.loginid != 'anonymous' AND ul.timestamp >= ${startDate} AND u.business_unit = ANY(${topBUs}) AND s.name = ANY(${topServices})
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= ${startDate} AND u.business_unit = ANY(${topBUs}) AND s.name = ANY(${topServices})
         GROUP BY DATE(ul.timestamp), u.business_unit, s.name ORDER BY date ASC
       `;
 

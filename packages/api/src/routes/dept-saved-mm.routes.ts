@@ -120,7 +120,7 @@ deptSavedMMRoutes.get('/dept-saved-mm', (async (req: AuthenticatedRequest, res) 
       INNER JOIN users u ON ul.user_id = u.id
       INNER JOIN services s ON ul.service_id = s.id
       WHERE u.deptname = ${deptname}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
         AND s.status = 'DEPLOYED'
       GROUP BY ul.service_id
@@ -153,7 +153,7 @@ deptSavedMMRoutes.get('/dept-saved-mm', (async (req: AuthenticatedRequest, res) 
         INNER JOIN users u ON ul.user_id = u.id
         WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
           AND u.deptname = ${deptname}
-          AND u.loginid != 'anonymous'
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
           AND ul.service_id::text = ANY(${serviceIds})
           AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
           AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -172,7 +172,7 @@ deptSavedMMRoutes.get('/dept-saved-mm', (async (req: AuthenticatedRequest, res) 
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${lastMonthStart} AND ul.timestamp < ${lastMonthEnd}
         AND u.deptname = ${deptname}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id::text = ANY(${serviceIds})
       GROUP BY ul.service_id
     `;
@@ -188,7 +188,7 @@ deptSavedMMRoutes.get('/dept-saved-mm', (async (req: AuthenticatedRequest, res) 
         INNER JOIN users u ON ul.user_id = u.id
         WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${nowUtc}
           AND u.deptname = ${deptname}
-          AND u.loginid != 'anonymous'
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
           AND ul.service_id::text = ANY(${serviceIds})
           AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
           AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
@@ -207,7 +207,7 @@ deptSavedMMRoutes.get('/dept-saved-mm', (async (req: AuthenticatedRequest, res) 
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${currentMonthStart} AND ul.timestamp < ${nowUtc}
         AND u.deptname = ${deptname}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id::text = ANY(${serviceIds})
       GROUP BY ul.service_id
     `;

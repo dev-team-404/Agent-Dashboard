@@ -6,13 +6,14 @@ import {
   Layers, ToggleLeft, ToggleRight, Search, Filter,
   Zap, MessageSquare, Image, Cpu, Sparkles, Mic,
   AlertTriangle, X, Check, UserPlus, Users,
-  Crown, Shield, User, Gauge, Server,
+  Crown, Shield, User, Gauge, Server, FlaskConical,
   Activity, TrendingUp, Hash, BarChart3, CalendarDays,
   Globe, Building2, Lock, ExternalLink,
   Ticket, Clock, Tag, Wifi, WifiOff, Timer,
   Copy,
 } from 'lucide-react';
-import { api, serviceApi, serviceRateLimitScopedApi, statsApi } from '../services/api';
+import { api, serviceApi, serviceRateLimitScopedApi, statsApi, testAccountApi, scopeApi } from '../services/api';
+import type { TestAccount } from '../services/api';
 import {
   Tooltip as RTooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -33,7 +34,7 @@ import UsageAnalytics from '../components/Charts/UsageAnalytics';
 // ════════════════════════════════════════════
 
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
-type TabId = 'dashboard' | 'members' | 'ratelimit' | 'models' | 'errors' | 'logs';
+type TabId = 'dashboard' | 'members' | 'ratelimit' | 'models' | 'errors' | 'logs' | 'testaccounts';
 
 interface ServiceDetailProps {
   user: { id: string; loginid: string; username: string; deptname: string };
@@ -140,6 +141,7 @@ const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
   { id: 'ratelimit', label: 'Rate Limit', icon: Gauge },
   { id: 'models', label: '모델 관리', icon: Layers },
   { id: 'errors', label: '에러 관리', icon: AlertTriangle },
+  { id: 'testaccounts', label: '테스트 계정', icon: FlaskConical },
 ];
 
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
@@ -428,6 +430,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
         {activeTab === 'ratelimit' && <RateLimitTab serviceId={serviceId!} />}
         {activeTab === 'models' && <ModelsTab serviceId={serviceId!} />}
         {activeTab === 'errors' && <ServiceErrorsTab serviceId={serviceId!} />}
+        {activeTab === 'testaccounts' && <TestAccountsTab serviceId={serviceId!} />}
       </div>
 
       {showDetailGuide && (
@@ -2127,6 +2130,249 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
+// TestAccountsTab — 서비스별 테스트 계정 관리 (최대 3개)
+// ════════════════════════════════════════════
+function TestAccountsTab({ serviceId }: { serviceId: string }) {
+  const [accounts, setAccounts] = useState<TestAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ loginid: '', username: '', deptname: '', description: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      const res = await testAccountApi.list(serviceId);
+      setAccounts(res.data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [serviceId]);
+
+  useEffect(() => {
+    loadAccounts();
+    scopeApi.departments().then(r => setDepartments(r.data.departments || [])).catch(() => {});
+  }, [loadAccounts]);
+
+  const resetForm = () => {
+    setForm({ loginid: '', username: '', deptname: '', description: '' });
+    setEditingId(null);
+    setShowForm(false);
+    setError('');
+  };
+
+  const startEdit = (a: TestAccount) => {
+    setForm({ loginid: a.loginid, username: a.username, deptname: a.deptname, description: a.description || '' });
+    setEditingId(a.id);
+    setShowForm(true);
+    setError('');
+  };
+
+  const handleSave = async () => {
+    if (!form.loginid.trim()) { setError('ID를 입력하세요'); return; }
+    if (!form.deptname) { setError('팀을 선택하세요'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      if (editingId) {
+        await testAccountApi.update(serviceId, editingId, {
+          loginid: form.loginid.trim(),
+          username: form.username.trim() || '테스트 사용자',
+          deptname: form.deptname,
+          description: form.description.trim() || null,
+        });
+      } else {
+        await testAccountApi.create(serviceId, {
+          loginid: form.loginid.trim(),
+          username: form.username.trim() || '테스트 사용자',
+          deptname: form.deptname,
+          description: form.description.trim() || undefined,
+        });
+      }
+      resetForm();
+      loadAccounts();
+    } catch (err: any) {
+      setError(err.response?.data?.error || '저장에 실패했습니다');
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async (a: TestAccount) => {
+    if (!confirm(`테스트 계정 '${a.loginid}'을(를) 삭제하시겠습니까?`)) return;
+    try {
+      await testAccountApi.delete(serviceId, a.id);
+      loadAccounts();
+    } catch { /* ignore */ }
+  };
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <Loader2 className="w-6 h-6 animate-spin text-pastel-400" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <FlaskConical className="w-5 h-5 text-amber-500" />
+            테스트 계정
+            <span className="text-sm font-normal text-gray-400 ml-1">
+              {accounts.length} / 3
+            </span>
+          </h3>
+          <p className="text-sm text-gray-500 mt-0.5">
+            개발/테스트용 가상 계정입니다. 프록시는 정상 동작하지만 통계/집계에서 제외됩니다.
+          </p>
+        </div>
+        {accounts.length < 3 && !showForm && (
+          <button
+            onClick={() => { resetForm(); setShowForm(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm transition-all"
+          >
+            <Plus className="w-4 h-4" /> 추가
+          </button>
+        )}
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <div className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-5 space-y-4">
+          <h4 className="text-sm font-semibold text-amber-700">
+            {editingId ? '테스트 계정 수정' : '새 테스트 계정'}
+          </h4>
+
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" /> {error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">로그인 ID *</label>
+              <input
+                type="text"
+                value={form.loginid}
+                onChange={e => setForm(f => ({ ...f, loginid: e.target.value }))}
+                placeholder="예: test-user-01"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">표시 이름</label>
+              <input
+                type="text"
+                value={form.username}
+                onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                placeholder="테스트 사용자"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">팀 (부서) *</label>
+              <select
+                value={form.deptname}
+                onChange={e => setForm(f => ({ ...f, deptname: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none bg-white"
+              >
+                <option value="">-- 팀 선택 --</option>
+                {departments.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">설명</label>
+              <input
+                type="text"
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="용도 (선택)"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 rounded-lg transition-all"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {editingId ? '수정' : '생성'}
+            </button>
+            <button
+              onClick={resetForm}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-all"
+            >
+              <X className="w-4 h-4" /> 취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Account List */}
+      {accounts.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <FlaskConical className="w-12 h-12 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">등록된 테스트 계정이 없습니다</p>
+          <p className="text-xs mt-1">서비스당 최대 3개까지 생성할 수 있습니다</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {accounts.map(a => (
+            <div key={a.id} className="bg-white border border-gray-200/60 rounded-xl p-4 flex items-center justify-between hover:shadow-sm transition-all">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <FlaskConical className="w-5 h-5 text-amber-600" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900 text-sm">{a.loginid}</span>
+                    {a.username && a.username !== '테스트 사용자' && (
+                      <span className="text-xs text-gray-400">({a.username})</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className="text-xs text-gray-500 flex items-center gap-1">
+                      <Building2 className="w-3 h-3" /> {a.deptname || '-'}
+                    </span>
+                    {a.description && (
+                      <span className="text-xs text-gray-400 truncate max-w-[200px]">{a.description}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <button
+                  onClick={() => startEdit(a)}
+                  className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                  title="수정"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDelete(a)}
+                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                  title="삭제"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -135,7 +135,7 @@ async function handleUsageRate(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
@@ -146,7 +146,7 @@ async function handleUsageRate(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${prevMonthStart} AND ul.timestamp < ${prevMonthEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
       GROUP BY u.deptname
     `;
@@ -330,7 +330,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
       GROUP BY u.deptname
@@ -360,7 +360,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${rangeStart} AND ul.timestamp < ${rangeEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
       GROUP BY TO_CHAR(ul.timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM')
@@ -389,7 +389,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
       GROUP BY u.deptname
@@ -418,7 +418,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       FROM usage_logs ul
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND ul.service_id IS NOT NULL
         AND u.deptname = ANY(${deptnames})
       GROUP BY u.deptname, ul.service_id
@@ -525,7 +525,7 @@ async function handleServiceUsage(req: Request, res: Response) {
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id::text = ANY(${deployedIds})
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
       GROUP BY ul.service_id
       ORDER BY llm_call_count DESC
@@ -598,7 +598,7 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       INNER JOIN users u ON ul.user_id = u.id
       WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
         AND ul.service_id = ${service.id}
-        AND u.loginid != 'anonymous'
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
         AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
         AND u.deptname IS NOT NULL AND u.deptname != ''
       GROUP BY u.deptname

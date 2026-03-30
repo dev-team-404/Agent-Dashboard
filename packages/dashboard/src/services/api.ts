@@ -473,6 +473,43 @@ export const gpuPowerApi = {
   save: (data: { timestamp: string; power_avg_usage_ratio: number }) => api.post('/gpu-power', data),
 };
 
+// 테스트 계정 관리 API (서비스별)
+export interface TestAccount {
+  id: string;
+  serviceId: string;
+  loginid: string;
+  username: string;
+  deptname: string;
+  departmentCode: string | null;
+  description: string | null;
+  enabled: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const testAccountApi = {
+  list: (serviceId: string) =>
+    api.get<TestAccount[]>(`/services/${serviceId}/test-accounts`),
+  create: (serviceId: string, data: {
+    loginid: string;
+    username?: string;
+    deptname?: string;
+    departmentCode?: string;
+    description?: string;
+  }) => api.post<TestAccount>(`/services/${serviceId}/test-accounts`, data),
+  update: (serviceId: string, accountId: string, data: Partial<{
+    loginid: string;
+    username: string;
+    deptname: string;
+    departmentCode: string | null;
+    description: string | null;
+    enabled: boolean;
+  }>) => api.put<TestAccount>(`/services/${serviceId}/test-accounts/${accountId}`, data),
+  delete: (serviceId: string, accountId: string) =>
+    api.delete(`/services/${serviceId}/test-accounts/${accountId}`),
+};
+
 // OIDC Client Management API (Super Admin)
 export const oidcClientApi = {
   list: () => api.get('/auth/oidc-clients'),
