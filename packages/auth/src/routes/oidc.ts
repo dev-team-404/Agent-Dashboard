@@ -65,6 +65,32 @@ try {
   console.warn('\x1b[33m[OIDC WARN]\x1b[0m Failed to parse OIDC_CLIENTS env:', e);
 }
 
+/** 외부에서 클라이언트를 동적으로 추가/업데이트/삭제할 수 있는 API */
+export function reloadClients(clientMap: Record<string, { secret: string; redirectUris: string[] }>) {
+  // 기본 클라이언트 유지, 나머지 교체
+  const defaultIds = ['agent-dashboard', 'open-webui', 'cli-default'];
+  for (const [id] of clients) {
+    if (!defaultIds.includes(id)) clients.delete(id);
+  }
+  for (const [id, client] of Object.entries(clientMap)) {
+    clients.set(id, client);
+  }
+  console.log(`\x1b[36m[OIDC]\x1b[0m Clients reloaded: ${clients.size} total`);
+}
+
+/** POST /oidc/admin/reload-clients — API 서버에서 호출 */
+router.post('/oidc/admin/reload-clients', (req: Request, res: Response) => {
+  try {
+    const { clients: newClients } = req.body;
+    if (newClients && typeof newClients === 'object') {
+      reloadClients(newClients);
+    }
+    res.json({ success: true, count: clients.size });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to reload clients' });
+  }
+});
+
 /**
  * Validate redirect_uri for a given client.
  * For 'cli-default' we allow any localhost port via wildcard matching.
