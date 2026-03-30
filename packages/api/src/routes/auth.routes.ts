@@ -8,7 +8,8 @@
 
 import { Router } from 'express';
 import { prisma } from '../index.js';
-import { authenticateToken, AuthenticatedRequest, signToken, isSuperAdminByEnv, extractBusinessUnit } from '../middleware/auth.js';
+import { authenticateToken, AuthenticatedRequest, signToken, isSuperAdminByEnv, extractBusinessUnit, requireSuperAdmin } from '../middleware/auth.js';
+import crypto from 'crypto';
 import { trackActiveUser } from '../services/redis.service.js';
 import { redis } from '../index.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -302,5 +303,174 @@ authRoutes.get('/check', authenticateToken, async (req: AuthenticatedRequest, re
   } catch (error) {
     console.error('Auth check error:', error);
     res.status(500).json({ error: 'Failed to check auth status' });
+  }
+});
+
+// ============================================
+// OIDC Client Management (Super Admin only)
+// ============================================
+
+const DEFAULT_CLIENT_IDS = ['agent-dashboard', 'open-webui', 'cli-default'];
+
+interface OidcClient {
+  secret: string;
+  redirectUris: string[];
+  createdAt?: string;
+  createdBy?: string | null;
+}
+
+/**
+ * GET /auth/oidc-clients
+ * 등록된 OIDC 클라이언트 목록 조회
+ */
+authRoutes.get('/oidc-clients', authenticateToken, requireSuperAdmin, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'oidc_clients' } });
+    const clients: Record<string, OidcClient> = setting?.value ? JSON.parse(setting.value) : {};
+    const list = Object.entries(clients).map(([id, c]) => ({
+      clientId: id,
+      redirectUris: c.redirectUris,
+      createdAt: c.createdAt || null,
+      createdBy: c.createdBy || null,
+      isDefault: DEFAULT_CLIENT_IDS.includes(id),
+    }));
+    res.json(list);
+  } catch (error) {
+    console.error('OIDC clients list error:', error);
+    res.status(500).json({ error: 'Failed to list OIDC clients' });
+  }
+});
+
+/**
+ * POST /auth/oidc-clients
+ * 새 OIDC 클라이언트 생성 (시크릿 자동 생성)
+ */
+authRoutes.post('/oidc-clients', authenticateToken, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { clientId, redirectUris } = req.body;
+    if (!clientId || typeof clientId !== 'string' || clientId.trim().length < 2) {
+      res.status(400).json({ error: 'clientId는 2자 이상이어야 합니다.' });
+      return;
+    }
+
+    const cleanId = clientId.trim().toLowerCase().replace(/[^a-z0-9\-_]/g, '');
+    if (cleanId !== clientId.trim()) {
+      res.status(400).json({ error: 'clientId는 영문 소문자, 숫자, 하이픈, 밑줄만 허용됩니다.' });
+      return;
+    }
+
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'oidc_clients' } });
+    const clients: Record<string, OidcClient> = setting?.value ? JSON.parse(setting.value) : {};
+
+    if (clients[cleanId]) {
+      res.status(409).json({ error: '이미 존재하는 클라이언트 ID입니다.' });
+      return;
+    }
+
+    const secret = crypto.randomUUID();
+    clients[cleanId] = {
+      secret,
+      redirectUris: Array.isArray(redirectUris) && redirectUris.length > 0
+        ? redirectUris.map((u: string) => u.trim()).filter(Boolean)
+        : ['http://*:*/callback'],
+      createdAt: new Date().toISOString(),
+      createdBy: req.user?.loginid || null,
+    };
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'oidc_clients' },
+      update: { value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+      create: { key: 'oidc_clients', value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+    });
+
+    res.json({
+      clientId: cleanId,
+      secret,
+      redirectUris: clients[cleanId].redirectUris,
+      createdAt: clients[cleanId].createdAt,
+    });
+  } catch (error) {
+    console.error('OIDC client create error:', error);
+    res.status(500).json({ error: 'Failed to create OIDC client' });
+  }
+});
+
+/**
+ * PUT /auth/oidc-clients/:clientId
+ * OIDC 클라이언트 수정 (redirectUris 변경, 시크릿 재생성)
+ */
+authRoutes.put('/oidc-clients/:clientId', authenticateToken, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { clientId } = req.params;
+    const { redirectUris, regenerateSecret } = req.body;
+
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'oidc_clients' } });
+    const clients: Record<string, OidcClient> = setting?.value ? JSON.parse(setting.value) : {};
+
+    if (!clients[clientId!]) {
+      res.status(404).json({ error: '클라이언트를 찾을 수 없습니다.' });
+      return;
+    }
+
+    if (Array.isArray(redirectUris)) {
+      clients[clientId!].redirectUris = redirectUris.map((u: string) => u.trim()).filter(Boolean);
+    }
+
+    let newSecret: string | null = null;
+    if (regenerateSecret) {
+      newSecret = crypto.randomUUID();
+      clients[clientId!].secret = newSecret;
+    }
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'oidc_clients' },
+      update: { value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+      create: { key: 'oidc_clients', value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+    });
+
+    res.json({
+      clientId,
+      redirectUris: clients[clientId!].redirectUris,
+      ...(newSecret ? { secret: newSecret } : {}),
+    });
+  } catch (error) {
+    console.error('OIDC client update error:', error);
+    res.status(500).json({ error: 'Failed to update OIDC client' });
+  }
+});
+
+/**
+ * DELETE /auth/oidc-clients/:clientId
+ * OIDC 클라이언트 삭제 (기본 클라이언트는 삭제 불가)
+ */
+authRoutes.delete('/oidc-clients/:clientId', authenticateToken, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { clientId } = req.params;
+
+    if (DEFAULT_CLIENT_IDS.includes(clientId!)) {
+      res.status(403).json({ error: '기본 클라이언트는 삭제할 수 없습니다.' });
+      return;
+    }
+
+    const setting = await prisma.systemSetting.findUnique({ where: { key: 'oidc_clients' } });
+    const clients: Record<string, OidcClient> = setting?.value ? JSON.parse(setting.value) : {};
+
+    if (!clients[clientId!]) {
+      res.status(404).json({ error: '클라이언트를 찾을 수 없습니다.' });
+      return;
+    }
+
+    delete clients[clientId!];
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'oidc_clients' },
+      update: { value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+      create: { key: 'oidc_clients', value: JSON.stringify(clients), updatedBy: req.user?.loginid },
+    });
+
+    res.json({ success: true, message: `클라이언트 '${clientId}'가 삭제되었습니다.` });
+  } catch (error) {
+    console.error('OIDC client delete error:', error);
+    res.status(500).json({ error: 'Failed to delete OIDC client' });
   }
 });

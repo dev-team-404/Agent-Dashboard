@@ -49,6 +49,7 @@ const InsightServiceUsage = lazyWithRetry(() => import('./pages/InsightServiceUs
 const OrgTree = lazyWithRetry(() => import('./pages/OrgTree'));
 const GpuPowerUsage = lazyWithRetry(() => import('./pages/GpuPowerUsage'));
 const ResourceMonitor = lazyWithRetry(() => import('./pages/ResourceMonitor'));
+const OidcClients = lazyWithRetry(() => import('./pages/OidcClients'));
 const PlatformStory = lazyWithRetry(() => import('./pages/PlatformStory'));
 
 interface User {
@@ -171,6 +172,7 @@ function App() {
               <Route path="/org-tree" element={<OrgTree />} />
               <Route path="/gpu-power" element={<GpuPowerUsage />} />
               <Route path="/resource-monitor" element={<ResourceMonitor />} />
+              <Route path="/oidc-clients" element={<OidcClients adminRole={adminRole} />} />
             </>
           )}
 

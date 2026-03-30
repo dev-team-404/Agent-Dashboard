@@ -518,6 +518,15 @@ export const testAccountApi = {
     api.delete(`/services/${serviceId}/test-accounts/${accountId}`),
 };
 
+// OIDC Client Management API (Super Admin)
+export const oidcClientApi = {
+  list: () => api.get('/auth/oidc-clients'),
+  create: (data: { clientId: string; redirectUris?: string[] }) => api.post('/auth/oidc-clients', data),
+  update: (clientId: string, data: { redirectUris?: string[]; regenerateSecret?: boolean }) =>
+    api.put(`/auth/oidc-clients/${clientId}`, data),
+  delete: (clientId: string) => api.delete(`/auth/oidc-clients/${clientId}`),
+};
+
 // 공개 통계 API (인증 불필요)
 export const publicStatsApi = {
   dauMau: (year: number, month: number) =>
