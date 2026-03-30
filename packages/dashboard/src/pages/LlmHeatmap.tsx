@@ -120,9 +120,7 @@ export default function LlmHeatmap() {
       const res = await api.get('/admin/stats/model-heatmap/models');
       const list: ModelEntry[] = res.data.models || [];
       setModels(list);
-      if (list.length > 0 && selectedModels.size === 0) {
-        setSelectedModels(new Set([list[0].modelId]));
-      }
+      // 초기 진입 시 아무것도 선택하지 않음 — 사용자가 직접 모델 선택
     } catch (err) {
       console.error('Failed to load models:', err);
     } finally {
