@@ -206,7 +206,8 @@ router.get('/oidc/authorize', (req: Request, res: Response) => {
   console.log(`\x1b[36m[OIDC]\x1b[0m Authorize: client=${clientId}, session=${sessionId.substring(0, 8)}...`);
 
   // callback URL에 세션 ID 포함 (삼성 SSO는 state를 form_post에 돌려주지 않을 수 있음)
-  const callbackUrl = `${config.oidc.issuer}/oidc/sso-callback?sid=${sessionId}`;
+  // SSO 콜백: 삼성 SSO에 등록한 URL과 일치해야 함 (OIDC_SSO_CALLBACK_BASE 또는 OIDC_ISSUER)
+  const callbackUrl = `${config.oidc.ssoCallbackBase}/oidc/sso-callback?sid=${sessionId}`;
 
   if (config.mockSso.enabled) {
     // Redirect to Mock SSO login page

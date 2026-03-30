@@ -40,5 +40,7 @@ export const config = {
 
   oidc: {
     issuer: process.env['OIDC_ISSUER'] || 'http://a2g.samsungds.net:8090',
+    // SSO 콜백 URL — 삼성 SSO에 등록한 redirect_uri의 base (OIDC_ISSUER와 다를 수 있음)
+    ssoCallbackBase: process.env['OIDC_SSO_CALLBACK_BASE'] || process.env['OIDC_ISSUER'] || 'http://a2g.samsungds.net:8090',
   },
 };

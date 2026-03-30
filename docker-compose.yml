@@ -145,20 +145,23 @@ services:
       <<: *proxy-env
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
-      SSL_ENABLED: "false"
+      SSL_ENABLED: "true"
+      SSL_CERT_FILE: /app/cert/server.crt
+      SSL_KEY_FILE: /app/cert/server.key
       ENABLE_MOCK_SSO: ${ENABLE_MOCK_SSO:-false}
       SSO_ENABLED: ${SSO_ENABLED:-true}
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-41211cae-1fda-49f7-a462-f01d51ed4b6d}
       IDP_ENTITY_ID: ${IDP_ENTITY_ID:-https://sso.samsung.com/oauth2/authorize}
       SSO_CERT_FILE: /app/cert/sso.cer
       OIDC_ISSUER: ${OIDC_ISSUER:-http://a2g.samsungds.net:8090}
+      OIDC_SSO_CALLBACK_BASE: https://a2g.samsungds.net:9050
       PORT: ${AUTH_PORT:-9050}
     volumes:
       - ./cert:/app/cert:ro
     ports:
       - "${AUTH_PORT:-9050}:9050"
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:9050/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('https').get('https://localhost:9050/health',{rejectUnauthorized:false},r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       start_period: 20s

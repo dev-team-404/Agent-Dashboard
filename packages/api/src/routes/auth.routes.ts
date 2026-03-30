@@ -322,7 +322,7 @@ interface OidcClient {
 /** Auth Server에 클라이언트 변경 알림 (인메모리 Map 동기화) */
 async function syncClientsToAuthServer(clients: Record<string, OidcClient>) {
   try {
-    await fetch('http://auth:9050/oidc/admin/reload-clients', {
+    await fetch('https://auth:9050/oidc/admin/reload-clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clients }),
