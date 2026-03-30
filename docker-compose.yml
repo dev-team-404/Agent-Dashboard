@@ -158,7 +158,7 @@ services:
     ports:
       - "${AUTH_PORT:-9050}:9050"
     healthcheck:
-      test: ["CMD", "node", "-e", "const h=require('https');const o={rejectUnauthorized:false};h.get('https://localhost:9050/.well-known/openid-configuration',o,r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>{const p=require('http');p.get('http://localhost:9050/.well-known/openid-configuration',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))})"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:9050/health',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       start_period: 20s

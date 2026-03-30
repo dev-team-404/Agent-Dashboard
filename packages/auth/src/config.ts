@@ -39,6 +39,6 @@ export const config = {
   },
 
   oidc: {
-    issuer: process.env['OIDC_ISSUER'] || 'https://localhost:9050',
+    issuer: process.env['OIDC_ISSUER'] || 'http://a2g.samsungds.net:8090',
   },
 };

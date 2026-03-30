@@ -41,7 +41,7 @@ authRoutes.post('/oidc-token', async (req, res) => {
     }
 
     // Use server-side issuer — never trust the frontend value (SSRF prevention)
-    const issuer = process.env['OIDC_ISSUER'] || 'https://localhost:9050';
+    const issuer = process.env['OIDC_ISSUER'] || 'http://a2g.samsungds.net:8090';
     // Use server-side client secret — never expose in frontend bundle
     const client_secret = process.env['OIDC_CLIENT_SECRET'] || '';
 
@@ -322,17 +322,10 @@ interface OidcClient {
 /** Auth Server에 클라이언트 변경 알림 (인메모리 Map 동기화) */
 async function syncClientsToAuthServer(clients: Record<string, OidcClient>) {
   try {
-    await fetch('https://auth:9050/oidc/admin/reload-clients', {
+    await fetch('http://auth:9050/oidc/admin/reload-clients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clients }),
-    }).catch(() => {
-      // HTTPS 실패 시 HTTP로 재시도
-      return fetch('http://auth:9050/oidc/admin/reload-clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clients }),
-      });
     });
   } catch {
     console.warn('[OIDC] Auth Server 클라이언트 동기화 실패 — 다음 재시작 시 반영됨');
