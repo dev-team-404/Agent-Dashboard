@@ -205,9 +205,11 @@ router.get('/oidc/authorize', (req: Request, res: Response) => {
 
   console.log(`\x1b[36m[OIDC]\x1b[0m Authorize: client=${clientId}, session=${sessionId.substring(0, 8)}...`);
 
-  // callback URL에 세션 ID 포함 (삼성 SSO는 state를 form_post에 돌려주지 않을 수 있음)
-  // SSO 콜백: 삼성 SSO에 등록한 URL과 일치해야 함 (OIDC_SSO_CALLBACK_BASE 또는 OIDC_ISSUER)
-  const callbackUrl = `${config.oidc.ssoCallbackBase}/oidc/sso-callback?sid=${sessionId}`;
+  // SSO 콜백 URL — 삼성 SSO에 등록한 것과 정확히 일치해야 함 (쿼리파라미터 없이)
+  const callbackUrl = `${config.oidc.ssoCallbackBase}/oidc/sso-callback`;
+
+  // 세션 ID는 쿠키로 전달 (SSO가 redirect_uri 정확 일치를 요구하므로 쿼리파라미터 사용 불가)
+  res.cookie('oidc_sid', sessionId, { httpOnly: true, maxAge: 600000, sameSite: 'lax' });
 
   if (config.mockSso.enabled) {
     // Redirect to Mock SSO login page
@@ -243,9 +245,8 @@ router.post('/oidc/sso-callback', (req: Request, res: Response) => {
   const idToken = req.body['id_token'] as string;
   const _code = req.body['code'] as string;       // SSO's code (we don't use it directly)
 
-  // 세션 ID: 1순위 URL 쿼리 파라미터 sid (삼성 SSO는 state를 form_post에 안 넣을 수 있음)
-  //          2순위 form body의 state 필드 (Mock SSO는 state를 form에 포함)
-  const sessionId = (req.query['sid'] as string) || (req.body['state'] as string);
+  // 세션 ID: 1순위 쿠키 (실제 SSO), 2순위 쿼리 sid (레거시), 3순위 body state (Mock SSO)
+  const sessionId = req.cookies?.['oidc_sid'] || (req.query['sid'] as string) || (req.body['state'] as string);
 
   console.log(`\x1b[36m[OIDC]\x1b[0m SSO callback received, sid=${sessionId?.substring(0, 8)}...`);
 

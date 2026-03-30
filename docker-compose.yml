@@ -151,7 +151,7 @@ services:
       ENABLE_MOCK_SSO: ${ENABLE_MOCK_SSO:-false}
       SSO_ENABLED: ${SSO_ENABLED:-true}
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7}
-      IDP_ENTITY_ID: ${IDP_ENTITY_ID:-https://stsds.secso.net/adfs/oauth2/authorize/}
+      IDP_ENTITY_ID: ${IDP_ENTITY_ID:-https://stsds.secsso.net/adfs/oauth2/authorize/}
       SSO_CERT_FILE: /app/cert/sso.cer
       OIDC_ISSUER: ${OIDC_ISSUER:-http://a2g.samsungds.net:8090}
       OIDC_SSO_CALLBACK_BASE: https://a2g.samsungds.net:9050
