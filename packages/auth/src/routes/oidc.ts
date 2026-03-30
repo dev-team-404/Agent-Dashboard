@@ -39,15 +39,15 @@ interface OidcClient {
 const clients = new Map<string, OidcClient>([
   ['agent-dashboard', {
     secret: process.env['OIDC_DASHBOARD_SECRET'] || 'dashboard-secret',
-    redirectUris: ['http://*:8090/', 'https://*:8090/', 'http://localhost:8090/', 'http://localhost/'],
+    redirectUris: ['*'],
   }],
   ['open-webui', {
     secret: process.env['OIDC_OPENWEBUI_SECRET'] || 'open-webui-secret',
-    redirectUris: ['http://*:*/oauth/*/callback', 'https://*:*/oauth/*/callback', 'http://localhost:*/oauth/*/callback', 'http://*:*/oauth/callback', 'https://*:*/oauth/callback'],
+    redirectUris: ['*'],
   }],
   ['cli-default', {
     secret: '',
-    redirectUris: ['http://localhost:*', 'http://127.0.0.1:*'],
+    redirectUris: ['*'],
   }],
 ]);
 
