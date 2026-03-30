@@ -2290,7 +2290,40 @@ adminRoutes.get('/unified-users/export', async (req: AuthenticatedRequest, res) 
       };
     });
 
-    res.json({ users: mappedUsers });
+    // 월별 집계: user_id + service_id 별 요청수
+    const userIds = users.map(u => u.id);
+    let monthlyStats: { month: string; user_id: string; service_id: string; count: bigint }[] = [];
+    if (userIds.length > 0) {
+      monthlyStats = await prisma.$queryRaw`
+        SELECT
+          TO_CHAR(timestamp, 'YYYY-MM') as month,
+          user_id,
+          service_id,
+          SUM(request_count)::bigint as count
+        FROM usage_logs
+        WHERE user_id = ANY(${userIds})
+          AND service_id IS NOT NULL
+        GROUP BY month, user_id, service_id
+        ORDER BY month
+      `;
+    }
+
+    // 서비스 이름 맵
+    const serviceMap = new Map<string, string>();
+    users.forEach(u => u.userServices.forEach(us => {
+      serviceMap.set(us.service.id, us.service.displayName);
+    }));
+
+    // { "2025-01": { userId: { serviceId: count } } }
+    const monthly: Record<string, Record<string, Record<string, number>>> = {};
+    for (const row of monthlyStats) {
+      const m = row.month;
+      if (!monthly[m]) monthly[m] = {};
+      if (!monthly[m][row.user_id]) monthly[m][row.user_id] = {};
+      monthly[m][row.user_id][row.service_id] = Number(row.count);
+    }
+
+    res.json({ users: mappedUsers, monthly, serviceMap: Object.fromEntries(serviceMap) });
   } catch (error) {
     console.error('Export unified users error:', error);
     res.status(500).json({ error: 'Failed to export unified users' });

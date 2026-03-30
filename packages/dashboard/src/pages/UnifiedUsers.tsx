@@ -319,7 +319,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
     setKnoxRegisterSuccess('');
   };
 
-  // Excel 전체 내보내기
+  // Excel 전체 내보내기 (월별 탭)
   const handleExportExcel = async () => {
     try {
       setExporting(true);
@@ -330,18 +330,41 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
         role: roleFilter || undefined,
       });
       const exportUsers: UnifiedUser[] = res.data.users;
+      const monthly: Record<string, Record<string, Record<string, number>>> = res.data.monthly || {};
+      const serviceMapRaw: Record<string, string> = res.data.serviceMap || {};
+
       if (exportUsers.length === 0) {
         alert('내보낼 사용자가 없습니다.');
         return;
       }
 
-      // 전체 서비스 이름 목록 수집 (열 헤더용)
+      // 유저 맵 (id → user)
+      const userMap = new Map(exportUsers.map(u => [u.id, u]));
+
+      // 전체 서비스 이름 목록 수집
       const serviceNameSet = new Set<string>();
       exportUsers.forEach(u => u.serviceStats.forEach(s => serviceNameSet.add(s.serviceName)));
       const serviceNames = [...serviceNameSet].sort();
 
-      // 행 데이터 생성
-      const rows = exportUsers.map((u, idx) => {
+      // 서비스 ID → 이름 맵
+      const svcIdToName = new Map(Object.entries(serviceMapRaw));
+
+      // 시트 생성 헬퍼
+      const createSheet = (rows: Record<string, string | number>[]) => {
+        const ws = XLSX.utils.json_to_sheet(rows);
+        if (rows.length > 0) {
+          ws['!cols'] = Object.keys(rows[0]).map(key => {
+            const maxLen = Math.max(key.length, ...rows.map(r => String(r[key] ?? '').length));
+            return { wch: Math.min(maxLen + 2, 30) };
+          });
+        }
+        return ws;
+      };
+
+      const wb = XLSX.utils.book_new();
+
+      // 1) 전체 합산 시트
+      const totalRows = exportUsers.map((u, idx) => {
         const row: Record<string, string | number> = {
           'No': idx + 1,
           '이름': decodeURIComponent(u.username),
@@ -351,28 +374,62 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
           '권한': u.globalRole === 'SUPER_ADMIN' ? '슈퍼관리자' : u.globalRole === 'ADMIN' ? '시스템 관리자' : '사용자',
           '총 요청수': u.totalRequests,
         };
-        // 서비스별 요청수 열
         serviceNames.forEach(name => {
           const stat = u.serviceStats.find(s => s.serviceName === name);
           row[name] = stat ? stat.requestCount : 0;
         });
         return row;
       });
+      XLSX.utils.book_append_sheet(wb, createSheet(totalRows), '전체');
 
-      const ws = XLSX.utils.json_to_sheet(rows);
+      // 2) 월별 시트 (최신 월 순)
+      const months = Object.keys(monthly).sort().reverse();
+      for (const month of months) {
+        const monthData = monthly[month];
+        // 해당 월에 활동이 있는 유저만 포함
+        const activeUserIds = Object.keys(monthData);
+        if (activeUserIds.length === 0) continue;
 
-      // 열 너비 자동 조정
-      const colWidths = Object.keys(rows[0]).map(key => {
-        const maxLen = Math.max(
-          key.length,
-          ...rows.map(r => String(r[key] ?? '').length)
-        );
-        return { wch: Math.min(maxLen + 2, 30) };
-      });
-      ws['!cols'] = colWidths;
+        // 해당 월에 사용된 서비스 이름 수집
+        const monthServiceIds = new Set<string>();
+        activeUserIds.forEach(uid => {
+          Object.keys(monthData[uid]).forEach(sid => monthServiceIds.add(sid));
+        });
+        const monthServiceNames = [...monthServiceIds]
+          .map(sid => svcIdToName.get(sid) || sid)
+          .sort();
 
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '사용자 목록');
+        let rowNum = 0;
+        const rows = activeUserIds
+          .map(uid => {
+            const user = userMap.get(uid);
+            if (!user) return null;
+            rowNum++;
+            const row: Record<string, string | number> = {
+              'No': rowNum,
+              '이름': decodeURIComponent(user.username),
+              'ID': user.loginid,
+              '부서': user.deptname,
+              '사업부': user.businessUnit || '',
+              '권한': user.globalRole === 'SUPER_ADMIN' ? '슈퍼관리자' : user.globalRole === 'ADMIN' ? '시스템 관리자' : '사용자',
+            };
+            let monthTotal = 0;
+            monthServiceNames.forEach(svcName => {
+              // 서비스 이름으로 ID 역조회
+              const svcId = [...svcIdToName.entries()].find(([, n]) => n === svcName)?.[0] || '';
+              const count = monthData[uid][svcId] || 0;
+              row[svcName] = count;
+              monthTotal += count;
+            });
+            row['월 합계'] = monthTotal;
+            return row;
+          })
+          .filter((r): r is Record<string, string | number> => r !== null)
+          .sort((a, b) => (b['월 합계'] as number) - (a['월 합계'] as number));
+
+        // 시트 이름에 / 사용 불가 → YYYY-MM 형식 그대로 사용
+        XLSX.utils.book_append_sheet(wb, createSheet(rows), month);
+      }
 
       const today = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(wb, `사용자_관리_${today}.xlsx`);
