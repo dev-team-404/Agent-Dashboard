@@ -43,7 +43,7 @@ const clients = new Map<string, OidcClient>([
   }],
   ['open-webui', {
     secret: process.env['OIDC_OPENWEBUI_SECRET'] || 'open-webui-secret',
-    redirectUris: ['http://*:*/oauth/*/callback', 'http://localhost:*/oauth/*/callback', 'http://*:*/oauth/callback'],
+    redirectUris: ['http://*:*/oauth/*/callback', 'https://*:*/oauth/*/callback', 'http://localhost:*/oauth/*/callback', 'http://*:*/oauth/callback', 'https://*:*/oauth/callback'],
   }],
   ['cli-default', {
     secret: '',
