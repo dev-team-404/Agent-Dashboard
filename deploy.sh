@@ -44,8 +44,7 @@ DEV_PORT="${DEV_PORT:-8095}"
 # ─── Auth Server 자동 설정 ───
 # OIDC_ISSUER를 서버 IP로 자동 설정 (사내 배포 시 수동 설정 불필요)
 if [ -z "${OIDC_ISSUER:-}" ]; then
-  _HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-  export OIDC_ISSUER="https://${_HOST_IP}:${AUTH_PORT:-9050}"
+  export OIDC_ISSUER="http://a2g.samsungds.net:8090"
 fi
 
 # SSL 인증서 자동 생성 (cert/ 디렉토리에 없으면)
