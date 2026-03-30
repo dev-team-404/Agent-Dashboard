@@ -228,18 +228,18 @@ export default function LlmHeatmap() {
       format: v => String(v),
     },
     {
-      key: 'errorRate', label: '에러율 %', desc: '400 이상 응답 비율. 15% 이상이면 해당 시간대에 문제가 있을 수 있습니다.',
+      key: 'errorRate', label: '실 응답 에러율', desc: '실제 호출 중 에러 비율 (에러 수 ÷ 실제 호출 수). 호출이 없는 시간대는 빈칸.',
       icon: XCircle,
-      getValue: c => c.callCount > 0 ? Math.round(c.errorCount / c.callCount * 100) : 0,
-      getColor: v => errorRateColor(v),
-      format: v => `${v}%`,
+      getValue: c => c.callCount > 0 ? Math.round(c.errorCount / c.callCount * 100) : -1,
+      getColor: v => v < 0 ? '#f8fafc' : errorRateColor(v),
+      format: v => v < 0 ? '' : `${v}%`,
     },
     {
-      key: 'successRate', label: '성공률 %', desc: '2xx/3xx 응답 비율. 95% 이상 녹색, 80% 미만 빨간색.',
+      key: 'successRate', label: '실 응답 성공률', desc: '실제 호출 중 성공 비율 (성공 수 ÷ 실제 호출 수). 호출이 없는 시간대는 빈칸.',
       icon: CheckCircle2,
-      getValue: c => c.callCount > 0 ? Math.round(c.successCount / c.callCount * 100) : 0,
-      getColor: v => successRateColor(v),
-      format: v => `${v}%`,
+      getValue: c => c.callCount > 0 ? Math.round(c.successCount / c.callCount * 100) : -1,
+      getColor: v => v < 0 ? '#f8fafc' : successRateColor(v),
+      format: v => v < 0 ? '' : `${v}%`,
     },
     {
       key: 'hcLatency', label: 'HC 응답시간', desc: '헬스체크 프로빙(10분 간격) 평균 응답시간(ms). 실제 사용과 별개로 엔드포인트 상태를 모니터링합니다.',
@@ -461,7 +461,7 @@ export default function LlmHeatmap() {
                                 cell && cell.hcCount > 0 ? `HC 성공률: ${Math.round(cell.hcSuccess / cell.hcCount * 100)}%` : '',
                               ].filter(Boolean).join('\n')}
                             >
-                              {val > 0 ? activeTab.format(val) : ''}
+                              {val > 0 ? activeTab.format(val) : val === 0 && (hmTab === 'errorRate' || hmTab === 'successRate' || hmTab === 'hcSuccess') && cell && (hmTab.startsWith('hc') ? cell.hcCount > 0 : cell.callCount > 0) ? activeTab.format(val) : ''}
                             </div>
                           );
                         })}
