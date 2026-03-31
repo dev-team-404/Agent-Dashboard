@@ -212,10 +212,25 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
   const nodeLlms = new Map<string, any[]>();
   const vllmInstances = new Set<string>();
 
-  for (const r of running) {
+  // running + kvCache에서 유효한 인스턴스 통합 (pod 파생 이름 기준)
+  const allVllmResults = [...running, ...kvCache];
+  const seenInstances = new Set<string>();
+
+  for (const r of allVllmResults) {
     const instance = r.metric?.instance || '';
-    const modelName = r.metric?.model_name || instance;
+
+    // IP:port 형식 (프록시/라우터 메트릭) → 스킵
+    if (/^\d+\.\d+\.\d+\.\d+:\d+$/.test(instance)) continue;
+
+    if (seenInstances.has(instance)) continue;
+    seenInstances.add(instance);
     vllmInstances.add(instance);
+
+    // model_name: running/kvCache 양쪽에서 확보
+    const modelName = r.metric?.model_name
+      || running.find(x => x.metric?.instance === instance)?.metric?.model_name
+      || kvCache.find(x => x.metric?.instance === instance)?.metric?.model_name
+      || instance;
 
     // instance → 모든 관련 노드에 LLM 메트릭 배포
     let targetNodes = instanceToNodes.get(instance) || [];
@@ -238,7 +253,7 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
       return m ? parseFloat(m.value?.[1]) || 0 : null;
     };
 
-    // replica 수로 나눠서 각 노드에 배분
+    // replica 수로 나눠서 각 노드에 균등 배분
     const replicaCount = targetNodes.length;
     const runVal = findVllmVal(running);
     const waitVal = findVllmVal(waiting);
