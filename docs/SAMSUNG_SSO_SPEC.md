@@ -67,7 +67,7 @@ URL: https://dashboard.example.com/?data=%7B%22loginid%22%3A%22syngha.han%22%2C.
 | 파라미터 | 값 | 설명 |
 |---|---|---|
 | `client_id` | `1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7` | SSO 등록 시 발급받은 클라이언트 ID |
-| `redirect_uri` | `https://{서버IP}:{PORT}/oidc/callback` | 인증 후 콜백 URL (**HTTPS 필수**) |
+| `redirect_uri` | `https://a2g.samsungds.net:9050/oidc/sso-callback` | 인증 후 콜백 URL (**HTTPS 필수**, Samsung SSO에 이 URL 1개만 등록) |
 | `response_mode` | `form_post` | 응답 방식: HTML form 자동 submit |
 | `response_type` | `code id_token` | 인증 코드 + ID 토큰 동시 수신 |
 | `scope` | `openid profile` | 요청 범위 |
@@ -149,7 +149,7 @@ URL: https://dashboard.example.com/?data=%7B%22loginid%22%3A%22syngha.han%22%2C.
 │  OIDC Provider (우리 서비스)                                  │
 │  ├─ GET  /.well-known/openid-configuration                  │
 │  ├─ GET  /oidc/authorize  → 삼성 SSO로 리다이렉트             │
-│  ├─ POST /oidc/callback   → form_post로 id_token 수신        │
+│  ├─ POST /oidc/sso-callback → form_post로 id_token 수신       │
 │  ├─ POST /oidc/token      → authorization code → JWT 교환    │
 │  └─ GET  /oidc/userinfo   → 토큰으로 사용자 정보 조회          │
 │                                                             │
@@ -181,7 +181,7 @@ URL: https://dashboard.example.com/?data=%7B%22loginid%22%3A%22syngha.han%22%2C.
    → 삼성 SSO authorize URL로 리다이렉트
 
 3. 삼성 SSO 인증 완료
-   → form_post로 /oidc/callback에 id_token 전달
+   → form_post로 /oidc/sso-callback에 id_token 전달
 
 4. OIDC Provider
    → id_token 검증 (RS256 인증서)
@@ -254,7 +254,7 @@ SSO_JWT_ALGORITHM=HS256
 ENABLE_MOCK_SSO=false
 SSO_ENABLED=true
 SSO_CLIENT_ID=1ce2cced-d8b3-4bcf-887e-eaaa06e8d0f7
-IDP_ENTITY_ID=https://sso.samsung.com/oauth2/authorize
+IDP_ENTITY_ID=https://stsds.secsso.net/adfs/oauth2/authorize/
 SSO_CERT_FILE=/app/cert/sso.cer
 SSO_JWT_ALGORITHM=RS256
 ```
@@ -273,17 +273,18 @@ Login.tsx 수정:
 
 ### Open WebUI
 ```env
+WEBUI_URL=http://a2g.samsungds.net:3000
 ENABLE_OAUTH_SIGNUP=true
 OAUTH_PROVIDER_NAME=Agent Platform
-OPENID_PROVIDER_URL=https://{서버IP}:9050/oidc
+OPENID_PROVIDER_URL=http://a2g.samsungds.net:8090/.well-known/openid-configuration
 OAUTH_CLIENT_ID=open-webui
-OAUTH_CLIENT_SECRET=xxx
+OAUTH_CLIENT_SECRET=open-webui-secret
 ```
 
 ### Google ADK (setup_auth)
 ```python
 from agent_platform_auth import setup_auth
-setup_auth(gateway_url="https://{서버IP}:9050")
+setup_auth(gateway_url="http://a2g.samsungds.net:8090")
 # → 로컬 캐시 확인 → 없으면 브라우저 OIDC 로그인 → 토큰 캐시
 ```
 
