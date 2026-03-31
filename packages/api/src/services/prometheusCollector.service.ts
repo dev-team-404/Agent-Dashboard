@@ -175,11 +175,13 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
   }
 
   // vLLM 메트릭 시도 (자동 감지 — 복구 시 자동 수집)
-  const [running, waiting, kvCacheOld, kvCacheNew] = await Promise.all([
+  const [running, waiting, kvCacheOld, kvCacheNew, promptTpsRate, genTpsRate] = await Promise.all([
     promQuery('vllm:num_requests_running'),
     promQuery('vllm:num_requests_waiting'),
     promQuery('vllm:gpu_cache_usage_perc'),   // 구 이름
     promQuery('vllm:kv_cache_usage_perc'),    // 신 이름
+    promQuery('rate(vllm:prompt_tokens_total[1m])'),    // v1: gauge 삭제됨 → counter rate로 tok/s 계산
+    promQuery('rate(vllm:generation_tokens_total[1m])'),
   ]);
   const kvCache = kvCacheOld.length > 0 ? kvCacheOld : kvCacheNew;
 
@@ -298,6 +300,8 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     const runVal = findVllmVal(running);
     const waitVal = findVllmVal(waiting);
     const kvVal = findVllmVal(kvCache);
+    const promptTps = findVllmVal(promptTpsRate);
+    const genTps = findVllmVal(genTpsRate);
 
     for (const targetNode of targetNodes) {
       const llm = {
@@ -306,8 +310,8 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
         runningRequests: runVal != null ? Math.round(runVal / replicaCount) : null,
         waitingRequests: waitVal != null ? Math.round(waitVal / replicaCount) : null,
         kvCacheUsagePct: kvVal, // KV cache %는 replica별 동일 (비율이므로)
-        promptThroughputTps: null as number | null,
-        genThroughputTps: null as number | null,
+        promptThroughputTps: promptTps,
+        genThroughputTps: genTps,
         ttftMs: null, tpotMs: null, e2eLatencyMs: null,
         prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
         precision: 'fp16' as const,
