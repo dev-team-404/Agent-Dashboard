@@ -120,18 +120,6 @@ GET http://a2g.samsungds.net:8090/.well-known/openid-configuration
 | UserInfo | `http://a2g.samsungds.net:8090/oidc/userinfo` | Access Token으로 사용자 정보 조회 |
 | LLM API | `http://a2g.samsungds.net:8090/v1/` | LLM Gateway (동일 주소) |
 
-## Samsung SSO 등록 vs OIDC 클라이언트
-
-> **중요**: Samsung SSO(ADFS)에 등록하는 redirect_uri와, 각 OIDC 클라이언트의 redirect_uri는 **별개**입니다.
-
-**Samsung SSO에 등록할 URL (1개만)**:
-```
-https://a2g.samsungds.net:9050/oidc/sso-callback
-```
-이것은 Samsung SSO가 인증 완료 후 form_post를 보내는 Auth Server 콜백 URL입니다.
-
-**OIDC 클라이언트 redirect_uri**는 우리 Auth Server가 관리하며, Samsung SSO와는 무관합니다.
-
 ## 사전 등록된 클라이언트
 
 아래 클라이언트는 사전 등록되어 있어 별도 설정 없이 사용할 수 있습니다. Redirect URI는 와일드카드(`*`)로 설정되어 있어 어떤 URL이든 허용됩니다.
