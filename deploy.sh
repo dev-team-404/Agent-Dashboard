@@ -526,7 +526,7 @@ cmd_dev() {
     err "api-dev 헬스체크 실패"
     exit 1
   fi
-  if ! wait_healthy_dev dashboard-dev 180; then
+  if ! wait_healthy_dev frontend-dev 180; then
     err "dashboard-dev 시작 실패"
     exit 1
   fi
