@@ -180,9 +180,9 @@ async function checkAsrModel(model: {
   extraHeaders: unknown;
   asrMethod: string | null;
 }, checkedAt: Date): Promise<void> {
-  // asrMethod가 null이면 모델명으로 추론 (whisper → OPENAI_TRANSCRIBE)
-  const method = model.asrMethod
-    || (/whisper/i.test(model.name) ? 'OPENAI_TRANSCRIBE' : 'AUDIO_URL');
+  // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
+  const method = /whisper/i.test(model.name) ? 'OPENAI_TRANSCRIBE'
+    : (model.asrMethod || 'AUDIO_URL');
   const headers: Record<string, string> = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
   if (model.extraHeaders && typeof model.extraHeaders === 'object') {
