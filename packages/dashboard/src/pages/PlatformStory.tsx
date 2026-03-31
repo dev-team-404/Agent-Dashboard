@@ -147,6 +147,12 @@ const timeline = [
     desc: 'Open WebUI, Google ADK, LangChain 등 외부 서비스에서 사용자별 사용량을 자동 추적하기 위한 OIDC(OpenID Connect) 인증 체계 전면 구축. Auth Server(HTTPS :9050) — OIDC Provider(authorize/token/userinfo) + Mock SSO(개발용). 삼성 SSO 직통 연동(form_post, RS256 인증서 검증, genai.samsungds.net 중간자 제거). Gateway body.user 지원 — OpenAI 표준 user 필드로 사용자 식별(x-user-id 헤더 대체). Python SDK(agent_platform_auth.py) — setup_auth() 한 줄로 OpenAI/LangChain/ADK 전부 자동 user 주입(OpenAI SDK monkey-patch + LiteLLM 콜백 이중 커버). Dashboard OIDC 로그인 모드 추가(기존 SSO 호환 유지). Open WebUI Playwright E2E 검증 완료. Google ADK 1.28 + 2.0 Alpha 호환 검증. 보안 리뷰 8건 수정(SSRF 차단, 클라이언트 시크릿 프론트엔드 제거, open redirect 방지 등). docs-site 가이드 5페이지 + Agent용 프롬프트 + 예제 zip. deploy.sh SSL 자동 생성 + OIDC_ISSUER 자동 감지.',
     tags: ['OIDC', 'Auth Server', 'body.user', 'Open WebUI', 'ADK', 'LangChain', 'SSO 직통', 'Python SDK', '보안 리뷰'],
   },
+  {
+    date: '2026.04.01',
+    title: 'vLLM 메트릭 정상화 & 모델 중심 모니터링 UI',
+    desc: 'vLLM --disable-log-stats 이슈 분석 및 DT Cloud 대응 근거 제공. Prometheus rate() recording rule counter reset 문제 발견 → counter delta 방식 전환. 리소스 모니터 모델 중심 UI(K8s 노드→모델별 그룹핑, 전용/공유/SSH 3분류). ModelGroupCard: 24시간 차트, 디버그 로그, 노드별 GPU 상세. 초심자를 위한 GPU 모니터링 가이드북(인터랙티브 슬라이드).',
+    tags: ['vLLM', 'Prometheus', 'K8s 모니터링', 'UI/UX'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -175,6 +181,9 @@ const featureGroups = [
     border: 'border-emerald-100',
     features: [
       'SSH 기반 GPU 실시간 모니터링 & 처리량 3단 분석 (이론·피크·현재)',
+      '모델 중심 리소스 모니터 UI (K8s 노드→모델별 그룹핑, 전용/공유/SSH 3분류)',
+      'ModelGroupCard: 24시간 차트, 디버그 로그, 노드별 GPU 상세',
+      'vLLM 메트릭 정상화 — counter delta 방식 전환 (rate() counter reset 해결)',
       '통합 대시보드 9개 탭 (사용량·서비스·DAU/MAU·M/M·부서·본부·분석·레이턴시·GPU)',
       'Redis read-through 캐시 28개 + 15~30초 Precompute 워밍 + 쓰기 버퍼링 bulk INSERT',
       '모델 레이턴시 & 헬스체크 (10분 자동 프로빙) + FP8 정밀도 자동 감지',
@@ -182,6 +191,7 @@ const featureGroups = [
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',
       '서비스 품질 메트릭 6종 (TTFT · TPOT · E2E · KV Cache · Preemption · Queue)',
+      'GPU 모니터링 가이드북 (인터랙티브 슬라이드)',
     ],
   },
   {

@@ -627,6 +627,266 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
 }
 
 
+// ── GPU 모니터링 가이드북 ──
+const GUIDE_SLIDES = [
+  {
+    title: 'GPU 리소스 모니터란?',
+    icon: '📊',
+    content: `이 페이지는 AI 모델이 돌아가는 GPU 서버의 상태를 실시간으로 보여줍니다.
+
+**한 줄 요약:** "우리 AI 서버, 지금 바쁜가? 여유 있나? 더 필요한가?"
+
+모니터링 대상:
+- **DT Cloud (쿠버네티스)** — 사내 클라우드에서 운영되는 AI 모델들
+- **SSH 서버** — 직접 관리하는 GPU 서버 (DGX 등)
+- **로컬 서버** — 개발/테스트용 서버`,
+  },
+  {
+    title: '쿠버네티스 기본 개념',
+    icon: '☸️',
+    content: `쿠버네티스(K8s)는 컨테이너를 자동으로 관리하는 시스템입니다.
+비유하면 **대형 데이터센터의 관리자**입니다.
+
+핵심 용어 3개만 알면 됩니다:
+
+**Node (노드)** = 물리 서버 1대
+- 예: khdtgpuw01 = GPU 8장이 꽂힌 서버 1대
+
+**Pod (파드)** = 노드 위에서 돌아가는 프로그램 1개
+- 예: llm-glm-47-h200-tp8-xxx = GLM 모델 인스턴스
+
+**Cluster (클러스터)** = 노드들의 묶음
+- 예: DT Cloud = khdtgpuw01~05 노드의 클러스터`,
+  },
+  {
+    title: 'DTGPT 클러스터 구조',
+    icon: '🏗️',
+    content: `현재 DT Cloud 클러스터의 GPU 배치:
+
+**전용 모델 (Dedicated)** — 특정 모델이 GPU를 독점
+┌─ GLM4.7 ─────── khdtgpuw01 (8 GPU) + khdtgpuw04 (8 GPU) = 16 GPU
+└─ Kimi-K2.5 ──── khdtgpuw02 (8 GPU) + khdtgpuw03 (8 GPU) = 16 GPU
+
+TP8 = Tensor Parallel 8 — 모델이 너무 커서 GPU 8장에 나눠서 올림
+
+**공유 모델 (Shared)** — 여러 모델이 GPU를 나눠 씀
+└─ khdtgpuw05 ── MiniMax, Qwen3-Embedding, BGE-M3 등 12+ 모델
+
+**기타 노드**
+└─ khdifyw01 ─── Redis 등 인프라 (AI 모델 아님)`,
+  },
+  {
+    title: '전용 모델 vs 공유 모델',
+    icon: '🔀',
+    content: `**전용 모델 (Dedicated)**
+- GPU를 독점하므로 성능이 안정적
+- GPU Util이 해당 모델의 부하를 정확히 반영
+- 예: GLM4.7이 바쁘면 → khdtgpuw01+04의 GPU Util 올라감
+
+**공유 모델 (Shared)**
+- 여러 모델이 같은 GPU를 나눠 씀
+- GPU Util이 특정 모델의 부하인지 구분 어려움
+- 개별 모델의 KV Cache, Running/Waiting은 정확함
+- 예: BGE-M3가 바빠도 같은 노드의 Qwen3 GPU Util도 올라감
+
+**카드 뱃지:**
+- "8 GPU" = 전용 모델, GPU 수 표시
+- "Shared" = 공유 모델, GPU 공유 중`,
+  },
+  {
+    title: '핵심 지표: GPU Utilization',
+    icon: '🖥️',
+    content: `**GPU Util (%)** = GPU 칩이 얼마나 바쁜지 (nvidia-smi 기준)
+
+- **0~30%**: 여유 — 모델이 idle이거나 가벼운 요청만 처리 중
+- **30~70%**: 정상 — 적절히 활용 중
+- **70~90%**: 바쁨 — 피크타임에 흔함
+- **90%+**: 풀로드 — 더 많은 요청 받으면 대기 발생 가능
+
+**주의:** GPU Util 100%가 항상 나쁜 건 아닙니다.
+배치 처리나 긴 응답 생성 중에는 정상적으로 100% 나옴.
+진짜 문제는 GPU Util이 높으면서 **Waiting > 0**일 때.`,
+  },
+  {
+    title: '핵심 지표: KV Cache',
+    icon: '🧠',
+    content: `**KV Cache (%)** = AI 대화 메모리 사용률
+
+LLM이 응답을 생성할 때, 이전 토큰들의 계산 결과를 GPU 메모리에 저장합니다.
+이걸 KV Cache라고 합니다.
+
+- **0~50%**: 여유 — 더 많은 동시 요청 처리 가능
+- **50~80%**: 주의 — 동시 요청이 많아지면 부족해질 수 있음
+- **80%+**: 위험 — 새 요청이 들어오면 기존 요청을 밀어내야 함 (Preemption)
+
+KV Cache가 높다 = "대화방이 꽉 차서 새 손님이 못 들어옴"
+해결: GPU 증설 또는 max_num_seqs 조정`,
+  },
+  {
+    title: '핵심 지표: tok/s (처리량)',
+    icon: '⚡',
+    content: `**tok/s** = 초당 처리 토큰 수
+
+두 종류가 있습니다:
+
+**Prefill (Prompt) tok/s** — 사용자 입력을 읽는 속도
+- 수천~수만 tok/s가 정상 (병렬 처리)
+- 높을수록 "첫 응답까지 시간(TTFT)"이 짧음
+
+**Decode (Generation) tok/s** — AI가 답변을 쓰는 속도
+- 수십~수백 tok/s가 정상 (순차 처리)
+- 높을수록 "응답이 빨리 완성"됨
+
+**0 tok/s** = 지금 요청이 없음 (idle)
+**null** = 아직 측정 안 됨 (서버 시작 직후)`,
+  },
+  {
+    title: '핵심 지표: 처리 중 vs 대기',
+    icon: '🚦',
+    content: `요청이 vLLM에 도착하면 이런 과정을 거칩니다:
+
+[요청 도착] → [대기 큐 (Waiting)] → [GPU 배치 (Running)] → [응답 완료]
+
+**Running (처리 중, R)** — GPU에서 지금 토큰을 생성하고 있는 요청
+- 사용자는 응답을 받고 있는 중
+- 높아도 괜찮음 (바쁜 것일 뿐)
+
+**Waiting (대기, W)** — GPU에 올리지 못해 줄 서는 요청
+- 사용자는 "로딩 중..." 상태에서 멈춰있음
+- **1건이라도 있으면 누군가 기다리고 있다는 뜻**
+- **5건 이상이면 심각한 과부하**
+
+Waiting이 지속되면 → GPU 증설 또는 모델 최적화 필요`,
+  },
+  {
+    title: '위험 신호: Preemption',
+    icon: '🚨',
+    content: `**Preemption** = KV Cache 부족으로 처리 중이던 요청이 강제 중단됨
+
+순서:
+1. KV Cache 100% 도달
+2. 새 요청이 들어옴
+3. vLLM이 기존 요청 하나를 **강제 중단 (Preemption)**
+4. 중단된 요청은 나중에 처음부터 다시 처리
+
+사용자 체감: "응답 받다가 갑자기 끊기고 다시 시작됨" 또는 "응답이 엄청 느림"
+
+**Preemption > 0이면 GPU 메모리 부족 확정 신호.**
+해결: gpu_memory_utilization 값 조정, max_num_seqs 줄이기, 또는 GPU 증설`,
+  },
+  {
+    title: '메트릭 수집 구조',
+    icon: '🔄',
+    content: `데이터가 화면에 표시되기까지의 흐름:
+
+**DT Cloud (쿠버네티스)**
+vLLM Pod → Prometheus (수집/저장) → 우리 API (60초 폴링) → DB 저장 → UI 표시
+
+- Prometheus가 vLLM의 /metrics 엔드포인트를 주기적으로 수집
+- 우리 API가 Prometheus API를 호출하여 데이터 가져옴
+- tok/s는 counter(누적값)의 변화량을 직접 계산 (delta 방식)
+
+**SSH 서버 (직접 관리)**
+SSH 접속 → nvidia-smi + vLLM /metrics 직접 수집 → DB 저장 → UI 표시
+
+- 서버에 SSH로 접속해서 GPU 상태와 vLLM 메트릭을 직접 읽음
+- Prometheus 없이 독립적으로 동작`,
+  },
+  {
+    title: '언제 걱정해야 하는가?',
+    icon: '🔔',
+    content: `**즉시 대응 필요:**
+- Waiting 지속 5건+ → 사용자 응답 지연 심각
+- Preemption 발생 → KV Cache 부족, 요청 강제 중단
+- KV Cache 90%+ → 곧 Preemption 시작
+
+**주의 관찰:**
+- KV Cache 50~80% → 피크타임에 문제 가능성
+- GPU Util 90%+ & Waiting > 0 → 용량 한계 근접
+
+**정상:**
+- GPU Util 높지만 Waiting = 0 → 잘 처리하고 있음
+- tok/s = 0 → 요청이 없을 뿐 (야간/주말)
+- KV Cache 0% → idle 상태 (정상)
+
+**팁:** 30일 분석 탭의 히트맵에서 피크타임(14~16시) 패턴을 확인하세요.`,
+  },
+];
+
+function GuideBook({ onClose }: { onClose: () => void }) {
+  const [page, setPage] = useState(0);
+  const slide = GUIDE_SLIDES[page];
+  const total = GUIDE_SLIDES.length;
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); setPage(p => Math.min(p + 1, total - 1)); }
+      if (e.key === 'ArrowLeft') setPage(p => Math.max(p - 1, 0));
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, total]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{slide.icon}</span>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">{slide.title}</h2>
+              <p className="text-[10px] text-gray-400">{page + 1} / {total}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-1 bg-gray-100">
+          <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${((page + 1) / total) * 100}%` }} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="text-xs text-gray-700 leading-relaxed whitespace-pre-line" dangerouslySetInnerHTML={{
+            __html: slide.content
+              .replace(/\*\*(.*?)\*\*/g, '<strong class="text-gray-900">$1</strong>')
+              .replace(/^(┌|└|─)/gm, '<span class="font-mono text-blue-500">$1</span>')
+              .replace(/\n/g, '<br/>')
+          }} />
+        </div>
+
+        {/* Navigation */}
+        <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+          <button onClick={() => setPage(p => Math.max(p - 1, 0))} disabled={page === 0}
+            className="px-4 py-2 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+            ← 이전
+          </button>
+          <div className="flex gap-1">
+            {GUIDE_SLIDES.map((_, i) => (
+              <button key={i} onClick={() => setPage(i)}
+                className={`w-2 h-2 rounded-full transition-all ${i === page ? 'bg-blue-500 w-4' : 'bg-gray-300 hover:bg-gray-400'}`} />
+            ))}
+          </div>
+          {page < total - 1 ? (
+            <button onClick={() => setPage(p => p + 1)}
+              className="px-4 py-2 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+              다음 →
+            </button>
+          ) : (
+            <button onClick={onClose}
+              className="px-4 py-2 text-xs text-white bg-emerald-600 rounded-lg hover:bg-emerald-700">
+              완료
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ──
 export default function ResourceMonitor() {
   const [data, setData] = useState<RealtimeEntry[]>([]);
@@ -651,6 +911,7 @@ export default function ResourceMonitor() {
   const [noticeEdit, setNoticeEdit] = useState(false);
   const [noticeText, setNoticeText] = useState('');
   const [hmTab, setHmTab] = useState('tps');
+  const [guideOpen, setGuideOpen] = useState(false);
   const ref = useRef<ReturnType<typeof setInterval>>();
 
   const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
@@ -709,6 +970,9 @@ export default function ResourceMonitor() {
       <div><h1 className="text-base font-bold text-gray-900 flex items-center gap-1.5"><Server className="w-4 h-4 text-blue-600" />리소스 모니터링</h1>
         <p className="text-[10px] text-gray-400 mt-0.5">SSH + LLM 자동 탐지{updated && <span className="ml-1">| {updated.toLocaleTimeString('ko-KR')}</span>}</p></div>
       <div className="flex items-center gap-1.5">
+        <button onClick={() => setGuideOpen(true)} className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-gray-500 hover:text-blue-600 rounded hover:bg-blue-50 border border-gray-200" title="GPU 모니터링 가이드">
+          <BarChart3 className="w-3 h-3" />가이드
+        </button>
         <button onClick={fetch_} className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"><RefreshCw className="w-3.5 h-3.5" /></button>
         <button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700"><Plus className="w-3.5 h-3.5" />서버 추가</button>
       </div>
@@ -1357,5 +1621,6 @@ export default function ResourceMonitor() {
     </div>)}
 
     <ServerModal open={modal} onClose={() => { setModal(false); setEdit(null); setTestR(null); }} onSubmit={handleSubmit} edit={edit} testing={testing} testResult={testR} onTest={handleTest} existingHosts={data.map(e => e.server.host)} />
+    {guideOpen && <GuideBook onClose={() => setGuideOpen(false)} />}
   </div>);
 }
