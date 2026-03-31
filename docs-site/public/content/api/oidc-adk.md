@@ -32,7 +32,7 @@ zip에 포함된 파일:
 | `example_adk.py` | Google ADK 예제 (1.x / 2.0 공용) |
 | `example_fastapi.py` | FastAPI 웹 서비스 예제 |
 
-> 외부 패키지 설치 불필요 — Python 표준 라이브러리만 사용합니다. `openai`나 `litellm`이 설치되어 있으면 자동 연동됩니다.
+> `requests` 패키지 필요 (`pip install requests`). `litellm`이 설치되어 있으면 모든 LLM 호출에 body.user가 자동 주입됩니다.
 
 ## 방법 1: setup_auth (자동 로그인)
 
