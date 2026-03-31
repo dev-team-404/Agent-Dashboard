@@ -316,10 +316,13 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
       if (dtSec > 5) {
         const pDelta = promptTotal - prev.promptTotal;
         const gDelta = genTotal - prev.genTotal;
-        // delta < 0 = counter reset (pod 재시작) → skip, 다음 폴링부터 정상
         promptTps = pDelta >= 0 ? pDelta / dtSec : null;
         genTps = gDelta >= 0 ? gDelta / dtSec : null;
       }
+    }
+    // 디버그: 전용 모델 counter delta 추적
+    if (!instance.startsWith('shared-')) {
+      console.log(`[PromCollector][TPS] ${instance}: promptTotal=${promptTotal}, genTotal=${genTotal}, prev=${prev ? `p=${prev.promptTotal},g=${prev.genTotal},age=${Math.round((now-prev.ts)/1000)}s` : 'NONE'} → promptTps=${promptTps}, genTps=${genTps}`);
     }
     if (promptTotal != null || genTotal != null) {
       prevTokenCounters.set(instance, { promptTotal: promptTotal || 0, genTotal: genTotal || 0, ts: now });
