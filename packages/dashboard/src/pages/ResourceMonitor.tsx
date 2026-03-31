@@ -127,6 +127,113 @@ function ServerModal({ open, onClose, onSubmit, edit, testing, testResult, onTes
   </div></div>);
 }
 
+// ── Model Group Card (K8s 모델 중심 뷰) ──
+interface ModelGroup {
+  modelName: string;
+  instance: string; // containerName (e.g., "glm-47-h200-tp8")
+  isShared: boolean;
+  endpoints: { entry: RealtimeEntry; ep: LlmEndpoint }[];
+  nodes: { name: string; host: string; gpuCount: number; gpuUtil: number | null }[];
+}
+
+function ModelGroupCard({ group }: { group: ModelGroup }) {
+  const [open, setOpen] = useState(false);
+  const { modelName, endpoints, nodes, isShared } = group;
+
+  // 집계
+  const totalGpus = nodes.reduce((a, n) => a + n.gpuCount, 0);
+  const avgGpuUtil = (() => { const v = nodes.filter(n => n.gpuUtil != null); return v.length > 0 ? Math.round(v.reduce((a, n) => a + n.gpuUtil!, 0) / v.length) : null; })();
+  const totalRunning = endpoints.reduce((a, e) => a + (e.ep.runningRequests || 0), 0);
+  const totalWaiting = endpoints.reduce((a, e) => a + (e.ep.waitingRequests || 0), 0);
+  const kvVals = endpoints.filter(e => e.ep.kvCacheUsagePct != null);
+  const avgKv = kvVals.length > 0 ? Math.round(kvVals.reduce((a, e) => a + e.ep.kvCacheUsagePct!, 0) / kvVals.length * 10) / 10 : null;
+  const totalPromptTps = endpoints.reduce((a, e) => a + (e.ep.promptThroughputTps || 0), 0);
+  const totalGenTps = endpoints.reduce((a, e) => a + (e.ep.genThroughputTps || 0), 0);
+  const totalTps = Math.round((totalPromptTps + totalGenTps) * 10) / 10;
+  const preemptCount = endpoints.reduce((a, e) => a + (e.ep.preemptionCount || 0), 0);
+  const avgTtft = (() => { const v = endpoints.filter(e => e.ep.ttftMs != null); return v.length > 0 ? Math.round(v.reduce((a, e) => a + e.ep.ttftMs!, 0) / v.length) : null; })();
+
+  const kvColor = avgKv != null ? (avgKv >= 80 ? 'text-red-600' : avgKv >= 50 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
+  const gpuColor = avgGpuUtil != null ? (avgGpuUtil >= 90 ? 'text-red-600' : avgGpuUtil >= 70 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+      <div className="px-3 py-2.5">
+        {/* 모델명 + 노드 요약 */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${totalRunning > 0 || totalTps > 0 ? 'bg-emerald-500 animate-pulse' : avgKv != null ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+          <span className="text-xs font-bold text-gray-900 truncate">{modelName}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">
+            {isShared ? 'Shared' : `${totalGpus} GPU`}
+          </span>
+          <span className="text-[10px] text-gray-400 ml-auto truncate max-w-[200px]">
+            {nodes.map(n => n.name.replace('DTGPT-', '')).join(' + ')}
+          </span>
+          <button onClick={() => setOpen(!open)} className="p-0.5 text-gray-400 hover:text-gray-600">
+            {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {/* 핵심 지표 4개 */}
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <div>
+            <p className="text-[9px] text-gray-400">GPU Util</p>
+            <p className={`text-sm font-bold ${gpuColor}`}>{avgGpuUtil != null ? `${avgGpuUtil}%` : '-'}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400">KV Cache</p>
+            <p className={`text-sm font-bold ${kvColor}`}>{avgKv != null ? `${avgKv}%` : '-'}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400">처리량</p>
+            <p className="text-sm font-bold text-blue-600">{totalTps > 0 ? `${totalTps}` : '-'}<span className="text-[8px] font-normal text-gray-400"> tok/s</span></p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400">요청</p>
+            <p className={`text-sm font-bold ${totalWaiting > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+              <span className="text-gray-500 font-normal">R:</span>{totalRunning}
+              {totalWaiting > 0 && <span className="text-amber-600 ml-1"><span className="text-gray-500 font-normal">W:</span>{totalWaiting}</span>}
+            </p>
+          </div>
+        </div>
+
+        {/* 보조 지표 바 */}
+        {avgKv != null && (
+          <div className="mt-2">
+            <MiniBar pct={avgKv} color={avgKv >= 80 ? 'bg-red-500' : avgKv >= 50 ? 'bg-amber-500' : 'bg-emerald-500'} h="h-1" />
+          </div>
+        )}
+      </div>
+
+      {/* 펼침: 노드별 상세 + 추가 메트릭 */}
+      {open && (
+        <div className="border-t px-3 py-2 space-y-2 bg-gray-50/50">
+          {/* 추가 메트릭 */}
+          <div className="flex gap-4 text-[10px] text-gray-500">
+            {avgTtft != null && <span>TTFT: <b className="text-gray-700">{avgTtft >= 1000 ? `${(avgTtft / 1000).toFixed(1)}s` : `${avgTtft}ms`}</b></span>}
+            {totalPromptTps > 0 && <span>Prefill: <b className="text-gray-700">{Math.round(totalPromptTps)} tok/s</b></span>}
+            {totalGenTps > 0 && <span>Decode: <b className="text-gray-700">{Math.round(totalGenTps)} tok/s</b></span>}
+            {preemptCount > 0 && <span className="text-red-500">Preemption: <b>{preemptCount}회</b></span>}
+          </div>
+
+          {/* 노드별 GPU 현황 */}
+          <div className="space-y-1">
+            <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">노드별 GPU</p>
+            {nodes.map((n, i) => (
+              <div key={i} className="flex items-center gap-2 text-[10px]">
+                <span className="text-gray-500 w-28 truncate" title={n.name}>{n.name.replace('DTGPT-', '')}</span>
+                <span className="text-gray-400 w-14">{n.gpuCount} GPU</span>
+                <div className="flex-1"><MiniBar pct={n.gpuUtil || 0} color={utilCls(n.gpuUtil || 0)} h="h-1.5" /></div>
+                <span className={`w-10 text-right font-medium ${utilTxt(n.gpuUtil || 0)}`}>{n.gpuUtil != null ? `${Math.round(n.gpuUtil)}%` : '-'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Compact Server Card ──
 function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: RealtimeEntry; onEdit: () => void; onDelete: () => void; onToggle: () => void; onCopy: () => void; }) {
   const [open, setOpen] = useState(false);
@@ -907,16 +1014,104 @@ export default function ResourceMonitor() {
     {/* Live Tab */}
     {tab === 'live' && (data.length === 0 ? (
       <div className="bg-white rounded-lg border p-10 text-center"><Server className="w-10 h-10 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400 mb-3">등록된 서버 없음</p><button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="text-xs text-blue-600 hover:underline">+ 서버 추가</button></div>
-    ) : (
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-        {data.map(e => <ServerCard key={e.server.id} entry={e}
-          onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
-          onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
-          onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
-          onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
-        />)}
-      </div>
-    ))}
+    ) : (() => {
+      // K8s (Prometheus) vs 로컬 서버 분리
+      const k8sEntries = data.filter(e => !e.server.isLocal);
+      const localEntries = data.filter(e => e.server.isLocal);
+
+      // K8s: 모델 기준 그룹핑 (LLM 엔드포인트 기반)
+      // dedicated/shared 구분 없이 instance(containerName)별로 각각 카드 생성
+      const modelMap = new Map<string, ModelGroup>();
+      for (const entry of k8sEntries) {
+        const eps = entry.metrics?.llmEndpoints || [];
+        if (eps.length === 0) continue;
+        for (const ep of eps) {
+          const instance = ep.containerName || '';
+          const modelName = ep.modelNames?.[0] || instance;
+          const isShared = instance.startsWith('shared-');
+
+          const existing = modelMap.get(instance) || {
+            modelName,
+            instance,
+            isShared,
+            endpoints: [],
+            nodes: [],
+          };
+          existing.endpoints.push({ entry, ep });
+          // 노드 중복 방지
+          if (!existing.nodes.some(n => n.name === entry.server.name)) {
+            const gpus = entry.metrics?.gpus || [];
+            const avgUtil = gpus.length > 0 ? Math.round(gpus.reduce((a, g) => a + g.utilGpu, 0) / gpus.length * 10) / 10 : null;
+            existing.nodes.push({ name: entry.server.name, host: entry.server.host, gpuCount: gpus.length, gpuUtil: avgUtil });
+          }
+          modelMap.set(instance, existing);
+        }
+      }
+      // K8s 노드 중 LLM 없는 서버도 표시 (GPU만 있는 노드)
+      const k8sNoLlm = k8sEntries.filter(e => (e.metrics?.llmEndpoints || []).length === 0);
+
+      // 정렬: dedicated 먼저 (GPU 많은 순), shared는 뒤 (이름순)
+      const dedicatedGroups = Array.from(modelMap.values()).filter(g => !g.isShared).sort((a, b) => b.nodes.reduce((s, n) => s + n.gpuCount, 0) - a.nodes.reduce((s, n) => s + n.gpuCount, 0));
+      const sharedGroups = Array.from(modelMap.values()).filter(g => g.isShared).sort((a, b) => a.modelName.localeCompare(b.modelName));
+
+      const hasK8s = dedicatedGroups.length > 0 || sharedGroups.length > 0 || k8sNoLlm.length > 0;
+
+      return (<div className="space-y-4">
+        {/* ── DT Cloud 모델 섹션 ── */}
+        {hasK8s && (<div>
+          {/* Dedicated 모델 */}
+          {dedicatedGroups.length > 0 && (<>
+            <div className="flex items-center gap-2 mb-2">
+              <Layers className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-xs font-semibold text-gray-700">DT Cloud 전용 모델</span>
+              <span className="text-[10px] text-gray-400">{dedicatedGroups.length}개 모델</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+              {dedicatedGroups.map(g => <ModelGroupCard key={g.instance} group={g} />)}
+            </div>
+          </>)}
+          {/* Shared 모델 */}
+          {sharedGroups.length > 0 && (<div className={dedicatedGroups.length > 0 ? 'mt-4' : ''}>
+            <div className="flex items-center gap-2 mb-2">
+              <Layers className="w-3.5 h-3.5 text-purple-500" />
+              <span className="text-xs font-semibold text-gray-700">DT Cloud 공유 모델</span>
+              <span className="text-[10px] text-gray-400">{sharedGroups.length}개 모델 · GPU 공유</span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+              {sharedGroups.map(g => <ModelGroupCard key={g.instance} group={g} />)}
+            </div>
+          </div>)}
+          {/* LLM 없는 K8s 노드 */}
+          {k8sNoLlm.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">
+              {k8sNoLlm.map(e => <ServerCard key={e.server.id} entry={e}
+                onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
+                onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
+                onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+                onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
+              />)}
+            </div>
+          )}
+        </div>)}
+
+        {/* ── 로컬 서버 섹션 ── */}
+        {localEntries.length > 0 && (<div>
+          <div className="flex items-center gap-2 mb-2">
+            <Server className="w-3.5 h-3.5 text-gray-500" />
+            <span className="text-xs font-semibold text-gray-700">로컬 서버</span>
+            <span className="text-[10px] text-gray-400">{localEntries.length}대</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {localEntries.map(e => <ServerCard key={e.server.id} entry={e}
+              onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
+              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
+              onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+              onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
+            />)}
+          </div>
+        </div>)}
+      </div>);
+    })())}
 
     {/* Analysis Tab */}
     {tab === 'analysis' && !ana && (
