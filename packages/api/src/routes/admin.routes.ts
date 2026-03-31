@@ -1823,6 +1823,27 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
 
     const totalStart = Date.now();
 
+    // 헬스체크 결과를 DB에 저장 + Redis 캐시 무효화 (색상 점 즉시 갱신)
+    async function saveHealthLog(success: boolean, latencyMs: number, errorMessage: string | null, endpointUrl: string) {
+      try {
+        await prisma.healthCheckLog.create({
+          data: {
+            modelId: model!.id,
+            modelName: model!.displayName || model!.name,
+            endpointUrl,
+            latencyMs,
+            statusCode: null,
+            success,
+            errorMessage,
+            checkedAt: new Date(),
+          },
+        });
+        invalidateCache(redis, 'cache:admin:stats:health-status').catch(() => {});
+      } catch (err) {
+        console.error(`[HealthCheck-Manual] Failed to save log:`, err);
+      }
+    }
+
     // Non-null assertion: model은 위에서 null 체크 완료
     const m = model!;
 
@@ -1958,6 +1979,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
 
       const totalLatencyMs = Date.now() - totalStart;
       console.log(`[HealthCheck-Manual] ${m.displayName} CHAT -> chat:${chatResult.passed} tool:${toolCallPassCount}/4 vision:${m.supportsVision} (${totalLatencyMs}ms)`);
+      await saveHealthLog(allPassed, totalLatencyMs, allPassed ? null : (chatResult.passed ? `Tool: ${toolCallPassCount}/4` : chatResult.message), buildChatCompletionsUrl(m.endpointUrl));
       res.json({
         healthCheck: {
           healthy: allPassed, checks, toolCallPassCount, allPassed,
@@ -2013,6 +2035,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       }
 
       console.log(`[HealthCheck-Manual] ${m.displayName} IMAGE(${provider}) -> ${imageGen.passed ? 'PASS' : 'FAIL'} (${imageGen.latencyMs}ms)`);
+      await saveHealthLog(imageGen.passed, imageGen.latencyMs, imageGen.passed ? null : imageGen.message, m.endpointUrl);
       res.json({
         healthCheck: {
           healthy: imageGen.passed,
@@ -2047,6 +2070,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       } catch (e: any) { emb = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
 
       console.log(`[HealthCheck-Manual] ${m.displayName} EMBEDDING -> ${emb.passed ? 'PASS' : 'FAIL'} (${emb.latencyMs}ms)`);
+      await saveHealthLog(emb.passed, emb.latencyMs, emb.passed ? null : emb.message, buildEmbeddingsUrl(m.endpointUrl));
       res.json({
         healthCheck: {
           healthy: emb.passed,
@@ -2085,6 +2109,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       } catch (e: any) { rr = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
 
       console.log(`[HealthCheck-Manual] ${m.displayName} RERANKING -> ${rr.passed ? 'PASS' : 'FAIL'} (${rr.latencyMs}ms)`);
+      await saveHealthLog(rr.passed, rr.latencyMs, rr.passed ? null : rr.message, buildRerankUrl(m.endpointUrl));
       res.json({
         healthCheck: {
           healthy: rr.passed,
@@ -2146,6 +2171,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       } catch (e: any) { asr = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
 
       console.log(`[HealthCheck-Manual] ${m.displayName} ASR(${method}) -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+      await saveHealthLog(asr.passed, asr.latencyMs, asr.passed ? null : asr.message, method === 'OPENAI_TRANSCRIBE' ? buildAudioTranscriptionsUrl(m.endpointUrl) : buildChatCompletionsUrl(m.endpointUrl));
       res.json({
         healthCheck: {
           healthy: asr.passed,

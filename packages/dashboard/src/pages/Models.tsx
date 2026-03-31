@@ -574,6 +574,16 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       const res = await modelsApi.runHealthCheck(model.id);
       const result: HealthCheckResult = res.data.healthCheck || res.data;
       setHealthChecks(prev => ({ ...prev, [model.id]: result }));
+      // 서버가 health_check_logs에 저장했으므로 색상 점도 즉시 갱신
+      setCronHealth(prev => ({
+        ...prev,
+        [model.id]: {
+          success: result.allPassed,
+          latencyMs: result.totalLatencyMs,
+          checkedAt: new Date().toISOString(),
+          errorMessage: result.allPassed ? null : result.message,
+        },
+      }));
     } catch (error: any) {
       setHealthChecks(prev => ({
         ...prev,
