@@ -40,10 +40,10 @@ authRoutes.post('/oidc-token', async (req, res) => {
       return;
     }
 
-    // Use server-side issuer — never trust the frontend value (SSRF prevention)
-    const issuer = process.env['OIDC_ISSUER'] || 'http://a2g.samsungds.net:8090';
-    // Use server-side client secret — never expose in frontend bundle
-    const client_secret = process.env['OIDC_CLIENT_SECRET'] || '';
+    // 서버 간 통신: Docker 내부 URL 우선 (외부 DNS 의존 제거)
+    const issuer = process.env['OIDC_INTERNAL_URL'] || process.env['OIDC_ISSUER'] || 'https://auth:9050';
+    // client_secret: auth 서버의 agent-dashboard 클라이언트 시크릿과 일치해야 함
+    const client_secret = process.env['OIDC_CLIENT_SECRET'] || 'dashboard-secret';
 
     const tokenUrl = `${issuer}/oidc/token`;
     const body = new URLSearchParams({

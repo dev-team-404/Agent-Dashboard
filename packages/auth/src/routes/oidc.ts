@@ -211,13 +211,16 @@ router.get('/oidc/authorize', (req: Request, res: Response) => {
   // 세션 ID는 쿠키로 전달 (SSO가 redirect_uri 정확 일치를 요구하므로 쿼리파라미터 사용 불가)
   res.cookie('oidc_sid', sessionId, { httpOnly: true, maxAge: 600000, sameSite: 'lax' });
 
+  // SSO에 보낼 nonce — 비어있으면 생성 (ADFS는 비어있는 nonce 거부할 수 있음)
+  const ssoNonce = nonce || uuidv4().replace(/-/g, '').substring(0, 9) + '-';
+
   if (config.mockSso.enabled) {
     // Redirect to Mock SSO login page
     const mockLoginUrl = new URL(`${config.mockSso.url}/mock-sso/login`);
     mockLoginUrl.searchParams.set('redirect_uri', callbackUrl);
     mockLoginUrl.searchParams.set('client_id', clientId);
     mockLoginUrl.searchParams.set('state', sessionId);
-    mockLoginUrl.searchParams.set('nonce', nonce);
+    mockLoginUrl.searchParams.set('nonce', ssoNonce);
     res.redirect(mockLoginUrl.toString());
   } else {
     // Redirect to Samsung real SSO (A2A 구현과 동일한 방식)
@@ -228,13 +231,15 @@ router.get('/oidc/authorize', (req: Request, res: Response) => {
       'response_mode': config.sso.responseMode,
       'response_type': config.sso.responseType,
       'scope': config.sso.scope,
-      'nonce': nonce,
+      'nonce': ssoNonce,
+      'state': sessionId,
       'client-request-id': uuidv4(),
       'pullStatus': '0',
     });
-    // A2A와 동일한 URL 구성: IDP_ENTITY_ID/?params
-    const separator = idpBase.includes('?') ? '&' : '?';
-    res.redirect(`${idpBase}${separator}${ssoParams.toString()}`);
+    // IDP_ENTITY_ID 끝 슬래시 제거 후 ? 붙이기 (다른팀 성공 URL 형식과 일치)
+    const cleanBase = idpBase.replace(/\/+$/, '');
+    const separator = cleanBase.includes('?') ? '&' : '?';
+    res.redirect(`${cleanBase}${separator}${ssoParams.toString()}`);
   }
 });
 

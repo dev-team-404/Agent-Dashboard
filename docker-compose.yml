@@ -31,6 +31,8 @@ x-api-common: &api-common
     REDIS_URL: redis://redis:6379
     JWT_SECRET: ${JWT_SECRET:-your-jwt-secret-change-in-production}
     SSO_CERT_PATH: /app/cert/cert.cer
+    OIDC_INTERNAL_URL: https://auth:9050
+    OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-dashboard-secret}
     DEVELOPERS: ${DEVELOPERS:-syngha.han,young87.kim,byeongju.lee}
     KNOX_API_URL: ${KNOX_API_URL:-https://openapi.samsung.net/employee/api/v2.0}
     KNOX_SYSTEM_ID: ${KNOX_SYSTEM_ID:-}
