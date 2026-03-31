@@ -25,6 +25,9 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let backfillDone = false;
 let lastPowerHour: number | null = null;
 
+// tok/s 직접 계산용 — rate() 대신 counter delta 방식 (recording rule counter reset 문제 회피)
+const prevTokenCounters = new Map<string, { promptTotal: number; genTotal: number; ts: number }>();
+
 // ── Prometheus API 호출 ──
 async function promQuery(query: string, time?: number): Promise<any[]> {
   try {
@@ -175,13 +178,13 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
   }
 
   // vLLM 메트릭 시도 (자동 감지 — 복구 시 자동 수집)
-  const [running, waiting, kvCacheOld, kvCacheNew, promptTpsRate, genTpsRate] = await Promise.all([
+  const [running, waiting, kvCacheOld, kvCacheNew, promptCounters, genCounters] = await Promise.all([
     promQuery('vllm:num_requests_running'),
     promQuery('vllm:num_requests_waiting'),
     promQuery('vllm:gpu_cache_usage_perc'),   // 구 이름
     promQuery('vllm:kv_cache_usage_perc'),    // 신 이름
-    promQuery('rate(vllm:prompt_tokens_total[1m])'),    // v1: gauge 삭제됨 → counter rate로 tok/s 계산
-    promQuery('rate(vllm:generation_tokens_total[1m])'),
+    promQuery('vllm:prompt_tokens_total'),    // counter → delta로 tok/s 직접 계산
+    promQuery('vllm:generation_tokens_total'),
   ]);
   const kvCache = kvCacheOld.length > 0 ? kvCacheOld : kvCacheNew;
 
@@ -300,8 +303,27 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     const runVal = findVllmVal(running);
     const waitVal = findVllmVal(waiting);
     const kvVal = findVllmVal(kvCache);
-    const promptTps = findVllmVal(promptTpsRate);
-    const genTps = findVllmVal(genTpsRate);
+
+    // tok/s: counter delta 방식 (rate() 대신 — recording rule counter reset 문제 회피)
+    const promptTotal = findVllmVal(promptCounters);
+    const genTotal = findVllmVal(genCounters);
+    let promptTps: number | null = null;
+    let genTps: number | null = null;
+    const now = Date.now();
+    const prev = prevTokenCounters.get(instance);
+    if (prev && promptTotal != null && genTotal != null) {
+      const dtSec = (now - prev.ts) / 1000;
+      if (dtSec > 5) {
+        const pDelta = promptTotal - prev.promptTotal;
+        const gDelta = genTotal - prev.genTotal;
+        // delta < 0 = counter reset (pod 재시작) → skip, 다음 폴링부터 정상
+        promptTps = pDelta >= 0 ? pDelta / dtSec : null;
+        genTps = gDelta >= 0 ? gDelta / dtSec : null;
+      }
+    }
+    if (promptTotal != null || genTotal != null) {
+      prevTokenCounters.set(instance, { promptTotal: promptTotal || 0, genTotal: genTotal || 0, ts: now });
+    }
 
     for (const targetNode of targetNodes) {
       const llm = {
