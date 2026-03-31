@@ -935,12 +935,15 @@ export default function ResourceMonitor() {
     const withCa = entries.filter(e => e.capacityAnalysis?.compositeCapacity != null);
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, v) => a + v, 0) / arr.length * 10) / 10 : null;
     const composite = avg(withCa.map(e => e.capacityAnalysis!.compositeCapacity!));
+    const tokPct = avg(withCa.filter(e => e.capacityAnalysis!.tokPct != null).map(e => e.capacityAnalysis!.tokPct!));
+    const kvPct = avg(withCa.filter(e => e.capacityAnalysis!.kvPct != null).map(e => e.capacityAnalysis!.kvPct!));
+    const concPct = avg(withCa.filter(e => e.capacityAnalysis!.concPct != null).map(e => e.capacityAnalysis!.concPct!));
     const tps = Math.round(entries.reduce((a, e) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0) * 10) / 10;
     const bots = withCa.filter(e => e.capacityAnalysis?.bottleneck).map(e => e.capacityAnalysis!.bottleneck!);
     const counts = { throughput: 0, kvMemory: 0, concurrency: 0 };
     bots.forEach(b => counts[b]++);
     const bottleneck = bots.length > 0 ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] : null;
-    return { composite, headroom: composite != null ? Math.round((100 - composite) * 10) / 10 : null, tps, bottleneck, count: entries.length };
+    return { composite, headroom: composite != null ? Math.round((100 - composite) * 10) / 10 : null, tokPct, kvPct, concPct, tps, bottleneck, count: entries.length };
   };
   const kpiSsh = calcGroupKpi(data.filter(e => !e.server.isLocal && e.server.sshPort > 0));
   const kpiDedicated = calcGroupKpi(data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))));
@@ -1297,48 +1300,28 @@ export default function ResourceMonitor() {
           <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
         </div>
         <div className="px-3 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {/* SSH 서버 */}
-          {kpiSsh.count > 0 && (
-            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2.5 border border-emerald-200">
+          {[
+            { kpi: kpiSsh, label: 'SSH 서버', unit: '대', from: 'from-emerald-50', to: 'to-teal-50', border: 'border-emerald-200', color: 'text-emerald-700', sub: 'text-emerald-500' },
+            { kpi: kpiDedicated, label: 'DT 전용 모델', unit: '노드', from: 'from-blue-50', to: 'to-indigo-50', border: 'border-blue-200', color: 'text-blue-700', sub: 'text-blue-400' },
+            { kpi: kpiShared, label: 'DT 공유 모델', unit: '노드', from: 'from-purple-50', to: 'to-fuchsia-50', border: 'border-purple-200', color: 'text-purple-700', sub: 'text-purple-400' },
+          ].filter(g => g.kpi.count > 0).map(({ kpi, label, unit, from, to, border, color, sub }) => (
+            <div key={label} className={`bg-gradient-to-br ${from} ${to} rounded-lg p-2.5 border ${border}`}>
               <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] font-bold text-emerald-700">SSH 서버 <span className="font-normal text-emerald-500">({kpiSsh.count}대)</span></p>
-                {kpiSsh.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiSsh.bottleneck)}</span>}
+                <p className={`text-[9px] font-bold ${color}`}>{label} <span className={`font-normal ${sub}`}>({kpi.count}{unit})</span></p>
+                {kpi.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpi.bottleneck)}</span>}
               </div>
-              <div className="flex items-end gap-3">
-                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiSsh.composite != null ? utilTxt(kpiSsh.composite) : 'text-gray-300'}`}>{kpiSsh.composite ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiSsh.headroom != null ? (kpiSsh.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiSsh.headroom ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiSsh.tps > 0 ? kpiSsh.tps : '-'}</p></div>
+              <div className="flex items-end gap-2.5">
+                <div><p className="text-[7px] text-gray-400">종합</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpi.tps > 0 ? kpi.tps : '-'}</p></div>
+              </div>
+              <div className="flex gap-2 mt-1 text-[7px] text-gray-400">
+                <span>처리량 <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
+                <span>KV <b className={`${(kpi.kvPct || 0) >= 80 ? 'text-red-600' : (kpi.kvPct || 0) >= 50 ? 'text-amber-600' : 'text-gray-600'}`}>{kpi.kvPct ?? '-'}%</b></span>
+                <span>동시처리 <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
               </div>
             </div>
-          )}
-          {/* DT Cloud 전용 */}
-          {kpiDedicated.count > 0 && (
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-200">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] font-bold text-blue-700">DT 전용 모델 <span className="font-normal text-blue-400">({kpiDedicated.count}노드)</span></p>
-                {kpiDedicated.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiDedicated.bottleneck)}</span>}
-              </div>
-              <div className="flex items-end gap-3">
-                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiDedicated.composite != null ? utilTxt(kpiDedicated.composite) : 'text-gray-300'}`}>{kpiDedicated.composite ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiDedicated.headroom != null ? (kpiDedicated.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiDedicated.headroom ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiDedicated.tps > 0 ? kpiDedicated.tps : '-'}</p></div>
-              </div>
-            </div>
-          )}
-          {/* DT Cloud 공유 */}
-          {kpiShared.count > 0 && (
-            <div className="bg-gradient-to-br from-purple-50 to-fuchsia-50 rounded-lg p-2.5 border border-purple-200">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] font-bold text-purple-700">DT 공유 모델 <span className="font-normal text-purple-400">({kpiShared.count}노드)</span></p>
-                {kpiShared.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiShared.bottleneck)}</span>}
-              </div>
-              <div className="flex items-end gap-3">
-                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiShared.composite != null ? utilTxt(kpiShared.composite) : 'text-gray-300'}`}>{kpiShared.composite ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiShared.headroom != null ? (kpiShared.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiShared.headroom ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiShared.tps > 0 ? kpiShared.tps : '-'}</p></div>
-              </div>
-            </div>
-          )}
+          ))}
         </div>
         {/* 인프라 요약 (한 줄) */}
         <div className="px-3 pb-2">
@@ -1536,7 +1519,37 @@ export default function ResourceMonitor() {
         <span className="text-xs font-medium text-gray-600">30일 기간 분석 ({ana.totalSnapshots?.toLocaleString() || 0}건{anaServerId ? '' : ', 전체 서버'})</span>
         <select value={anaServerId} onChange={e => setAnaServerId(e.target.value)} className="px-2 py-1 text-[10px] border rounded-lg bg-white">
           <option value="">전체 서버</option>
-          {data.map(e => <option key={e.server.id} value={e.server.id}>{e.server.name}</option>)}
+          {/* DT 전용 모델 — 모델명으로 표시, 관련 노드 전체 합산 */}
+          {(() => {
+            const k8s = data.filter(e => !e.server.isLocal && e.server.sshPort === 0);
+            const dedicatedModels = new Map<string, { modelName: string; serverIds: string[] }>();
+            const sharedServerIds = new Set<string>();
+            for (const entry of k8s) {
+              const eps = entry.metrics?.llmEndpoints || [];
+              for (const ep of eps) {
+                const inst = ep.containerName || '';
+                const isShared = inst.startsWith('shared-');
+                if (isShared) { sharedServerIds.add(entry.server.id); continue; }
+                const existing = dedicatedModels.get(inst) || { modelName: ep.modelNames?.[0] || inst, serverIds: [] };
+                if (!existing.serverIds.includes(entry.server.id)) existing.serverIds.push(entry.server.id);
+                dedicatedModels.set(inst, existing);
+              }
+            }
+            const sshServers = data.filter(e => !e.server.isLocal && e.server.sshPort > 0);
+            return (<>
+              {dedicatedModels.size > 0 && <optgroup label="DT 전용 모델">
+                {Array.from(dedicatedModels.entries()).map(([inst, { modelName, serverIds }]) =>
+                  <option key={inst} value={serverIds[0]}>{modelName}</option>
+                )}
+              </optgroup>}
+              {sharedServerIds.size > 0 && <optgroup label="DT 공유 모델">
+                <option value={Array.from(sharedServerIds)[0]}>공유 모델 (전체)</option>
+              </optgroup>}
+              {sshServers.length > 0 && <optgroup label="SSH 서버">
+                {sshServers.map(e => <option key={e.server.id} value={e.server.id}>{e.server.name}</option>)}
+              </optgroup>}
+            </>);
+          })()}
         </select>
       </div>
 
