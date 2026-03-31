@@ -31,20 +31,32 @@ async function promQuery(query: string, time?: number): Promise<any[]> {
     const params = new URLSearchParams({ query });
     if (time) params.set('time', String(time));
     const res = await fetch(`${PROM_URL}/query?${params}`, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`[PromCollector] query failed (HTTP ${res.status}): ${query}`);
+      return [];
+    }
     const data = await res.json() as any;
     return data?.data?.result || [];
-  } catch { return []; }
+  } catch (err: any) {
+    console.warn(`[PromCollector] query error: ${query} — ${err.message}`);
+    return [];
+  }
 }
 
 async function promQueryRange(query: string, start: number, end: number, step: number): Promise<any[]> {
   try {
     const params = new URLSearchParams({ query, start: String(start), end: String(end), step: String(step) });
     const res = await fetch(`${PROM_URL}/query_range?${params}`, { signal: AbortSignal.timeout(30000) });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`[PromCollector] range query failed (HTTP ${res.status}): ${query}`);
+      return [];
+    }
     const data = await res.json() as any;
     return data?.data?.result || [];
-  } catch { return []; }
+  } catch (err: any) {
+    console.warn(`[PromCollector] range query error: ${query} — ${err.message}`);
+    return [];
+  }
 }
 
 // ── 노드 목록 자동 감지 ──
@@ -163,15 +175,21 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
   }
 
   // vLLM 메트릭 시도 (자동 감지 — 복구 시 자동 수집)
-  const [running, waiting, kvCache] = await Promise.all([
+  const [running, waiting, kvCacheOld, kvCacheNew] = await Promise.all([
     promQuery('vllm:num_requests_running'),
     promQuery('vllm:num_requests_waiting'),
-    promQuery('vllm:gpu_cache_usage_perc'),
+    promQuery('vllm:gpu_cache_usage_perc'),   // 구 이름
+    promQuery('vllm:kv_cache_usage_perc'),    // 신 이름
   ]);
+  const kvCache = kvCacheOld.length > 0 ? kvCacheOld : kvCacheNew;
 
-  const vllmAvailable = running.length > 0;
+  const vllmAvailable = running.length > 0 || kvCache.length > 0;
   if (vllmAvailable && !backfillDone) {
     console.log('[PromCollector] vLLM metrics detected! Real-time LLM metrics now available.');
+  }
+  if (!vllmAvailable) {
+    console.log('[PromCollector] vLLM metrics not found (running=%d, waiting=%d, kvOld=%d, kvNew=%d)',
+      running.length, waiting.length, kvCacheOld.length, kvCacheNew.length);
   }
 
   // vLLM 인스턴스 → 노드 매핑 (1:N — 같은 모델이 여러 노드에 replica로 배포됨)
@@ -210,7 +228,10 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
         }
       }
     }
-    if (targetNodes.length === 0) continue;
+    if (targetNodes.length === 0) {
+      console.warn(`[PromCollector] vLLM instance "${instance}" (model: ${modelName}) has no node mapping. instanceToNodes keys: [${Array.from(instanceToNodes.keys()).join(', ')}]`);
+      continue;
+    }
 
     const findVllmVal = (arr: any[]) => {
       const m = arr.find(x => x.metric?.instance === instance);
