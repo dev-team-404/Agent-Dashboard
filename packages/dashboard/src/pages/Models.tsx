@@ -153,7 +153,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     loadModels();
     loadCronHealth();
     const jitter = Math.floor(Math.random() * 10000);
-    const interval = setInterval(loadModels, 30000 + jitter);
+    const interval = setInterval(() => { loadModels(); loadCronHealth(); }, 30000 + jitter);
     return () => clearInterval(interval);
   }, []);
 
