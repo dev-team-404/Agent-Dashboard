@@ -1678,8 +1678,9 @@ adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
 
     const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, asrMethod } = validation.data;
     // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
-    const method = /whisper/i.test(modelName) ? 'OPENAI_TRANSCRIBE'
-      : (asrMethod || 'AUDIO_URL');
+    const isWhisper = /whisper/i.test(modelName);
+    const method = isWhisper ? 'OPENAI_TRANSCRIBE' : (asrMethod || 'AUDIO_URL');
+    console.log(`[Test-ASR] method resolve: modelName="${modelName}" stored=${asrMethod} → ${method}`);
 
     const headers: Record<string, string> = {};
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
@@ -2125,7 +2126,8 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
     // ── ASR ──
     if (m.type === 'ASR') {
       // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
-      const method = /whisper/i.test(m.name) ? 'OPENAI_TRANSCRIBE' : (m.asrMethod || 'AUDIO_URL');
+      const isWhisper = /whisper/i.test(m.name) || /whisper/i.test(m.displayName || '');
+      const method = isWhisper ? 'OPENAI_TRANSCRIBE' : (m.asrMethod || 'AUDIO_URL');
       const wavBuffer = generateSilentWavBuffer(1);
       const s = Date.now();
       let asr: { passed: boolean; status?: number; message: string; latencyMs: number };

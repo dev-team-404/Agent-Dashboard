@@ -181,8 +181,9 @@ async function checkAsrModel(model: {
   asrMethod: string | null;
 }, checkedAt: Date): Promise<void> {
   // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
-  const method = /whisper/i.test(model.name) ? 'OPENAI_TRANSCRIBE'
-    : (model.asrMethod || 'AUDIO_URL');
+  const isWhisper = /whisper/i.test(model.name) || /whisper/i.test(model.displayName || '');
+  const method = isWhisper ? 'OPENAI_TRANSCRIBE' : (model.asrMethod || 'AUDIO_URL');
+  console.log(`[HealthCheck] ASR method resolve: name="${model.name}" display="${model.displayName}" stored=${model.asrMethod} → ${method}`);
   const headers: Record<string, string> = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
   if (model.extraHeaders && typeof model.extraHeaders === 'object') {
