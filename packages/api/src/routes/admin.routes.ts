@@ -1677,7 +1677,9 @@ adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
     }
 
     const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, asrMethod } = validation.data;
-    const method = asrMethod || 'AUDIO_URL';
+    // asrMethod가 null이면 모델명으로 추론 (whisper → OPENAI_TRANSCRIBE)
+    const method = asrMethod
+      || (/whisper/i.test(modelName) ? 'OPENAI_TRANSCRIBE' : 'AUDIO_URL');
 
     const headers: Record<string, string> = {};
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
@@ -1824,7 +1826,9 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
 
     try {
       if (model.type === 'ASR') {
-        const method = model.asrMethod || 'AUDIO_URL';
+        // asrMethod가 null이면 모델명으로 추론 (whisper → OPENAI_TRANSCRIBE)
+        const method = model.asrMethod
+          || (/whisper/i.test(model.name) ? 'OPENAI_TRANSCRIBE' : 'AUDIO_URL');
         const wavBuffer = generateSilentWavBuffer(1);
 
         if (method === 'OPENAI_TRANSCRIBE') {
@@ -1834,7 +1838,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
           formData.append('model', model.name);
           formData.append('response_format', 'json');
 
-          console.log(`[HealthCheck-Manual] ASR OPENAI_TRANSCRIBE → ${url} model=${model.name}`);
+          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${model.name} (stored asrMethod=${model.asrMethod})`);
           const response = await fetchWithTimeout(url, { method: 'POST', headers, body: formData }, 60000);
           const latencyMs = Date.now() - startTime;
           const responseText = await response.text();
@@ -1856,6 +1860,7 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
         } else {
           // AUDIO_URL
           const url = buildChatCompletionsUrl(model.endpointUrl);
+          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${model.name} (stored asrMethod=${model.asrMethod})`);
           headers['Content-Type'] = 'application/json';
           const response = await fetchWithTimeout(url, {
             method: 'POST', headers,
