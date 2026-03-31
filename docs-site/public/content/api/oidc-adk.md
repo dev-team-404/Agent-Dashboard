@@ -32,7 +32,7 @@ zip에 포함된 파일:
 | `example_adk.py` | Google ADK 예제 (1.x / 2.0 공용) |
 | `example_fastapi.py` | FastAPI 웹 서비스 예제 |
 
-> `requests` 패키지 필요 (`pip install requests`). `litellm`이 설치되어 있으면 모든 LLM 호출에 body.user가 자동 주입됩니다.
+> 외부 패키지 설치 불필요 — Python 표준 라이브러리만 사용합니다. `openai`나 `litellm`이 설치되어 있으면 body.user 자동 주입이 연동됩니다.
 
 ## 방법 1: setup_auth (자동 로그인)
 
@@ -165,11 +165,36 @@ agent = Agent(
 response = agent.run("이번 주 사용량 데이터를 요약해주세요.")
 ```
 
-## agent_platform_auth.py 전체 코드
+## agent_platform_auth.py 다운로드
 
-아래 코드를 프로젝트에 `agent_platform_auth.py`로 저장하여 사용합니다.
+아래 명령어로 SDK를 다운로드하여 프로젝트에 배치합니다.
+
+```bash
+curl http://a2g.samsungds.net:8090/sdk/agent_platform_auth.py -o agent_platform_auth.py
+```
+
+> **주의**: 아래 내장 코드는 참고용입니다. **반드시 위 명령어로 최신 버전을 다운로드**하세요. SDK는 Python 표준 라이브러리만 사용하며 외부 패키지 설치가 필요 없습니다. `litellm`이나 `openai`가 설치되어 있으면 자동으로 body.user 주입이 연동됩니다.
+
+<details>
+<summary>SDK 주요 API 요약 (클릭하여 펼치기)</summary>
+
+| 함수 | 설명 |
+|------|------|
+| `setup_auth(gateway_url)` | 앱 시작 시 1회 호출. OIDC 로그인 + LiteLLM/OpenAI SDK 자동 패치 |
+| `set_user(loginid)` | 웹 서버에서 요청별 사용자 지정 (async-safe, ContextVar 사용) |
+| `get_credential()` | 현재 인증 정보 dict 반환 (access_token 포함) |
+| `get_headers()` | Gateway 호출용 인증 헤더 반환 (x-user-id, x-service-id, Authorization) |
+
+**인증 우선순위**: ContextVar (`set_user`) → 환경변수 `PLATFORM_USER` → 로컬 캐시 (`~/.agent-platform/credentials.json`) → 브라우저 OIDC 로그인
+
+</details>
+
+<!--
+아래 코드는 참고용 스냅샷입니다. 실제 사용 시 반드시 curl로 최신 버전을 다운로드하세요.
+-->
 
 ```python
+# 이 코드는 참고용 스냅샷입니다. 최신 버전은 위 curl 명령어로 다운로드하세요.
 """
 Agent Platform Auth — OIDC 인증 및 사용자별 사용량 추적 모듈
 
