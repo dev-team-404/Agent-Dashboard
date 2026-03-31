@@ -1794,7 +1794,7 @@ adminRoutes.post('/models/test-asr', async (req: AuthenticatedRequest, res) => {
 /**
  * POST /admin/models/:id/health-check
  * 서버사이드 헬스체크 (DB에서 실제 API 키 조회 → 마스킹 이슈 없음)
- * 모델 목록의 헬스체크 버튼용
+ * 모델 목록의 헬스체크 버튼용 — 기존 test 엔드포인트와 동일한 수준의 테스트 수행
  */
 adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, res) => {
   try {
@@ -1803,8 +1803,8 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       where: { id },
       select: {
         id: true, name: true, displayName: true, endpointUrl: true,
-        apiKey: true, extraHeaders: true, type: true,
-        asrMethod: true, imageProvider: true, extraBody: true,
+        apiKey: true, extraHeaders: true, extraBody: true, type: true,
+        supportsVision: true, asrMethod: true, imageProvider: true,
       },
     });
     if (!model) {
@@ -1821,134 +1821,345 @@ adminRoutes.post('/models/:id/health-check', async (req: AuthenticatedRequest, r
       }
     }
 
-    const startTime = Date.now();
-    let result: { passed: boolean; status?: number; message: string; latencyMs: number };
+    const totalStart = Date.now();
 
-    try {
-      if (model.type === 'ASR') {
-        // asrMethod가 null이면 모델명으로 추론 (whisper → OPENAI_TRANSCRIBE)
-        const method = model.asrMethod
-          || (/whisper/i.test(model.name) ? 'OPENAI_TRANSCRIBE' : 'AUDIO_URL');
-        const wavBuffer = generateSilentWavBuffer(1);
+    // Non-null assertion: model은 위에서 null 체크 완료
+    const m = model!;
 
+    // ── CHAT ──
+    if (m.type === 'CHAT') {
+      const url = buildChatCompletionsUrl(m.endpointUrl);
+      const chatHeaders = { ...headers, 'Content-Type': 'application/json' };
+
+      // 1) Chat Completion
+      const chatResult = await testChatCompletion(url, m.name, chatHeaders);
+
+      // 2) Tool Call A/B/C/D (병렬)
+      const weatherTool = {
+        type: 'function' as const,
+        function: {
+          name: 'get_weather',
+          description: 'Get the current weather in a location',
+          parameters: {
+            type: 'object',
+            properties: {
+              location: { type: 'string', description: 'City name' },
+              unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+            },
+            required: ['location'],
+          },
+        },
+      };
+
+      async function runTC(
+        label: string,
+        opts: { temperature?: number; tool_choice: string | { type: string; function: { name: string } } }
+      ): Promise<{ passed: boolean; status?: number; message: string; latencyMs: number }> {
+        const s = Date.now();
+        const body: Record<string, unknown> = {
+          model: m.name,
+          messages: [{ role: 'user', content: "What's the weather in Seoul?" }],
+          tools: [weatherTool],
+          tool_choice: opts.tool_choice,
+        };
+        if (opts.temperature !== undefined) body.temperature = opts.temperature;
+        try {
+          const r = await fetchWithTimeout(url, { method: 'POST', headers: chatHeaders, body: JSON.stringify(body) }, TOOL_CALL_TIMEOUT_MS);
+          const ms = Date.now() - s;
+          const txt = await r.text();
+          if (!r.ok) return { passed: false, status: r.status, message: `${label} failed (${r.status})`, latencyMs: ms };
+          const d = JSON.parse(txt);
+          const tc = d.choices?.[0]?.message?.tool_calls;
+          if (!tc?.length) return { passed: false, status: r.status, message: 'No tool_calls', latencyMs: ms };
+          if (!tc[0].function?.name) return { passed: false, status: r.status, message: 'Missing function.name', latencyMs: ms };
+          try { JSON.parse(tc[0].function.arguments); } catch { return { passed: false, status: r.status, message: 'Invalid arguments JSON', latencyMs: ms }; }
+          return { passed: true, status: r.status, message: `OK: "${tc[0].function.name}"`, latencyMs: ms };
+        } catch (e: any) {
+          return { passed: false, message: e.name === 'AbortError' ? 'Timeout' : e.message, latencyMs: Date.now() - s };
+        }
+      }
+
+      const [toolCallA, toolCallB, toolCallC, toolCallD] = await Promise.all([
+        runTC('toolCallA', { temperature: 0, tool_choice: 'required' }),
+        runTC('toolCallB', { temperature: 0, tool_choice: 'auto' }),
+        runTC('toolCallC', { tool_choice: 'required' }),
+        runTC('toolCallD', { tool_choice: 'auto' }),
+      ]);
+
+      const toolCallPassCount = [toolCallA, toolCallB, toolCallC, toolCallD].filter(r => r.passed).length;
+      let allPassed = chatResult.passed && toolCallPassCount >= 2;
+
+      // 3) Vision 테스트 (supportsVision인 경우)
+      const checks: Record<string, { passed: boolean; status?: number; message: string; latencyMs: number }> = {
+        chatCompletion: chatResult, toolCallA, toolCallB, toolCallC, toolCallD,
+      };
+
+      if (m.supportsVision) {
+        const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+        // visionDescribe
+        const ds = Date.now();
+        let vd: { passed: boolean; status?: number; message: string; latencyMs: number } = { passed: false, message: '', latencyMs: 0 };
+        let description = '';
+        try {
+          const r = await fetchWithTimeout(url, {
+            method: 'POST', headers: chatHeaders,
+            body: JSON.stringify({
+              model: m.name, messages: [{
+                role: 'user', content: [
+                  { type: 'text', text: 'Describe this image in detail.' },
+                  { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                ],
+              }], temperature: 0,
+            }),
+          }, HEALTH_CHECK_TIMEOUT_MS);
+          const ms = Date.now() - ds;
+          const txt = await r.text();
+          if (!r.ok) { vd = { passed: false, status: r.status, message: `Vision describe failed (${r.status})`, latencyMs: ms }; }
+          else {
+            const d = JSON.parse(txt);
+            const c = d?.choices?.[0]?.message?.content;
+            if (c && c.length > 0) { description = c; vd = { passed: true, status: r.status, message: `OK: "${c.slice(0, 100)}"`, latencyMs: ms }; }
+            else { vd = { passed: false, status: r.status, message: 'No content', latencyMs: ms }; }
+          }
+        } catch (e: any) { vd = { passed: false, message: e.message, latencyMs: Date.now() - ds }; }
+        checks.visionDescribe = vd;
+
+        // visionJudge
+        let vj: { passed: boolean; status?: number; message: string; latencyMs: number };
+        if (!vd.passed) {
+          vj = { passed: false, message: 'Skipped (describe failed)', latencyMs: 0 };
+        } else {
+          const js = Date.now();
+          try {
+            const r = await fetchWithTimeout(url, {
+              method: 'POST', headers: chatHeaders,
+              body: JSON.stringify({
+                model: m.name, messages: [{
+                  role: 'user', content: [
+                    { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                    { type: 'text', text: `Here is a description: "${description}"\nDoes this accurately describe the image? Mention visual elements. Answer YES or NO.` },
+                  ],
+                }], temperature: 0,
+              }),
+            }, HEALTH_CHECK_TIMEOUT_MS);
+            const ms = Date.now() - js;
+            const txt = await r.text();
+            if (!r.ok) { vj = { passed: false, status: r.status, message: `Vision judge failed (${r.status})`, latencyMs: ms }; }
+            else {
+              const c = JSON.parse(txt)?.choices?.[0]?.message?.content || '';
+              const ok = /yes|color|red|pixel|image|square|small|dot|point/i.test(c);
+              vj = { passed: ok, status: r.status, message: ok ? `OK: "${c.slice(0, 100)}"` : `Not visual: "${c.slice(0, 100)}"`, latencyMs: ms };
+            }
+          } catch (e: any) { vj = { passed: false, message: e.message, latencyMs: Date.now() - js }; }
+        }
+        checks.visionJudge = vj;
+        if (!vd.passed || !vj.passed) allPassed = false;
+      }
+
+      const totalLatencyMs = Date.now() - totalStart;
+      console.log(`[HealthCheck-Manual] ${m.displayName} CHAT -> chat:${chatResult.passed} tool:${toolCallPassCount}/4 vision:${m.supportsVision} (${totalLatencyMs}ms)`);
+      res.json({
+        healthCheck: {
+          healthy: allPassed, checks, toolCallPassCount, allPassed,
+          message: allPassed ? 'All checks passed' : chatResult.passed ? `Tool: ${toolCallPassCount}/4` : chatResult.message,
+          totalLatencyMs,
+        },
+      });
+      return;
+    }
+
+    // ── IMAGE ──
+    if (m.type === 'IMAGE') {
+      const provider = (m.imageProvider || 'OPENAI').toUpperCase();
+      const useAdapter = ['COMFYUI', 'GEMINI', 'PIXABAY', 'PEXELS'].includes(provider);
+      let imageGen: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+      if (useAdapter) {
+        const s = Date.now();
+        try {
+          const results = await generateImages(provider, {
+            endpointUrl: m.endpointUrl, apiKey: m.apiKey, modelName: m.name,
+            extraHeaders: (m.extraHeaders as Record<string, string>) || null,
+            extraBody: (m.extraBody as Record<string, unknown>) || null,
+          }, { prompt: 'A simple red circle on white background', n: 1, size: '256x256' });
+          const ms = Date.now() - s;
+          imageGen = results.length > 0 && results[0]!.imageBuffer.length > 0
+            ? { passed: true, status: 200, message: `OK: ${results[0]!.mimeType} ${results[0]!.imageBuffer.length}B`, latencyMs: ms }
+            : { passed: false, message: 'No image data', latencyMs: ms };
+        } catch (e: any) {
+          imageGen = { passed: false, message: e.message, latencyMs: Date.now() - s };
+        }
+      } else {
+        const url = buildImagesGenerationsUrl(m.endpointUrl);
+        const imgHeaders = { ...headers, 'Content-Type': 'application/json' };
+        const body: Record<string, unknown> = { model: m.name, prompt: 'A simple red circle on white background', n: 1, size: '256x256' };
+        if (m.extraBody && typeof m.extraBody === 'object') Object.assign(body, m.extraBody);
+        const s = Date.now();
+        try {
+          const r = await fetchWithTimeout(url, { method: 'POST', headers: imgHeaders, body: JSON.stringify(body) }, HEALTH_CHECK_TIMEOUT_MS);
+          const ms = Date.now() - s;
+          const txt = await r.text();
+          if (!r.ok) { imageGen = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms }; }
+          else {
+            const d = JSON.parse(txt);
+            const img = d?.data?.[0];
+            imageGen = img && (img.url || img.b64_json)
+              ? { passed: true, status: r.status, message: 'OK: image generated', latencyMs: ms }
+              : { passed: false, status: r.status, message: 'No image data in response', latencyMs: ms };
+          }
+        } catch (e: any) {
+          imageGen = { passed: false, message: e.message, latencyMs: Date.now() - s };
+        }
+      }
+
+      console.log(`[HealthCheck-Manual] ${m.displayName} IMAGE(${provider}) -> ${imageGen.passed ? 'PASS' : 'FAIL'} (${imageGen.latencyMs}ms)`);
+      res.json({
+        healthCheck: {
+          healthy: imageGen.passed,
+          checks: { chatCompletion: imageGen },
+          allPassed: imageGen.passed,
+          message: imageGen.message,
+          totalLatencyMs: imageGen.latencyMs,
+        },
+      });
+      return;
+    }
+
+    // ── EMBEDDING ──
+    if (m.type === 'EMBEDDING') {
+      const url = buildEmbeddingsUrl(m.endpointUrl);
+      const s = Date.now();
+      let emb: { passed: boolean; status?: number; message: string; latencyMs: number };
+      try {
+        const r = await fetchWithTimeout(url, {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: m.name, input: 'Hello world, this is a test embedding request.' }),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+        const ms = Date.now() - s;
+        const txt = await r.text();
+        if (!r.ok) { emb = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms }; }
+        else {
+          const vec = JSON.parse(txt)?.data?.[0]?.embedding;
+          emb = Array.isArray(vec) && vec.length > 0
+            ? { passed: true, status: r.status, message: `OK: ${vec.length}-dim`, latencyMs: ms }
+            : { passed: false, status: r.status, message: 'No embedding vector', latencyMs: ms };
+        }
+      } catch (e: any) { emb = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
+
+      console.log(`[HealthCheck-Manual] ${m.displayName} EMBEDDING -> ${emb.passed ? 'PASS' : 'FAIL'} (${emb.latencyMs}ms)`);
+      res.json({
+        healthCheck: {
+          healthy: emb.passed,
+          checks: { chatCompletion: emb },
+          allPassed: emb.passed,
+          message: emb.message,
+          totalLatencyMs: emb.latencyMs,
+        },
+      });
+      return;
+    }
+
+    // ── RERANKING ──
+    if (m.type === 'RERANKING') {
+      const url = buildRerankUrl(m.endpointUrl);
+      const s = Date.now();
+      let rr: { passed: boolean; status?: number; message: string; latencyMs: number };
+      try {
+        const r = await fetchWithTimeout(url, {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: m.name, query: 'What is machine learning?',
+            documents: ['Machine learning is a subset of AI.', 'The weather is sunny.', 'Deep learning uses neural networks.'],
+          }),
+        }, HEALTH_CHECK_TIMEOUT_MS);
+        const ms = Date.now() - s;
+        const txt = await r.text();
+        if (!r.ok) { rr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms }; }
+        else {
+          const results = JSON.parse(txt);
+          const arr = results?.results || results?.data;
+          rr = Array.isArray(arr) && arr.length > 0 && arr[0].relevance_score !== undefined
+            ? { passed: true, status: r.status, message: `OK: ${arr.length} results reranked`, latencyMs: ms }
+            : { passed: false, status: r.status, message: 'No rerank results', latencyMs: ms };
+        }
+      } catch (e: any) { rr = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
+
+      console.log(`[HealthCheck-Manual] ${m.displayName} RERANKING -> ${rr.passed ? 'PASS' : 'FAIL'} (${rr.latencyMs}ms)`);
+      res.json({
+        healthCheck: {
+          healthy: rr.passed,
+          checks: { chatCompletion: rr },
+          allPassed: rr.passed,
+          message: rr.message,
+          totalLatencyMs: rr.latencyMs,
+        },
+      });
+      return;
+    }
+
+    // ── ASR ──
+    if (m.type === 'ASR') {
+      const method = m.asrMethod || (/whisper/i.test(m.name) ? 'OPENAI_TRANSCRIBE' : 'AUDIO_URL');
+      const wavBuffer = generateSilentWavBuffer(1);
+      const s = Date.now();
+      let asr: { passed: boolean; status?: number; message: string; latencyMs: number };
+
+      try {
         if (method === 'OPENAI_TRANSCRIBE') {
-          const url = buildAudioTranscriptionsUrl(model.endpointUrl);
+          const url = buildAudioTranscriptionsUrl(m.endpointUrl);
           const formData = new FormData();
           formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'healthcheck.wav', { type: 'audio/wav' }));
-          formData.append('model', model.name);
+          formData.append('model', m.name);
           formData.append('response_format', 'json');
-
-          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${model.name} (stored asrMethod=${model.asrMethod})`);
-          const response = await fetchWithTimeout(url, { method: 'POST', headers, body: formData }, 60000);
-          const latencyMs = Date.now() - startTime;
-          const responseText = await response.text();
-
-          if (!response.ok) {
-            result = { passed: false, status: response.status, message: `HTTP ${response.status}: ${responseText.substring(0, 500)}`, latencyMs };
-          } else {
-            try {
-              const data = JSON.parse(responseText);
-              if (data.text !== undefined) {
-                result = { passed: true, status: response.status, message: `OK: ${data.text.length} chars`, latencyMs };
-              } else {
-                result = { passed: false, status: response.status, message: `Response missing "text" field: ${responseText.substring(0, 300)}`, latencyMs };
-              }
-            } catch {
-              result = { passed: false, status: response.status, message: `Not valid JSON: ${responseText.substring(0, 300)}`, latencyMs };
-            }
+          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${m.name} (stored=${m.asrMethod})`);
+          const r = await fetchWithTimeout(url, { method: 'POST', headers, body: formData }, 60000);
+          const ms = Date.now() - s;
+          const txt = await r.text();
+          if (!r.ok) { asr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 500)}`, latencyMs: ms }; }
+          else {
+            const d = JSON.parse(txt);
+            asr = d.text !== undefined
+              ? { passed: true, status: r.status, message: `OK: ${d.text.length} chars`, latencyMs: ms }
+              : { passed: false, status: r.status, message: `Missing "text": ${txt.substring(0, 300)}`, latencyMs: ms };
           }
         } else {
-          // AUDIO_URL
-          const url = buildChatCompletionsUrl(model.endpointUrl);
-          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${model.name} (stored asrMethod=${model.asrMethod})`);
-          headers['Content-Type'] = 'application/json';
-          const response = await fetchWithTimeout(url, {
-            method: 'POST', headers,
+          const url = buildChatCompletionsUrl(m.endpointUrl);
+          console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${m.name} (stored=${m.asrMethod})`);
+          const r = await fetchWithTimeout(url, {
+            method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: model.name,
+              model: m.name,
               messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: wavBuffer.toString('base64'), format: 'wav' } }] }],
               max_tokens: 256, temperature: 0.0, stream: false,
             }),
           }, 60000);
-          const latencyMs = Date.now() - startTime;
-          const responseText = await response.text();
-
-          if (!response.ok) {
-            result = { passed: false, status: response.status, message: `HTTP ${response.status}: ${responseText.substring(0, 500)}`, latencyMs };
-          } else {
-            try {
-              const data = JSON.parse(responseText);
-              const content = data?.choices?.[0]?.message?.content;
-              result = content !== undefined
-                ? { passed: true, status: response.status, message: `OK: ${String(content).length} chars`, latencyMs }
-                : { passed: false, status: response.status, message: `Missing choices[0].message.content: ${responseText.substring(0, 300)}`, latencyMs };
-            } catch {
-              result = { passed: false, status: response.status, message: `Not valid JSON: ${responseText.substring(0, 300)}`, latencyMs };
-            }
+          const ms = Date.now() - s;
+          const txt = await r.text();
+          if (!r.ok) { asr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 500)}`, latencyMs: ms }; }
+          else {
+            const c = JSON.parse(txt)?.choices?.[0]?.message?.content;
+            asr = c !== undefined
+              ? { passed: true, status: r.status, message: `OK: ${String(c).length} chars`, latencyMs: ms }
+              : { passed: false, status: r.status, message: `Missing content: ${txt.substring(0, 300)}`, latencyMs: ms };
           }
         }
-      } else if (model.type === 'IMAGE') {
-        // ComfyUI 등 이미지 모델
-        const url = model.endpointUrl.replace(/\/+$/, '');
-        const response = await fetchWithTimeout(`${url}/system_stats`, { method: 'GET', headers }, 30000);
-        const latencyMs = Date.now() - startTime;
-        result = response.ok
-          ? { passed: true, status: response.status, message: 'Image endpoint OK', latencyMs }
-          : { passed: false, status: response.status, message: `HTTP ${response.status}`, latencyMs };
-      } else if (model.type === 'EMBEDDING') {
-        const url = buildEmbeddingsUrl(model.endpointUrl);
-        headers['Content-Type'] = 'application/json';
-        const response = await fetchWithTimeout(url, {
-          method: 'POST', headers,
-          body: JSON.stringify({ model: model.name, input: 'health check' }),
-        }, 30000);
-        const latencyMs = Date.now() - startTime;
-        result = response.ok
-          ? { passed: true, status: response.status, message: 'Embedding OK', latencyMs }
-          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
-      } else if (model.type === 'RERANKING') {
-        const url = buildRerankUrl(model.endpointUrl);
-        headers['Content-Type'] = 'application/json';
-        const response = await fetchWithTimeout(url, {
-          method: 'POST', headers,
-          body: JSON.stringify({ model: model.name, query: 'test', documents: ['doc'], top_n: 1 }),
-        }, 30000);
-        const latencyMs = Date.now() - startTime;
-        result = response.ok
-          ? { passed: true, status: response.status, message: 'Rerank OK', latencyMs }
-          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
-      } else {
-        // CHAT (default)
-        const url = buildChatCompletionsUrl(model.endpointUrl);
-        headers['Content-Type'] = 'application/json';
-        const body: Record<string, unknown> = {
-          model: model.name,
-          messages: [{ role: 'user', content: 'Hi' }],
-          max_tokens: 8, stream: false,
-        };
-        if (model.extraBody && typeof model.extraBody === 'object') {
-          Object.assign(body, model.extraBody);
-        }
-        const response = await fetchWithTimeout(url, {
-          method: 'POST', headers, body: JSON.stringify(body),
-        }, 30000);
-        const latencyMs = Date.now() - startTime;
-        result = response.ok
-          ? { passed: true, status: response.status, message: 'Chat OK', latencyMs }
-          : { passed: false, status: response.status, message: `HTTP ${response.status}: ${(await response.text().catch(() => '')).substring(0, 300)}`, latencyMs };
-      }
-    } catch (err: any) {
-      result = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
+      } catch (e: any) { asr = { passed: false, message: e.message, latencyMs: Date.now() - s }; }
+
+      console.log(`[HealthCheck-Manual] ${m.displayName} ASR(${method}) -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+      res.json({
+        healthCheck: {
+          healthy: asr.passed,
+          checks: { chatCompletion: asr },
+          allPassed: asr.passed,
+          message: asr.message,
+          totalLatencyMs: asr.latencyMs,
+        },
+      });
+      return;
     }
 
-    console.log(`[HealthCheck-Manual] ${model.displayName} (${model.type}) -> ${result.passed ? 'PASS' : 'FAIL'} (${result.latencyMs}ms) ${result.message}`);
-    res.json({
-      healthy: result.passed,
-      checks: { chatCompletion: { passed: result.passed, message: result.message, latencyMs: result.latencyMs } },
-      allPassed: result.passed,
-      message: result.message,
-      totalLatencyMs: result.latencyMs,
-    });
+    // Unknown type
+    res.status(400).json({ error: `Unknown model type: ${model.type}` });
   } catch (error) {
     console.error('Health check error:', error);
     res.status(500).json({ error: 'Failed to run health check' });
