@@ -192,12 +192,13 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
       running.length, waiting.length, kvCacheOld.length, kvCacheNew.length);
   }
 
-  // vLLM 인스턴스 → 노드 매핑 (1:N — 같은 모델이 여러 노드에 replica로 배포됨)
+  // vLLM 인스턴스 → 노드 매핑
   const instanceToNodes = new Map<string, string[]>();
+
+  // 1차: DCGM pod 라벨 기반 (tp8 등 전용 GPU 모델)
   for (const [node, gpus] of nodeGpus) {
     for (const gpu of gpus) {
       if (gpu.pod) {
-        // pod: "llm-glm-47-h200-tp8-5d945977c6-tx8dm" → instance: "glm-47-h200-tp8"
         const match = gpu.pod.match(/^llm-(.+?)(-[a-f0-9]+-[a-z0-9]+)?$/);
         if (match) {
           const nodes = instanceToNodes.get(match[1]) || [];
@@ -206,6 +207,45 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
         }
       }
     }
+  }
+
+  // 2차: kube_pod_info 보조 매핑 (DCGM에 안 잡히는 shared pod 등)
+  const kubePodInfo = await promQuery('kube_pod_info{pod=~"llm-.*"}');
+  for (const r of kubePodInfo) {
+    const pod = r.metric?.pod || '';
+    const node = r.metric?.node || '';
+    if (!pod || !node) continue;
+    const match = pod.match(/^llm-(.+?)(-[a-f0-9]+-[a-z0-9]+)?$/);
+    if (!match) continue;
+    const instanceKey = match[1];
+    if (instanceToNodes.has(instanceKey)) continue; // DCGM에서 이미 매핑됨
+
+    // 노드가 GpuServer로 미등록 → 등록
+    if (!nodeToServerId.has(node)) {
+      const desc = `${SERVER_DESC_PREFIX} ${node} | shared pods (via kube_pod_info)`;
+      let server = await prisma.gpuServer.findFirst({
+        where: { description: { contains: `${SERVER_DESC_PREFIX} ${node}` } },
+      });
+      if (!server) {
+        server = await prisma.gpuServer.create({
+          data: {
+            name: `DTGPT-${node}`, host: node, sshPort: 0,
+            sshUsername: 'prometheus', sshPassword: '',
+            description: desc, isLocal: false, enabled: true, pollIntervalSec: 60,
+          },
+        });
+        console.log(`[PromCollector] Created shared node server: ${server.name} (${node})`);
+      }
+      nodeToServerId.set(node, server.id);
+    }
+
+    const nodes = instanceToNodes.get(instanceKey) || [];
+    if (!nodes.includes(node)) nodes.push(node);
+    instanceToNodes.set(instanceKey, nodes);
+  }
+
+  if (kubePodInfo.length > 0) {
+    console.log(`[PromCollector] Instance mapping: DCGM=${Array.from(instanceToNodes.entries()).filter(([k]) => !k.startsWith('shared-')).map(([k, v]) => `${k}→[${v}]`).join(', ')}, kube_pod_info shared=${Array.from(instanceToNodes.entries()).filter(([k]) => k.startsWith('shared-')).map(([k, v]) => `${k}→[${v}]`).join(', ')}`);
   }
 
   // 노드별 LLM 메트릭 구축
@@ -286,6 +326,7 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
     catch { return []; }
   };
 
+  // DCGM 노드: GPU + LLM 메트릭
   for (const [node, gpus] of nodeGpus) {
     const serverId = nodeToServerId.get(node);
     if (!serverId) continue;
@@ -297,6 +338,24 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
       data: {
         serverId,
         gpuMetrics: sanitizeJson(gpus),
+        llmMetrics: sanitizeJson(llms),
+        cpuLoadAvg: null, cpuCores: null,
+        memoryTotalMb: null, memoryUsedMb: null,
+        hostname: node,
+      },
+    });
+  }
+
+  // shared 노드: LLM 메트릭만 (DCGM에 없는 kube_pod_info 매핑 노드)
+  for (const [node, llms] of nodeLlms) {
+    if (nodeGpus.has(node)) continue; // DCGM 노드는 위에서 이미 저장
+    const serverId = nodeToServerId.get(node);
+    if (!serverId || llms.length === 0) continue;
+
+    await prisma.gpuMetricSnapshot.create({
+      data: {
+        serverId,
+        gpuMetrics: sanitizeJson([]),
         llmMetrics: sanitizeJson(llms),
         cpuLoadAvg: null, cpuCores: null,
         memoryTotalMb: null, memoryUsedMb: null,
