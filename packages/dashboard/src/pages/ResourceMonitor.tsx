@@ -1332,50 +1332,50 @@ export default function ResourceMonitor() {
             <span>Disk <b>{avgDisk ?? '-'}%</b></span>
           </div>
         </div>
-        {/* 14일 영업일 평균 */}
+        {/* 영업일 평균 3분류 */}
         <div className="px-3 pt-1 border-t border-gray-100">
-          <p className="text-[9px] font-bold text-emerald-600 mb-1">영업일 평균 (KST 9-18시, 최근 {anaDays}일, 주말·등록 휴일 제외)</p>
+          <p className="text-[9px] font-bold text-emerald-600 mb-1">영업일 평균 (KST 9-18시, 최근 {anaDays}일) <span className="font-normal text-gray-400">{ana?.businessHours?.sampleCount || 0}건</span></p>
         </div>
         {(() => {
           const bh = ana?.businessHours;
-          // 벤치마크 기반 평균: analytics 데이터를 벤치마크로 나눔
-          const totalBmTps = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
-          const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
-          const avgTps = bh?.avgTps || null;
-          const avgBhKv = bh?.avgKvCache || null;
-          const avgBhConc = (bh?.avgRunningReqs || 0) + (bh?.avgWaitingReqs || 0);
-          const avgBhTokPct = (avgTps != null && totalBmTps > 0) ? Math.round((avgTps / totalBmTps) * 1000) / 10 : null;
-          const avgBhKvPct = avgBhKv;
-          const avgBhConcPct = (totalBmConc > 0 && avgBhConc > 0) ? Math.round((avgBhConc / totalBmConc) * 1000) / 10 : null;
-          const avgBhComposite = Math.max(avgBhTokPct || 0, avgBhKvPct || 0, avgBhConcPct || 0) || null;
-          const avgHeadroom = avgBhComposite != null ? Math.round((100 - avgBhComposite) * 10) / 10 : null;
+          if (!bh) return <div className="px-3 pb-3 text-[9px] text-gray-400">분석 데이터 없음</div>;
+
+          // 3분류별 벤치마크 합산
+          const calcBhGroup = (entries: RealtimeEntry[]) => {
+            const bmTps = entries.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakTps || 0), 0);
+            const bmConc = entries.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
+            const tokPct = (bh.avgTps && bmTps > 0) ? Math.round((bh.avgTps / bmTps) * 1000) / 10 : null;
+            const kvPct = bh.avgKvCache ?? null;
+            const conc = (bh.avgRunningReqs || 0) + (bh.avgWaitingReqs || 0);
+            const concPct = (bmConc > 0 && conc > 0) ? Math.round((conc / bmConc) * 1000) / 10 : null;
+            const composite = Math.max(tokPct || 0, kvPct || 0, concPct || 0) || null;
+            return { composite, headroom: composite != null ? Math.round((100 - composite) * 10) / 10 : null, tokPct, kvPct, concPct, tps: bh.avgTps, gpu: bh.avgGpuUtil, wait: bh.avgWaitingReqs };
+          };
+          const bhSsh = calcBhGroup(data.filter(e => !e.server.isLocal && e.server.sshPort > 0));
+          const bhDedicated = calcBhGroup(data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))));
+          const bhShared = calcBhGroup(data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).every(ep => ep.containerName?.startsWith('shared-') || !ep.containerName)));
+
           return (
-        <div className="px-3 pb-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200 cursor-help" title={`영업일 종합 용량 = max(처리량 ${avgBhTokPct ?? '-'}%, KV ${avgBhKvPct ?? '-'}%, 동시 ${avgBhConcPct ?? '-'}%)\n\n영업시간(KST 9-18시) 평균.\n벤치마크(P95 피크) 대비 사용량.`}>
-            <p className="text-[8px] text-emerald-700 font-semibold">영업일 종합 용량 ⓘ</p>
-            <p className={`text-xl font-black ${avgBhComposite != null ? utilTxt(avgBhComposite) : 'text-gray-300'}`}>{avgBhComposite ? Math.round(avgBhComposite * 10) / 10 : '-'}%</p>
-            <p className="text-[7px] text-gray-400">처리 {avgBhTokPct ?? '-'}% · KV {avgBhKvPct ?? '-'}% · 동시 {avgBhConcPct ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="평균 여유 = 100% - 종합 용량\n\n20% 이하면 증설 시급.">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 여유 ⓘ</p>
-            <p className={`text-xl font-black ${avgHeadroom != null ? (avgHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{avgHeadroom ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">평균 처리량</p>
-            <p className="text-xl font-black text-blue-600">{avgTps ?? '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="GPU: nvidia-smi 사용률\nKV: KV Cache 사용률 — 80%+ 메모리 부족\nW: 대기 요청 수 — >0 과부하">
-            <p className="text-[8px] text-gray-600 font-semibold">GPU / KV / 대기 ⓘ</p>
-            <div className="flex gap-1.5 text-[9px] mt-0.5">
-              <span>GPU <b>{bh?.avgGpuUtil ?? '-'}%</b></span>
-              <span>KV <b>{bh?.avgKvCache ?? '-'}%</b></span>
-              <span>W <b>{bh?.avgWaitingReqs ?? '-'}</b></span>
+        <div className="px-3 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {[
+            { kpi: bhSsh, label: 'SSH 서버', count: data.filter(e => !e.server.isLocal && e.server.sshPort > 0).length, border: 'border-emerald-100', bg: 'bg-emerald-50/50', color: 'text-emerald-700' },
+            { kpi: bhDedicated, label: 'DT 전용 모델', count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))).length, border: 'border-blue-100', bg: 'bg-blue-50/50', color: 'text-blue-700' },
+            { kpi: bhShared, label: 'DT 공유 모델', count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).every(ep => ep.containerName?.startsWith('shared-') || !ep.containerName)).length, border: 'border-purple-100', bg: 'bg-purple-50/50', color: 'text-purple-700' },
+          ].filter(g => g.count > 0).map(({ kpi, label, border, bg, color }) => (
+            <div key={label} className={`${bg} rounded-lg p-2 border ${border}`}>
+              <p className={`text-[8px] font-semibold ${color} mb-1`}>{label}</p>
+              <div className="flex items-end gap-2.5">
+                <div><p className="text-[7px] text-gray-400">종합</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpi.tps ?? '-'}</p></div>
+              </div>
+              <div className="flex gap-2 mt-1 text-[7px] text-gray-400">
+                <span>처리량 <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
+                <span>KV <b className={`${(kpi.kvPct || 0) >= 80 ? 'text-red-600' : 'text-gray-600'}`}>{kpi.kvPct ?? '-'}%</b></span>
+                <span>동시 <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
+              </div>
             </div>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">분석 기간</p>
-            <p className="text-xs font-bold text-gray-900">{anaDays}일 ({bh?.sampleCount || 0}건)</p>
-          </div>
+          ))}
         </div>
           );
         })()}
@@ -1519,17 +1519,14 @@ export default function ResourceMonitor() {
         <span className="text-xs font-medium text-gray-600">30일 기간 분석 ({ana.totalSnapshots?.toLocaleString() || 0}건{anaServerId ? '' : ', 전체 서버'})</span>
         <select value={anaServerId} onChange={e => setAnaServerId(e.target.value)} className="px-2 py-1 text-[10px] border rounded-lg bg-white">
           <option value="">전체 서버</option>
-          {/* DT 전용 모델 — 모델명으로 표시, 관련 노드 전체 합산 */}
           {(() => {
             const k8s = data.filter(e => !e.server.isLocal && e.server.sshPort === 0);
             const dedicatedModels = new Map<string, { modelName: string; serverIds: string[] }>();
             const sharedServerIds = new Set<string>();
             for (const entry of k8s) {
-              const eps = entry.metrics?.llmEndpoints || [];
-              for (const ep of eps) {
+              for (const ep of (entry.metrics?.llmEndpoints || [])) {
                 const inst = ep.containerName || '';
-                const isShared = inst.startsWith('shared-');
-                if (isShared) { sharedServerIds.add(entry.server.id); continue; }
+                if (inst.startsWith('shared-')) { sharedServerIds.add(entry.server.id); continue; }
                 const existing = dedicatedModels.get(inst) || { modelName: ep.modelNames?.[0] || inst, serverIds: [] };
                 if (!existing.serverIds.includes(entry.server.id)) existing.serverIds.push(entry.server.id);
                 dedicatedModels.set(inst, existing);
@@ -1539,11 +1536,11 @@ export default function ResourceMonitor() {
             return (<>
               {dedicatedModels.size > 0 && <optgroup label="DT 전용 모델">
                 {Array.from(dedicatedModels.entries()).map(([inst, { modelName, serverIds }]) =>
-                  <option key={inst} value={serverIds[0]}>{modelName}</option>
+                  <option key={inst} value={serverIds.join(',')}>{modelName} ({serverIds.length}노드)</option>
                 )}
               </optgroup>}
               {sharedServerIds.size > 0 && <optgroup label="DT 공유 모델">
-                <option value={Array.from(sharedServerIds)[0]}>공유 모델 (전체)</option>
+                <option value={Array.from(sharedServerIds).join(',')}>공유 모델 전체 ({sharedServerIds.size}노드)</option>
               </optgroup>}
               {sshServers.length > 0 && <optgroup label="SSH 서버">
                 {sshServers.map(e => <option key={e.server.id} value={e.server.id}>{e.server.name}</option>)}

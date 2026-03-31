@@ -576,8 +576,10 @@ gpuServerRoutes.post('/:id/coaching', requireSuperAdmin, async (req: Request, re
 gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) => {
   try {
     const days = parseInt(req.query.days as string) || 7;
-    const serverId = req.query.serverId as string || null; // 서버별 필터 (null = 전체)
-    const cacheKey = `gpu:analytics:${days}:${serverId || 'all'}`;
+    const serverIdParam = req.query.serverId as string || null; // 서버별 필터 (null = 전체, 콤마구분 복수 지원)
+    const serverIds = serverIdParam ? serverIdParam.split(',').map(s => s.trim()).filter(Boolean) : null;
+    const serverId = serverIds && serverIds.length === 1 ? serverIds[0] : null; // 단일 ID 호환
+    const cacheKey = `gpu:analytics:${days}:${serverIdParam || 'all'}`;
     // Redis 캐시 (5분 TTL)
     try {
       const { redis } = await import('../index.js');
@@ -614,9 +616,9 @@ gpuServerRoutes.get('/analytics/overview', async (req: Request, res: Response) =
         (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
           FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
       FROM gpu_metric_snapshots s
-      WHERE s.timestamp >= $1 ${serverId ? 'AND s.server_id = $2' : ''}
+      WHERE s.timestamp >= $1 ${serverId ? 'AND s.server_id = $2' : serverIds && serverIds.length > 1 ? `AND s.server_id = ANY($2::uuid[])` : ''}
       ORDER BY s.timestamp ASC
-    `, serverId ? [since, serverId] : [since]);
+    `, serverId ? [since, serverId] : serverIds && serverIds.length > 1 ? [since, serverIds] : [since]);
 
     const holidaySet = new Set(holidayDates);
     const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
