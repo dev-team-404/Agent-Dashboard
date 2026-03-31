@@ -141,20 +141,21 @@ curl -s -X POST http://a2g.samsungds.net:8090/v1/chat/completions -H "Content-Ty
 
 ```text
 Open WebUI를 OIDC 연동해서 Docker로 띄워.
-WEBUI_URL은 반드시 Open WebUI를 호스팅하는 본인 서버 주소로 변경해야 해.
-이 값으로 로그인 후 돌아올 redirect_uri가 자동 생성됨 ({WEBUI_URL}/oauth/oidc/callback). 별도 redirect_uri 설정은 필요 없어.
+WEBUI_URL과 OPENID_REDIRECT_URI는 반드시 본인 서버 주소로 변경해야 해.
 
 docker run -d --name open-webui -p 3000:8080 \
   -e WEBUI_URL="http://본인서버주소:3000" \
   -e ENABLE_OAUTH_SIGNUP=true \
+  -e ENABLE_OAUTH_PERSISTENT_CONFIG=false \
   -e OAUTH_PROVIDER_NAME="Agent Platform" \
   -e OPENID_PROVIDER_URL="http://a2g.samsungds.net:8090/.well-known/openid-configuration" \
+  -e OPENID_REDIRECT_URI="http://본인서버주소:3000/oauth/oidc/callback" \
   -e OAUTH_CLIENT_ID=open-webui \
   -e OAUTH_CLIENT_SECRET=open-webui-secret \
-  -e OAUTH_SCOPES="openid profile" \
+  -e OAUTH_SCOPES="openid email profile" \
   -e OPENAI_API_BASE_URL="http://a2g.samsungds.net:8090/v1" \
   -e OPENAI_API_KEY=sk-placeholder \
   ghcr.io/open-webui/open-webui:main
 
-접속해서 "Continue with Agent Platform" 버튼이 보이면 성공.
+접속해서 "Agent Platform으로 로그인" 버튼이 보이면 성공.
 ```

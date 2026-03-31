@@ -7,35 +7,43 @@ Open WebUI에서 Agent Platform SSO 로그인을 연동하는 방법입니다.
 - Open WebUI가 설치되어 브라우저에서 접근 가능한 상태
 - Agent Platform 서버(`http://a2g.samsungds.net:8090`)에 네트워크 접근 가능
 
-## 환경변수 설정
+## 환경변수 ���정
 
 Open WebUI의 `.env` 또는 Docker Compose에 아래 환경변수를 추가하세요.
 
 ```env
-# 본인의 Open WebUI 주소 (브라우저에서 접근하는 URL)
+# ── 필수: Open WebUI 기본 설정 ──
 WEBUI_URL=http://본인서버주소:포트
 
-# OIDC 로그인
+# ── OIDC 로그인 ──
 ENABLE_OAUTH_SIGNUP=true
 OAUTH_PROVIDER_NAME=Agent Platform
 OPENID_PROVIDER_URL=http://a2g.samsungds.net:8090/.well-known/openid-configuration
+OPENID_REDIRECT_URI=http://본인서버주소:포트/oauth/oidc/callback
 OAUTH_CLIENT_ID=open-webui
 OAUTH_CLIENT_SECRET=open-webui-secret
-OAUTH_SCOPES=openid profile
+OAUTH_SCOPES=openid email profile
 
-# LLM API (Agent Platform Gateway 경유)
+# ── LLM API (Agent Platform Gateway 경유) ──
 OPENAI_API_BASE_URL=http://a2g.samsungds.net:8090/v1
 OPENAI_API_KEY=sk-placeholder
+
+# ── 환경변수 우선 적용 (선택) ──
+# Open WebUI는 기본적으로 최초 기동 시 OAuth 설정을 DB에 저장하고,
+# 이후에는 환경변수를 무시합니다. 환경변수를 항상 우선 적용하려면:
+ENABLE_OAUTH_PERSISTENT_CONFIG=false
 ```
 
 | 환경변수 | 값 | 설명 |
 |---------|-----|------|
-| `WEBUI_URL` | 본인의 Open WebUI URL | **필수**. 로그인 후 돌아올 주소(redirect_uri)가 이 값 기반으로 자동 생성됩니다: `{WEBUI_URL}/oauth/oidc/callback`. 별도로 redirect_uri를 설정할 필요 없습니다. |
-| `OPENID_PROVIDER_URL` | `http://a2g.samsungds.net:8090/.well-known/openid-configuration` | 전체 경로를 입력하세요. base URL만 넣으면 Discovery가 실패합니다. |
-| `OAUTH_CLIENT_ID` | `open-webui` | 사전 등록된 값. 변경 불필요. |
-| `OAUTH_CLIENT_SECRET` | `open-webui-secret` | 사전 등록된 값. 변경 불필요. |
-| `OAUTH_SCOPES` | `openid profile` | 변경 불필요. |
-| `OPENAI_API_KEY` | 아무 값 | Gateway는 API Key를 검증하지 않습니다. |
+| `WEBUI_URL` | `http://본인서버주소:포트` | **필수.** Open WebUI의 외부 접근 URL. |
+| `OPENID_PROVIDER_URL` | `http://a2g.samsungds.net:8090/.well-known/openid-configuration` | OIDC Discovery URL. 전체 경로 필수. |
+| `OPENID_REDIRECT_URI` | `{WEBUI_URL}/oauth/oidc/callback` | **OIDC 콜백 URL.** `WEBUI_URL`과 동일한 주소 + `/oauth/oidc/callback` 경로. |
+| `OAUTH_CLIENT_ID` | `open-webui` | 사전 등록됨. 변경 불필요. |
+| `OAUTH_CLIENT_SECRET` | `open-webui-secret` | 사전 등록됨. 변경 불필요. |
+| `OAUTH_SCOPES` | `openid email profile` | 변경 불필요. |
+| `OPENAI_API_KEY` | 아무 값 | Gateway는 검증하지 않음. |
+| `ENABLE_OAUTH_PERSISTENT_CONFIG` | `false` | 환경변수 변경 시 재시작만으로 반영되게 하려면 `false`로 설정. 기본값 `true`면 최초 기동 후 DB 설정이 우선됨. |
 
 ### Docker Compose 예시
 
@@ -48,65 +56,51 @@ services:
     environment:
       WEBUI_URL: "http://본인서버주소:3000"
       ENABLE_OAUTH_SIGNUP: "true"
+      ENABLE_OAUTH_PERSISTENT_CONFIG: "false"
       OAUTH_PROVIDER_NAME: "Agent Platform"
       OPENID_PROVIDER_URL: "http://a2g.samsungds.net:8090/.well-known/openid-configuration"
+      OPENID_REDIRECT_URI: "http://본인서버주소:3000/oauth/oidc/callback"
       OAUTH_CLIENT_ID: "open-webui"
       OAUTH_CLIENT_SECRET: "open-webui-secret"
-      OAUTH_SCOPES: "openid profile"
+      OAUTH_SCOPES: "openid email profile"
       OPENAI_API_BASE_URL: "http://a2g.samsungds.net:8090/v1"
       OPENAI_API_KEY: "sk-placeholder"
 ```
 
-> 포트를 변경하려면 `ports`와 `WEBUI_URL`의 포트를 함께 변경하세요.
+> 포트를 변경하려면 `ports`, `WEBUI_URL`, `OPENID_REDIRECT_URI` 세 곳의 포트를 함께 변경하세요.
 
 ## 동작 확인
 
-### 1. Open WebUI 접근 확인
-
-설정 후 재시작하고, 브라우저에서 본인의 Open WebUI URL에 접속되는지 먼저 확인하세요.
-
-### 2. OIDC Discovery 확인
-
-Open WebUI 컨테이너가 Agent Platform에 접근 가능한지 확인:
-
-```bash
-docker exec {컨테이너명} curl -s http://a2g.samsungds.net:8090/.well-known/openid-configuration
-```
-
-JSON 응답이 나오면 정상입니다.
-
-### 3. 로그인 테스트
-
-1. Open WebUI 로그인 페이지에서 **"Agent Platform으로 로그인"** 클릭
-2. Samsung SSO 로그인 (사번/비밀번호)
-3. Open WebUI로 돌아와 로그인 완료
-
-### 4. 채팅 테스트
-
-모델 선택 후 메시지를 보내면, 사용량이 Agent Dashboard에 사용자별로 자동 집계됩니다.
+1. Open WebUI가 브라우저에서 접근되는지 확인
+2. 로그인 페이지에서 **"Agent Platform으로 로그인"** 버튼 확인
+3. 클릭 → Samsung SSO 로그인 → Open WebUI로 돌아오면 성공
 
 ## 문제 해결
 
 ### ERR_CONNECTION_REFUSED (SSO 인증 후 연결 거부)
 
-SSO 로그인은 성공했지만, Open WebUI로 돌아올 때 연결이 안 되는 경우입니다.
-
-- `WEBUI_URL`이 브라우저에서 실제로 접근 가능한 주소인지 확인
+SSO 로그인은 성공했지만 Open WebUI로 돌아올 때 연결 거부:
+- `WEBUI_URL`과 `OPENID_REDIRECT_URI`가 브라우저에서 접근 가능한 주소인지 확인
 - 방화벽에서 해당 포트가 열려있는지 확인
-- Open WebUI 컨테이너가 실행 중인지 확인: `docker ps`
+- Open WebUI 컨테이너 실행 중인지: `docker ps`
 
 ### https / http 프로토콜 불일치
 
-redirect가 `https://`로 가는데 Open WebUI는 `http://`인 경우 — `WEBUI_URL`의 프로토콜을 실제 서비스와 정확히 맞추세요.
+redirect가 `https://`로 가는데 실제로는 `http://`인 경우:
+- `WEBUI_URL`과 `OPENID_REDIRECT_URI`의 프로토콜을 실제 서비스와 맞추세요
+
+### 환경변수 변경이 반영 안 됨
+
+Open WebUI는 기본적으로 최초 기동 시 OAuth 설정을 DB에 저장합니다. 이후 환경변수를 바꿔도 무시됩니다.
+- `ENABLE_OAUTH_PERSISTENT_CONFIG=false`로 설정하면 환경변수가 항상 우선 적용됩니다
 
 ### OIDC Provider 연결 실패
 
-Open WebUI 컨테이너에서 Agent Platform까지 네트워크가 안 되는 경우:
 ```bash
 docker exec {컨테이너명} curl -s http://a2g.samsungds.net:8090/.well-known/openid-configuration
 ```
 
-응답이 없으면 방화벽, DNS, Docker 네트워크 설정을 확인하세요.
+JSON 응답이 안 나오면 네트워크/방화벽 확인.
 
 ## 다음 단계
 
