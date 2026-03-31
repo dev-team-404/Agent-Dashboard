@@ -310,8 +310,8 @@ async function collectDcgmSnapshot(nodeToServerId: Map<string, string>): Promise
         runningRequests: runVal != null ? Math.round(runVal / replicaCount) : null,
         waitingRequests: waitVal != null ? Math.round(waitVal / replicaCount) : null,
         kvCacheUsagePct: kvVal, // KV cache %는 replica별 동일 (비율이므로)
-        promptThroughputTps: promptTps,
-        genThroughputTps: genTps,
+        promptThroughputTps: promptTps != null ? promptTps / replicaCount : null,
+        genThroughputTps: genTps != null ? genTps / replicaCount : null,
         ttftMs: null, tpotMs: null, e2eLatencyMs: null,
         prefixCacheHitRate: null, preemptionCount: null, queueTimeMs: null,
         precision: 'fp16' as const,
