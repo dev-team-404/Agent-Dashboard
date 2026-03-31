@@ -24,6 +24,11 @@ OAUTH_CLIENT_ID=open-webui
 OAUTH_CLIENT_SECRET=open-webui-secret
 OAUTH_SCOPES=openid email profile
 
+# ── 로그아웃 ──
+# 로그아웃 시 OIDC 세션도 함께 정리하려면 아래 설정 추가
+# post_logout_redirect_uri에 본인 Open WebUI 주소를 넣으면 로그아웃 후 돌아옴
+WEBUI_AUTH_SIGNOUT_REDIRECT_URL=http://a2g.samsungds.net:8090/oidc/logout?post_logout_redirect_uri=http://본인서버주소:포트
+
 # ── LLM API (Agent Platform Gateway 경유) ──
 OPENAI_API_BASE_URL=http://a2g.samsungds.net:8090/v1
 OPENAI_API_KEY=sk-placeholder
@@ -43,6 +48,7 @@ ENABLE_OAUTH_PERSISTENT_CONFIG=false
 | `OAUTH_CLIENT_SECRET` | `open-webui-secret` | 사전 등록됨. 변경 불필요. |
 | `OAUTH_SCOPES` | `openid email profile` | 변경 불필요. |
 | `OPENAI_API_KEY` | 아무 값 | Gateway는 검증하지 않음. |
+| `WEBUI_AUTH_SIGNOUT_REDIRECT_URL` | (아래 참고) | 로그아웃 시 OIDC 세션 정리 후 돌아올 URL. 아래 형식으로 설정: `http://a2g.samsungds.net:8090/oidc/logout?post_logout_redirect_uri={WEBUI_URL}` |
 | `ENABLE_OAUTH_PERSISTENT_CONFIG` | `false` | 환경변수 변경 시 재시작만으로 반영되게 하려면 `false`로 설정. 기본값 `true`면 최초 기동 후 DB 설정이 우선됨. |
 
 ### Docker Compose 예시
@@ -63,6 +69,7 @@ services:
       OAUTH_CLIENT_ID: "open-webui"
       OAUTH_CLIENT_SECRET: "open-webui-secret"
       OAUTH_SCOPES: "openid email profile"
+      WEBUI_AUTH_SIGNOUT_REDIRECT_URL: "http://a2g.samsungds.net:8090/oidc/logout?post_logout_redirect_uri=http://본인서버주소:3000"
       OPENAI_API_BASE_URL: "http://a2g.samsungds.net:8090/v1"
       OPENAI_API_KEY: "sk-placeholder"
 ```

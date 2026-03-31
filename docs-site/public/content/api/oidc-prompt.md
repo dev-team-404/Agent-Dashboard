@@ -153,6 +153,7 @@ docker run -d --name open-webui -p 3000:8080 \
   -e OAUTH_CLIENT_ID=open-webui \
   -e OAUTH_CLIENT_SECRET=open-webui-secret \
   -e OAUTH_SCOPES="openid email profile" \
+  -e WEBUI_AUTH_SIGNOUT_REDIRECT_URL="http://a2g.samsungds.net:8090/oidc/logout?post_logout_redirect_uri=http://본인서버주소:3000" \
   -e OPENAI_API_BASE_URL="http://a2g.samsungds.net:8090/v1" \
   -e OPENAI_API_KEY=sk-placeholder \
   ghcr.io/open-webui/open-webui:main
