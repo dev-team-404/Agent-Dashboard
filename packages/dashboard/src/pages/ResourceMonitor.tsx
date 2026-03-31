@@ -138,6 +138,8 @@ interface ModelGroup {
 
 function ModelGroupCard({ group }: { group: ModelGroup }) {
   const [open, setOpen] = useState(false);
+  const [dbg, setDbg] = useState(false);
+  const [hist, setHist] = useState<any[]>([]);
   const { modelName, endpoints, nodes, isShared } = group;
 
   // 집계
@@ -155,6 +157,53 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
 
   const kvColor = avgKv != null ? (avgKv >= 80 ? 'text-red-600' : avgKv >= 50 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
   const gpuColor = avgGpuUtil != null ? (avgGpuUtil >= 90 ? 'text-red-600' : avgGpuUtil >= 70 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
+
+  // 히스토리 로드 (펼침 시 모든 노드에서)
+  const loadHist = useCallback(async () => {
+    const serverIds = endpoints.map(e => e.entry.server.id).filter((v, i, a) => a.indexOf(v) === i);
+    const all: any[] = [];
+    for (const sid of serverIds) {
+      try {
+        const r = await gpuServerApi.history(sid, 24);
+        for (const snap of (r.data?.snapshots || [])) {
+          const ls = (snap.llmMetrics || []) as LlmEndpoint[];
+          const matched = ls.filter((l: any) => l.containerName === group.instance || l.modelNames?.some((n: string) => n === modelName));
+          if (matched.length === 0 && !isShared) continue;
+          const t = new Date(snap.timestamp);
+          const kv = matched.filter((l: any) => l.kvCacheUsagePct != null);
+          all.push({
+            time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
+            fullTime: t.toLocaleString('ko-KR'),
+            tps: Math.round(matched.reduce((a: number, l: any) => a + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0) * 10) / 10,
+            kv: kv.length > 0 ? Math.round(kv.reduce((a: number, l: any) => a + l.kvCacheUsagePct, 0) / kv.length * 10) / 10 : null,
+            running: matched.reduce((a: number, l: any) => a + (l.runningRequests || 0), 0),
+            waiting: matched.reduce((a: number, l: any) => a + (l.waitingRequests || 0), 0),
+            ts: t.getTime(),
+          });
+        }
+      } catch {}
+    }
+    all.sort((a, b) => a.ts - b.ts);
+    const sampled = all.length > 150 ? all.filter((_, i) => i % Math.ceil(all.length / 150) === 0) : all;
+    setHist(sampled);
+  }, [endpoints, group.instance, modelName, isShared]);
+
+  useEffect(() => { if (open && hist.length === 0) loadHist(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 디버그 데이터
+  const debugData = {
+    modelName, instance: group.instance, isShared,
+    nodes: nodes.map(n => ({ name: n.name, gpuCount: n.gpuCount, gpuUtil: n.gpuUtil })),
+    endpoints: endpoints.map(e => ({
+      server: e.entry.server.name,
+      containerName: e.ep.containerName,
+      modelNames: e.ep.modelNames,
+      running: e.ep.runningRequests, waiting: e.ep.waitingRequests,
+      kvCachePct: e.ep.kvCacheUsagePct,
+      promptTps: e.ep.promptThroughputTps, genTps: e.ep.genThroughputTps,
+      ttftMs: e.ep.ttftMs, preemption: e.ep.preemptionCount,
+    })),
+  };
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
@@ -174,10 +223,10 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           </button>
         </div>
 
-        {/* 핵심 지표 4개 */}
-        <div className="grid grid-cols-4 gap-2 text-center">
+        {/* 핵심 지표 */}
+        <div className="grid grid-cols-5 gap-1.5 text-center">
           <div>
-            <p className="text-[9px] text-gray-400">GPU Util</p>
+            <p className="text-[9px] text-gray-400">GPU</p>
             <p className={`text-sm font-bold ${gpuColor}`}>{avgGpuUtil != null ? `${avgGpuUtil}%` : '-'}</p>
           </div>
           <div>
@@ -185,19 +234,20 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
             <p className={`text-sm font-bold ${kvColor}`}>{avgKv != null ? `${avgKv}%` : '-'}</p>
           </div>
           <div>
-            <p className="text-[9px] text-gray-400">처리량</p>
-            <p className="text-sm font-bold text-blue-600">{totalTps > 0 ? `${totalTps}` : '-'}<span className="text-[8px] font-normal text-gray-400"> tok/s</span></p>
+            <p className="text-[9px] text-gray-400">tok/s</p>
+            <p className="text-sm font-bold text-blue-600">{totalTps > 0 ? totalTps : '-'}</p>
           </div>
           <div>
-            <p className="text-[9px] text-gray-400">요청</p>
-            <p className={`text-sm font-bold ${totalWaiting > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-              <span className="text-gray-500 font-normal">R:</span>{totalRunning}
-              {totalWaiting > 0 && <span className="text-amber-600 ml-1"><span className="text-gray-500 font-normal">W:</span>{totalWaiting}</span>}
-            </p>
+            <p className="text-[9px] text-gray-400">처리 중</p>
+            <p className="text-sm font-bold text-emerald-600">{totalRunning}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-gray-400">대기</p>
+            <p className={`text-sm font-bold ${totalWaiting > 0 ? 'text-amber-600' : 'text-gray-300'}`}>{totalWaiting}</p>
           </div>
         </div>
 
-        {/* 보조 지표 바 */}
+        {/* KV 바 */}
         {avgKv != null && (
           <div className="mt-2">
             <MiniBar pct={avgKv} color={avgKv >= 80 ? 'bg-red-500' : avgKv >= 50 ? 'bg-amber-500' : 'bg-emerald-500'} h="h-1" />
@@ -205,18 +255,18 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
         )}
       </div>
 
-      {/* 펼침: 노드별 상세 + 추가 메트릭 */}
+      {/* 펼침 */}
       {open && (
-        <div className="border-t px-3 py-2 space-y-2 bg-gray-50/50">
+        <div className="border-t px-3 py-2 space-y-3 bg-gray-50/50">
           {/* 추가 메트릭 */}
-          <div className="flex gap-4 text-[10px] text-gray-500">
+          <div className="flex flex-wrap gap-3 text-[10px] text-gray-500">
             {avgTtft != null && <span>TTFT: <b className="text-gray-700">{avgTtft >= 1000 ? `${(avgTtft / 1000).toFixed(1)}s` : `${avgTtft}ms`}</b></span>}
             {totalPromptTps > 0 && <span>Prefill: <b className="text-gray-700">{Math.round(totalPromptTps)} tok/s</b></span>}
             {totalGenTps > 0 && <span>Decode: <b className="text-gray-700">{Math.round(totalGenTps)} tok/s</b></span>}
             {preemptCount > 0 && <span className="text-red-500">Preemption: <b>{preemptCount}회</b></span>}
           </div>
 
-          {/* 노드별 GPU 현황 */}
+          {/* 노드별 GPU */}
           <div className="space-y-1">
             <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">노드별 GPU</p>
             {nodes.map((n, i) => (
@@ -228,6 +278,53 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
               </div>
             ))}
           </div>
+
+          {/* 24시간 차트 */}
+          {hist.length > 0 && (<div className="space-y-2">
+            <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">24시간 추이</p>
+            {/* KV Cache + tok/s */}
+            <div>
+              <p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) / tok/s</p>
+              <ResponsiveContainer width="100%" height={100}>
+                <AreaChart data={hist}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="kv" domain={[0, 100]} tick={{ fontSize: 8 }} tickFormatter={v => `${v}%`} />
+                  <YAxis yAxisId="tps" orientation="right" tick={{ fontSize: 8 }} />
+                  <Tooltip content={<Tip />} />
+                  <Area yAxisId="kv" type="monotone" dataKey="kv" name="KV Cache %" stroke="#8b5cf6" fill="#8b5cf620" strokeWidth={1.5} dot={false} />
+                  <Line yAxisId="tps" type="monotone" dataKey="tps" name="tok/s" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            {/* 대기/처리 요청 */}
+            <div>
+              <p className="text-[9px] text-gray-400 mb-0.5">처리 중(R) / 대기(W) 요청 수</p>
+              <ResponsiveContainer width="100%" height={80}>
+                <AreaChart data={hist}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="time" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 8 }} />
+                  <Tooltip content={<Tip />} />
+                  <Area type="monotone" dataKey="running" name="처리 중" stroke="#10b981" fill="#10b98120" strokeWidth={1.5} dot={false} />
+                  <Area type="monotone" dataKey="waiting" name="대기" stroke="#f59e0b" fill="#f59e0b20" strokeWidth={1.5} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>)}
+
+          {/* 디버그 */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => setDbg(!dbg)} className="text-[9px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5">
+              <Activity className="w-3 h-3" />{dbg ? '디버그 닫기' : '디버그 로그'}
+            </button>
+            {dbg && <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(debugData, null, 2)); }} className="text-[9px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"><Copy className="w-3 h-3" />복사</button>}
+          </div>
+          {dbg && (
+            <pre className="text-[9px] bg-gray-900 text-green-400 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto select-all whitespace-pre-wrap">
+              {JSON.stringify(debugData, null, 2)}
+            </pre>
+          )}
         </div>
       )}
     </div>
@@ -1015,8 +1112,9 @@ export default function ResourceMonitor() {
     {tab === 'live' && (data.length === 0 ? (
       <div className="bg-white rounded-lg border p-10 text-center"><Server className="w-10 h-10 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400 mb-3">등록된 서버 없음</p><button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="text-xs text-blue-600 hover:underline">+ 서버 추가</button></div>
     ) : (() => {
-      // K8s (Prometheus) vs 로컬 서버 분리
-      const k8sEntries = data.filter(e => !e.server.isLocal);
+      // 3분류: K8s(Prometheus, sshPort=0) / SSH(직접 추가) / 로컬
+      const k8sEntries = data.filter(e => !e.server.isLocal && e.server.sshPort === 0);
+      const sshEntries = data.filter(e => !e.server.isLocal && e.server.sshPort > 0);
       const localEntries = data.filter(e => e.server.isLocal);
 
       // K8s: 모델 기준 그룹핑 (LLM 엔드포인트 기반)
@@ -1092,6 +1190,23 @@ export default function ResourceMonitor() {
               />)}
             </div>
           )}
+        </div>)}
+
+        {/* ── SSH 서버 섹션 ── */}
+        {sshEntries.length > 0 && (<div>
+          <div className="flex items-center gap-2 mb-2">
+            <Cpu className="w-3.5 h-3.5 text-emerald-500" />
+            <span className="text-xs font-semibold text-gray-700">SSH 서버</span>
+            <span className="text-[10px] text-gray-400">{sshEntries.length}대</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+            {sshEntries.map(e => <ServerCard key={e.server.id} entry={e}
+              onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
+              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
+              onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+              onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
+            />)}
+          </div>
         </div>)}
 
         {/* ── 로컬 서버 섹션 ── */}
