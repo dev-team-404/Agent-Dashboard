@@ -188,7 +188,7 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
     setHist(sampled);
   }, [endpoints, group.instance, modelName, isShared]);
 
-  useEffect(() => { if (open && hist.length === 0) loadHist(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) loadHist(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 디버그 데이터
   const debugData = {
@@ -281,7 +281,10 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
 
           {/* 24시간 차트 */}
           {hist.length > 0 && (<div className="space-y-2">
-            <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">24시간 추이</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">24시간 추이</p>
+              {hist.every(h => !h.tps || h.tps === 0) && <span className="text-[8px] text-amber-500">tok/s: 패치 후 데이터 수집 중 (시간 경과 시 표시)</span>}
+            </div>
             {/* KV Cache + tok/s */}
             <div>
               <p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) / tok/s</p>
@@ -919,27 +922,34 @@ export default function ResourceMonitor() {
   useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
   useEffect(() => { fetchAna(); }, [fetchAna]);
 
-  // ── 종합 KPI (벤치마크 기반) ──
+  // ── 종합 KPI (3분류: SSH / DT전용 / DT공유) ──
   const totGpu = data.reduce((a, e) => a + (e.metrics?.gpus?.length || 0), 0);
   const online = data.filter(e => e.metrics && !e.metrics.error).length;
   const totLlm = data.reduce((a, e) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
-  const totTps = data.reduce((a, e) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0);
+  // totTps — 3분류 KPI에서 각각 계산
 
-  // 종합 용량 % = max(처리량%, KV%, 동시성%) — 벤치마크 대비
-  const avgComposite = (() => { const h = data.filter(e => e.capacityAnalysis?.compositeCapacity != null).map(e => e.capacityAnalysis!.compositeCapacity!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  const avgTokPct = (() => { const h = data.filter(e => e.capacityAnalysis?.tokPct != null).map(e => e.capacityAnalysis!.tokPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  const avgKvPct = (() => { const h = data.filter(e => e.capacityAnalysis?.kvPct != null).map(e => e.capacityAnalysis!.kvPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  const avgConcPct = (() => { const h = data.filter(e => e.capacityAnalysis?.concPct != null).map(e => e.capacityAnalysis!.concPct!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
-  const headroom = avgComposite != null ? Math.round((100 - avgComposite) * 10) / 10 : null;
-  // 전체 병목 (가장 빈번한 병목 차원)
-  const fleetBottleneck = (() => {
-    const bots = data.filter(e => e.capacityAnalysis?.bottleneck).map(e => e.capacityAnalysis!.bottleneck!);
-    if (bots.length === 0) return null;
+  const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
+
+  // 3분류 KPI 계산 함수
+  const calcGroupKpi = (entries: RealtimeEntry[]) => {
+    const withCa = entries.filter(e => e.capacityAnalysis?.compositeCapacity != null);
+    const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, v) => a + v, 0) / arr.length * 10) / 10 : null;
+    const composite = avg(withCa.map(e => e.capacityAnalysis!.compositeCapacity!));
+    const tps = Math.round(entries.reduce((a, e) => a + ((e.capacityAnalysis || e.throughputAnalysis)?.currentTps || 0), 0) * 10) / 10;
+    const bots = withCa.filter(e => e.capacityAnalysis?.bottleneck).map(e => e.capacityAnalysis!.bottleneck!);
     const counts = { throughput: 0, kvMemory: 0, concurrency: 0 };
     bots.forEach(b => counts[b]++);
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] as 'throughput' | 'kvMemory' | 'concurrency';
-  })();
-  const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
+    const bottleneck = bots.length > 0 ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] : null;
+    return { composite, headroom: composite != null ? Math.round((100 - composite) * 10) / 10 : null, tps, bottleneck, count: entries.length };
+  };
+  const kpiSsh = calcGroupKpi(data.filter(e => !e.server.isLocal && e.server.sshPort > 0));
+  const kpiDedicated = calcGroupKpi(data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))));
+  const kpiShared = calcGroupKpi(data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).every(ep => ep.containerName?.startsWith('shared-') || !ep.containerName)));
+
+  // 레거시 호환 (분석 탭 등에서 사용)
+  const avgComposite = (() => { const h = data.filter(e => e.capacityAnalysis?.compositeCapacity != null).map(e => e.capacityAnalysis!.compositeCapacity!); return h.length > 0 ? Math.round(h.reduce((a, v) => a + v, 0) / h.length * 10) / 10 : null; })();
+  // 레거시 변수 — 영업일 평균 섹션에서 사용
+  void avgComposite; // 영업일 평균 계산에서 참조
   // 시스템 리소스
   const avgCpu = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.cpuLoadAvg && e.metrics.cpuCores) { s += (e.metrics.cpuLoadAvg / e.metrics.cpuCores) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
   const avgRam = (() => { let s = 0, c = 0; data.forEach(e => { if (e.metrics?.memoryTotalMb && e.metrics.memoryUsedMb) { s += (e.metrics.memoryUsedMb / e.metrics.memoryTotalMb) * 100; c++; } }); return c > 0 ? Math.round(s / c) : null; })();
@@ -1282,36 +1292,61 @@ export default function ResourceMonitor() {
         <div className="px-3 pt-2">
           <p className="text-[9px] text-gray-500">종합 용량 = max(처리량%, KV메모리%, 동시처리%) — 벤치마크(관측 P95 피크) 대비 | 영업시간: KST 9-18시 영업일</p>
         </div>
-        {/* 실시간 */}
+        {/* 실시간 3분류 */}
         <div className="px-3 pt-1">
           <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
         </div>
-        <div className="px-3 pb-2 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2 border border-blue-200 cursor-help" title={`종합 용량 = max(처리량 ${avgTokPct ?? '-'}%, KV메모리 ${avgKvPct ?? '-'}%, 동시처리 ${avgConcPct ?? '-'}%)\n\n가장 빡빡한 차원이 전체를 대표합니다.\n벤치마크(관측 P95 피크) 대비 현재 사용량.\n\n50% 미만: 여유\n50~80%: 주의 (증설 계획 수립)\n80% 이상: 위험 (증설 시급)`}>
-            <p className="text-[8px] text-blue-700 font-semibold">종합 용량 ⓘ</p>
-            <p className={`text-xl font-black ${avgComposite != null ? utilTxt(avgComposite) : 'text-gray-300'}`}>{avgComposite ?? '-'}%</p>
-            <p className="text-[7px] text-gray-400">처리량 {avgTokPct ?? '-'}% · KV {avgKvPct ?? '-'}% · 동시 {avgConcPct ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="여유 = 100% - 종합 용량\n\n추가 부하를 수용할 수 있는 여유분입니다.\n20% 이하면 증설이 시급합니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">여유 ⓘ</p>
-            <p className={`text-xl font-black ${headroom != null ? (headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{headroom ?? '-'}%</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="병목 = 3차원 중 가장 사용률이 높은 차원\n\n이 차원이 증설의 주된 이유입니다.">
-            <p className="text-[8px] text-gray-600 font-semibold">병목 ⓘ</p>
-            <p className="text-lg font-black text-orange-600">{fleetBottleneck ? bottleneckLabel(fleetBottleneck) : '-'}</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100 cursor-help" title="전체 서버의 현재 초당 토큰 생성 수 합계">
-            <p className="text-[8px] text-gray-600 font-semibold">처리량</p>
-            <p className="text-xl font-black text-blue-600">{totTps > 0 ? totTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 border border-gray-100">
-            <p className="text-[8px] text-gray-600 font-semibold">인프라</p>
-            <p className="text-xs font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</p>
-            <div className="flex gap-1.5 text-[8px] text-gray-500">
-              <span>CPU <b>{avgCpu ?? '-'}%</b></span>
-              <span>RAM <b>{avgRam ?? '-'}%</b></span>
-              <span>Disk <b>{avgDisk ?? '-'}%</b></span>
+        <div className="px-3 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {/* SSH 서버 */}
+          {kpiSsh.count > 0 && (
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg p-2.5 border border-emerald-200">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[9px] font-bold text-emerald-700">SSH 서버 <span className="font-normal text-emerald-500">({kpiSsh.count}대)</span></p>
+                {kpiSsh.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiSsh.bottleneck)}</span>}
+              </div>
+              <div className="flex items-end gap-3">
+                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiSsh.composite != null ? utilTxt(kpiSsh.composite) : 'text-gray-300'}`}>{kpiSsh.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiSsh.headroom != null ? (kpiSsh.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiSsh.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiSsh.tps > 0 ? kpiSsh.tps : '-'}</p></div>
+              </div>
             </div>
+          )}
+          {/* DT Cloud 전용 */}
+          {kpiDedicated.count > 0 && (
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-2.5 border border-blue-200">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[9px] font-bold text-blue-700">DT 전용 모델 <span className="font-normal text-blue-400">({kpiDedicated.count}노드)</span></p>
+                {kpiDedicated.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiDedicated.bottleneck)}</span>}
+              </div>
+              <div className="flex items-end gap-3">
+                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiDedicated.composite != null ? utilTxt(kpiDedicated.composite) : 'text-gray-300'}`}>{kpiDedicated.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiDedicated.headroom != null ? (kpiDedicated.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiDedicated.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiDedicated.tps > 0 ? kpiDedicated.tps : '-'}</p></div>
+              </div>
+            </div>
+          )}
+          {/* DT Cloud 공유 */}
+          {kpiShared.count > 0 && (
+            <div className="bg-gradient-to-br from-purple-50 to-fuchsia-50 rounded-lg p-2.5 border border-purple-200">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[9px] font-bold text-purple-700">DT 공유 모델 <span className="font-normal text-purple-400">({kpiShared.count}노드)</span></p>
+                {kpiShared.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpiShared.bottleneck)}</span>}
+              </div>
+              <div className="flex items-end gap-3">
+                <div><p className="text-[7px] text-gray-400">용량</p><p className={`text-lg font-black ${kpiShared.composite != null ? utilTxt(kpiShared.composite) : 'text-gray-300'}`}>{kpiShared.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpiShared.headroom != null ? (kpiShared.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpiShared.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpiShared.tps > 0 ? kpiShared.tps : '-'}</p></div>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* 인프라 요약 (한 줄) */}
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-3 text-[9px] text-gray-500">
+            <span>{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</span>
+            <span>CPU <b>{avgCpu ?? '-'}%</b></span>
+            <span>RAM <b>{avgRam ?? '-'}%</b></span>
+            <span>Disk <b>{avgDisk ?? '-'}%</b></span>
           </div>
         </div>
         {/* 14일 영업일 평균 */}
