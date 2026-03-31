@@ -155,6 +155,19 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
   const preemptCount = endpoints.reduce((a, e) => a + (e.ep.preemptionCount || 0), 0);
   const avgTtft = (() => { const v = endpoints.filter(e => e.ep.ttftMs != null); return v.length > 0 ? Math.round(v.reduce((a, e) => a + e.ep.ttftMs!, 0) / v.length) : null; })();
 
+  // 벤치마크 기반 3차원 % (서버별 capacityAnalysis 평균)
+  const serverCas = endpoints.map(e => e.entry.capacityAnalysis).filter((ca): ca is CapacityAnalysis => ca != null);
+  const uniqueCas = serverCas.filter((ca, i, arr) => arr.findIndex(c => c.modelName === ca.modelName && c.currentTps === ca.currentTps) === i);
+  const avgCa = (field: 'compositeCapacity' | 'tokPct' | 'kvPct' | 'concPct') => {
+    const vals = uniqueCas.filter(ca => ca[field] != null).map(ca => ca[field]!);
+    return vals.length > 0 ? Math.round(vals.reduce((a, v) => a + v, 0) / vals.length * 10) / 10 : null;
+  };
+  const compositeCapacity = avgCa('compositeCapacity');
+  const tokPct = avgCa('tokPct');
+  const kvPctBm = avgCa('kvPct');
+  const concPct = avgCa('concPct');
+  const modelHeadroom = compositeCapacity != null ? Math.round((100 - compositeCapacity) * 10) / 10 : null;
+
   const kvColor = avgKv != null ? (avgKv >= 80 ? 'text-red-600' : avgKv >= 50 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
   const gpuColor = avgGpuUtil != null ? (avgGpuUtil >= 90 ? 'text-red-600' : avgGpuUtil >= 70 ? 'text-amber-600' : 'text-emerald-600') : 'text-gray-400';
 
@@ -174,7 +187,9 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           all.push({
             time: t.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
             fullTime: t.toLocaleString('ko-KR'),
-            tps: Math.round(matched.reduce((a: number, l: any) => a + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0) * 10) / 10,
+            tps: matched.some((l: any) => l.promptThroughputTps != null || l.genThroughputTps != null)
+              ? Math.round(matched.reduce((a: number, l: any) => a + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0) * 10) / 10
+              : null, // throughput이 전부 null이면 null 유지 (차트에서 gap 표시)
             kv: kv.length > 0 ? Math.round(kv.reduce((a: number, l: any) => a + l.kvCacheUsagePct, 0) / kv.length * 10) / 10 : null,
             running: matched.reduce((a: number, l: any) => a + (l.runningRequests || 0), 0),
             waiting: matched.reduce((a: number, l: any) => a + (l.waitingRequests || 0), 0),
@@ -247,10 +262,19 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           </div>
         </div>
 
-        {/* KV 바 */}
-        {avgKv != null && (
-          <div className="mt-2">
-            <MiniBar pct={avgKv} color={avgKv >= 80 ? 'bg-red-500' : avgKv >= 50 ? 'bg-amber-500' : 'bg-emerald-500'} h="h-1" />
+        {/* 벤치마크 기반 용량 */}
+        {compositeCapacity != null && (
+          <div className="mt-1.5 flex items-center gap-2">
+            <div className="flex-1"><MiniBar pct={compositeCapacity} color={utilCls(compositeCapacity)} h="h-1.5" /></div>
+            <span className={`text-[9px] font-bold ${utilTxt(compositeCapacity)}`}>{compositeCapacity}%</span>
+            <span className={`text-[9px] ${modelHeadroom != null && modelHeadroom <= 20 ? 'text-red-500' : 'text-emerald-500'}`}>여유 {modelHeadroom}%</span>
+          </div>
+        )}
+        {(tokPct != null || kvPctBm != null || concPct != null) && (
+          <div className="flex gap-2 mt-0.5 text-[7px] text-gray-400">
+            <span>처리량 <b className="text-gray-600">{tokPct ?? '-'}%</b></span>
+            <span>KV <b className={`${(kvPctBm || 0) >= 80 ? 'text-red-600' : 'text-gray-600'}`}>{kvPctBm ?? '-'}%</b></span>
+            <span>동시처리 <b className="text-gray-600">{concPct ?? '-'}%</b></span>
           </div>
         )}
       </div>
@@ -919,8 +943,11 @@ export default function ResourceMonitor() {
 
   const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays, anaServerId || undefined); setAna(r.data); } catch {} }, [anaDays, anaServerId]);
-  useEffect(() => { fetch_(); fetchAna(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
-  useEffect(() => { fetchAna(); }, [fetchAna]);
+  const [anaLoading, setAnaLoading] = useState(false);
+  const fetchAnaWithLoading = useCallback(async () => { setAnaLoading(true); await fetchAna(); setAnaLoading(false); }, [fetchAna]);
+  useEffect(() => { fetch_(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
+  // 분석 데이터: 탭 전환 시 또는 serverId 변경 시에만 로드 (초기 로드 시 안 함 → 성능 개선)
+  useEffect(() => { if (tab === 'analysis') fetchAnaWithLoading(); }, [tab, fetchAna]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 종합 KPI (3분류: SSH / DT전용 / DT공유) ──
   const totGpu = data.reduce((a, e) => a + (e.metrics?.gpus?.length || 0), 0);
@@ -1407,6 +1434,7 @@ export default function ResourceMonitor() {
         if (eps.length === 0) continue;
         for (const ep of eps) {
           const instance = ep.containerName || '';
+          if (!instance || instance.includes('router') || instance.includes('redis') || instance.includes('litellm')) continue; // 인프라 제외
           const modelName = ep.modelNames?.[0] || instance;
           const isShared = instance.startsWith('shared-');
 
@@ -1511,7 +1539,7 @@ export default function ResourceMonitor() {
     })())}
 
     {/* Analysis Tab */}
-    {tab === 'analysis' && !ana && (
+    {tab === 'analysis' && (!ana || anaLoading) && (
       <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
     )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
@@ -1526,6 +1554,7 @@ export default function ResourceMonitor() {
             for (const entry of k8s) {
               for (const ep of (entry.metrics?.llmEndpoints || [])) {
                 const inst = ep.containerName || '';
+                if (!inst || inst.includes('router') || inst.includes('redis') || inst.includes('litellm')) continue; // 인프라 제외
                 if (inst.startsWith('shared-')) { sharedServerIds.add(entry.server.id); continue; }
                 const existing = dedicatedModels.get(inst) || { modelName: ep.modelNames?.[0] || inst, serverIds: [] };
                 if (!existing.serverIds.includes(entry.server.id)) existing.serverIds.push(entry.server.id);

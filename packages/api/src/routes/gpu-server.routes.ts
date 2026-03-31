@@ -154,38 +154,26 @@ gpuServerRoutes.get('/realtime', async (_req: Request, res: Response) => {
     const metrics = getAllLatestMetrics();
     const serverMap = new Map(servers.map(s => [s.id, { ...s, sshPassword: '***' }]));
 
-    // 서버별 7일 피크 처리량 (최근 100건만 샘플링 — 성능 최적화)
+    // 서버별 7일 피크 처리량 — 단일 SQL로 전체 서버 한번에 조회 (성능 최적화)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const peakTpsMap = new Map<string, number>();
-    for (const s of servers) {
-      let recentSnaps: any[] = [];
-      try {
-        recentSnaps = await prisma.gpuMetricSnapshot.findMany({
-          where: { serverId: s.id, timestamp: { gte: sevenDaysAgo } },
-          select: { llmMetrics: true },
-          orderBy: { timestamp: 'desc' },
-          take: 100,
-        });
-      } catch {
-        try {
-          const rawSnaps = await prisma.$queryRaw<any[]>`
-            SELECT llm_metrics::text as "llmMetrics" FROM gpu_metric_snapshots
-            WHERE server_id = ${s.id} AND timestamp >= ${sevenDaysAgo}
-            ORDER BY timestamp DESC LIMIT 100`;
-          recentSnaps = rawSnaps.map(r => {
-            try { return { llmMetrics: typeof r.llmMetrics === 'string' ? JSON.parse(r.llmMetrics) : r.llmMetrics }; }
-            catch { return { llmMetrics: [] }; }
-          });
-        } catch {}
+    try {
+      const serverIds = servers.map(s => s.id);
+      const { rows: peakRows } = await pgPool.query(`
+        SELECT server_id,
+          MAX((SELECT COALESCE(SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0)),0)
+               FROM jsonb_array_elements(COALESCE(llm_metrics,'[]'::jsonb)) l)) AS peak_tps
+        FROM (
+          SELECT server_id, llm_metrics, ROW_NUMBER() OVER (PARTITION BY server_id ORDER BY timestamp DESC) AS rn
+          FROM gpu_metric_snapshots WHERE server_id = ANY($1) AND timestamp >= $2
+        ) sub WHERE rn <= 100
+        GROUP BY server_id
+      `, [serverIds, sevenDaysAgo]);
+      for (const r of peakRows) {
+        if (r.peak_tps > 0) peakTpsMap.set(r.server_id, parseFloat(r.peak_tps));
       }
-      for (const snap of recentSnaps) {
-        const llms = snap.llmMetrics as any[];
-        if (!Array.isArray(llms)) continue;
-        const tps = llms.reduce((sum: number, l: any) => sum + (l.promptThroughputTps || 0) + (l.genThroughputTps || 0), 0);
-        if (tps > (peakTpsMap.get(s.id) || 0)) peakTpsMap.set(s.id, tps);
-      }
-    }
+    } catch {}
 
     // Prometheus 기반 서버는 DB에서 최신 스냅샷 가져오기 (in-memory에 없으므로)
     const promServerIds = servers.filter(s => s.sshPort === 0 || s.description?.includes('[DTGPT-Prometheus]')).map(s => s.id);
