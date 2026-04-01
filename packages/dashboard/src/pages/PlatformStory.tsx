@@ -153,6 +153,18 @@ const timeline = [
     desc: 'vLLM --disable-log-stats 이슈 분석 및 DT Cloud 대응 근거 제공. Prometheus rate() recording rule counter reset 문제 발견 → counter delta 방식 전환. 리소스 모니터 모델 중심 UI(K8s 노드→모델별 그룹핑, 전용/공유/SSH 3분류). ModelGroupCard: 24시간 차트, 디버그 로그, 노드별 GPU 상세. 초심자를 위한 GPU 모니터링 가이드북(인터랙티브 슬라이드).',
     tags: ['vLLM', 'Prometheus', 'K8s 모니터링', 'UI/UX'],
   },
+  {
+    date: '2026.04.01',
+    title: 'KPI 3분류 체계 & 3차원 분석 고도화',
+    desc: 'GPU KPI를 SSH/DT전용/DT공유 3분류로 분리(운영 환경별 정확한 용량 파악). KPI 3차원 분해(처리량%/KV메모리%/동시처리%) — 각 병목 지표를 독립 모니터링. 히트맵 모델별 드롭다운으로 복수 노드 분석 지원. 영업일 평균도 3분류 적용. KV Cache 0~1→% 변환 정상화. 통합 대시보드 동일 모델 합산 표시(endpoint+name 기준). Kimi-K2 모델 파라미터 매핑 추가.',
+    tags: ['KPI 3분류', '3차원 분석', '히트맵 드롭다운', '모델 합산'],
+  },
+  {
+    date: '2026.04.01',
+    title: 'GPU 실시간 선계산 아키텍처 & 대규모 성능 최적화',
+    desc: 'GPU Realtime 선계산(15초 주기) — 벤치마크·피크TPS 계산을 백그라운드 워커로 이관하여 API 응답 수백ms→<5ms. Analytics 선계산(5분 주기) — 1회 전체 쿼리 후 프론트 드롭다운 전 조합을 메모리 슬라이싱으로 Redis 일괄 캐시(DB 추가 쿼리 0회, 어떤 서버/모델 선택해도 즉시 응답). 서버 CRUD 시 캐시 즉시 무효화. Page Visibility API로 탭 비활성 시 폴링 완전 중단. updatedAt 비교로 GPU 데이터 미변경 시 차트 리렌더 방지. interval 누수 방지 처리.',
+    tags: ['선계산 Precompute', 'Page Visibility', '리렌더 최적화', '메모리 슬라이싱'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -191,6 +203,10 @@ const featureGroups = [
       '에러 추적 & Failover 시도 상세 로그 + 에러율 트렌드 차트',
       '모델 평점(Rating) 시스템 & 만족도 차트',
       '서비스 품질 메트릭 6종 (TTFT · TPOT · E2E · KV Cache · Preemption · Queue)',
+      'KPI 3분류 (SSH/DT전용/DT공유) + 3차원 분해 (처리량%/KV메모리%/동시처리%)',
+      'GPU Realtime 선계산 (15초 주기 백그라운드 워커, API 응답 <5ms)',
+      'Analytics 1회 쿼리 → N조합 메모리 슬라이싱 → 전 드롭다운 즉시 응답',
+      'Page Visibility 폴링 중단 + updatedAt 비교 리렌더 방지',
       'GPU 모니터링 가이드북 (인터랙티브 슬라이드)',
     ],
   },
@@ -274,7 +290,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            670+ commits · 56,000+ lines of code
+            720+ commits · 60,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
