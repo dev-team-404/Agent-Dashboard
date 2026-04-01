@@ -171,6 +171,12 @@ const timeline = [
     desc: '통합 대시보드: 같은 endpoint+modelName인 복수 등록 모델(API 키·헤더 변주)을 자동 합산 표시 — sortOrder 최소 모델의 displayName을 대표명으로 사용, 합산 내역은 배너·뱃지로 확인 가능. 서비스 대시보드: 서비스에 등록된 aliasName(표시이름) 기준으로 모든 차트 합산 — 모델별 누적 사용량, 사용자별 누적 사용량, 사용량 분석 모두 alias 그룹 단위. DB 원본·LLM 관리 페이지는 변경 없이 차트 집계 레이어에서만 동작.',
     tags: ['모델 합산', 'alias 그룹핑', '대시보드 UX', 'CTE SQL'],
   },
+  {
+    date: '2026.04.01',
+    title: '홍보 모델 관리 & Docs-site 랜딩 페이지 모델 쇼케이스',
+    desc: 'AX과제 정식 등록 시 지원 가능한 모델을 홍보하는 기능. 슈퍼관리자가 실시간으로 홍보 모델 선택/해제 → Docs-site 랜딩 페이지에 즉시 반영. Model 테이블 promoted 필드 + 공개 API(/public/promoted-models, 인증 불필요) + 관리자 토글 API(감사 로그 포함). Docs-site에 글래스모피즘 카드 그리드로 모델 타입·Vision 지원·Max Tokens 정보 표시.',
+    tags: ['홍보 모델', 'Docs-site', '슈퍼관리자', '공개 API'],
+  },
 ];
 
 // ── 기능 카테고리 ──

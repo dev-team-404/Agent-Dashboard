@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight, Settings } from 'lucide-react';
+import { ArrowRight, Shield, User, Code, BookOpen, ChevronRight, Settings, MessageSquare, ImageIcon, Mic, Layers, Sparkles, Eye } from 'lucide-react';
 import { guideSections } from '../data/guides';
 
 function HeroSection() {
@@ -61,6 +62,114 @@ function HeroSection() {
             API 가이드
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+interface PromotedModel {
+  id: string;
+  displayName: string;
+  name: string;
+  type: string;
+  supportsVision: boolean;
+  maxTokens: number;
+}
+
+const MODEL_TYPE_META: Record<string, { icon: typeof MessageSquare; label: string; gradient: string }> = {
+  CHAT: { icon: MessageSquare, label: 'Chat', gradient: 'from-blue-500 to-cyan-500' },
+  IMAGE: { icon: ImageIcon, label: 'Image', gradient: 'from-pink-500 to-rose-500' },
+  EMBEDDING: { icon: Layers, label: 'Embedding', gradient: 'from-emerald-500 to-teal-500' },
+  RERANKING: { icon: Layers, label: 'Rerank', gradient: 'from-orange-500 to-amber-500' },
+  ASR: { icon: Mic, label: 'ASR', gradient: 'from-violet-500 to-purple-500' },
+};
+
+function PromotedModelsSection() {
+  const [models, setModels] = useState<PromotedModel[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/public/promoted-models')
+      .then(res => res.json())
+      .then(data => { setModels(data.models || []); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  if (!loaded || models.length === 0) return null;
+
+  return (
+    <section className="relative bg-surface py-24 overflow-hidden border-t border-white/5">
+      <div className="absolute inset-0">
+        <div className="absolute top-1/3 -right-20 w-[600px] h-[600px] rounded-full bg-amber-500/8 blur-[140px]" />
+        <div className="absolute bottom-0 left-1/4 w-[400px] h-[400px] rounded-full bg-brand-500/8 blur-[120px]" />
+      </div>
+
+      <div className="relative max-w-7xl mx-auto px-6">
+        {/* Header */}
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 mb-6">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-medium text-amber-300">Supported Models</span>
+          </div>
+          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
+            AX과제 정식 등록시
+            <br />
+            <span className="text-gradient-brand">아래 모델들을 지원해드립니다!</span>
+          </h2>
+          <p className="max-w-2xl mx-auto text-gray-400 text-lg">
+            과제 등록 후 바로 사용 가능한 LLM 모델 라인업입니다.
+          </p>
+        </div>
+
+        {/* Model Grid */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {models.map((model, idx) => {
+            const meta = MODEL_TYPE_META[model.type] || MODEL_TYPE_META.CHAT;
+            const Icon = meta.icon;
+            return (
+              <div
+                key={model.id}
+                className="group relative rounded-2xl glass hover:bg-white/10 transition-all duration-300 hover:-translate-y-1 overflow-hidden animate-fade-up"
+                style={{ animationDelay: `${idx * 0.05}s` }}
+              >
+                {/* Top gradient bar */}
+                <div className={`h-1 bg-gradient-to-r ${meta.gradient}`} />
+
+                <div className="p-5">
+                  {/* Icon + Type */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${meta.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {model.supportsVision && (
+                        <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/20">
+                          <Eye className="w-3 h-3 inline mr-0.5" />Vision
+                        </span>
+                      )}
+                      <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full bg-white/5 text-gray-400 border border-white/10`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Name */}
+                  <h3 className="text-base font-bold text-white mb-1 group-hover:text-brand-300 transition-colors">
+                    {model.displayName}
+                  </h3>
+                  <p className="text-xs font-mono text-gray-500 mb-3">{model.name}</p>
+
+                  {/* Max Tokens */}
+                  {model.maxTokens > 0 && (
+                    <div className="text-xs text-gray-500">
+                      Max Tokens: <span className="text-gray-300 font-medium">{(model.maxTokens / 1000).toFixed(0)}K</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -247,6 +356,7 @@ export default function Home() {
   return (
     <>
       <HeroSection />
+      <PromotedModelsSection />
       <GuideSectionsGrid />
       <QuickStartSection />
       <CTASection />

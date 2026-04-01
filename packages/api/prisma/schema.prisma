@@ -200,6 +200,9 @@ model Model {
   createdBySuperAdmin   Boolean @default(false) @map("created_by_super_admin")
   superAdminOnly        Boolean @default(false) @map("super_admin_only")
 
+  // 홍보 모델 (docs-site 랜딩 페이지 노출)
+  promoted              Boolean @default(false)
+
   creator               Admin?           @relation(fields: [createdBy], references: [id])
   usageLogs             UsageLog[]
   subModels             SubModel[]

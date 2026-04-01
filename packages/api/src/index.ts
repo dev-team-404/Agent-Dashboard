@@ -156,6 +156,28 @@ app.get('/internal/docs', (_req, res) => { res.redirect('/internal/api-docs/ui')
 app.use('/public/stats', publicStatsRoutes);
 app.use('/public/stats', publicInsightRoutes);
 
+// 홍보 모델 목록 (인증 불필요 — docs-site 랜딩 페이지용)
+app.get('/public/promoted-models', async (_req, res) => {
+  try {
+    const models = await prisma.model.findMany({
+      where: { promoted: true, enabled: true },
+      select: {
+        id: true,
+        displayName: true,
+        name: true,
+        type: true,
+        supportsVision: true,
+        maxTokens: true,
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+    res.json({ models });
+  } catch (error) {
+    console.error('Get promoted models error:', error);
+    res.status(500).json({ error: 'Failed to get promoted models' });
+  }
+});
+
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
 app.use('/external-usage', externalUsageRoutes);

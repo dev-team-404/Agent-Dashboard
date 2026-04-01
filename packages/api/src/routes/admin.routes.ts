@@ -695,6 +695,49 @@ adminRoutes.put('/models/:id', async (req: AuthenticatedRequest, res) => {
  * Delete a model (SUPER_ADMIN only)
  * Query: ?force=true - 사용 기록이 있어도 강제 삭제
  */
+/**
+ * GET /admin/promoted-models
+ * 홍보 모델 목록 조회 (관리용 — 전체 모델의 promoted 상태 포함)
+ */
+adminRoutes.get('/promoted-models', requireSuperAdmin as RequestHandler, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const models = await prisma.model.findMany({
+      where: { enabled: true },
+      select: { id: true, displayName: true, name: true, type: true, promoted: true, sortOrder: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    res.json({ models });
+  } catch (error) {
+    console.error('Get promoted models error:', error);
+    res.status(500).json({ error: 'Failed to get promoted models' });
+  }
+});
+
+/**
+ * PUT /admin/models/:id/promoted
+ * 홍보 모델 토글 (슈퍼 관리자 전용)
+ */
+adminRoutes.put('/models/:id/promoted', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { promoted } = req.body;
+    if (typeof promoted !== 'boolean') {
+      res.status(400).json({ error: 'promoted must be a boolean' });
+      return;
+    }
+    const model = await prisma.model.update({
+      where: { id },
+      data: { promoted },
+      select: { id: true, displayName: true, promoted: true },
+    });
+    recordAudit(req, promoted ? 'PROMOTE' : 'UNPROMOTE', model.displayName, 'Model', { action: `홍보 모델 ${promoted ? '등록' : '해제'}`, model: model.displayName });
+    res.json({ model });
+  } catch (error) {
+    console.error('Toggle promoted error:', error);
+    res.status(500).json({ error: 'Failed to toggle promoted status' });
+  }
+});
+
 adminRoutes.delete('/models/:id', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
