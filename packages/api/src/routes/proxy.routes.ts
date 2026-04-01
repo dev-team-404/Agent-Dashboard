@@ -217,7 +217,7 @@ proxyRoutes.post(
 
             // 4xx는 즉시 반환 (재시도 안함)
             if (response.status >= 400 && response.status < 500) {
-              recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent, ipAddress, stream: false }).catch(() => {});
+              recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: response.status, latencyMs, errorMessage: `[Upstream ${response.status}] ${errorText.substring(0, 1900)}`, userAgent, ipAddress, stream: false }).catch(() => {});
               try {
                 const errorJson = JSON.parse(errorText);
                 res.status(response.status).json(errorJson);
@@ -1191,10 +1191,7 @@ async function handleNonStreamingRequest(
         }
 
         if (response.status >= 400 && response.status < 500) {
-          const errorMessage = response.status === 400 && isMaxTokensError(errorText)
-            ? 'context_length_exceeded'
-            : errorText.substring(0, 2000);
-          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs, errorMessage, userAgent: null, ipAddress: null, stream: false }).catch(() => {});
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model || 'unknown', resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs, errorMessage: `[Upstream ${response.status}] ${errorText.substring(0, 1900)}`, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: false }).catch(() => {});
           if (response.status === 400 && isMaxTokensError(errorText)) {
             res.status(400).json({
               error: { message: 'The input prompt exceeds the model\'s maximum context length.', type: 'invalid_request_error', code: 'context_length_exceeded' },
@@ -1289,6 +1286,7 @@ async function handleStreamingRequest(
         const errorText = await response.text();
         if (isMaxTokensError(errorText)) {
           clearTimeout(timeoutId);
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model || 'unknown', resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: 400, latencyMs: Date.now() - attemptStart, errorMessage: `[Upstream 400] ${errorText.substring(0, 1900)}`, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: true }).catch(() => {});
           res.status(400).json({
             error: { message: 'The input prompt exceeds the model\'s maximum context length.', type: 'invalid_request_error', code: 'context_length_exceeded' },
           });
@@ -1358,10 +1356,7 @@ async function handleStreamingRequest(
         }
       } else {
         if (response.status >= 400 && response.status < 500) {
-          const errorMessage = response.status === 400 && isMaxTokensError(errorText)
-            ? 'context_length_exceeded'
-            : errorText.substring(0, 2000);
-          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs: Date.now() - attemptStart, errorMessage, userAgent: null, ipAddress: null, stream: true }).catch(() => {});
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model || 'unknown', resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs: Date.now() - attemptStart, errorMessage: `[Upstream ${response.status}] ${errorText.substring(0, 1900)}`, userAgent: (proxyReq as any).headers?.['user-agent'], ipAddress: (proxyReq as any).ip, stream: true }).catch(() => {});
           if (response.status === 400 && isMaxTokensError(errorText)) {
             res.status(400).json({
               error: { message: 'The input prompt exceeds the model\'s maximum context length.', type: 'invalid_request_error', code: 'context_length_exceeded' },
@@ -1595,7 +1590,7 @@ proxyRoutes.post('/embeddings', async (req: Request, res: Response) => {
           console.error(`[LLM-Error] Embeddings | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
 
           if (response.status >= 400 && response.status < 500) {
-            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent, ipAddress, stream: false }).catch(() => {});
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/embeddings', statusCode: response.status, latencyMs, errorMessage: `[Upstream ${response.status}] ${errorText.substring(0, 1900)}`, userAgent, ipAddress, stream: false }).catch(() => {});
             try {
               const errorJson = JSON.parse(errorText);
               res.status(response.status).json(errorJson);
@@ -1813,7 +1808,7 @@ proxyRoutes.post('/rerank', async (req: Request, res: Response) => {
           console.error(`[LLM-Error] Rerank | user=${loginid} model=${model.name} url=${url} status=${response.status} error=${errorText.substring(0, 2000)}`);
 
           if (response.status >= 400 && response.status < 500) {
-            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => {});
+            recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/rerank', statusCode: response.status, latencyMs, errorMessage: `[Upstream ${response.status}] ${errorText.substring(0, 1900)}`, userAgent: rrUserAgent, ipAddress: rrIpAddress, stream: false }).catch(() => {});
             try {
               const errorJson = JSON.parse(errorText);
               res.status(response.status).json(errorJson);

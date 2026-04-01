@@ -32,9 +32,11 @@ const ERROR_RULES: Array<{ pattern: string; cause: string; category: string }> =
   // 404 - Not Found
   { pattern: 'not found', cause: '존재하지 않는 모델 또는 서비스입니다', category: '모델/서비스 오류' },
   { pattern: 'Use a registered alias', cause: '등록되지 않은 모델 alias를 사용했습니다', category: '모델/서비스 오류' },
-  // 429 - Rate Limit
-  { pattern: 'Rate limit exceeded', cause: '토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
-  { pattern: 'Token rate limit', cause: '토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
+  // 429 - Upstream Rate Limit (LLM 서버 측)
+  { pattern: '[Upstream 429]', cause: 'LLM 서버에서 Rate Limit을 반환했습니다', category: 'Upstream Rate Limit' },
+  // 429 - Rate Limit (자체 설정)
+  { pattern: 'Rate limit exceeded', cause: '자체 토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
+  { pattern: 'Token rate limit', cause: '자체 토큰 사용량 한도를 초과했습니다', category: 'Rate Limit' },
   // 400 - Bad Request
   { pattern: 'model and messages are required', cause: 'model 또는 messages 필드가 누락되었습니다', category: '요청 오류' },
   { pattern: 'model is required', cause: 'model 필드가 누락되었습니다', category: '요청 오류' },
@@ -170,7 +172,7 @@ errorLogsRoutes.get('/error-logs', (async (req: AuthenticatedRequest, res) => {
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       categories: [
         '헤더 누락', '서비스 오류', '인증 오류', '접근 제한',
-        '모델/서비스 오류', 'Rate Limit', '요청 오류', 'LLM 장애', '미분류',
+        '모델/서비스 오류', 'Rate Limit', 'Upstream Rate Limit', '요청 오류', 'LLM 장애', '미분류',
       ],
     });
   } catch (error) {
@@ -334,7 +336,7 @@ IMPORTANT: Respond ONLY with a valid JSON object (no markdown, no code blocks). 
   "cause": "Root cause in Korean (1-2 sentences)",
   "detail": "Detailed explanation in Korean (3-6 sentences covering each attempt if applicable)",
   "suggestion": "Recommended fix in Korean (1-3 sentences with specific actions)",
-  "category": "One of: 클라이언트 오류, 인증/권한 오류, 모델 설정 오류, LLM 엔드포인트 장애, Rate Limit, 시스템 오류, 네트워크 장애, Timeout, 기타",
+  "category": "One of: 클라이언트 오류, 인증/권한 오류, 모델 설정 오류, LLM 엔드포인트 장애, Rate Limit, Upstream Rate Limit, 시스템 오류, 네트워크 장애, Timeout, 기타",
   "errorPattern": "One of: isolated(일회성), recurring(반복 발생), outage(서비스 장애)"
 }`;
 

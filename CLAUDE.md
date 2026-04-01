@@ -39,6 +39,11 @@
 - 한국어 설명 + 카테고리 prefix (fix:, feat:, refactor:, perf:, docs:)
 - 커밋 후 반드시 push까지 수행
 
+## Deployment
+- **프로덕션은 사내망에서 운영 중** — 이 로컬 서버에서 `deploy.sh` 돌리는 게 아님
+- 사내망 배포: `git pull && ./deploy.sh` (사내망 서버에서 직접 실행)
+- 여기서는 코드 수정 → commit → push까지만 수행
+
 ## Port Convention
 - 8090: Nginx proxy
 - 8091: PostgreSQL

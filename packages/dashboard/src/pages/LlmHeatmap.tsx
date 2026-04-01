@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Activity, Clock, AlertTriangle, BarChart3, TrendingUp, Users, CheckCircle2, XCircle, HeartPulse, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -105,6 +105,7 @@ export default function LlmHeatmap() {
   const [days, setDays] = useState(30);
   const [hmTab, setHmTab] = useState<HeatmapTab>('callCount');
   const [modelSearch, setModelSearch] = useState('');
+  const prefetchCache = useRef<Map<string, any>>(new Map());
 
   const toggleModel = (modelId: string) => {
     setSelectedModels(prev => {
@@ -122,7 +123,12 @@ export default function LlmHeatmap() {
       const res = await api.get('/admin/stats/model-heatmap/models');
       const list: ModelEntry[] = res.data.models || [];
       setModels(list);
-      // 초기 진입 시 아무것도 선택하지 않음 — 사용자가 직접 모델 선택
+      // 전 모델 히트맵 백그라운드 프리페치 (선계산 캐시 히트 → 즉시 응답)
+      Promise.all(
+        list.map(m => api.get('/admin/stats/model-heatmap', { params: { modelId: m.modelId, days: 30 } })
+          .then(r => { prefetchCache.current.set(m.modelId, r.data); })
+          .catch(() => {}))
+      ).catch(() => {});
     } catch (err) {
       console.error('Failed to load models:', err);
     } finally {
@@ -142,7 +148,12 @@ export default function LlmHeatmap() {
       setHeatmapError(null);
 
       const results = await Promise.all(
-        ids.map(id => api.get('/admin/stats/model-heatmap', { params: { modelId: id, days } }).then(r => r.data))
+        ids.map(id => {
+          // 프리페치 캐시 히트 시 API 호출 생략 (days=30일 때만)
+          const cached = days === 30 ? prefetchCache.current.get(id) : null;
+          if (cached) return Promise.resolve(cached);
+          return api.get('/admin/stats/model-heatmap', { params: { modelId: id, days } }).then(r => r.data);
+        })
       );
 
       // 개별 모델 데이터 저장 (비교 모드용)

@@ -959,9 +959,10 @@ export default function ResourceMonitor() {
   }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays, anaServerId || undefined); setAna(r.data); } catch {} }, [anaDays, anaServerId]);
   const [anaLoading, setAnaLoading] = useState(false);
-  const fetchAnaWithLoading = useCallback(async () => { setAnaLoading(true); await fetchAna(); setAnaLoading(false); }, [fetchAna]);
+  const fetchAnaWithLoading = useCallback(async () => { if (!ana) setAnaLoading(true); await fetchAna(); setAnaLoading(false); }, [fetchAna, ana]);
   useEffect(() => {
     fetch_();
+    fetchAna(); // 분석 데이터 백그라운드 프리페치 (탭 전환 시 즉시 표시)
     ref.current = setInterval(fetch_, 10000);
     // 탭 비활성 시 폴링 중단, 활성화 시 즉시 재개 (Page Visibility API)
     const onVisChange = () => {

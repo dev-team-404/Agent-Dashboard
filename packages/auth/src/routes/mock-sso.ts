@@ -74,18 +74,8 @@ router.get('/login', (req: Request, res: Response) => {
     return;
   }
 
-  const userCards = Object.entries(MOCK_USERS).map(([key, u]) => {
-    const rc = ROLE_CONFIG[u.role] || ROLE_CONFIG['USER'];
-    return `
-      <button class="user-card" onclick="selectUser('${key}')" title="${u.mail}">
-        <div class="avatar" style="background:${u.color}">${u.avatar}</div>
-        <div class="info">
-          <div class="name">${u.username} <span class="loginid">${u.loginid}</span></div>
-          <div class="dept">${u.deptname}</div>
-        </div>
-        <span class="role-badge" style="color:${rc.color};background:${rc.bg}">${rc.label}</span>
-      </button>`;
-  }).join('');
+  // 프리셋 유저 카드는 UI에 표시하지 않음 (ID/PW 입력만 사용)
+  // MOCK_USERS는 내부 API(/mock-sso/users)에서만 활용
 
   res.type('html').send(`<!DOCTYPE html>
 <html lang="ko">
@@ -141,6 +131,11 @@ router.get('/login', (req: Request, res: Response) => {
     .meta code{background:#1e293b;padding:2px 8px;border-radius:4px;font-size:10px;color:#818cf8}
     .redirect-info{margin-top:8px;padding:10px 16px;background:#1e293b;border-radius:8px;font-size:11px;color:#64748b;word-break:break-all}
     .redirect-info strong{color:#94a3b8}
+    .login-form-section{padding:20px 24px}
+    .login-btn{width:100%;padding:12px;font-size:14px;margin-top:4px;display:flex;align-items:center;justify-content:center}
+    .toggle-btn{background:none;border:none;color:#64748b;font-size:12px;cursor:pointer;font-family:inherit;padding:4px 0;transition:color .2s}
+    .toggle-btn:hover{color:#94a3b8}
+    .detail-toggle{margin-top:-2px;margin-bottom:2px}
   </style>
 </head>
 <body>
@@ -160,33 +155,38 @@ router.get('/login', (req: Request, res: Response) => {
 
     <div class="card">
       <div class="card-header">
-        <h2>Select Account</h2>
-        <p>사용할 계정을 선택하세요. 실제 SSO에서는 삼성 계정으로 인증됩니다.</p>
+        <h2>로그인</h2>
+        <p>사번과 비밀번호를 입력하거나, 아래 테스트 계정을 선택하세요.</p>
       </div>
 
-      <div class="users-list">
-        ${userCards}
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="custom-section">
-        <h3>Custom Account</h3>
+      <div class="login-form-section">
         <div class="form-grid">
-          <input class="input" id="c-loginid" placeholder="Login ID *" />
-          <input class="input" id="c-username" placeholder="이름 *" />
-          <input class="input" id="c-mail" placeholder="Email *" />
-          <input class="input" id="c-dept" placeholder="부서명" />
-          <div class="full" style="display:flex;gap:10px">
-            <select class="input" id="c-role" style="flex:1">
-              <option value="USER">User</option>
-              <option value="ADMIN">Admin</option>
-              <option value="SUPER_ADMIN">Super Admin</option>
-            </select>
-            <button class="btn" onclick="customLogin()">Login</button>
+          <input class="input full" id="c-loginid" placeholder="사번 (Login ID) *" autocomplete="username" />
+          <input class="input full" id="c-password" type="password" placeholder="비밀번호 *" autocomplete="current-password" />
+          <div class="full detail-toggle">
+            <button type="button" class="toggle-btn" onclick="toggleDetail()">
+              <span id="toggle-icon">▸</span> 상세 정보 입력 (선택)
+            </button>
           </div>
+          <div id="detail-fields" class="full" style="display:none">
+            <div class="form-grid" style="margin-top:8px">
+              <input class="input" id="c-username" placeholder="이름" />
+              <input class="input" id="c-mail" placeholder="Email" />
+              <input class="input" id="c-dept" placeholder="부서명" />
+              <select class="input" id="c-role">
+                <option value="USER">User</option>
+                <option value="ADMIN">Admin</option>
+                <option value="SUPER_ADMIN">Super Admin</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn full login-btn" onclick="idPwLogin()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;vertical-align:middle"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            로그인
+          </button>
         </div>
       </div>
+
     </div>
 
     <div class="redirect-info">
@@ -204,27 +204,45 @@ router.get('/login', (req: Request, res: Response) => {
       client_id: ${JSON.stringify(clientId)},
     };
 
-    function selectUser(key) {
-      const qs = new URLSearchParams({ ...params, user: key });
-      window.location.href = '/mock-sso/do-login?' + qs.toString();
+    function toggleDetail() {
+      const el = document.getElementById('detail-fields');
+      const icon = document.getElementById('toggle-icon');
+      if (el.style.display === 'none') {
+        el.style.display = 'block';
+        icon.textContent = '▾';
+      } else {
+        el.style.display = 'none';
+        icon.textContent = '▸';
+      }
     }
 
-    function customLogin() {
+    function idPwLogin() {
       const loginid = document.getElementById('c-loginid').value.trim();
-      const username = document.getElementById('c-username').value.trim();
-      const mail = document.getElementById('c-mail').value.trim();
-      if (!loginid || !username || !mail) { alert('Login ID, 이름, Email은 필수입니다.'); return; }
+      const password = document.getElementById('c-password').value.trim();
+      if (!loginid) { alert('사번(Login ID)을 입력하세요.'); document.getElementById('c-loginid').focus(); return; }
+      if (!password) { alert('비밀번호를 입력하세요.'); document.getElementById('c-password').focus(); return; }
+
+      // Mock: 비밀번호는 무엇이든 허용 (실제 SSO에서는 LDAP/AD 검증)
+      const username = document.getElementById('c-username').value.trim() || loginid;
+      const mail = document.getElementById('c-mail').value.trim() || loginid + '@company.com';
 
       const qs = new URLSearchParams({
         ...params,
         custom_loginid: loginid,
         custom_username: username,
         custom_mail: mail,
-        custom_dept: document.getElementById('c-dept').value.trim() || '커스텀팀',
+        custom_dept: document.getElementById('c-dept').value.trim() || '',
         custom_role: document.getElementById('c-role').value,
       });
       window.location.href = '/mock-sso/do-login?' + qs.toString();
     }
+
+    // Enter 키로 로그인
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && (e.target.id === 'c-loginid' || e.target.id === 'c-password')) {
+        idPwLogin();
+      }
+    });
   </script>
 </body>
 </html>`);
