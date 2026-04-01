@@ -1057,43 +1057,10 @@ export async function precomputeGpuRealtime(): Promise<void> {
 }
 
 /**
- * GPU Analytics 데이터 빌드 (히트맵·영업시간 분석)
- * - 기존 /analytics/overview 라우트의 계산 로직을 추출
+ * Analytics 순수 계산 (rows → 히트맵·영업시간 집계)
+ * DB 접근 없이 메모리에서만 동작 — 선계산 시 1회 쿼리 후 서버별 슬라이싱에 사용
  */
-export async function buildAnalyticsData(days: number, serverIds: string[] | null): Promise<any> {
-  const serverId = serverIds && serverIds.length === 1 ? serverIds[0] : null;
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-
-  const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
-  const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
-
-  const { rows } = await pgPool.query(`
-    SELECT
-      s.id,
-      EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS h,
-      EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS d,
-      to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS dt,
-      (SELECT AVG((g->>'utilGpu')::float) FROM jsonb_array_elements(s.gpu_metrics) g) AS gpu,
-      (SELECT CASE WHEN SUM((g->>'memTotalMb')::float) > 0
-        THEN SUM((g->>'memUsedMb')::float)/SUM((g->>'memTotalMb')::float)*100 ELSE 0 END
-        FROM jsonb_array_elements(s.gpu_metrics) g) AS mem,
-      (SELECT AVG((l->>'kvCacheUsagePct')::float)
-        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l
-        WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS kv,
-      (SELECT SUM(COALESCE((l->>'runningRequests')::float,0))
-        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS run,
-      (SELECT SUM(COALESCE((l->>'waitingRequests')::float,0))
-        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS wait,
-      (SELECT SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0))
-        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps,
-      (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
-        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
-    FROM gpu_metric_snapshots s
-    WHERE s.timestamp >= $1 ${serverId ? 'AND s.server_id = $2' : serverIds && serverIds.length > 1 ? `AND s.server_id = ANY($2::uuid[])` : ''}
-    ORDER BY s.timestamp ASC
-  `, serverId ? [since, serverId] : serverIds && serverIds.length > 1 ? [since, serverIds] : [since]);
-
+function computeAnalyticsFromRows(rows: any[], days: number, since: Date, holidayDates: string[]): any {
   const holidaySet = new Set(holidayDates);
   const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
 
@@ -1144,7 +1111,7 @@ export async function buildAnalyticsData(days: number, serverIds: string[] | nul
   }).sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
 
   return {
-    period: { days, since: since.toISOString(), holidayCount: holidays.length },
+    period: { days, since: since.toISOString(), holidayCount: holidayDates.length },
     businessHours: {
       avgKvCache: bizLlmCount > 0 ? r1(bizLlmKvCache / bizLlmCount) : null,
       avgRunningReqs: bizCount > 0 ? r1(bizLlmRunning / bizCount) : null,
@@ -1159,15 +1126,124 @@ export async function buildAnalyticsData(days: number, serverIds: string[] | nul
   };
 }
 
+/** Analytics SQL — server_id 포함 (선계산 시 메모리 필터용) */
+const ANALYTICS_SQL = `
+  SELECT
+    s.server_id AS sid,
+    EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS h,
+    EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS d,
+    to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS dt,
+    (SELECT AVG((g->>'utilGpu')::float) FROM jsonb_array_elements(s.gpu_metrics) g) AS gpu,
+    (SELECT CASE WHEN SUM((g->>'memTotalMb')::float) > 0
+      THEN SUM((g->>'memUsedMb')::float)/SUM((g->>'memTotalMb')::float)*100 ELSE 0 END
+      FROM jsonb_array_elements(s.gpu_metrics) g) AS mem,
+    (SELECT AVG((l->>'kvCacheUsagePct')::float)
+      FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l
+      WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS kv,
+    (SELECT SUM(COALESCE((l->>'runningRequests')::float,0))
+      FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS run,
+    (SELECT SUM(COALESCE((l->>'waitingRequests')::float,0))
+      FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS wait,
+    (SELECT SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0))
+      FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps,
+    (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
+      FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
+  FROM gpu_metric_snapshots s`;
+
+/**
+ * GPU Analytics 데이터 빌드 (히트맵·영업시간 분석)
+ * - 라우트 핸들러 fallback용 (캐시 미스 시 호출)
+ */
+export async function buildAnalyticsData(days: number, serverIds: string[] | null): Promise<any> {
+  const serverId = serverIds && serverIds.length === 1 ? serverIds[0] : null;
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
+  const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
+
+  const whereClause = serverId ? 'AND s.server_id = $2' : serverIds && serverIds.length > 1 ? 'AND s.server_id = ANY($2::uuid[])' : '';
+  const { rows } = await pgPool.query(
+    `${ANALYTICS_SQL} WHERE s.timestamp >= $1 ${whereClause} ORDER BY s.timestamp ASC`,
+    serverId ? [since, serverId] : serverIds && serverIds.length > 1 ? [since, serverIds] : [since],
+  );
+
+  return computeAnalyticsFromRows(rows, days, since, holidayDates);
+}
+
 /**
  * GPU Analytics 선계산 → Redis (5분 주기)
- * 기본 분석(30일, 전체 서버) 캐시를 항상 warm 상태로 유지
+ * 1회 전체 쿼리 → 프론트 드롭다운 전 조합을 메모리에서 슬라이싱 → 전부 캐시
+ * 드롭다운 어떤 걸 선택해도 항상 캐시 히트
  */
 export async function precomputeGpuAnalytics(): Promise<void> {
   try {
-    const result = await buildAnalyticsData(30, null);
     const { redis } = await import('../index.js');
-    await redis.setex('gpu:analytics:30:all', 600, JSON.stringify(result));
+    const days = 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
+    const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
+
+    // ── 1회 전체 쿼리 (무거운 JSON 파싱은 여기서 1번만) ──
+    const { rows: allRows } = await pgPool.query(
+      `${ANALYTICS_SQL} WHERE s.timestamp >= $1 ORDER BY s.timestamp ASC`,
+      [since],
+    );
+
+    // 전체 서버 결과
+    const allResult = computeAnalyticsFromRows(allRows, days, since, holidayDates);
+    const pipeline = redis.pipeline();
+    pipeline.setex('gpu:analytics:30:all', 600, JSON.stringify(allResult));
+
+    // ── 프론트엔드 드롭다운 조합 도출 (realtime 데이터에서) ──
+    const realtimeRaw = await redis.get('gpu:realtime');
+    if (realtimeRaw) {
+      const realtimeData: any[] = JSON.parse(realtimeRaw).data || [];
+
+      const k8s = realtimeData.filter((e: any) => !e.server?.isLocal && e.server?.sshPort === 0);
+      const dedicatedModels = new Map<string, string[]>();
+      const sharedServerIds = new Set<string>();
+
+      for (const entry of k8s) {
+        for (const ep of (entry.metrics?.llmEndpoints || [])) {
+          const inst = ep.containerName || '';
+          if (!inst || inst.includes('router') || inst.includes('redis') || inst.includes('litellm')) continue;
+          if (inst.startsWith('shared-')) { sharedServerIds.add(entry.server.id); continue; }
+          const existing = dedicatedModels.get(inst) || [];
+          if (!existing.includes(entry.server.id)) existing.push(entry.server.id);
+          dedicatedModels.set(inst, existing);
+        }
+      }
+
+      const combinations: Array<{ key: string; ids: Set<string> }> = [];
+
+      // DT 전용 모델 조합
+      for (const [, sids] of dedicatedModels) {
+        combinations.push({ key: sids.join(','), ids: new Set(sids) });
+      }
+      // DT 공유 모델 조합
+      if (sharedServerIds.size > 0) {
+        combinations.push({ key: Array.from(sharedServerIds).join(','), ids: sharedServerIds });
+      }
+      // SSH 서버 (개별)
+      const sshServers = realtimeData.filter((e: any) => !e.server?.isLocal && e.server?.sshPort > 0);
+      for (const entry of sshServers) {
+        combinations.push({ key: entry.server.id, ids: new Set([entry.server.id]) });
+      }
+
+      // 각 조합: 메모리에서 필터 → 계산 → 캐시 (DB 추가 쿼리 0회)
+      for (const { key, ids } of combinations) {
+        const filtered = allRows.filter((r: any) => ids.has(r.sid));
+        const result = computeAnalyticsFromRows(filtered, days, since, holidayDates);
+        pipeline.setex(`gpu:analytics:30:${key}`, 600, JSON.stringify(result));
+      }
+
+      console.log(`[GPU Precompute] Analytics: all + ${combinations.length} combinations`);
+    }
+
+    await pipeline.exec();
   } catch (err) {
     console.error('[GPU Precompute] Analytics error:', err);
   }
