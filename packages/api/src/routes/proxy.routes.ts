@@ -217,6 +217,7 @@ proxyRoutes.post(
 
             // 4xx는 즉시 반환 (재시도 안함)
             if (response.status >= 400 && response.status < 500) {
+              recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/audio/transcriptions', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 2000), userAgent, ipAddress, stream: false }).catch(() => {});
               try {
                 const errorJson = JSON.parse(errorText);
                 res.status(response.status).json(errorJson);
@@ -1190,6 +1191,10 @@ async function handleNonStreamingRequest(
         }
 
         if (response.status >= 400 && response.status < 500) {
+          const errorMessage = response.status === 400 && isMaxTokensError(errorText)
+            ? 'context_length_exceeded'
+            : errorText.substring(0, 2000);
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs, errorMessage, userAgent: null, ipAddress: null, stream: false }).catch(() => {});
           if (response.status === 400 && isMaxTokensError(errorText)) {
             res.status(400).json({
               error: { message: 'The input prompt exceeds the model\'s maximum context length.', type: 'invalid_request_error', code: 'context_length_exceeded' },
@@ -1353,6 +1358,10 @@ async function handleStreamingRequest(
         }
       } else {
         if (response.status >= 400 && response.status < 500) {
+          const errorMessage = response.status === 400 && isMaxTokensError(errorText)
+            ? 'context_length_exceeded'
+            : errorText.substring(0, 2000);
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/chat/completions', statusCode: response.status, latencyMs: Date.now() - attemptStart, errorMessage, userAgent: null, ipAddress: null, stream: true }).catch(() => {});
           if (response.status === 400 && isMaxTokensError(errorText)) {
             res.status(400).json({
               error: { message: 'The input prompt exceeds the model\'s maximum context length.', type: 'invalid_request_error', code: 'context_length_exceeded' },
