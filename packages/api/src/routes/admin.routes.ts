@@ -3665,7 +3665,17 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
         for (const r of aliasRows) {
           if (!modelToAlias.has(r.modelId)) modelToAlias.set(r.modelId, r.aliasName);
         }
-        const aliasNames = [...new Set(aliasRows.map(r => r.aliasName))];
+        // service_models에 없는 모델(삭제됨 등)은 모델 displayName으로 fallback
+        const unmappedIds = [...new Set(dailyStats.map(s => s.model_id))].filter(id => !modelToAlias.has(id));
+        if (unmappedIds.length > 0) {
+          const fallbackModels = await prisma.model.findMany({
+            where: { id: { in: unmappedIds } },
+            select: { id: true, displayName: true },
+          });
+          for (const fm of fallbackModels) modelToAlias.set(fm.id, fm.displayName);
+        }
+
+        const aliasNames = [...new Set([...aliasRows.map(r => r.aliasName), ...unmappedIds.map(id => modelToAlias.get(id)!)])].filter(Boolean);
 
         const dateMap = new Map<string, Record<string, number>>();
         const endDate1 = new Date();

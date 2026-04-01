@@ -146,7 +146,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       if (activeTab === 'model' || activeTab === 'overview') {
         const modelRes = await statsApi.byModel(days, serviceId);
         setModelData(modelRes.data.modelStats || []);
-        if (modelRes.data.mergeGroups) setModelMergeGroups(modelRes.data.mergeGroups);
+        setModelMergeGroups(modelRes.data.mergeGroups || {});
       }
       if (activeTab === 'department') {
         const deptRes = await statsApi.byDept(days, serviceId);

@@ -165,6 +165,12 @@ const timeline = [
     desc: 'GPU Realtime 선계산(15초 주기) — 벤치마크·피크TPS 계산을 백그라운드 워커로 이관하여 API 응답 수백ms→<5ms. Analytics 선계산(5분 주기) — 1회 전체 쿼리 후 프론트 드롭다운 전 조합을 메모리 슬라이싱으로 Redis 일괄 캐시(DB 추가 쿼리 0회, 어떤 서버/모델 선택해도 즉시 응답). 서버 CRUD 시 캐시 즉시 무효화. Page Visibility API로 탭 비활성 시 폴링 완전 중단. updatedAt 비교로 GPU 데이터 미변경 시 차트 리렌더 방지. interval 누수 방지 처리.',
     tags: ['선계산 Precompute', 'Page Visibility', '리렌더 최적화', '메모리 슬라이싱'],
   },
+  {
+    date: '2026.04.01',
+    title: '대시보드 동일 모델 합산 & 서비스별 alias 그룹핑',
+    desc: '통합 대시보드: 같은 endpoint+modelName인 복수 등록 모델(API 키·헤더 변주)을 자동 합산 표시 — sortOrder 최소 모델의 displayName을 대표명으로 사용, 합산 내역은 배너·뱃지로 확인 가능. 서비스 대시보드: 서비스에 등록된 aliasName(표시이름) 기준으로 모든 차트 합산 — 모델별 누적 사용량, 사용자별 누적 사용량, 사용량 분석 모두 alias 그룹 단위. DB 원본·LLM 관리 페이지는 변경 없이 차트 집계 레이어에서만 동작.',
+    tags: ['모델 합산', 'alias 그룹핑', '대시보드 UX', 'CTE SQL'],
+  },
 ];
 
 // ── 기능 카테고리 ──
@@ -207,6 +213,7 @@ const featureGroups = [
       'GPU Realtime 선계산 (15초 주기 백그라운드 워커, API 응답 <5ms)',
       'Analytics 1회 쿼리 → N조합 메모리 슬라이싱 → 전 드롭다운 즉시 응답',
       'Page Visibility 폴링 중단 + updatedAt 비교 리렌더 방지',
+      '동일 모델 자동 합산 (endpoint+name 기준, CTE SQL) + 서비스별 aliasName 그룹 차트',
       'GPU 모니터링 가이드북 (인터랙티브 슬라이드)',
     ],
   },

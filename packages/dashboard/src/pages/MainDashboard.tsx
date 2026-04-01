@@ -354,9 +354,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         setLatencyStats((d.latency?.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
         setLatencyHistory(d.latencyHistory?.history || {});
         setHealthCheckHistory(d.latencyHealthcheck?.history || {});
-        // 합산 정보 병합 (latency, healthcheck 등에서 가져온 mergeGroups 합침)
+        // 합산 정보 병합 (latency, healthcheck 등에서 가져온 mergeGroups 합침, 매번 리셋)
         const mg: Record<string, string[]> = { ...d.latency?.mergeGroups, ...d.latencyHealthcheck?.mergeGroups };
-        if (Object.keys(mg).length > 0) setModelMergeGroups(prev => ({ ...prev, ...mg }));
+        setModelMergeGroups(mg);
         setErrorRateDaily(d.errorRate?.daily || []);
       };
 
