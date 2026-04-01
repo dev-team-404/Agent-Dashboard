@@ -3267,7 +3267,54 @@ adminRoutes.get('/stats/by-model', async (req: AuthenticatedRequest, res) => {
 
       const modelMap = new Map(models.map((m) => [m.id, m]));
 
-      // 동일 endpoint+name 모델 합산
+      // 서비스별 조회: aliasName 기준 합산
+      if (serviceId) {
+        const aliasRows = await prisma.serviceModel.findMany({
+          where: { serviceId },
+          select: { modelId: true, aliasName: true },
+          orderBy: { sortOrder: 'asc' },
+        });
+        const modelToAlias = new Map<string, string>();
+        for (const r of aliasRows) {
+          if (!modelToAlias.has(r.modelId)) modelToAlias.set(r.modelId, r.aliasName);
+        }
+
+        const aliasGroupMap = new Map<string, {
+          sumInput: number; sumOutput: number; sumTotal: number; count: number; modelNames: string[];
+        }>();
+        for (const s of modelStats) {
+          const alias = modelToAlias.get(s.modelId) || modelMap.get(s.modelId)?.displayName || 'Unknown';
+          const mName = modelMap.get(s.modelId)?.displayName || '';
+          const existing = aliasGroupMap.get(alias);
+          if (!existing) {
+            aliasGroupMap.set(alias, {
+              sumInput: s._sum.inputTokens || 0, sumOutput: s._sum.outputTokens || 0,
+              sumTotal: s._sum.totalTokens || 0, count: s._count,
+              modelNames: mName ? [mName] : [],
+            });
+          } else {
+            existing.sumInput += s._sum.inputTokens || 0;
+            existing.sumOutput += s._sum.outputTokens || 0;
+            existing.sumTotal += s._sum.totalTokens || 0;
+            existing.count += s._count;
+            if (mName && !existing.modelNames.includes(mName)) existing.modelNames.push(mName);
+          }
+        }
+
+        return {
+          modelStats: [...aliasGroupMap.entries()]
+            .sort((a, b) => b[1].sumTotal - a[1].sumTotal)
+            .map(([alias, g]) => ({
+              modelId: alias,
+              _sum: { inputTokens: g.sumInput, outputTokens: g.sumOutput, totalTokens: g.sumTotal },
+              _count: g.count,
+              model: { id: alias, name: alias, displayName: alias },
+              mergedFrom: g.modelNames.length > 1 ? g.modelNames : undefined,
+            })),
+        };
+      }
+
+      // 글로벌 조회: endpoint+name 기준 합산
       const groupMap = new Map<string, {
         canonicalName: string; canonicalDisplayName: string; sortOrder: number;
         allNames: string[]; sumInput: number; sumOutput: number; sumTotal: number; count: number;
@@ -3587,40 +3634,13 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
 
-      // Get models that were actually USED
-      let modelIds: string[];
-      if (serviceId) {
-        const usedModels = await prisma.$queryRaw<Array<{ model_id: string }>>`
-          SELECT DISTINCT model_id
-          FROM usage_logs
-          WHERE timestamp >= ${startDate}
-            AND service_id::text = ${serviceId}
-        `;
-        modelIds = usedModels.map((m) => m.model_id);
-      } else {
-        const usedModels = await prisma.$queryRaw<Array<{ model_id: string }>>`
-          SELECT DISTINCT model_id
-          FROM usage_logs
-          WHERE timestamp >= ${startDate}
-        `;
-        modelIds = usedModels.map((m) => m.model_id);
-      }
-
-      // Get model details for the used models
-      const models = await prisma.model.findMany({
-        where: { id: { in: modelIds } },
-        select: { id: true, name: true, displayName: true },
-      });
-
       // Get daily stats grouped by model and date
       let dailyStats: Array<{ date: Date | string; model_id: string; total_tokens: bigint }>;
-
       if (serviceId) {
         dailyStats = await prisma.$queryRaw`
           SELECT DATE(timestamp) as date, model_id, SUM("totalTokens") as total_tokens
           FROM usage_logs
-          WHERE timestamp >= ${startDate}
-            AND service_id::text = ${serviceId}
+          WHERE timestamp >= ${startDate} AND service_id::text = ${serviceId}
           GROUP BY DATE(timestamp), model_id
           ORDER BY date ASC
         `;
@@ -3634,34 +3654,65 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
         `;
       }
 
-      // Process into date-keyed structure
-      const dateMap = new Map<string, Record<string, number>>();
+      // 서비스별 조회: aliasName 기준 합산
+      if (serviceId) {
+        const aliasRows = await prisma.serviceModel.findMany({
+          where: { serviceId },
+          select: { modelId: true, aliasName: true, sortOrder: true },
+          orderBy: { sortOrder: 'asc' },
+        });
+        const modelToAlias = new Map<string, string>();
+        for (const r of aliasRows) {
+          if (!modelToAlias.has(r.modelId)) modelToAlias.set(r.modelId, r.aliasName);
+        }
+        const aliasNames = [...new Set(aliasRows.map(r => r.aliasName))];
+
+        const dateMap = new Map<string, Record<string, number>>();
+        const endDate1 = new Date();
+        for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
+          const dateStr = toLocalDateString(d);
+          const init: Record<string, number> = {};
+          for (const a of aliasNames) init[a] = 0;
+          dateMap.set(dateStr, init);
+        }
+        for (const stat of dailyStats) {
+          const dateStr = formatDateToString(stat.date);
+          const alias = modelToAlias.get(stat.model_id);
+          if (alias && dateMap.has(dateStr)) {
+            dateMap.get(dateStr)![alias] = (dateMap.get(dateStr)![alias] || 0) + Number(stat.total_tokens);
+          }
+        }
+        return {
+          models: aliasNames.map(n => ({ id: n, name: n, displayName: n })),
+          chartData: [...dateMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, usage]) => ({ date, ...usage })),
+        };
+      }
+
+      // 글로벌 조회: 개별 모델 기준
+      const usedModelIds = [...new Set(dailyStats.map(s => s.model_id))];
+      const models = await prisma.model.findMany({
+        where: { id: { in: usedModelIds } },
+        select: { id: true, name: true, displayName: true },
+      });
       const existingModelIds = models.map((m) => m.id);
 
+      const dateMap = new Map<string, Record<string, number>>();
       const endDate1 = new Date();
       for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
         const dateStr = toLocalDateString(d);
         const initialData: Record<string, number> = {};
-        for (const modelId of existingModelIds) {
-          initialData[modelId] = 0;
-        }
+        for (const modelId of existingModelIds) initialData[modelId] = 0;
         dateMap.set(dateStr, initialData);
       }
-
       for (const stat of dailyStats) {
         const dateStr = formatDateToString(stat.date);
         const existing = dateMap.get(dateStr);
-        if (existing) {
-          existing[stat.model_id] = Number(stat.total_tokens);
-        }
+        if (existing) existing[stat.model_id] = Number(stat.total_tokens);
       }
 
       const chartData = Array.from(dateMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, modelUsage]) => ({
-          date,
-          ...modelUsage,
-        }));
+        .map(([date, modelUsage]) => ({ date, ...modelUsage }));
 
       return {
         models: models.map((m) => ({ id: m.id, name: m.name, displayName: m.displayName })),
@@ -3684,8 +3735,9 @@ adminRoutes.get('/stats/model-daily-trend', async (req: AuthenticatedRequest, re
 adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res) => {
   try {
     const modelId = req.query['modelId'] as string;
-    if (!modelId) {
-      res.status(400).json({ error: 'modelId is required' });
+    const aliasName = req.query['aliasName'] as string | undefined;
+    if (!modelId && !aliasName) {
+      res.status(400).json({ error: 'modelId or aliasName is required' });
       return;
     }
 
@@ -3693,16 +3745,36 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
     const topN = Math.min(100, Math.max(10, parseInt(req.query['topN'] as string) || 10));
     const serviceId = req.query['serviceId'] as string | undefined;
 
-    const result = await withCache(redis, `cache:admin:stats:model-user-trend:${modelId}:${days}:${topN}:${serviceId || 'all'}`, 90, async () => {
+    // aliasName이 제공되면 해당 alias의 모든 model_id를 조회
+    let targetModelIds: string[];
+    if (aliasName && serviceId) {
+      const sms = await prisma.serviceModel.findMany({
+        where: { serviceId, aliasName },
+        select: { modelId: true },
+      });
+      targetModelIds = sms.map(sm => sm.modelId);
+      if (targetModelIds.length === 0) {
+        res.json({ users: [], chartData: [] });
+        return;
+      }
+    } else {
+      targetModelIds = [modelId];
+    }
+
+    const cacheKey = aliasName
+      ? `cache:admin:stats:model-user-trend:alias:${aliasName}:${days}:${topN}:${serviceId || 'all'}`
+      : `cache:admin:stats:model-user-trend:${modelId}:${days}:${topN}:${serviceId || 'all'}`;
+
+    const result = await withCache(redis, cacheKey, 90, async () => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
 
-      // Get top N users by total usage for this model
+      // Get top N users by total usage for this model (or alias group)
       const topUsers = await prisma.usageLog.groupBy({
         by: ['userId'],
         where: {
-          modelId,
+          modelId: targetModelIds.length === 1 ? targetModelIds[0] : { in: targetModelIds },
           timestamp: { gte: startDate },
           user: {
             loginid: { not: 'anonymous' },
@@ -3735,7 +3807,7 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
         dailyStats = await prisma.$queryRaw`
           SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
           FROM usage_logs
-          WHERE model_id::text = ${modelId}
+          WHERE model_id::text = ANY(${targetModelIds})
             AND user_id::text = ANY(${topUserIds})
             AND timestamp >= ${startDate}
             AND service_id::text = ${serviceId}
@@ -3746,7 +3818,7 @@ adminRoutes.get('/stats/model-user-trend', async (req: AuthenticatedRequest, res
         dailyStats = await prisma.$queryRaw`
           SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
           FROM usage_logs
-          WHERE model_id::text = ${modelId}
+          WHERE model_id::text = ANY(${targetModelIds})
             AND user_id::text = ANY(${topUserIds})
             AND timestamp >= ${startDate}
           GROUP BY DATE(timestamp), user_id

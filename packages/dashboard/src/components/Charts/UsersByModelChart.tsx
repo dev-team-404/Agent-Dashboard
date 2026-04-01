@@ -68,9 +68,16 @@ interface UsersByModelChartProps {
   serviceId?: string;
 }
 
+interface AliasGroup {
+  aliasName: string;
+  modelIds: string[];
+}
+
 export default function UsersByModelChart({ serviceId }: UsersByModelChartProps) {
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [aliasGroups, setAliasGroups] = useState<AliasGroup[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
+  const [selectedAliasName, setSelectedAliasName] = useState<string>('');
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [chartData, setChartData] = useState<ChartDataItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,23 +94,27 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
 
   // Load chart data when model, days, topN, or serviceId changes
   useEffect(() => {
-    if (selectedModelId) {
+    if (serviceId ? selectedAliasName : selectedModelId) {
       loadChartData();
     }
-  }, [selectedModelId, days, topN, serviceId]);
+  }, [selectedModelId, selectedAliasName, days, topN, serviceId]);
 
   const loadModels = async () => {
     try {
       if (serviceId) {
-        // 서비스 상세 페이지: 해당 서비스에 등록된 모델만 표시
+        // 서비스 상세 페이지: aliasName 그룹으로 표시
         const response = await serviceApi.listModels(serviceId);
-        const serviceModels = response.data.serviceModels || [];
-        const modelList: ModelInfo[] = serviceModels.map((sm: { model: ModelInfo }) => sm.model);
-        // 중복 제거 (같은 모델이 여러 alias로 등록될 수 있음)
-        const uniqueModels = Array.from(new Map(modelList.map(m => [m.id, m])).values());
-        setModels(uniqueModels);
-        if (uniqueModels.length > 0) {
-          setSelectedModelId(uniqueModels[0].id);
+        const serviceModels: Array<{ aliasName: string; model: ModelInfo }> = response.data.serviceModels || [];
+        // aliasName별로 그룹핑
+        const groupMap = new Map<string, string[]>();
+        for (const sm of serviceModels) {
+          if (!groupMap.has(sm.aliasName)) groupMap.set(sm.aliasName, []);
+          groupMap.get(sm.aliasName)!.push(sm.model.id);
+        }
+        const groups = [...groupMap.entries()].map(([aliasName, modelIds]) => ({ aliasName, modelIds }));
+        setAliasGroups(groups);
+        if (groups.length > 0) {
+          setSelectedAliasName(groups[0].aliasName);
         }
       } else {
         // 글로벌 대시보드: 전체 모델
@@ -124,7 +135,9 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
   const loadChartData = async () => {
     setLoadingChart(true);
     try {
-      const response = await statsApi.modelUserTrend(selectedModelId, days, topN, serviceId);
+      const response = serviceId && selectedAliasName
+        ? await statsApi.modelUserTrend('', days, topN, serviceId, selectedAliasName)
+        : await statsApi.modelUserTrend(selectedModelId, days, topN, serviceId);
       setUsers(response.data.users);
       setChartData(response.data.chartData);
     } catch (error) {
@@ -172,7 +185,9 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
     return 30;
   }, [days]);
 
-  const selectedModel = models.find((m) => m.id === selectedModelId);
+  const selectedModel = serviceId
+    ? (selectedAliasName ? { displayName: selectedAliasName } : null)
+    : models.find((m) => m.id === selectedModelId);
 
   if (loading) {
     return (
@@ -201,17 +216,31 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
           {/* Model selector */}
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600">모델:</label>
-            <select
-              value={selectedModelId}
-              onChange={(e) => setSelectedModelId(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-nexus-500 focus:border-transparent"
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.displayName}
-                </option>
-              ))}
-            </select>
+            {serviceId && aliasGroups.length > 0 ? (
+              <select
+                value={selectedAliasName}
+                onChange={(e) => setSelectedAliasName(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-nexus-500 focus:border-transparent"
+              >
+                {aliasGroups.map((g) => (
+                  <option key={g.aliasName} value={g.aliasName}>
+                    {g.aliasName}{g.modelIds.length > 1 ? ` (${g.modelIds.length}개 합산)` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-nexus-500 focus:border-transparent"
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.displayName}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Top N selector */}
