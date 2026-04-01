@@ -12,7 +12,7 @@
  *    - 내부 HTTP 호출로 엔드포인트 로직을 그대로 재사용
  */
 
-import { prisma, redis } from '../index.js';
+import { prisma, redis, pgPool } from '../index.js';
 
 const PRECOMPUTE_INTERVAL_MS = 15_000;    // 15초 — overview precompute (실시간성 강화)
 const CACHE_WARM_INTERVAL_MS = 30_000;    // 30초 — batch 캐시 워밍 (실시간성 강화)
@@ -672,6 +672,15 @@ export async function startStatsPrecomputeCron(): Promise<void> {
       }
     }, CACHE_WARM_INTERVAL_MS);
   }, 10_000);
+
+  // LLM 히트맵 선계산 (5분 주기) — 전 모델 캐시 워밍
+  setTimeout(async () => {
+    try { await warmHeatmapCache(); } catch (err) { console.error('[HeatmapWarm] Initial warm failed:', err); }
+    setInterval(async () => {
+      try { await warmHeatmapCache(); } catch (err) { console.error('[HeatmapWarm] Error:', err); }
+    }, 5 * 60_000);
+    console.log('[HeatmapWarm] Heatmap precompute started (every 5m)');
+  }, 20_000); // 초기 DB 안정화 대기
 }
 
 export function stopStatsPrecomputeCron(): void {
@@ -684,4 +693,248 @@ export function stopStatsPrecomputeCron(): void {
     warmTimer = null;
   }
   console.log('[StatsPrecompute] Stopped');
+}
+
+// ================================================================
+// LLM 히트맵 선계산 — 6쿼리 1회 → 모델별 메모리 슬라이싱 → 전 모델 캐시
+// ================================================================
+
+async function warmHeatmapCache(): Promise<void> {
+  const days = 30;
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  // ── 모델 목록 조회 (라우트 핸들러와 동일 필드) ──
+  const models = await prisma.model.findMany({
+    where: { endpointUrl: { not: 'external://auto-created' } },
+    orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+    select: { id: true, name: true, displayName: true, type: true, enabled: true },
+  });
+  if (models.length === 0) return;
+
+  const modelById = new Map(models.map(m => [m.id, m]));
+  const modelByName = new Map(models.map(m => [m.name, m]));
+
+  // ── 6쿼리 1회 실행 (전 모델, 전 기간) ──
+  const [usageHourly, errorHourly, healthHourly, usageDaily, errorDaily, healthDaily] = await Promise.all([
+    // 1. usage_logs 시간별
+    pgPool.query(`
+      SELECT model_id,
+        TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+        AVG(latency_ms)::float as avg_latency,
+        CASE WHEN COUNT(latency_ms) > 0 THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float END as p95_latency,
+        COUNT(*)::int as call_count,
+        SUM(COALESCE("totalTokens", 0))::int as total_tokens
+      FROM usage_logs
+      WHERE model_id = ANY($1) AND timestamp >= $2
+      GROUP BY model_id, dt, hr
+    `, [models.map(m => m.id), startDate]),
+
+    // 2. request_logs 시간별 (에러/타임아웃)
+    pgPool.query(`
+      SELECT COALESCE(resolved_model, model_name) as mname,
+        TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+        COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+        COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
+      FROM request_logs
+      WHERE COALESCE(resolved_model, model_name) = ANY($1) AND timestamp >= $2
+      GROUP BY mname, dt, hr
+    `, [models.map(m => m.name), startDate]),
+
+    // 3. health_check_logs 시간별
+    pgPool.query(`
+      SELECT model_id,
+        TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        EXTRACT(HOUR FROM checked_at AT TIME ZONE 'Asia/Seoul')::int as hr,
+        AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+        CASE WHEN COUNT(CASE WHEN success AND latency_ms >= 0 THEN 1 END) > 0
+          THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float
+        END as p95_latency,
+        COUNT(*)::int as check_count,
+        COUNT(CASE WHEN success THEN 1 END)::int as success_count,
+        COUNT(CASE WHEN NOT success THEN 1 END)::int as fail_count
+      FROM health_check_logs
+      WHERE model_id = ANY($1) AND checked_at >= $2
+      GROUP BY model_id, dt, hr
+    `, [models.map(m => m.id), startDate]),
+
+    // 4. usage_logs 일별
+    pgPool.query(`
+      SELECT model_id,
+        TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        AVG(latency_ms)::float as avg_latency,
+        COUNT(*)::int as call_count,
+        COUNT(DISTINCT user_id)::int as unique_users
+      FROM usage_logs
+      WHERE model_id = ANY($1) AND timestamp >= $2
+      GROUP BY model_id, dt
+    `, [models.map(m => m.id), startDate]),
+
+    // 5. request_logs 일별
+    pgPool.query(`
+      SELECT COALESCE(resolved_model, model_name) as mname,
+        TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+        COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
+      FROM request_logs
+      WHERE COALESCE(resolved_model, model_name) = ANY($1) AND timestamp >= $2
+      GROUP BY mname, dt
+    `, [models.map(m => m.name), startDate]),
+
+    // 6. health_check_logs 일별
+    pgPool.query(`
+      SELECT model_id,
+        TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+        AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+        COUNT(*)::int as check_count,
+        COUNT(CASE WHEN success THEN 1 END)::int as success_count
+      FROM health_check_logs
+      WHERE model_id = ANY($1) AND checked_at >= $2
+      GROUP BY model_id, dt
+    `, [models.map(m => m.id), startDate]),
+  ]);
+
+  // ── 모델별 데이터 그루핑 (메모리) ──
+  type HeatCell = {
+    date: string; hour: number;
+    avgLatency: number | null; p95Latency: number | null;
+    callCount: number; successCount: number;
+    timeoutCount: number; errorCount: number;
+    hcAvgLatency: number | null; hcP95Latency: number | null;
+    hcCount: number; hcSuccess: number; hcFail: number;
+  };
+
+  const pipeline = redis.pipeline();
+  let cached = 0;
+
+  for (const model of models) {
+    try {
+      // 시간별 히트맵 병합
+      const merged = new Map<string, HeatCell>();
+
+      // usage (hourly)
+      for (const r of usageHourly.rows) {
+        if (r.model_id !== model.id) continue;
+        const key = `${r.dt}|${r.hr}`;
+        merged.set(key, {
+          date: r.dt, hour: +r.hr,
+          avgLatency: r.avg_latency ? Math.round(r.avg_latency) : null,
+          p95Latency: r.p95_latency ? Math.round(r.p95_latency) : null,
+          callCount: +r.call_count, successCount: +r.call_count,
+          timeoutCount: 0, errorCount: 0,
+          hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
+        });
+      }
+
+      // error (hourly)
+      for (const r of errorHourly.rows) {
+        if (r.mname !== model.name) continue;
+        const key = `${r.dt}|${r.hr}`;
+        const ex = merged.get(key);
+        if (ex) {
+          ex.timeoutCount = +r.timeout_count;
+          ex.errorCount = +r.error_count;
+          ex.callCount += +r.error_count;
+        } else {
+          merged.set(key, {
+            date: r.dt, hour: +r.hr,
+            avgLatency: null, p95Latency: null,
+            callCount: +r.error_count, successCount: 0,
+            timeoutCount: +r.timeout_count, errorCount: +r.error_count,
+            hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
+          });
+        }
+      }
+
+      // health (hourly)
+      for (const r of healthHourly.rows) {
+        if (r.model_id !== model.id) continue;
+        const key = `${r.dt}|${r.hr}`;
+        const ex = merged.get(key);
+        const hc = {
+          hcAvgLatency: r.avg_latency ? Math.round(r.avg_latency) : null,
+          hcP95Latency: r.p95_latency ? Math.round(r.p95_latency) : null,
+          hcCount: +r.check_count, hcSuccess: +r.success_count, hcFail: +r.fail_count,
+        };
+        if (ex) { Object.assign(ex, hc); }
+        else {
+          merged.set(key, {
+            date: r.dt, hour: +r.hr,
+            avgLatency: null, p95Latency: null, callCount: 0, successCount: 0,
+            timeoutCount: 0, errorCount: 0, ...hc,
+          });
+        }
+      }
+
+      const heatmap = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
+
+      // 일별 요약 병합
+      const usageDailyMap = new Map<string, any>();
+      for (const r of usageDaily.rows) {
+        if (r.model_id !== model.id) continue;
+        usageDailyMap.set(r.dt, r);
+      }
+      const errorDailyMap = new Map<string, any>();
+      for (const r of errorDaily.rows) {
+        if (r.mname !== model.name) continue;
+        errorDailyMap.set(r.dt, r);
+      }
+      const healthDailyMap = new Map<string, any>();
+      for (const r of healthDaily.rows) {
+        if (r.model_id !== model.id) continue;
+        healthDailyMap.set(r.dt, r);
+      }
+
+      const allDates = new Set([...usageDailyMap.keys(), ...errorDailyMap.keys(), ...healthDailyMap.keys()]);
+      const daily = [...allDates].sort().map(dt => {
+        const u = usageDailyMap.get(dt);
+        const e = errorDailyMap.get(dt);
+        const h = healthDailyMap.get(dt);
+        return {
+          date: dt,
+          avgLatency: u?.avg_latency ? Math.round(u.avg_latency) : null,
+          callCount: +(u?.call_count || 0) + +(e?.error_count || 0),
+          timeoutCount: +(e?.timeout_count || 0),
+          errorCount: +(e?.error_count || 0),
+          uniqueUsers: +(u?.unique_users || 0),
+          hcAvgLatency: h?.avg_latency ? Math.round(h.avg_latency) : null,
+          hcCount: +(h?.check_count || 0),
+          hcSuccess: +(h?.success_count || 0),
+        };
+      });
+
+      const result = {
+        heatmap, daily,
+        modelId: model.id, modelName: model.name, displayName: model.displayName, days,
+      };
+
+      pipeline.setex(`cache:admin:model-heatmap:${model.id}:${days}`, 600, JSON.stringify(result));
+      cached++;
+    } catch (err) {
+      console.error(`[HeatmapWarm] Model ${model.name} failed:`, err);
+    }
+  }
+
+  // 모델 목록도 캐시 (라우트 핸들러 응답과 동일한 형태)
+  try {
+    const countRows = await pgPool.query(
+      `SELECT model_id, COUNT(*)::int as cnt FROM usage_logs WHERE model_id = ANY($1) GROUP BY model_id`,
+      [models.map(m => m.id)],
+    );
+    const countMap = new Map(countRows.rows.map((r: any) => [r.model_id, +r.cnt]));
+    const modelList = models.map(m => ({
+      modelId: m.id,
+      modelName: m.name,
+      displayName: m.displayName,
+      modelType: m.type,
+      enabled: m.enabled,
+      totalCalls: countMap.get(m.id) || 0,
+    }));
+    pipeline.setex('cache:admin:model-heatmap:models', 600, JSON.stringify(modelList));
+  } catch {}
+
+  await pipeline.exec();
+  console.log(`[HeatmapWarm] ${cached} models cached (days=${days})`);
 }
