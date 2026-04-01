@@ -3262,14 +3262,60 @@ adminRoutes.get('/stats/by-model', async (req: AuthenticatedRequest, res) => {
       const modelIds = modelStats.map((s) => s.modelId);
       const models = await prisma.model.findMany({
         where: { id: { in: modelIds } },
-        select: { id: true, name: true, displayName: true },
+        select: { id: true, name: true, displayName: true, endpointUrl: true, sortOrder: true },
       });
 
       const modelMap = new Map(models.map((m) => [m.id, m]));
-      return { modelStats: modelStats.map((s) => ({
-        ...s,
-        model: modelMap.get(s.modelId),
-      })) };
+
+      // 동일 endpoint+name 모델 합산
+      const groupMap = new Map<string, {
+        canonicalName: string; canonicalDisplayName: string; sortOrder: number;
+        allNames: string[]; sumInput: number; sumOutput: number; sumTotal: number; count: number;
+      }>();
+      for (const s of modelStats) {
+        const m = modelMap.get(s.modelId);
+        if (!m) continue;
+        const groupKey = `${m.endpointUrl}::${m.name}`;
+        const existing = groupMap.get(groupKey);
+        if (!existing) {
+          groupMap.set(groupKey, {
+            canonicalName: m.name, canonicalDisplayName: m.displayName, sortOrder: m.sortOrder,
+            allNames: [m.displayName],
+            sumInput: s._sum.inputTokens || 0, sumOutput: s._sum.outputTokens || 0,
+            sumTotal: s._sum.totalTokens || 0, count: s._count,
+          });
+        } else {
+          if (!existing.allNames.includes(m.displayName)) existing.allNames.push(m.displayName);
+          if (m.sortOrder < existing.sortOrder) {
+            existing.canonicalDisplayName = m.displayName;
+            existing.sortOrder = m.sortOrder;
+          }
+          existing.sumInput += s._sum.inputTokens || 0;
+          existing.sumOutput += s._sum.outputTokens || 0;
+          existing.sumTotal += s._sum.totalTokens || 0;
+          existing.count += s._count;
+        }
+      }
+
+      const mergedStats = [...groupMap.entries()]
+        .sort((a, b) => b[1].sumTotal - a[1].sumTotal)
+        .map(([groupKey, g]) => ({
+          modelId: groupKey,
+          _sum: { inputTokens: g.sumInput, outputTokens: g.sumOutput, totalTokens: g.sumTotal },
+          _count: g.count,
+          model: { id: groupKey, name: g.canonicalName, displayName: g.canonicalDisplayName },
+          mergedFrom: g.allNames.length > 1 ? g.allNames : undefined,
+        }));
+
+      const mergeGroups: Record<string, string[]> = {};
+      for (const [, g] of groupMap) {
+        if (g.allNames.length > 1) mergeGroups[g.canonicalDisplayName] = g.allNames;
+      }
+
+      return {
+        modelStats: mergedStats,
+        ...(Object.keys(mergeGroups).length > 0 ? { mergeGroups } : {}),
+      };
     });
 
     res.json(result);
@@ -3770,11 +3816,13 @@ adminRoutes.get('/stats/latency', async (req: AuthenticatedRequest, res) => {
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
       const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+      // 동일 endpoint + model name 합산: CTE로 canonical displayName 결정 (sortOrder 가장 낮은 모델명)
       const latencyStats = await prisma.$queryRaw<Array<{
         service_id: string;
         service_name: string;
-        model_id: string;
+        model_group_key: string;
         model_name: string;
+        merged_names: string[];
         avg_10m: number | null;
         avg_30m: number | null;
         avg_1h: number | null;
@@ -3784,11 +3832,18 @@ adminRoutes.get('/stats/latency', async (req: AuthenticatedRequest, res) => {
         count_1h: bigint;
         count_24h: bigint;
       }>>`
+        WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
         SELECT
           s.id as service_id,
           s."displayName" as service_name,
-          m.id as model_id,
-          m."displayName" as model_name,
+          m.endpoint_url || '::' || m.name as model_group_key,
+          mc.canonical_name as model_name,
+          array_agg(DISTINCT m."displayName") as merged_names,
           AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
           AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
           AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
@@ -3800,18 +3855,28 @@ adminRoutes.get('/stats/latency', async (req: AuthenticatedRequest, res) => {
         FROM usage_logs ul
         INNER JOIN services s ON ul.service_id = s.id
         INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE ul.latency_ms IS NOT NULL
           AND ul.timestamp >= ${oneDayAgo}
-        GROUP BY s.id, s."displayName", m.id, m."displayName"
-        ORDER BY s."displayName", m."displayName"
+        GROUP BY s.id, s."displayName", m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY s."displayName", mc.canonical_name
       `;
+
+      // mergeGroups: 합산된 모델 그룹 정보 (2개 이상 합산된 경우만)
+      const mergeGroups: Record<string, string[]> = {};
+      for (const row of latencyStats) {
+        if (row.merged_names.length > 1) {
+          mergeGroups[row.model_name] = row.merged_names;
+        }
+      }
 
       return {
         stats: latencyStats.map(row => ({
           serviceId: row.service_id,
           serviceName: row.service_name,
-          modelId: row.model_id,
+          modelId: row.model_group_key,
           modelName: row.model_name,
+          mergedFrom: row.merged_names.length > 1 ? row.merged_names : undefined,
           avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
           avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
           avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
@@ -3821,6 +3886,7 @@ adminRoutes.get('/stats/latency', async (req: AuthenticatedRequest, res) => {
           count1h: Number(row.count_1h),
           count24h: Number(row.count_24h),
         })),
+        mergeGroups: Object.keys(mergeGroups).length > 0 ? mergeGroups : undefined,
         timestamp: now.toISOString(),
       };
     });
@@ -3856,32 +3922,37 @@ adminRoutes.get('/stats/latency/history', async (req: AuthenticatedRequest, res)
         bucketStart.setMinutes(bucketStart.getMinutes() + interval);
       }
 
-      // interval 분 단위로 집계
+      // interval 분 단위로 집계 (동일 endpoint+name 모델 합산)
       const historyData = await prisma.$queryRaw<Array<{
         time_bucket: Date;
         service_id: string;
         service_name: string;
-        model_id: string;
         model_name: string;
         avg_latency: number;
         request_count: bigint;
       }>>`
+        WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
         SELECT
           date_trunc('hour', ul.timestamp) +
             (EXTRACT(minute FROM ul.timestamp)::int / ${interval}) * interval '${interval} minutes' as time_bucket,
           s.id as service_id,
           s."displayName" as service_name,
-          m.id as model_id,
-          m."displayName" as model_name,
+          mc.canonical_name as model_name,
           AVG(ul.latency_ms) as avg_latency,
           COALESCE(SUM(request_count), 0) as request_count
         FROM usage_logs ul
         INNER JOIN services s ON ul.service_id = s.id
         INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE ul.latency_ms IS NOT NULL
           AND ul.timestamp >= ${startTime}
-        GROUP BY time_bucket, s.id, s."displayName", m.id, m."displayName"
-        ORDER BY time_bucket ASC, s."displayName", m."displayName"
+        GROUP BY time_bucket, s.id, s."displayName", m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY time_bucket ASC, s."displayName", mc.canonical_name
       `;
 
       // Get unique service/model combinations that have any data in the period
@@ -3955,16 +4026,40 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
           statusCode: true,
           errorMessage: true,
           checkedAt: true,
-          model: { select: { displayName: true } },
+          model: { select: { displayName: true, endpointUrl: true, name: true, sortOrder: true } },
         },
       });
 
-      // 모델별로 그룹핑 (현재 displayName 기준)
+      // 동일 endpoint+name 모델 합산: canonical displayName 결정 (sortOrder 가장 낮은 모델명)
+      const canonicalMap = new Map<string, { canonicalName: string; sortOrder: number; allNames: Set<string> }>();
+      for (const c of checks) {
+        const groupKey = `${c.model.endpointUrl}::${c.model.name}`;
+        const existing = canonicalMap.get(groupKey);
+        if (!existing) {
+          canonicalMap.set(groupKey, { canonicalName: c.model.displayName, sortOrder: c.model.sortOrder, allNames: new Set([c.model.displayName]) });
+        } else {
+          existing.allNames.add(c.model.displayName);
+          if (c.model.sortOrder < existing.sortOrder) {
+            existing.canonicalName = c.model.displayName;
+            existing.sortOrder = c.model.sortOrder;
+          }
+        }
+      }
+
+      // modelId → canonical displayName 매핑
+      const modelIdToCanonical = new Map<string, string>();
+      for (const c of checks) {
+        if (!modelIdToCanonical.has(c.modelId)) {
+          const groupKey = `${c.model.endpointUrl}::${c.model.name}`;
+          modelIdToCanonical.set(c.modelId, canonicalMap.get(groupKey)!.canonicalName);
+        }
+      }
+
+      // canonical displayName 기준으로 그룹핑
       const grouped: Record<string, Array<{ time: string; latency: number | null; success: boolean; error?: string }>> = {};
       for (const c of checks) {
-        // 시계 변경 등으로 음수/비정상 latency 필터링
         if (c.latencyMs != null && c.latencyMs < 0) continue;
-        const displayName = c.model.displayName;
+        const displayName = modelIdToCanonical.get(c.modelId) || c.model.displayName;
         if (!grouped[displayName]) grouped[displayName] = [];
         grouped[displayName].push({
           time: c.checkedAt.toISOString(),
@@ -3974,7 +4069,15 @@ adminRoutes.get('/stats/latency/healthcheck', async (req: AuthenticatedRequest, 
         });
       }
 
-      return { history: grouped, startTime: startTime.toISOString() };
+      // mergeGroups
+      const mergeGroups: Record<string, string[]> = {};
+      for (const [, info] of canonicalMap) {
+        if (info.allNames.size > 1) {
+          mergeGroups[info.canonicalName] = [...info.allNames].sort();
+        }
+      }
+
+      return { history: grouped, startTime: startTime.toISOString(), ...(Object.keys(mergeGroups).length > 0 ? { mergeGroups } : {}) };
     });
 
     res.json(result);
@@ -4005,7 +4108,7 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
       // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
       const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
 
-      // 1. 헬스체크 프로빙 추이 (현재 displayName 기준 JOIN)
+      // 1. 헬스체크 프로빙 추이 (동일 endpoint+name 합산)
       const hcTrend = await prisma.$queryRawUnsafe<Array<{
         period: Date;
         model_name: string;
@@ -4013,38 +4116,52 @@ adminRoutes.get('/stats/latency/trend', async (req: AuthenticatedRequest, res) =
         success_count: bigint;
         total_count: bigint;
       }>>(
-        `SELECT
+        `WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
           date_trunc($1, h.checked_at) as period,
-          m."displayName" as model_name,
+          mc.canonical_name as model_name,
           AVG(h.latency_ms) as avg_latency,
           COUNT(*) FILTER (WHERE h.success = true) as success_count,
           COUNT(*) as total_count
         FROM health_check_logs h
         INNER JOIN models m ON h.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE h.checked_at >= $2
-        GROUP BY period, m."displayName"
-        ORDER BY period, m."displayName"`,
+        GROUP BY period, m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY period, mc.canonical_name`,
         trunc, startDate
       );
 
-      // 2. 실사용 기반 추이
+      // 2. 실사용 기반 추이 (동일 endpoint+name 합산)
       const usageTrend = await prisma.$queryRawUnsafe<Array<{
         period: Date;
         model_name: string;
         avg_latency: number;
         request_count: bigint;
       }>>(
-        `SELECT
+        `WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
           date_trunc($1, ul.timestamp) as period,
-          m."displayName" as model_name,
+          mc.canonical_name as model_name,
           AVG(ul.latency_ms) as avg_latency,
           COUNT(*) as request_count
         FROM usage_logs ul
         INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE ul.latency_ms IS NOT NULL
           AND ul.timestamp >= $2
-        GROUP BY period, m."displayName"
-        ORDER BY period, m."displayName"`,
+        GROUP BY period, m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY period, mc.canonical_name`,
         trunc, startDate
       );
 
@@ -4103,16 +4220,22 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
       startDate.setDate(startDate.getDate() - calendarDays);
       startDate.setHours(0, 0, 0, 0);
 
-      // 일별 + 모델별 + 에러유형별 집계
+      // 일별 + 모델별 + 에러유형별 집계 (동일 endpoint+name 합산)
       const rows = await prisma.$queryRawUnsafe<Array<{
         day: Date;
         model_name: string;
         error_type: string;
         cnt: bigint;
       }>>(
-        `SELECT
+        `WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
           date_trunc('day', r.timestamp) as day,
-          COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+          COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name) as model_name,
           CASE
             WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
             WHEN r.status_code = 500 THEN '500'
@@ -4125,9 +4248,10 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
           COUNT(*) as cnt
         FROM request_logs r
         LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+        LEFT JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE r.status_code != 200
           AND r.timestamp >= $1
-        GROUP BY day, COALESCE(m."displayName", r.resolved_model, r.model_name), error_type
+        GROUP BY day, COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), error_type
         ORDER BY day, model_name, error_type`,
         startDate
       );
@@ -4146,15 +4270,21 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
 
       const daily = [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
 
-      // 모델별 대표 에러 원인 조회
+      // 모델별 대표 에러 원인 조회 (동일 endpoint+name 합산)
       const topErrors = await prisma.$queryRawUnsafe<Array<{
         model_name: string;
         error_type: string;
         error_cause: string;
         cnt: bigint;
       }>>(
-        `SELECT
-          COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
+        `WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name) as model_name,
           CASE
             WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
             WHEN r.status_code = 500 THEN '500'
@@ -4183,10 +4313,11 @@ adminRoutes.get('/stats/error-rate', async (req: AuthenticatedRequest, res) => {
           COUNT(*) as cnt
         FROM request_logs r
         LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+        LEFT JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
         WHERE r.status_code != 200
           AND r.timestamp >= $1
-        GROUP BY COALESCE(m."displayName", r.resolved_model, r.model_name), error_type, error_cause
-        ORDER BY COALESCE(m."displayName", r.resolved_model, r.model_name), cnt DESC`,
+        GROUP BY COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), error_type, error_cause
+        ORDER BY COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), cnt DESC`,
         startDate
       );
 

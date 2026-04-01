@@ -84,6 +84,7 @@ interface LatencyStat {
   serviceName: string;
   modelId: string;
   modelName: string;
+  mergedFrom?: string[];
   avg10m: number | null;
   avg30m: number | null;
   avg1h: number | null;
@@ -244,6 +245,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   const [latencyStats, setLatencyStats] = useState<LatencyStat[]>([]);
   const [latencyHistory, setLatencyHistory] = useState<LatencyHistory>({});
   const [healthCheckHistory, setHealthCheckHistory] = useState<HealthCheckHistory>({});
+  // 동일 endpoint+name 모델 합산 정보
+  const [modelMergeGroups, setModelMergeGroups] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ChartTab>('gpu');
   const holidayDates = useHolidayDates();
@@ -351,6 +354,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         setLatencyStats((d.latency?.stats || []).sort((a: LatencyStat, b: LatencyStat) => a.modelName.localeCompare(b.modelName)));
         setLatencyHistory(d.latencyHistory?.history || {});
         setHealthCheckHistory(d.latencyHealthcheck?.history || {});
+        // 합산 정보 병합 (latency, healthcheck 등에서 가져온 mergeGroups 합침)
+        const mg: Record<string, string[]> = { ...d.latency?.mergeGroups, ...d.latencyHealthcheck?.mergeGroups };
+        if (Object.keys(mg).length > 0) setModelMergeGroups(prev => ({ ...prev, ...mg }));
         setErrorRateDaily(d.errorRate?.daily || []);
       };
 
@@ -1049,6 +1055,29 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
 
       {/* ── 응답지연 탭 ── */}
       {activeTab === 'latency' && <>
+      {/* 모델 합산 안내 배너 */}
+      {Object.keys(modelMergeGroups).length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+          <div className="flex items-start gap-2">
+            <Layers className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-medium text-blue-700 mb-1">동일 모델 합산 표시</p>
+              <p className="text-xs text-blue-600 leading-relaxed">
+                같은 엔드포인트 · 모델 ID의 복수 등록 모델이 합산 집계됩니다.
+              </p>
+              <div className="mt-2 space-y-1">
+                {Object.entries(modelMergeGroups).map(([canonical, names]) => (
+                  <div key={canonical} className="flex items-center gap-1.5 text-xs">
+                    <span className="font-semibold text-blue-800">{canonical}</span>
+                    <span className="text-blue-400">=</span>
+                    <span className="text-blue-600">{names.join(' + ')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── 응답 지연 (독립 섹션) ── */}
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100">
@@ -1357,7 +1386,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     <tbody>
                       {latencyStats.map((stat, index) => (
                         <tr key={`${stat.serviceId}-${stat.modelId}`} className={`border-t border-pastel-50 ${index % 2 === 0 ? 'bg-white' : 'bg-pastel-50/30'}`}>
-                          <td className="py-3 px-4 font-medium text-pastel-800">{stat.serviceName} / {stat.modelName}</td>
+                          <td className="py-3 px-4 font-medium text-pastel-800">
+                            {stat.serviceName} / {stat.modelName}
+                            {stat.mergedFrom && stat.mergedFrom.length > 1 && (
+                              <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={`합산: ${stat.mergedFrom.join(', ')}`}>
+                                {stat.mergedFrom.length}개 합산
+                              </span>
+                            )}
+                          </td>
                           <td className="text-right py-3 px-4 text-pastel-700">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(2)}s` : '-'}</td>
                           <td className="text-right py-3 px-4 text-pastel-700">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(2)}s` : '-'}</td>
                           <td className="text-right py-3 px-4 text-pastel-700">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(2)}s` : '-'}</td>

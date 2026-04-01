@@ -5,7 +5,7 @@ import {
   Legend, Cell,
 } from 'recharts';
 import {
-  Download, Loader2, Calendar, BarChart3, AlertTriangle, RefreshCw,
+  Download, Loader2, Calendar, BarChart3, AlertTriangle, RefreshCw, Layers,
 } from 'lucide-react';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
@@ -81,6 +81,7 @@ interface ModelItem {
   };
   _count: number;
   model?: { id: string; name: string; displayName: string };
+  mergedFrom?: string[];
 }
 
 interface DeptItem {
@@ -108,6 +109,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
   const holidayDates = useHolidayDates();
   const { exclude } = useBusinessDayToggle();
   const [modelData, setModelData] = useState<ModelItem[]>([]);
+  const [modelMergeGroups, setModelMergeGroups] = useState<Record<string, string[]>>({});
   const [deptData, setDeptData] = useState<DeptItem[]>([]);
   const [dauData, setDauData] = useState<DauItem[]>([]);
 
@@ -144,6 +146,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       if (activeTab === 'model' || activeTab === 'overview') {
         const modelRes = await statsApi.byModel(days, serviceId);
         setModelData(modelRes.data.modelStats || []);
+        if (modelRes.data.mergeGroups) setModelMergeGroups(modelRes.data.mergeGroups);
       }
       if (activeTab === 'department') {
         const deptRes = await statsApi.byDept(days, serviceId);
@@ -206,6 +209,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       requests: m._count,
       inputTokens: m._sum.inputTokens || 0,
       outputTokens: m._sum.outputTokens || 0,
+      mergedFrom: m.mergedFrom,
     })),
   [modelData]);
 
@@ -481,6 +485,26 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       {/* ═══════ Model Tab ═══════ */}
       {!loading && activeTab === 'model' && (
         <div className="space-y-5">
+          {/* 모델 합산 안내 배너 */}
+          {Object.keys(modelMergeGroups).length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+              <div className="flex items-start gap-2">
+                <Layers className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-blue-700 mb-1">동일 모델 합산 표시</p>
+                  <div className="space-y-1">
+                    {Object.entries(modelMergeGroups).map(([canonical, names]) => (
+                      <div key={canonical} className="flex items-center gap-1.5 text-xs">
+                        <span className="font-semibold text-blue-800">{canonical}</span>
+                        <span className="text-blue-400">=</span>
+                        <span className="text-blue-600">{names.join(' + ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="bg-white rounded-xl shadow-card p-6">
             <h3 className="text-base font-semibold text-gray-900 mb-4">모델별 사용량</h3>
             {modelChartData.length === 0 ? (
@@ -522,7 +546,14 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                 <tbody>
                   {modelChartData.map((m) => (
                     <tr key={m.modelName} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-2.5 px-4 font-medium text-gray-900">{m.modelName}</td>
+                      <td className="py-2.5 px-4 font-medium text-gray-900">
+                        {m.modelName}
+                        {m.mergedFrom && m.mergedFrom.length > 1 && (
+                          <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={`합산: ${m.mergedFrom.join(', ')}`}>
+                            {m.mergedFrom.length}개 합산
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-4 text-right">{m.requests.toLocaleString()}</td>
                       <td className="py-2.5 px-4 text-right text-gray-600">{m.inputTokens.toLocaleString()}</td>
                       <td className="py-2.5 px-4 text-right font-medium">{m.outputTokens.toLocaleString()}</td>
