@@ -13,7 +13,7 @@ import { Client as SSHClient } from 'ssh2';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
-import { prisma } from '../index.js';
+import { prisma, pgPool } from '../index.js';
 
 const execAsync = promisify(exec);
 
@@ -892,7 +892,283 @@ export async function startGpuMonitorCron() {
         console.error('[GPU Monitor] Cleanup error:', err);
       }
     }, 6 * 60 * 60 * 1000);
+
+    // GPU Realtime 선계산 (15초 주기) — /realtime 캐시를 항상 warm 상태로 유지
+    setTimeout(async () => {
+      await precomputeGpuRealtime();
+      setInterval(() => precomputeGpuRealtime(), 15_000);
+      console.log('[GPU Precompute] Realtime precompute started (every 15s)');
+    }, 10_000); // SSH 폴링 첫 라운드 완료 대기
+
+    // GPU Analytics 선계산 (5분 주기) — 기본 분석(30일, 전체) 캐시 워밍
+    setTimeout(async () => {
+      await precomputeGpuAnalytics();
+      setInterval(() => precomputeGpuAnalytics(), 5 * 60_000);
+      console.log('[GPU Precompute] Analytics precompute started (every 5m)');
+    }, 30_000); // 초기 데이터 축적 후 시작
+
   } catch (err) {
     console.error('[GPU Monitor] Failed to start cron:', err);
+  }
+}
+
+// ================================================================
+// GPU 선계산 (Precompute) — 백그라운드에서 응답 조립 → Redis 저장
+// ================================================================
+
+/**
+ * 전체 실시간 응답 빌드 (벤치마크·피크TPS 포함)
+ * - 기존 /realtime 라우트의 계산 로직을 추출
+ * - precomputeGpuRealtime()과 라우트 핸들러 fallback 양쪽에서 호출
+ */
+export async function buildRealtimeData(): Promise<{ data: any[]; updatedAt: string }> {
+  const servers = await prisma.gpuServer.findMany({ orderBy: { createdAt: 'asc' } });
+  const metrics = getAllLatestMetrics();
+  const serverMap = new Map(servers.map(s => [s.id, { ...s, sshPassword: '***' }]));
+
+  // 7일 피크 TPS — 단일 SQL로 전체 서버 한번에 조회
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const peakTpsMap = new Map<string, number>();
+  try {
+    const serverIds = servers.map(s => s.id);
+    if (serverIds.length > 0) {
+      const { rows: peakRows } = await pgPool.query(`
+        SELECT server_id,
+          MAX((SELECT COALESCE(SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0)),0)
+               FROM jsonb_array_elements(COALESCE(llm_metrics,'[]'::jsonb)) l)) AS peak_tps
+        FROM (
+          SELECT server_id, llm_metrics, ROW_NUMBER() OVER (PARTITION BY server_id ORDER BY timestamp DESC) AS rn
+          FROM gpu_metric_snapshots WHERE server_id = ANY($1) AND timestamp >= $2
+        ) sub WHERE rn <= 100
+        GROUP BY server_id
+      `, [serverIds, sevenDaysAgo]);
+      for (const r of peakRows) {
+        if (r.peak_tps > 0) peakTpsMap.set(r.server_id, parseFloat(r.peak_tps));
+      }
+    }
+  } catch {}
+
+  // Prometheus 기반 서버 DB 조회
+  const promServerIds = servers.filter(s => s.sshPort === 0 || s.description?.includes('[DTGPT-Prometheus]')).map(s => s.id);
+  const promMetricsMap = new Map<string, any>();
+  if (promServerIds.length > 0) {
+    try {
+      const { rows } = await pgPool.query(`
+        SELECT DISTINCT ON (server_id) server_id,
+          gpu_metrics::text as gm, llm_metrics::text as lm,
+          hostname, timestamp
+        FROM gpu_metric_snapshots
+        WHERE server_id = ANY($1)
+        ORDER BY server_id, timestamp DESC
+      `, [promServerIds]);
+      for (const r of rows) {
+        try {
+          promMetricsMap.set(r.server_id, {
+            serverId: r.server_id, serverName: '', timestamp: r.timestamp,
+            gpus: JSON.parse(r.gm || '[]'), processes: [], llmEndpoints: JSON.parse(r.lm || '[]'),
+            cpuLoadAvg: null, cpuCores: null, memoryTotalMb: null, memoryUsedMb: null,
+            diskTotalGb: null, diskUsedGb: null, diskFreeGb: null, hostname: r.hostname,
+          });
+        } catch {}
+      }
+    } catch {}
+  }
+
+  // 벤치마크 로드
+  const { getAllBenchmarks, calcCompositeCapacity } = await import('./gpuBenchmark.service.js');
+  const benchmarkMap = await getAllBenchmarks();
+
+  const result = servers.map(s => {
+    const m = metrics.find(mt => mt.serverId === s.id) || promMetricsMap.get(s.id) || null;
+    const gpuCount = m?.gpus?.length || 0;
+    const spec = gpuCount > 0 ? m!.gpus[0].spec : null;
+    const endpoints: any[] = (m?.llmEndpoints || []).filter((ep: any) => ep.type !== 'unknown');
+
+    let primaryModelName: string | null = null;
+    let primaryModelParams: number | null = null;
+    for (const ep of endpoints) {
+      const name = ep.modelNames?.[0] || null;
+      const params = name ? estimateModelParams(name) : null;
+      if (params && (primaryModelParams == null || params > primaryModelParams)) {
+        primaryModelName = name;
+        primaryModelParams = params;
+      }
+    }
+    const precision = endpoints.some((ep: any) => ep.precision === 'fp8') ? 'fp8' as const : 'fp16' as const;
+
+    const theoreticalMaxTps = (spec && primaryModelParams && gpuCount > 0)
+      ? Math.round(calcTheoreticalMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10 : null;
+    const bandwidthMaxTps = (spec && primaryModelParams && gpuCount > 0)
+      ? Math.round(calcBandwidthMaxTps(spec, gpuCount, primaryModelParams, precision) * 10) / 10 : null;
+
+    const currentTps = endpoints.reduce((acc: number, ep: any) =>
+      acc + (ep.promptThroughputTps || 0) + (ep.genThroughputTps || 0), 0);
+    const peakTps = peakTpsMap.get(s.id) || null;
+
+    // 벤치마크 기반 종합 용량
+    const bm = benchmarkMap.get(s.id);
+    const currentKvPct = endpoints.length > 0
+      ? endpoints.reduce((acc: number, ep: any) => acc + (ep.kvCacheUsagePct || 0), 0) / endpoints.length : null;
+    const currentConcurrent = endpoints.reduce((acc: number, ep: any) =>
+      acc + (ep.runningRequests || 0) + (ep.waitingRequests || 0), 0);
+    const capacity = bm ? calcCompositeCapacity(currentTps, currentKvPct, currentConcurrent, bm) : null;
+
+    return {
+      server: serverMap.get(s.id),
+      metrics: m,
+      capacityAnalysis: capacity ? {
+        ...capacity,
+        currentTps: Math.round(currentTps * 10) / 10,
+        peakTps: bm?.peakTps || peakTps,
+        modelName: primaryModelName,
+        modelParams: primaryModelParams ? `${primaryModelParams}B` : null,
+        benchmark: bm ? { peakTps: bm.peakTps, peakKvPct: bm.peakKvPct, peakConcurrent: bm.peakConcurrent, source: bm.source } : null,
+      } : null,
+      throughputAnalysis: {
+        theoreticalMaxTps, bandwidthMaxTps, peakTps,
+        currentTps: Math.round(currentTps * 10) / 10,
+        modelName: primaryModelName,
+        modelParams: primaryModelParams ? `${primaryModelParams}B` : null,
+        gpuHealthPct: (theoreticalMaxTps && peakTps) ? Math.round((peakTps / theoreticalMaxTps) * 1000) / 10 : null,
+        utilizationPct: (peakTps && peakTps > 0) ? Math.round((currentTps / peakTps) * 1000) / 10 : null,
+        theoreticalUtilPct: (theoreticalMaxTps && theoreticalMaxTps > 0) ? Math.round((currentTps / theoreticalMaxTps) * 1000) / 10 : null,
+        practicalUtilPct: (bandwidthMaxTps && bandwidthMaxTps > 0) ? Math.round((currentTps / bandwidthMaxTps) * 1000) / 10 : null,
+        practicalHealthPct: (bandwidthMaxTps && peakTps) ? Math.round((peakTps / bandwidthMaxTps) * 1000) / 10 : null,
+      },
+    };
+  });
+
+  return { data: result, updatedAt: new Date().toISOString() };
+}
+
+/**
+ * GPU Realtime 선계산 → Redis (15초 주기)
+ * /realtime 캐시를 항상 warm 상태로 유지하여 API 응답 <5ms 보장
+ */
+export async function precomputeGpuRealtime(): Promise<void> {
+  try {
+    const response = await buildRealtimeData();
+    const { redis } = await import('../index.js');
+    await redis.setex('gpu:realtime', 120, JSON.stringify(response));
+  } catch (err) {
+    console.error('[GPU Precompute] Realtime error:', err);
+  }
+}
+
+/**
+ * GPU Analytics 데이터 빌드 (히트맵·영업시간 분석)
+ * - 기존 /analytics/overview 라우트의 계산 로직을 추출
+ */
+export async function buildAnalyticsData(days: number, serverIds: string[] | null): Promise<any> {
+  const serverId = serverIds && serverIds.length === 1 ? serverIds[0] : null;
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const holidays = await prisma.holiday.findMany({ where: { date: { gte: since } }, select: { date: true } });
+  const holidayDates = holidays.map(h => h.date.toISOString().split('T')[0]);
+
+  const { rows } = await pgPool.query(`
+    SELECT
+      s.id,
+      EXTRACT(HOUR FROM s.timestamp + INTERVAL '9 hours')::int AS h,
+      EXTRACT(DOW FROM s.timestamp + INTERVAL '9 hours')::int AS d,
+      to_char(s.timestamp + INTERVAL '9 hours', 'YYYY-MM-DD') AS dt,
+      (SELECT AVG((g->>'utilGpu')::float) FROM jsonb_array_elements(s.gpu_metrics) g) AS gpu,
+      (SELECT CASE WHEN SUM((g->>'memTotalMb')::float) > 0
+        THEN SUM((g->>'memUsedMb')::float)/SUM((g->>'memTotalMb')::float)*100 ELSE 0 END
+        FROM jsonb_array_elements(s.gpu_metrics) g) AS mem,
+      (SELECT AVG((l->>'kvCacheUsagePct')::float)
+        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l
+        WHERE (l->>'kvCacheUsagePct') IS NOT NULL) AS kv,
+      (SELECT SUM(COALESCE((l->>'runningRequests')::float,0))
+        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS run,
+      (SELECT SUM(COALESCE((l->>'waitingRequests')::float,0))
+        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS wait,
+      (SELECT SUM(COALESCE((l->>'promptThroughputTps')::float,0)+COALESCE((l->>'genThroughputTps')::float,0))
+        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS tps,
+      (SELECT SUM(COALESCE((l->>'preemptionCount')::float,0))
+        FROM jsonb_array_elements(COALESCE(s.llm_metrics,'[]'::jsonb)) l) AS preempt
+    FROM gpu_metric_snapshots s
+    WHERE s.timestamp >= $1 ${serverId ? 'AND s.server_id = $2' : serverIds && serverIds.length > 1 ? `AND s.server_id = ANY($2::uuid[])` : ''}
+    ORDER BY s.timestamp ASC
+  `, serverId ? [since, serverId] : serverIds && serverIds.length > 1 ? [since, serverIds] : [since]);
+
+  const holidaySet = new Set(holidayDates);
+  const isBiz = (h: number, d: number, dt: string) => h >= 9 && h < 18 && d >= 1 && d <= 5 && !holidaySet.has(dt);
+
+  let bizCount = 0, offCount = 0;
+  let bizLlmKvCache = 0, bizLlmCount = 0, bizLlmRunning = 0, bizLlmWaiting = 0;
+  let bizTotalTps = 0, bizTpsCount = 0, bizPeakTps = 0;
+
+  const dateHourMap = new Map<string, { tps: number[]; kv: number[]; wait: number[]; preempt: number[]; gpu: number[] }>();
+
+  for (const r of rows) {
+    const h = +r.h, d = +r.d;
+    const kv = r.kv != null ? +r.kv : null;
+    const run = +(r.run || 0), wait = +(r.wait || 0), tps = +(r.tps || 0);
+    const biz = isBiz(h, d, r.dt);
+
+    const key = `${r.dt}|${h}`;
+    const preempt = +(r.preempt || 0);
+    const gpu = +(r.gpu || 0);
+    const entry = dateHourMap.get(key) || { tps: [], kv: [], wait: [], preempt: [], gpu: [] };
+    if (tps > 0) entry.tps.push(tps);
+    if (kv != null) entry.kv.push(kv);
+    entry.wait.push(wait);
+    entry.preempt.push(preempt);
+    if (gpu > 0) entry.gpu.push(gpu);
+    dateHourMap.set(key, entry);
+
+    if (biz) {
+      bizCount++;
+      if (kv != null) { bizLlmKvCache += kv; bizLlmCount++; }
+      bizLlmRunning += run; bizLlmWaiting += wait;
+      if (tps > 0) { bizTotalTps += tps; bizTpsCount++; }
+      if (tps > bizPeakTps) bizPeakTps = tps;
+    } else {
+      offCount++;
+    }
+  }
+
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+
+  const dateHourHeatmap = Array.from(dateHourMap.entries()).map(([key, v]) => {
+    const [dt, hStr] = key.split('|');
+    const avgTps = v.tps.length > 0 ? v.tps.reduce((a, b) => a + b, 0) / v.tps.length : 0;
+    const avgKv = v.kv.length > 0 ? v.kv.reduce((a, b) => a + b, 0) / v.kv.length : 0;
+    const avgWait = v.wait.length > 0 ? v.wait.reduce((a, b) => a + b, 0) / v.wait.length : 0;
+    const avgPreempt = v.preempt.length > 0 ? v.preempt.reduce((a, b) => a + b, 0) / v.preempt.length : 0;
+    const avgGpu = v.gpu.length > 0 ? v.gpu.reduce((a, b) => a + b, 0) / v.gpu.length : 0;
+    return { date: dt, hour: +hStr, tps: r1(avgTps), kv: r1(avgKv), wait: r1(avgWait), preempt: r1(avgPreempt), gpu: r1(avgGpu), samples: v.tps.length || v.wait.length };
+  }).sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
+
+  return {
+    period: { days, since: since.toISOString(), holidayCount: holidays.length },
+    businessHours: {
+      avgKvCache: bizLlmCount > 0 ? r1(bizLlmKvCache / bizLlmCount) : null,
+      avgRunningReqs: bizCount > 0 ? r1(bizLlmRunning / bizCount) : null,
+      avgWaitingReqs: bizCount > 0 ? r1(bizLlmWaiting / bizCount) : null,
+      avgTps: bizTpsCount > 0 ? r1(bizTotalTps / bizTpsCount) : null,
+      peakTps: bizPeakTps > 0 ? r1(bizPeakTps) : null,
+      sampleCount: bizCount,
+    },
+    offHours: { sampleCount: offCount },
+    dateHourHeatmap,
+    totalSnapshots: rows.length,
+  };
+}
+
+/**
+ * GPU Analytics 선계산 → Redis (5분 주기)
+ * 기본 분석(30일, 전체 서버) 캐시를 항상 warm 상태로 유지
+ */
+export async function precomputeGpuAnalytics(): Promise<void> {
+  try {
+    const result = await buildAnalyticsData(30, null);
+    const { redis } = await import('../index.js');
+    await redis.setex('gpu:analytics:30:all', 600, JSON.stringify(result));
+  } catch (err) {
+    console.error('[GPU Precompute] Analytics error:', err);
   }
 }

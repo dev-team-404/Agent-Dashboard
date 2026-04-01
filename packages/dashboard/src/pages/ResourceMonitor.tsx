@@ -940,12 +940,45 @@ export default function ResourceMonitor() {
   const [hmTab, setHmTab] = useState('tps');
   const [guideOpen, setGuideOpen] = useState(false);
   const ref = useRef<ReturnType<typeof setInterval>>();
+  const lastTsRef = useRef<string>('');
 
-  const fetch_ = useCallback(async () => { try { const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]); setData(r.data.data || []); setPred(p.data.prediction); if (s.data.notice && !noticeText) setNoticeText(s.data.notice); setUpdated(new Date()); } catch {} finally { setLoading(false); } }, []);
+  const fetch_ = useCallback(async () => {
+    try {
+      const [r, p, s] = await Promise.all([gpuServerApi.realtime(), gpuCapacityApi.latest(), gpuCapacityApi.getSettings()]);
+      // 선계산 timestamp 비교 — GPU 데이터 미변경 시 setData 스킵 (차트 리렌더 방지)
+      const newTs = r.data?.updatedAt || '';
+      const dataChanged = !newTs || newTs !== lastTsRef.current;
+      if (dataChanged) {
+        lastTsRef.current = newTs;
+        setData(r.data.data || []);
+      }
+      setPred(p.data.prediction);
+      if (s.data.notice && !noticeText) setNoticeText(s.data.notice);
+      setUpdated(new Date());
+    } catch {} finally { setLoading(false); }
+  }, []);
   const fetchAna = useCallback(async () => { try { const r = await gpuServerApi.analytics(anaDays, anaServerId || undefined); setAna(r.data); } catch {} }, [anaDays, anaServerId]);
   const [anaLoading, setAnaLoading] = useState(false);
   const fetchAnaWithLoading = useCallback(async () => { setAnaLoading(true); await fetchAna(); setAnaLoading(false); }, [fetchAna]);
-  useEffect(() => { fetch_(); ref.current = setInterval(fetch_, 10000); return () => { if (ref.current) clearInterval(ref.current); }; }, [fetch_]);
+  useEffect(() => {
+    fetch_();
+    ref.current = setInterval(fetch_, 10000);
+    // 탭 비활성 시 폴링 중단, 활성화 시 즉시 재개 (Page Visibility API)
+    const onVisChange = () => {
+      if (document.hidden) {
+        if (ref.current) { clearInterval(ref.current); ref.current = undefined; }
+      } else {
+        if (ref.current) { clearInterval(ref.current); ref.current = undefined; }
+        fetch_();
+        ref.current = setInterval(fetch_, 10000);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisChange);
+    return () => {
+      if (ref.current) clearInterval(ref.current);
+      document.removeEventListener('visibilitychange', onVisChange);
+    };
+  }, [fetch_]);
   // 분석 데이터: 탭 전환 시 또는 serverId 변경 시에만 로드 (초기 로드 시 안 함 → 성능 개선)
   useEffect(() => { if (tab === 'analysis') fetchAnaWithLoading(); }, [tab, fetchAna]); // eslint-disable-line react-hooks/exhaustive-deps
 
