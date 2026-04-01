@@ -270,15 +270,17 @@ adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
       const serviceIds = new Set<string>();
       const modelIds = new Set<string>();
       const userTargetLoginIds = new Set<string>();
+      const ratingFeedbackIds = new Set<string>();
       for (const log of logs) {
         if (!log.target) continue;
         const tt = log.targetType;
-        if (tt === 'Service' || tt === 'SERVICE' || tt === 'ServiceTarget') serviceIds.add(log.target);
+        if (tt === 'Service' || tt === 'SERVICE' || tt === 'ServiceTarget' || tt === 'UsageLog' || tt === 'ExternalUsage' || tt === 'ServiceRateLimit') serviceIds.add(log.target);
         else if (tt === 'Model' || tt === 'SubModel') modelIds.add(log.target);
         else if (tt === 'User' || tt === 'RateLimit') userTargetLoginIds.add(log.target);
+        else if (tt === 'RatingFeedback') ratingFeedbackIds.add(log.target);
       }
 
-      const [services, models, targetUsers] = await Promise.all([
+      const [services, models, targetUsers, ratingFeedbacks] = await Promise.all([
         serviceIds.size > 0
           ? prisma.service.findMany({ where: { id: { in: [...serviceIds] } }, select: { id: true, displayName: true } })
           : [],
@@ -291,6 +293,12 @@ adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
               select: { id: true, loginid: true, username: true },
             })
           : [],
+        ratingFeedbackIds.size > 0
+          ? prisma.ratingFeedback.findMany({
+              where: { id: { in: [...ratingFeedbackIds] } },
+              select: { id: true, modelName: true, rating: true },
+            })
+          : [],
       ]);
 
       for (const s of services) targetMap[s.id] = s.displayName;
@@ -298,6 +306,9 @@ adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
       for (const u of targetUsers) {
         targetMap[u.id] = `${u.username} (${u.loginid})`;
         targetMap[u.loginid] = `${u.username} (${u.loginid})`;
+      }
+      for (const r of ratingFeedbacks) {
+        targetMap[r.id] = `${r.modelName} (${r.rating}점)`;
       }
     }
 
