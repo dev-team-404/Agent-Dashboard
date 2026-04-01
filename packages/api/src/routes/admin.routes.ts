@@ -6991,6 +6991,54 @@ adminRoutes.post('/stats/batch', async (req: AuthenticatedRequest, res) => {
 // ============================================
 
 /**
+ * GET /admin/stats/model-heatmap/all
+ * 전 모델 히트맵 데이터 일괄 반환 (선계산 캐시 Redis pipeline 읽기)
+ * 1 HTTP 요청으로 모델 목록 + 전 모델 히트맵 데이터 반환
+ */
+adminRoutes.get('/stats/model-heatmap/all', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
+  try {
+    const days = Math.min(90, Math.max(7, parseInt(req.query['days'] as string) || 30));
+
+    // 모델 목록 캐시
+    const modelsCached = await redis.get('cache:admin:model-heatmap:models');
+    let models: any[] = [];
+    if (modelsCached) {
+      models = JSON.parse(modelsCached);
+    } else {
+      const dbModels = await prisma.model.findMany({
+        where: { endpointUrl: { not: 'external://auto-created' } },
+        orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+        select: { id: true, name: true, displayName: true, type: true, enabled: true, _count: { select: { usageLogs: true } } },
+      });
+      models = dbModels.map(m => ({ modelId: m.id, modelName: m.name, displayName: m.displayName, modelType: m.type, enabled: m.enabled, totalCalls: m._count.usageLogs }));
+    }
+
+    if (models.length === 0) return res.json({ models: [], heatmaps: {} });
+
+    // Redis pipeline으로 전 모델 히트맵 캐시 일괄 읽기
+    const ids = models.map((m: any) => m.modelId);
+    const pipeline = redis.pipeline();
+    for (const id of ids) pipeline.get(`cache:admin:model-heatmap:${id}:${days}`);
+    const results = await pipeline.exec();
+
+    const heatmaps: Record<string, any> = {};
+    if (results) {
+      for (let i = 0; i < ids.length; i++) {
+        const [err, val] = results[i] || [];
+        if (!err && val) {
+          try { heatmaps[ids[i]] = JSON.parse(val as string); } catch {}
+        }
+      }
+    }
+
+    res.json({ models, heatmaps });
+  } catch (error) {
+    console.error('Get all model heatmaps error:', error);
+    res.status(500).json({ error: 'Failed to get heatmap data' });
+  }
+});
+
+/**
  * GET /admin/stats/model-heatmap/models
  * 히트맵용 모델 목록 — LLM 모델 관리와 동일한 방식 (Prisma ORM)
  * 외부 자동 생성 모델 제외, displayName 표시, enabled 상태

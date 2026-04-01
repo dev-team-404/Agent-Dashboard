@@ -120,17 +120,22 @@ export default function LlmHeatmap() {
   const loadModels = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.get('/admin/stats/model-heatmap/models');
+      // 1회 batch 호출로 모델 목록 + 전 모델 히트맵 일괄 로드
+      const res = await api.get('/admin/stats/model-heatmap/all', { params: { days: 30 } });
       const list: ModelEntry[] = res.data.models || [];
       setModels(list);
-      // 전 모델 히트맵 백그라운드 프리페치 (선계산 캐시 히트 → 즉시 응답)
-      Promise.all(
-        list.map(m => api.get('/admin/stats/model-heatmap', { params: { modelId: m.modelId, days: 30 } })
-          .then(r => { prefetchCache.current.set(m.modelId, r.data); })
-          .catch(() => {}))
-      ).catch(() => {});
+      // 전 모델 프리페치 캐시 채우기 (API 추가 호출 0회)
+      const heatmaps = res.data.heatmaps || {};
+      for (const [id, data] of Object.entries(heatmaps)) {
+        prefetchCache.current.set(id, data);
+      }
     } catch (err) {
       console.error('Failed to load models:', err);
+      // fallback: 기존 개별 API
+      try {
+        const res = await api.get('/admin/stats/model-heatmap/models');
+        setModels(res.data.models || []);
+      } catch {}
     } finally {
       setLoading(false);
     }
