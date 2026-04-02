@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../services/api';
 import {
@@ -43,6 +44,7 @@ function fmtDay(d: string): string {
 }
 
 export default function InsightServiceUsage() {
+  const { t } = useTranslation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -98,7 +100,7 @@ export default function InsightServiceUsage() {
           <button onClick={() => goMonth(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             <ChevronLeft className="w-4 h-4 text-gray-500" />
           </button>
-          <span className="text-sm font-semibold text-gray-700 min-w-[100px] text-center">{year}년 {month}월</span>
+          <span className="text-sm font-semibold text-gray-700 min-w-[100px] text-center">{t('insightServiceUsage.yearMonth', { year, month })}</span>
           <button onClick={() => goMonth(1)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
             disabled={year === now.getFullYear() && month === now.getMonth() + 1}>
             <ChevronRight className={`w-4 h-4 ${year === now.getFullYear() && month === now.getMonth() + 1 ? 'text-gray-300' : 'text-gray-500'}`} />
@@ -125,8 +127,8 @@ export default function InsightServiceUsage() {
 
       {/* Daily total token chart */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <h3 className="text-base font-semibold text-gray-800 mb-1">일별 토큰 사용량</h3>
-        <p className="text-xs text-gray-500 mt-0.5 mb-5">{year}년 {month}월 일자별 Input / Output 토큰</p>
+        <h3 className="text-base font-semibold text-gray-800 mb-1">{t('insightServiceUsage.dailyTokenUsage')}</h3>
+        <p className="text-xs text-gray-500 mt-0.5 mb-5">{t('insightServiceUsage.dailyTokenDesc', { year, month })}</p>
         {tokenData.length > 0 ? (
           <ResponsiveContainer width="100%" height={380}>
             <BarChart data={tokenData} margin={{ top: 10, right: 16, left: 4, bottom: 24 }}>
@@ -168,14 +170,14 @@ export default function InsightServiceUsage() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-52 text-gray-400 text-sm">해당 기간의 데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-52 text-gray-400 text-sm">{t('insightServiceUsage.noPeriodData')}</div>
         )}
       </div>
 
       {/* Service-level chart */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <h3 className="text-base font-semibold text-gray-800 mb-1">서비스별 토큰 사용량</h3>
-        <p className="text-xs text-gray-500 mt-0.5 mb-5">{year}년 {month}월 서비스별 총 토큰 사용량 추이</p>
+        <h3 className="text-base font-semibold text-gray-800 mb-1">{t('insightServiceUsage.serviceTokenUsage')}</h3>
+        <p className="text-xs text-gray-500 mt-0.5 mb-5">{t('insightServiceUsage.serviceTokenDesc', { year, month })}</p>
         {svcChartData.length > 0 && serviceNames.length > 0 ? (
           <ResponsiveContainer width="100%" height={380}>
             <BarChart data={svcChartData} margin={{ top: 10, right: 16, left: 4, bottom: 24 }}>
@@ -220,7 +222,7 @@ export default function InsightServiceUsage() {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-52 text-gray-400 text-sm">해당 기간의 데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-52 text-gray-400 text-sm">{t('insightServiceUsage.noPeriodData')}</div>
         )}
       </div>
     </div>
@@ -228,14 +230,15 @@ export default function InsightServiceUsage() {
 }
 
 function PageHeader() {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-4">
       <div className="p-3 rounded-xl bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm">
         <Zap className="w-6 h-6 text-violet-600" />
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">서비스 사용량 인사이트</h1>
-        <p className="text-sm text-pastel-500 mt-0.5">DTGPT 서버 토큰 사용량을 일별/서비스별로 분석합니다</p>
+        <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('insightServiceUsage.title')}</h1>
+        <p className="text-sm text-pastel-500 mt-0.5">{t('insightServiceUsage.subtitle')}</p>
       </div>
     </div>
   );

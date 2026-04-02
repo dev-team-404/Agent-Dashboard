@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Target, Search, Sparkles, BookOpen } from 'lucide-react';
 import { api } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
@@ -57,6 +58,7 @@ interface AiEstimation {
 type TabKey = 'targets' | 'dept-saved';
 
 export default function ServiceTargets() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>('dept-saved');
   const [services, setServices] = useState<ServiceTarget[]>([]);
   const [aiMap, setAiMap] = useState<Map<string, AiEstimation>>(new Map());
@@ -114,8 +116,8 @@ export default function ServiceTargets() {
   const totalSaved = services.reduce((sum, s) => sum + (s.aggregatedSavedMM || 0), 0);
 
   const tabs: { key: TabKey; label: string }[] = [
-    { key: 'dept-saved', label: 'Saved M/M 관리' },
-    { key: 'targets', label: '서비스 현황' },
+    { key: 'dept-saved', label: t('serviceTargets.tabDeptSaved') },
+    { key: 'targets', label: t('serviceTargets.tabServiceStatus') },
   ];
 
   return (
@@ -127,9 +129,9 @@ export default function ServiceTargets() {
             <Target className="w-6 h-6 text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">Saved M/M 관리</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('serviceTargets.title')}</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              서비스별 절감 실적(Saved M/M)을 관리합니다
+              {t('serviceTargets.description')}
             </p>
           </div>
         </div>
@@ -138,7 +140,7 @@ export default function ServiceTargets() {
           className="inline-flex items-center gap-1.5 px-3 py-2 text-indigo-600 bg-indigo-50 border border-indigo-200 text-sm font-medium rounded-lg hover:bg-indigo-100 transition-colors shrink-0"
         >
           <BookOpen className="w-4 h-4" />
-          관리 가이드
+          {t('common.managementGuide')}
         </button>
       </div>
 
@@ -170,13 +172,13 @@ export default function ServiceTargets() {
           {/* Summary Cards */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-              <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">전체 서비스</p>
+              <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">{t('serviceTargets.totalServices')}</p>
               <p className="text-2xl font-bold text-pastel-800 mt-1">{totalServices}</p>
             </div>
             <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-              <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">총 Saved M/M</p>
+              <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">{t('serviceTargets.totalSavedMM')}</p>
               <p className="text-2xl font-bold text-emerald-600 mt-1">{totalSaved.toFixed(1)}</p>
-              <p className="text-xs text-pastel-400 mt-0.5">{withSaved}개 서비스 합산</p>
+              <p className="text-xs text-pastel-400 mt-0.5">{t('serviceTargets.servicesSumCount', { count: withSaved })}</p>
             </div>
           </div>
 
@@ -186,7 +188,7 @@ export default function ServiceTargets() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
               <input
                 type="text"
-                placeholder="서비스명, 코드, 부서로 검색..."
+                placeholder={t('serviceTargets.searchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500/30 transition-all duration-200"
@@ -200,12 +202,12 @@ export default function ServiceTargets() {
               <table className="w-full" style={{ minWidth: '900px' }}>
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100/80">
-                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[300px]">서비스</th>
-                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">타입</th>
-                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">상태</th>
-                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">등록 부서</th>
-                    <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">Saved M/M</th>
-                    <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]" title="부서별 AI 추정 합산">AI 추정</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[300px]">{t('serviceTargets.colService')}</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">{t('serviceTargets.colType')}</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">{t('serviceTargets.colStatus')}</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">{t('serviceTargets.colRegisteredDept')}</th>
+                    <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">{t('serviceTargets.colSavedMM')}</th>
+                    <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]" title={t('serviceTargets.colAiEstimateTitle')}>{t('serviceTargets.colAiEstimate')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100/60">
@@ -218,7 +220,7 @@ export default function ServiceTargets() {
                           <div className="p-4 rounded-lg bg-pastel-50">
                             <Search className="w-8 h-8 text-pastel-300" />
                           </div>
-                          <p className="text-sm font-semibold text-pastel-600">검색 결과가 없습니다</p>
+                          <p className="text-sm font-semibold text-pastel-600">{t('serviceTargets.noResults')}</p>
                         </div>
                       </td>
                     </tr>
@@ -237,9 +239,8 @@ export default function ServiceTargets() {
                               {(s.totalMauLastMonth != null || s.totalMauCurrentMonth != null || s.totalLlmCallCountLastMonth != null) && (
                                 <div className="flex items-center gap-1.5 mt-1">
                                   <span className="text-[10px] text-pastel-400">
-                                    {'\u{1F4CA}'} 지난달 MAU {s.totalMauLastMonth != null ? s.totalMauLastMonth.toLocaleString() : '-'}
-                                    {' / 이번달 MAU '}
-                                    {s.totalMauCurrentMonth != null ? s.totalMauCurrentMonth.toLocaleString() : '-'}
+                                    {'\u{1F4CA}'} {t('serviceTargets.lastMonthMAU', { value: s.totalMauLastMonth != null ? s.totalMauLastMonth.toLocaleString() : '-' })}
+                                    {' / '}{t('serviceTargets.currentMonthMAU', { value: s.totalMauCurrentMonth != null ? s.totalMauCurrentMonth.toLocaleString() : '-' })}
                                     {s.totalLlmCallCountLastMonth != null && ` | LLM Calls ${s.totalLlmCallCountLastMonth.toLocaleString()}`}
                                   </span>
                                 </div>
@@ -247,9 +248,8 @@ export default function ServiceTargets() {
                               {(s.myDeptMauLastMonth != null || s.myDeptCallsLastMonth != null) && (
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                   <span className="text-[10px] text-pastel-400">
-                                    {'\u{1F465}'} 우리팀: MAU {s.myDeptMauLastMonth != null ? s.myDeptMauLastMonth.toLocaleString() : '-'}
-                                    {' / Calls '}
-                                    {s.myDeptCallsLastMonth != null ? s.myDeptCallsLastMonth.toLocaleString() : '-'}
+                                    {'\u{1F465}'} {t('serviceTargets.ourTeamMAU', { value: s.myDeptMauLastMonth != null ? s.myDeptMauLastMonth.toLocaleString() : '-' })}
+                                    {' / '}{t('serviceTargets.ourTeamCalls', { value: s.myDeptCallsLastMonth != null ? s.myDeptCallsLastMonth.toLocaleString() : '-' })}
                                   </span>
                                 </div>
                               )}
@@ -259,14 +259,14 @@ export default function ServiceTargets() {
                             <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
                               s.type === 'STANDARD' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80' : 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80'
                             }`}>
-                              {s.type === 'STANDARD' ? '표준' : '백그라운드'}
+                              {s.type === 'STANDARD' ? t('common.standard') : t('common.background')}
                             </span>
                           </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
                               s.status === 'DEPLOYED' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80' : 'bg-gray-50 text-gray-600 ring-1 ring-gray-200/80'
                             }`}>
-                              {s.status === 'DEPLOYED' ? '배포됨' : '개발중'}
+                              {s.status === 'DEPLOYED' ? t('common.deployed') : t('common.developing')}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -293,12 +293,12 @@ export default function ServiceTargets() {
                                 {savedVal != null ? savedVal.toFixed(1) : '-'}
                               </span>
                               {savedVal != null && s.savedMMBreakdown && s.savedMMBreakdown.length > 0 && (
-                                <span className="ml-1 text-[10px] text-pastel-400">({s.savedMMBreakdown.length}팀)</span>
+                                <span className="ml-1 text-[10px] text-pastel-400">({t('serviceTargets.teamsCount', { count: s.savedMMBreakdown.length })})</span>
                               )}
                               {/* Hover tooltip */}
                               {hoveredSavedMM === s.id && s.savedMMBreakdown && s.savedMMBreakdown.length > 0 && (
                                 <div className="absolute z-30 left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 p-3 animate-fade-in">
-                                  <p className="text-xs font-semibold text-pastel-700 mb-2">부서별 Saved M/M 내역</p>
+                                  <p className="text-xs font-semibold text-pastel-700 mb-2">{t('serviceTargets.deptSavedMMBreakdown')}</p>
                                   <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                     {s.savedMMBreakdown.map((bd, idx) => (
                                       <div key={idx} className="flex items-center justify-between text-xs">
@@ -308,7 +308,7 @@ export default function ServiceTargets() {
                                     ))}
                                   </div>
                                   <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs font-semibold">
-                                    <span className="text-pastel-600">합계</span>
+                                    <span className="text-pastel-600">{t('common.total')}</span>
                                     <span className="text-emerald-700">{savedVal?.toFixed(1)}</span>
                                   </div>
                                 </div>
@@ -335,13 +335,13 @@ export default function ServiceTargets() {
                                       <span className="text-sm font-bold text-violet-700 tabular-nums whitespace-nowrap">{aggAi.toFixed(1)}</span>
                                     </span>
                                     {aiBreakdown && aiBreakdown.length > 0 && (
-                                      <span className="text-[10px] text-pastel-400 block">({aiBreakdown.length}팀)</span>
+                                      <span className="text-[10px] text-pastel-400 block">({t('serviceTargets.teamsCount', { count: aiBreakdown.length })})</span>
                                     )}
                                     {hoveredAiMM === s.id && aiBreakdown && aiBreakdown.length > 0 && (
                                       <div className="absolute z-30 left-1/2 -translate-x-1/2 top-full mt-2 w-60 bg-white rounded-lg shadow-lg border border-gray-200 p-3 animate-fade-in">
                                         <div className="flex items-center gap-1.5 mb-2">
                                           <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-                                          <span className="text-xs font-semibold text-violet-700">부서별 AI 추정 내역</span>
+                                          <span className="text-xs font-semibold text-violet-700">{t('serviceTargets.deptAiEstimateBreakdown')}</span>
                                         </div>
                                         <div className="space-y-1.5 max-h-48 overflow-y-auto">
                                           {aiBreakdown.map((bd, idx) => (
@@ -352,7 +352,7 @@ export default function ServiceTargets() {
                                           ))}
                                         </div>
                                         <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-xs font-semibold">
-                                          <span className="text-pastel-600">합계</span>
+                                          <span className="text-pastel-600">{t('common.total')}</span>
                                           <span className="text-violet-700">{aggAi.toFixed(1)}</span>
                                         </div>
                                       </div>
@@ -381,16 +381,16 @@ export default function ServiceTargets() {
                                     <div className="absolute z-20 right-0 top-full mt-1 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 text-left animate-fade-in">
                                       <div className="flex items-center gap-1.5 mb-2">
                                         <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-                                        <span className="text-xs font-semibold text-violet-700">AI 추정 {(fallbackAi.estimatedMM ?? 0).toFixed(1)} M/M</span>
+                                        <span className="text-xs font-semibold text-violet-700">{t('serviceTargets.aiEstimateValue', { value: (fallbackAi.estimatedMM ?? 0).toFixed(1) })}</span>
                                         <span className={`text-[10px] font-bold ml-auto ${confColor}`}>{fallbackAi.confidence}</span>
                                       </div>
                                       <p className="text-xs text-pastel-600 leading-relaxed">{fallbackAi.reasoning}</p>
                                       <div className="mt-2 pt-2 border-t border-gray-100 text-[10px] text-pastel-400 space-y-0.5">
                                         <div className="flex items-center gap-3">
-                                          <span>5영업일 평균 DAU {fallbackAi.dauUsed}{fallbackAi.isEstimatedDau ? ' (추정)' : ''}</span>
-                                          <span>호출 {fallbackAi.totalCalls.toLocaleString()}/일</span>
+                                          <span>{t('serviceTargets.bizDayAvgDAU', { value: fallbackAi.dauUsed })}{fallbackAi.isEstimatedDau ? ` ${t('serviceTargets.estimated')}` : ''}</span>
+                                          <span>{t('serviceTargets.callsPerDay', { value: fallbackAi.totalCalls.toLocaleString() })}</span>
                                         </div>
-                                        <div>매일 자정(KST) 갱신 | {new Date(fallbackAi.createdAt).toLocaleDateString('ko-KR')}</div>
+                                        <div>{t('serviceTargets.dailyRefresh', { date: new Date(fallbackAi.createdAt).toLocaleDateString('ko-KR') })}</div>
                                       </div>
                                     </div>
                                   )}

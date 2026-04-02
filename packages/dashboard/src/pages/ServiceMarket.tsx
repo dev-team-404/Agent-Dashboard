@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, Layers, ArrowUpDown, Users, Zap, Coins, Ticket, ExternalLink, FileText, MessageSquareWarning } from 'lucide-react';
 import { serviceApi } from '../services/api';
 
@@ -56,6 +57,7 @@ function SkeletonCard() {
 }
 
 export default function ServiceMarket() {
+  const { t } = useTranslation();
   const [services, setServices] = useState<MarketService[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -117,16 +119,16 @@ export default function ServiceMarket() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">나에게 공개된 서비스</h1>
+        <h1 className="text-xl font-semibold text-gray-900">{t('serviceMarket.title')}</h1>
         <p className="text-sm text-gray-500 mt-1">
-          배포된 {services.length}개 서비스를 탐색하고, API 연동 가이드를 확인하세요.
+          {t('serviceMarket.subtitle', { count: services.length })}
         </p>
       </div>
 
       {/* Help banner */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
         <p className="text-xs text-gray-400 leading-relaxed">
-          공개된 서비스를 확인하고 모델을 사용할 수 있습니다. Standard 서비스 프록시 호출 시 <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-service-id</code>, <code className="text-gray-500 bg-gray-100 px-1 py-0.5 rounded font-mono">x-user-id</code> 헤더를 포함하세요 (부서 정보는 자동 등록). 각 서비스 카드를 클릭하면 API 연동 가이드를 확인할 수 있습니다.
+          {t('serviceMarket.helpBanner')}
         </p>
       </div>
 
@@ -138,7 +140,7 @@ export default function ServiceMarket() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="서비스명, 설명, 부서 검색..."
+            placeholder={t('serviceMarket.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
           />
         </div>
@@ -149,25 +151,25 @@ export default function ServiceMarket() {
               onChange={(e) => setSortBy(e.target.value as SortOption)}
               className="appearance-none pl-8 pr-8 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer"
             >
-              <option value="default">기본 정렬</option>
-              <option value="users">유저 많은순</option>
-              <option value="requests">API 사용순 (7영업일)</option>
-              <option value="tokens">토큰 사용순 (7영업일)</option>
+              <option value="default">{t('serviceMarket.sortDefault')}</option>
+              <option value="users">{t('serviceMarket.sortByUsers')}</option>
+              <option value="requests">{t('serviceMarket.sortByRequests')}</option>
+              <option value="tokens">{t('serviceMarket.sortByTokens')}</option>
             </select>
             <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
           <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden">
-            {(['ALL', 'STANDARD', 'BACKGROUND'] as const).map((t) => (
+            {(['ALL', 'STANDARD', 'BACKGROUND'] as const).map((filterType) => (
               <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
+                key={filterType}
+                onClick={() => setTypeFilter(filterType)}
                 className={`px-3.5 py-2 text-sm font-medium border-r border-gray-300 last:border-r-0 transition-colors whitespace-nowrap ${
-                  typeFilter === t
+                  typeFilter === filterType
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                {t === 'ALL' ? `전체 ${services.length}` : t === 'STANDARD' ? `표준 ${standardCount}` : `백그라운드 ${backgroundCount}`}
+                {filterType === 'ALL' ? t('serviceMarket.filterAll', { count: services.length }) : filterType === 'STANDARD' ? t('serviceMarket.filterStandard', { count: standardCount }) : t('serviceMarket.filterBackground', { count: backgroundCount })}
               </button>
             ))}
           </div>
@@ -208,17 +210,17 @@ export default function ServiceMarket() {
                         </span>
                         {service.deployScope === 'ALL' && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-600">
-                            전체 공개
+                            {t('serviceMarket.publicScope')}
                           </span>
                         )}
                         {service.deployScope === 'BUSINESS_UNIT' && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
-                            사업부 공개: {(service.deployScopeValue || []).join(', ') || ''}
+                            {t('serviceMarket.buScope', { value: (service.deployScopeValue || []).join(', ') || '' })}
                           </span>
                         )}
                         {service.deployScope === 'TEAM' && (
                           <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
-                            팀 공개: {(service.deployScopeValue || []).join(', ') || ''}
+                            {t('serviceMarket.teamScope', { value: (service.deployScopeValue || []).join(', ') || '' })}
                           </span>
                         )}
                       </div>
@@ -228,7 +230,7 @@ export default function ServiceMarket() {
 
                   {/* Description */}
                   <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-2">
-                    {service.description || '설명이 등록되지 않았습니다.'}
+                    {service.description || t('serviceMarket.noDescription')}
                   </p>
 
                   {/* Category */}
@@ -244,19 +246,19 @@ export default function ServiceMarket() {
 
                   {/* Stats */}
                   <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
-                    <span className="flex items-center gap-1" title="사용 유저 수">
+                    <span className="flex items-center gap-1" title={t('serviceMarket.userCountTitle')}>
                       <Users className="w-3 h-3 text-gray-400" />
-                      {service._count?.userServices?.toLocaleString() ?? 0}명
+                      {t('serviceMarket.userCount', { count: service._count?.userServices?.toLocaleString() ?? 0 })}
                     </span>
-                    <span className="flex items-center gap-1" title="최근 7영업일 API 요청 수">
+                    <span className="flex items-center gap-1" title={t('serviceMarket.requestCountTitle')}>
                       <Zap className="w-3 h-3 text-gray-400" />
-                      {service.recentRequests?.toLocaleString() ?? 0}회
+                      {t('serviceMarket.requestCount', { count: service.recentRequests?.toLocaleString() ?? 0 })}
                     </span>
-                    <span className="flex items-center gap-1" title="최근 7영업일 토큰 사용량">
+                    <span className="flex items-center gap-1" title={t('serviceMarket.tokenCountTitle')}>
                       <Coins className="w-3 h-3 text-gray-400" />
-                      {service.totalTokens != null && service.totalTokens >= 1000
+                      {t('serviceMarket.tokenCount', { count: service.totalTokens != null && service.totalTokens >= 1000
                         ? `${(service.totalTokens / 1000).toFixed(1)}k`
-                        : (service.totalTokens?.toLocaleString() ?? 0)} 토큰
+                        : (service.totalTokens?.toLocaleString() ?? 0) })}
                     </span>
                   </div>
 
@@ -302,13 +304,13 @@ export default function ServiceMarket() {
                   {service.serviceUrl && (
                     <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
-                      <ExternalLink className="w-3 h-3" />서비스
+                      <ExternalLink className="w-3 h-3" />{t('serviceMarket.serviceLink')}
                     </a>
                   )}
                   {service.docsUrl && (
                     <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
-                      <FileText className="w-3 h-3" />문서
+                      <FileText className="w-3 h-3" />{t('serviceMarket.docsLink')}
                     </a>
                   )}
                   {service.jiraTicket && (
@@ -330,10 +332,10 @@ export default function ServiceMarket() {
         <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
           <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-900 mb-1">
-            {search || typeFilter !== 'ALL' ? '검색 결과가 없습니다' : '등록된 서비스가 없습니다'}
+            {search || typeFilter !== 'ALL' ? t('serviceMarket.noResultsTitle') : t('serviceMarket.noServicesTitle')}
           </p>
           <p className="text-sm text-gray-500">
-            {search ? '다른 키워드로 검색해보세요.' : '관리자가 서비스를 등록하면 표시됩니다.'}
+            {search ? t('serviceMarket.noResultsHint') : t('serviceMarket.noServicesHint')}
           </p>
         </div>
       )}
@@ -347,9 +349,9 @@ export default function ServiceMarket() {
                 <AlertCircle className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">설명서 없음</h3>
+                <h3 className="text-sm font-semibold text-gray-900">{t('serviceMarket.noDocsTitle')}</h3>
                 <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                  <strong className="text-gray-700">{errorModal}</strong> 서비스의 설명서가 아직 등록되지 않았습니다.
+                  {t('serviceMarket.noDocsMessage', { name: errorModal })}
                 </p>
               </div>
             </div>
@@ -358,7 +360,7 @@ export default function ServiceMarket() {
                 onClick={() => setErrorModal(null)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
               >
-                확인
+                {t('common.confirm')}
               </button>
             </div>
           </div>

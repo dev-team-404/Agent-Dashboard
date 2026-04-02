@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { ratingApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { isBusinessDay } from '../../utils/businessDayFilter';
@@ -44,12 +45,7 @@ const MODEL_COLORS = [
   '#84cc16', // lime
 ];
 
-const DATE_RANGE_OPTIONS = [
-  { label: '1주', value: 7 },
-  { label: '2주', value: 14 },
-  { label: '1개월', value: 30 },
-  { label: '3개월', value: 90 },
-];
+// DATE_RANGE_OPTIONS moved inside component for i18n
 
 /**
  * Generate all dates in range (for padding missing dates with 0)
@@ -76,6 +72,13 @@ interface ModelRatingChartProps {
 }
 
 export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
+  const { t } = useTranslation();
+  const DATE_RANGE_OPTIONS = [
+    { label: t('charts.modelRating.week1'), value: 7 },
+    { label: t('charts.modelRating.week2'), value: 14 },
+    { label: t('charts.modelRating.month1'), value: 30 },
+    { label: t('charts.modelRating.month3'), value: 90 },
+  ];
   const [dailyData, setDailyData] = useState<DailyRating[]>([]);
   const [modelStats, setModelStats] = useState<ModelStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,7 +197,7 @@ export default function ModelRatingChart({ serviceId }: ModelRatingChartProps) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Model Ratings</h2>
-          <p className="text-sm text-gray-500 mt-1">모델별 누적 평균 평점 (1-5)</p>
+          <p className="text-sm text-gray-500 mt-1">{t('charts.modelRating.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {DATE_RANGE_OPTIONS.map((option) => (

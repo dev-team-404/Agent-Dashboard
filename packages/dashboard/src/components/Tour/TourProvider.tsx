@@ -1,5 +1,6 @@
 import { createContext, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { driver, type DriveStep, type Driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import './tourStyles.css';
@@ -49,6 +50,7 @@ interface TourProviderProps {
 
 export default function TourProvider({ children, userId, adminRole }: TourProviderProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const driverRef = useRef<Driver | null>(null);
   const stepsRef = useRef<TourStep[]>([]);
   const currentIndexRef = useRef(0);
@@ -132,9 +134,9 @@ export default function TourProvider({ children, userId, adminRole }: TourProvid
     const d = driver({
       showProgress: true,
       showButtons: ['next', 'previous', 'close'],
-      nextBtnText: index === totalSteps - 1 ? '완료' : '다음',
-      prevBtnText: '이전',
-      doneBtnText: index === totalSteps - 1 ? '완료' : '다음',
+      nextBtnText: index === totalSteps - 1 ? t('tourGuides.tourProvider.done') : t('tourGuides.tourProvider.next'),
+      prevBtnText: t('tourGuides.tourProvider.prev'),
+      doneBtnText: index === totalSteps - 1 ? t('tourGuides.tourProvider.done') : t('tourGuides.tourProvider.next'),
       progressText: `{{current}} / {{total}}`,
       allowClose: true,
       stagePadding: 8,
@@ -183,7 +185,7 @@ export default function TourProvider({ children, userId, adminRole }: TourProvid
         prevBtn.style.display = index === 0 ? 'none' : '';
       }
     });
-  }, [navigate, completeTour, ensureSidebarExpanded]);
+  }, [navigate, completeTour, ensureSidebarExpanded, t]);
 
   // Keep the ref in sync
   driveToStepRef.current = driveToStep;

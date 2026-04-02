@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, Filter, ChevronDown, X, FileText, Clock, Wifi, WifiOff } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
@@ -61,6 +62,7 @@ function getStatusColor(code: number): string {
 }
 
 export default function RequestLogs() {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
@@ -171,9 +173,9 @@ export default function RequestLogs() {
             <FileText className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">요청 로그</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('requestLogs.title')}</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              프록시 서버를 통한 모든 API 요청 기록을 조회합니다
+              {t('requestLogs.description')}
             </p>
           </div>
         </div>
@@ -182,7 +184,7 @@ export default function RequestLogs() {
             <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
           </span>
-          <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}건</span>
+          <span className="text-sm font-semibold text-pastel-700">{t('requestLogs.totalCount', { count: pagination.total.toLocaleString() })}</span>
         </div>
       </div>
 
@@ -194,7 +196,7 @@ export default function RequestLogs() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
             <input
               type="text"
-              placeholder="모델명 검색..."
+              placeholder={t('requestLogs.searchPlaceholder')}
               value={modelName}
               onChange={e => setModelName(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
@@ -211,7 +213,7 @@ export default function RequestLogs() {
             }`}
           >
             <Filter className="w-4 h-4" />
-            <span>필터</span>
+            <span>{t('common.filter')}</span>
             {hasActiveFilters && (
               <span className="bg-white/25 text-xs font-bold px-2 py-0.5 rounded-full">
                 {[statusCode, serviceId, startDate, endDate, streamFilter].filter(Boolean).length}
@@ -225,13 +227,13 @@ export default function RequestLogs() {
         {showFilters && (
           <div className="mt-5 pt-5 border-t border-gray-100/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 animate-slide-down">
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">상태코드</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('requestLogs.statusCode')}</label>
               <select
                 value={statusCode}
                 onChange={e => { setStatusCode(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 <option value="200">200</option>
                 <option value="400">400</option>
                 <option value="401">401</option>
@@ -242,13 +244,13 @@ export default function RequestLogs() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">서비스</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('requestLogs.service')}</label>
               <select
                 value={serviceId}
                 onChange={e => { setServiceId(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 {services.map(s => (
                   <option key={s.id} value={s.id}>{s.displayName}</option>
                 ))}
@@ -256,20 +258,20 @@ export default function RequestLogs() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">스트림</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('requestLogs.stream')}</label>
               <select
                 value={streamFilter}
                 onChange={e => { setStreamFilter(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 <option value="true">Stream</option>
                 <option value="false">Non-stream</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">시작일</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('common.startDate')}</label>
               <input
                 type="date"
                 value={startDate}
@@ -279,7 +281,7 @@ export default function RequestLogs() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">종료일</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('common.endDate')}</label>
               <input
                 type="date"
                 value={endDate}
@@ -295,7 +297,7 @@ export default function RequestLogs() {
                   className="inline-flex items-center gap-1.5 text-sm text-pastel-500 hover:text-red-500 transition-colors duration-200"
                 >
                   <X className="w-3.5 h-3.5" />
-                  필터 초기화
+                  {t('common.filterReset')}
                 </button>
               </div>
             )}
@@ -309,15 +311,15 @@ export default function RequestLogs() {
           <table className="w-full" style={{ minWidth: '1050px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">시각</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">서비스</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">사용자</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">상태</th>
-                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">입력 토큰</th>
-                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">출력 토큰</th>
-                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">지연</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">스트림</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">{t('requestLogs.colTime')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">{t('requestLogs.colService')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[130px]">{t('requestLogs.colUser')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('requestLogs.colModel')}</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">{t('requestLogs.colStatus')}</th>
+                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">{t('requestLogs.colInputTokens')}</th>
+                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">{t('requestLogs.colOutputTokens')}</th>
+                <th className="px-4 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">{t('requestLogs.colLatency')}</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[70px]">{t('requestLogs.colStream')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
@@ -331,8 +333,8 @@ export default function RequestLogs() {
                         <Search className="w-8 h-8 text-pastel-300" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-pastel-600">검색 결과가 없습니다</p>
-                        <p className="text-xs text-pastel-400 mt-1">다른 검색어나 필터 조건을 시도해 보세요</p>
+                        <p className="text-sm font-semibold text-pastel-600">{t('common.noSearchResults')}</p>
+                        <p className="text-xs text-pastel-400 mt-1">{t('common.tryDifferentSearch')}</p>
                       </div>
                     </div>
                   </td>
@@ -404,7 +406,7 @@ export default function RequestLogs() {
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-gray-50 text-gray-500 ring-1 ring-gray-200/80">
                           <WifiOff className="w-3 h-3" />
-                          일반
+                          {t('requestLogs.standardRequest')}
                         </span>
                       )}
                     </td>
@@ -419,11 +421,11 @@ export default function RequestLogs() {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
-              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>건 중{' '}
-              <span className="font-medium text-pastel-600">
-                {((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-
-                {Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}
-              </span>
+              {t('requestLogs.paginationInfo', {
+                total: pagination.total.toLocaleString(),
+                start: ((pagination.page - 1) * pagination.limit + 1).toLocaleString(),
+                end: Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString(),
+              })}
             </p>
             <div className="flex items-center gap-1.5">
               <button
@@ -431,7 +433,7 @@ export default function RequestLogs() {
                 disabled={pagination.page <= 1}
                 className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                이전
+                {t('common.prev')}
               </button>
               {getPageNumbers().map((p, idx) =>
                 typeof p === 'string' ? (
@@ -455,7 +457,7 @@ export default function RequestLogs() {
                 disabled={pagination.page >= pagination.totalPages}
                 className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                다음
+                {t('common.next')}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   X, Send, Loader2, Bot, User, Sparkles,
   ChevronDown, Trash2,
@@ -166,6 +167,7 @@ function saveMessages(msgs: Message[]) {
 }
 
 export default function HelpChatbot({ adminRole }: Props) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(() => sessionStorage.getItem(OPEN_KEY) === 'true');
   const [messages, setMessages] = useState<Message[]>(loadMessages);
   const [input, setInput] = useState('');
@@ -277,10 +279,10 @@ export default function HelpChatbot({ adminRole }: Props) {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({ error: '연결 실패' }));
+        const errData = await response.json().catch(() => ({ error: t('helpChatbot.connectionFailed') }));
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id
-            ? { ...m, content: errData.error || `오류가 발생했습니다 (${response.status})` }
+            ? { ...m, content: errData.error || t('helpChatbot.errorOccurred', { status: response.status }) }
             : m
         ));
         setIsStreaming(false);
@@ -321,7 +323,7 @@ export default function HelpChatbot({ adminRole }: Props) {
             if (parsed.error) {
               setMessages(prev => prev.map(m =>
                 m.id === assistantMsg.id
-                  ? { ...m, content: m.content + `\n\n**오류:** ${parsed.error}` }
+                  ? { ...m, content: m.content + `\n\n**${t('helpChatbot.errorLabel')}** ${parsed.error}` }
                   : m
               ));
             }
@@ -335,7 +337,7 @@ export default function HelpChatbot({ adminRole }: Props) {
         navigatedRef.current = false;
         setMessages(prev => prev.map(m =>
           m.id === assistantMsg.id && !m.content
-            ? { ...m, content: '연결이 중단되었습니다. 다시 시도해주세요.' }
+            ? { ...m, content: t('helpChatbot.connectionLost') }
             : m
         ));
       }
@@ -362,20 +364,20 @@ export default function HelpChatbot({ adminRole }: Props) {
 
   const suggestedQuestions = adminRole === 'SUPER_ADMIN'
     ? [
-        '새 LLM 모델은 어떻게 등록하나요?',
-        '서비스별 Rate Limit 설정 방법',
-        'GPU 모니터링은 어떻게 사용하나요?',
+        t('helpChatbot.superAdminQ1'),
+        t('helpChatbot.superAdminQ2'),
+        t('helpChatbot.superAdminQ3'),
       ]
     : adminRole === 'ADMIN'
     ? [
-        '서비스를 만들고 배포하는 방법',
-        '모델의 가시성(Visibility) 설정이란?',
-        '사용자에게 Rate Limit을 설정하려면?',
+        t('helpChatbot.adminQ1'),
+        t('helpChatbot.adminQ2'),
+        t('helpChatbot.adminQ3'),
       ]
     : [
-        '이 플랫폼은 어떤 서비스인가요?',
-        '내 서비스를 만들려면 어떻게 해야 하나요?',
-        '관리자 권한은 어떻게 신청하나요?',
+        t('helpChatbot.userQ1'),
+        t('helpChatbot.userQ2'),
+        t('helpChatbot.userQ3'),
       ];
 
   // 메시지 렌더링 — nav action은 인라인 텍스트로 표시 (자동 이동되므로 버튼 불필요)
@@ -426,7 +428,7 @@ export default function HelpChatbot({ adminRole }: Props) {
           transform hover:scale-105 active:scale-95
           transition-all duration-200
         `}
-        title="AI 도우미"
+        title={t('helpChatbot.title')}
       >
         {isOpen ? <X className="w-5 h-5" /> : <Bot className="w-6 h-6" />}
         {configured === false && !isOpen && (
@@ -447,9 +449,9 @@ export default function HelpChatbot({ adminRole }: Props) {
                 <Bot className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="text-white font-semibold text-sm">AI 도우미</h3>
+                <h3 className="text-white font-semibold text-sm">{t('helpChatbot.title')}</h3>
                 <p className="text-cyan-100 text-xs">
-                  {configured ? modelName : '설정 필요'}
+                  {configured ? modelName : t('helpChatbot.configNeeded')}
                 </p>
               </div>
             </div>
@@ -458,7 +460,7 @@ export default function HelpChatbot({ adminRole }: Props) {
                 <button
                   onClick={handleClear}
                   className="p-1.5 rounded-lg hover:bg-white/15 transition-colors"
-                  title="대화 초기화"
+                  title={t('helpChatbot.clearChat')}
                 >
                   <Trash2 className="w-4 h-4 text-white/80" />
                 </button>
@@ -482,8 +484,8 @@ export default function HelpChatbot({ adminRole }: Props) {
             {configured === false && (
               <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-700 text-center">
                 <Sparkles className="w-4 h-4 mx-auto mb-1 text-amber-500" />
-                AI 도우미 LLM이 아직 설정되지 않았습니다.<br />
-                SUPER_ADMIN에게 시스템 LLM 설정에서 챗봇 모델을 지정해달라고 요청하세요.
+                {t('helpChatbot.notConfiguredMessage')}<br />
+                {t('helpChatbot.notConfiguredGuide')}
               </div>
             )}
 
@@ -493,10 +495,10 @@ export default function HelpChatbot({ adminRole }: Props) {
                   <Bot className="w-7 h-7 text-cyan-500" />
                 </div>
                 <p className="text-sm font-medium text-gray-700 mb-1">
-                  무엇이든 물어보세요!
+                  {t('helpChatbot.askAnything')}
                 </p>
                 <p className="text-xs text-gray-400 mb-4">
-                  플랫폼 사용법, 기능 안내, 설정 방법 등을 도와드립니다
+                  {t('helpChatbot.helpDescription')}
                 </p>
                 <div className="space-y-2">
                   {suggestedQuestions.map((q, i) => (
@@ -567,7 +569,7 @@ export default function HelpChatbot({ adminRole }: Props) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={configured === false ? 'LLM 설정이 필요합니다' : '메시지를 입력하세요...'}
+                placeholder={configured === false ? t('helpChatbot.placeholderConfigNeeded') : t('helpChatbot.placeholderInput')}
                 disabled={configured === false || isStreaming}
                 rows={1}
                 className="flex-1 resize-none px-3 py-2 bg-gray-50 border border-gray-200/60 rounded-xl text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-400/50 disabled:opacity-50 max-h-24 overflow-y-auto"

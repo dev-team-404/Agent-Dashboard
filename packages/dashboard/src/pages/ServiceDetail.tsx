@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useOrgCodeResolver } from '../hooks/useOrgCodeResolver';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -135,20 +136,24 @@ interface CommonRateLimit {
 // Shared utilities
 // ════════════════════════════════════════════
 
-const TABS: { id: TabId; label: string; icon: typeof BarChart3 }[] = [
-  { id: 'dashboard', label: '대시보드', icon: BarChart3 },
-  { id: 'members', label: '멤버 관리', icon: Users },
-  { id: 'ratelimit', label: 'Rate Limit', icon: Gauge },
-  { id: 'models', label: '모델 관리', icon: Layers },
-  { id: 'errors', label: '에러 관리', icon: AlertTriangle },
-  { id: 'testaccounts', label: '테스트 계정', icon: FlaskConical },
+const TABS: { id: TabId; labelKey: string; icon: typeof BarChart3 }[] = [
+  { id: 'dashboard', labelKey: 'serviceDetail.tabs.dashboard', icon: BarChart3 },
+  { id: 'members', labelKey: 'serviceDetail.tabs.members', icon: Users },
+  { id: 'ratelimit', labelKey: 'serviceDetail.tabs.rateLimit', icon: Gauge },
+  { id: 'models', labelKey: 'serviceDetail.tabs.models', icon: Layers },
+  { id: 'errors', labelKey: 'serviceDetail.tabs.errors', icon: AlertTriangle },
+  { id: 'testaccounts', labelKey: 'serviceDetail.tabs.testAccounts', icon: FlaskConical },
 ];
 
 const MODEL_TYPE_ICONS: Record<string, typeof MessageSquare> = {
   CHAT: MessageSquare, IMAGE: Image, EMBEDDING: Layers, RERANKING: Sparkles, ASR: Mic,
 };
-const MODEL_TYPE_LABELS: Record<string, string> = {
-  CHAT: '채팅', IMAGE: '이미지', EMBEDDING: '임베딩', RERANKING: '리랭킹', ASR: '음성 인식',
+const MODEL_TYPE_I18N_KEYS: Record<string, string> = {
+  CHAT: 'serviceDetail.modelTypes.chat',
+  IMAGE: 'serviceDetail.modelTypes.image',
+  EMBEDDING: 'serviceDetail.modelTypes.embedding',
+  RERANKING: 'serviceDetail.modelTypes.reranking',
+  ASR: 'serviceDetail.modelTypes.asr',
 };
 const GROUP_COLORS = [
   'border-l-blue-400', 'border-l-emerald-400', 'border-l-amber-400',
@@ -204,11 +209,11 @@ function roleIcon(role: string) {
   if (role === 'ADMIN') return <Shield className="w-2.5 h-2.5 mr-0.5" />;
   return <User className="w-2.5 h-2.5 mr-0.5" />;
 }
-function roleLabel(role: string) {
-  if (role === 'OWNER') return '소유자';
-  if (role === 'ADMIN') return '관리자';
-  return '사용자';
-}
+const ROLE_I18N_KEYS: Record<string, string> = {
+  OWNER: 'serviceDetail.roles.owner',
+  ADMIN: 'serviceDetail.roles.admin',
+  USER: 'serviceDetail.roles.user',
+};
 
 const TOKEN_COLORS = ['#3B82F6', '#8B5CF6'];
 // ════════════════════════════════════════════
@@ -216,6 +221,7 @@ const TOKEN_COLORS = ['#3B82F6', '#8B5CF6'];
 // ════════════════════════════════════════════
 
 export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
+  const { t } = useTranslation();
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
   const { resolveAll } = useOrgCodeResolver();
@@ -251,7 +257,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center">
           <div className="w-12 h-12 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-sm text-gray-400 font-medium">서비스 로딩 중...</p>
+          <p className="mt-4 text-sm text-gray-400 font-medium">{t('serviceDetail.hero.serviceLoading')}</p>
         </div>
       </div>
     );
@@ -261,9 +267,9 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
     return (
       <div className="text-center py-20">
         <AlertTriangle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-        <p className="text-gray-500 font-medium">서비스를 찾을 수 없습니다.</p>
+        <p className="text-gray-500 font-medium">{t('serviceDetail.hero.serviceNotFound')}</p>
         <button onClick={() => navigate('/my-services')} className="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium">
-          ← 서비스 목록으로
+          {t('serviceDetail.hero.backToServices')}
         </button>
       </div>
     );
@@ -289,7 +295,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
               className="inline-flex items-center gap-1.5 text-sm text-white/60 hover:text-white transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              서비스 목록
+              {t('serviceDetail.hero.serviceList')}
             </button>
             <div className="flex items-center gap-2">
               {service.serviceUrl && (
@@ -300,7 +306,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-500/80 rounded-lg hover:bg-blue-500 transition-colors"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  서비스 바로가기
+                  {t('serviceDetail.hero.openService')}
                 </a>
               )}
               {service.docsUrl && (
@@ -311,7 +317,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white/70 bg-white/10 rounded-lg hover:bg-white/20 transition-colors"
                 >
                   <ExternalLink className="w-3 h-3" />
-                  API 문서
+                  {t('serviceDetail.hero.apiDocs')}
                 </a>
               )}
               {service.jiraTicket && (
@@ -348,7 +354,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
                       ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30'
                       : 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/30'
                   }`}>
-                    {service.status === 'DEPLOYED' ? '배포됨' : '개발 중'}
+                    {service.status === 'DEPLOYED' ? t('serviceDetail.hero.deployed') : t('serviceDetail.hero.developing')}
                   </span>
                   <span className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${
                     service.type === 'STANDARD'
@@ -364,7 +370,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
               )}
               <div className="flex items-center gap-4 mt-4 text-xs text-white/40 flex-wrap">
                 <code className="px-2 py-0.5 bg-white/5 rounded-md font-mono text-white/50">{service.name}</code>
-                <span>등록: {service.registeredBy}</span>
+                <span>{t('serviceDetail.hero.registeredBy', { name: service.registeredBy })}</span>
                 <span>{service.registeredByDept}</span>
                 <span>{formatDate(service.createdAt)}</span>
                 {service.deployScope && (
@@ -417,7 +423,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
               }`}
             >
               <Icon className="w-4 h-4" />
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           );
         })}
@@ -450,6 +456,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
 // ════════════════════════════════════════════
 
 function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: AdminRole }) {
+  const { t } = useTranslation();
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [serviceStats, setServiceStats] = useState<{ avgDailyActiveUsers: number; avgDailyActiveUsersExcluding: number } | null>(null);
   const [serviceMauData, setServiceMauData] = useState<{
@@ -513,12 +520,12 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
       {/* ── Stat Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
-          { label: '활성 사용자', value: overview?.activeUsers || 0, icon: Activity, color: 'emerald', desc: '최근 30분' },
-          { label: '전체 사용자', value: overview?.totalUsers || 0, icon: Users, color: 'blue', desc: '서비스 등록 사용자' },
-          { label: '일평균 DAU', value: serviceStats?.avgDailyActiveUsersExcluding || 0, icon: TrendingUp, color: 'orange', desc: '영업일 기준, 1개월' },
-          { label: serviceMauData?.isEstimated ? '추정 MAU' : 'MAU', value: serviceMauData?.latestMau || 0, icon: CalendarDays, color: 'indigo', desc: serviceMauData?.isEstimated ? '추정값 (최근 월)' : '최근 월' },
-          { label: '오늘 요청', value: overview?.todayUsage?.requests || 0, icon: Zap, color: 'amber', desc: 'API 호출 수' },
-          { label: '오늘 토큰', value: todayTokens, icon: Hash, color: 'violet', desc: '입력 + 출력' },
+          { label: t('serviceDetail.dashboard.activeUsers'), value: overview?.activeUsers || 0, icon: Activity, color: 'emerald', desc: t('serviceDetail.dashboard.last30min') },
+          { label: t('serviceDetail.dashboard.totalUsers'), value: overview?.totalUsers || 0, icon: Users, color: 'blue', desc: t('serviceDetail.dashboard.registeredUsers') },
+          { label: t('serviceDetail.dashboard.dailyAvgDAU'), value: serviceStats?.avgDailyActiveUsersExcluding || 0, icon: TrendingUp, color: 'orange', desc: t('serviceDetail.dashboard.businessDay1Month') },
+          { label: serviceMauData?.isEstimated ? t('serviceDetail.dashboard.estimatedMAU') : t('serviceDetail.dashboard.mau'), value: serviceMauData?.latestMau || 0, icon: CalendarDays, color: 'indigo', desc: serviceMauData?.isEstimated ? t('serviceDetail.dashboard.estimatedRecentMonth') : t('serviceDetail.dashboard.recentMonth') },
+          { label: t('serviceDetail.dashboard.todayRequests'), value: overview?.todayUsage?.requests || 0, icon: Zap, color: 'amber', desc: t('serviceDetail.dashboard.apiCallCount') },
+          { label: t('serviceDetail.dashboard.todayTokens'), value: todayTokens, icon: Hash, color: 'violet', desc: t('serviceDetail.dashboard.inputPlusOutput') },
         ].map((s, i) => (
           <StatCard key={s.label} {...s} delay={i * 60} />
         ))}
@@ -529,12 +536,12 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
           <CalendarDays className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-amber-700">
             <div className="flex items-center gap-2">
-              <span className="font-medium">추정 DAU/MAU</span>
+              <span className="font-medium">{t('serviceDetail.dashboard.estimatedDAUMAU')}</span>
               <span className="mx-0.5">—</span>
-              <span>이 서비스는 BACKGROUND 타입으로 사용자 정보가 없어 추정값을 사용합니다.</span>
+              <span>{t('serviceDetail.dashboard.estimatedDAUMAUDesc')}</span>
               {serviceMauData.latestMonth && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${serviceMauData.isFixed ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
-                  {serviceMauData.isFixed ? '확정' : '실시간'}
+                  {serviceMauData.isFixed ? t('serviceDetail.dashboard.confirmed') : t('serviceDetail.dashboard.realtime')}
                 </span>
               )}
             </div>
@@ -542,26 +549,26 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
               <div className="mt-2 space-y-1 text-xs text-amber-600">
                 {serviceMauData.latestMonth && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-amber-400">기준월:</span>
+                    <span className="text-amber-400">{t('serviceDetail.dashboard.baseMonth')}</span>
                     <strong>{serviceMauData.latestMonth}</strong>
                   </div>
                 )}
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                   {serviceMauData.callsPerPersonPerDay != null && (
-                    <span>1인당 하루 평균: <strong>{serviceMauData.callsPerPersonPerDay}건</strong></span>
+                    <span>{t('serviceDetail.dashboard.avgPerPersonPerDay')} <strong>{t('serviceDetail.dashboard.avgPerPersonPerDayValue', { count: serviceMauData.callsPerPersonPerDay })}</strong></span>
                   )}
                   {serviceMauData.callsPerPersonPerMonth != null && (
-                    <span>1인당 월 평균: <strong>{serviceMauData.callsPerPersonPerMonth}건</strong></span>
+                    <span>{t('serviceDetail.dashboard.avgPerPersonPerMonth')} <strong>{t('serviceDetail.dashboard.avgPerPersonPerMonthValue', { count: serviceMauData.callsPerPersonPerMonth })}</strong></span>
                   )}
                   {serviceMauData.businessDays != null && (
-                    <span>영업일: <strong>{serviceMauData.businessDays}일</strong></span>
+                    <span>{t('serviceDetail.dashboard.businessDays')} <strong>{t('serviceDetail.dashboard.businessDaysValue', { count: serviceMauData.businessDays })}</strong></span>
                   )}
                 </div>
                 {serviceMauData.totalCalls != null && serviceMauData.callsPerPersonPerMonth != null && (
                   <div className="pt-1 border-t border-amber-200/50 text-amber-500">
-                    해당 월 호출 <strong className="text-amber-600">{serviceMauData.totalCalls.toLocaleString()}회</strong>
-                    {' '}&divide; 1인당 월평균 <strong className="text-amber-600">{serviceMauData.callsPerPersonPerMonth}회</strong>
-                    {' '}= 추정 MAU <strong className="text-amber-600">{serviceMauData.latestMau}명</strong>
+                    {t('serviceDetail.dashboard.monthCalls')} <strong className="text-amber-600">{t('serviceDetail.dashboard.monthCallsValue', { count: serviceMauData.totalCalls.toLocaleString() })}</strong>
+                    {' '}&divide; {t('serviceDetail.dashboard.perPersonMonthAvg')} <strong className="text-amber-600">{t('serviceDetail.dashboard.perPersonMonthAvgValue', { count: serviceMauData.callsPerPersonPerMonth })}</strong>
+                    {' '}= {t('serviceDetail.dashboard.estimatedMAUResult')} <strong className="text-amber-600">{t('serviceDetail.dashboard.estimatedMAUResultValue', { count: serviceMauData.latestMau })}</strong>
                   </div>
                 )}
               </div>
@@ -578,7 +585,7 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
             <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
           </span>
           <span className="text-sm font-medium text-emerald-700">
-            현재 <span className="font-bold text-emerald-900">{overview?.activeUsers}명</span>이 이 서비스를 사용 중입니다
+            {t('serviceDetail.dashboard.currentlyUsingPrefix')}<span className="font-bold text-emerald-900">{t('serviceDetail.dashboard.currentlyUsingCount', { count: overview?.activeUsers })}</span>{t('serviceDetail.dashboard.currentlyUsingSuffix')}
           </span>
         </div>
       )}
@@ -588,8 +595,8 @@ function DashboardTab({ serviceId, adminRole }: { serviceId: string; adminRole: 
         <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
           <div className="p-2 rounded-lg bg-violet-50"><Hash className="w-4 h-4 text-violet-600" /></div>
           <div>
-            <h3 className="text-sm font-bold text-gray-900">오늘의 토큰 사용량</h3>
-            <p className="text-xs text-gray-400">입력 / 출력 토큰 비율</p>
+            <h3 className="text-sm font-bold text-gray-900">{t('serviceDetail.dashboard.todayTokenUsage')}</h3>
+            <p className="text-xs text-gray-400">{t('serviceDetail.dashboard.tokenRatio')}</p>
           </div>
         </div>
         <div className="p-6">
@@ -659,13 +666,14 @@ function StatCard({ label, value, icon: Icon, color, desc, delay }: {
 
 // ── Token Donut ──
 function TokenDonut({ input, output }: { input: number; output: number }) {
+  const { t } = useTranslation();
   const total = input + output;
   const data = [
-    { name: '입력 토큰', value: input, color: TOKEN_COLORS[0] },
-    { name: '출력 토큰', value: output, color: TOKEN_COLORS[1] },
+    { name: t('serviceDetail.dashboard.inputTokens'), value: input, color: TOKEN_COLORS[0] },
+    { name: t('serviceDetail.dashboard.outputTokens'), value: output, color: TOKEN_COLORS[1] },
   ];
   if (total === 0) {
-    return <div className="flex items-center justify-center h-44 text-gray-400 text-sm">토큰 데이터 없음</div>;
+    return <div className="flex items-center justify-center h-44 text-gray-400 text-sm">{t('serviceDetail.dashboard.noTokenData')}</div>;
   }
   return (
     <div className="flex items-center gap-8">
@@ -678,7 +686,7 @@ function TokenDonut({ input, output }: { input: number; output: number }) {
             contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
         </PieChart></ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-gray-400">총 토큰</span>
+          <span className="text-xs text-gray-400">{t('serviceDetail.dashboard.totalTokens')}</span>
           <span className="text-lg font-bold text-gray-900">{formatTokens(total)}</span>
         </div>
       </div>
@@ -696,7 +704,7 @@ function TokenDonut({ input, output }: { input: number; output: number }) {
           </div>
         ))}
         <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700">합계</span>
+          <span className="text-sm font-medium text-gray-700">{t('serviceDetail.dashboard.sum')}</span>
           <span className="text-sm font-bold text-gray-900">{formatTokens(total)}</span>
         </div>
       </div>
@@ -709,6 +717,7 @@ function TokenDonut({ input, output }: { input: number; output: number }) {
 // ════════════════════════════════════════════
 
 function MembersTab({ serviceId }: { serviceId: string }) {
+  const { t } = useTranslation();
   const [members, setMembers] = useState<ServiceMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -760,7 +769,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
   };
 
   const removeMember = async (userId: string) => {
-    if (!confirm('멤버를 제거하시겠습니까?')) return;
+    if (!confirm(t('serviceDetail.members.confirmRemove'))) return;
     setActionLoading(true);
     try {
       await serviceApi.removeMember(serviceId, userId);
@@ -779,9 +788,9 @@ function MembersTab({ serviceId }: { serviceId: string }) {
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: '소유자', count: owners.length, icon: Crown, bg: 'bg-amber-50', text: 'text-amber-500' },
-          { label: '관리자', count: admins.length, icon: Shield, bg: 'bg-blue-50', text: 'text-blue-500' },
-          { label: '사용자', count: users.length, icon: User, bg: 'bg-gray-50', text: 'text-gray-500' },
+          { label: t('serviceDetail.members.owners'), count: owners.length, icon: Crown, bg: 'bg-amber-50', text: 'text-amber-500' },
+          { label: t('serviceDetail.members.admins'), count: admins.length, icon: Shield, bg: 'bg-blue-50', text: 'text-blue-500' },
+          { label: t('serviceDetail.members.users'), count: users.length, icon: User, bg: 'bg-gray-50', text: 'text-gray-500' },
         ].map(g => (
           <div key={g.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-center justify-between">
@@ -801,7 +810,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
         <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
           <UserPlus className="w-4 h-4 text-blue-500" />
-          멤버 추가
+          {t('serviceDetail.members.addMember')}
         </h3>
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -809,7 +818,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
             type="text"
             value={userSearch}
             onChange={e => handleSearch(e.target.value)}
-            placeholder="이름 또는 ID로 사용자 검색 (2자 이상)..."
+            placeholder={t('serviceDetail.members.searchPlaceholder')}
             className="w-full pl-10 pr-10 py-3 text-sm bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 focus:bg-white transition-all"
           />
           {searchLoading && <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
@@ -839,7 +848,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
                     </div>
                   </div>
                   {already ? (
-                    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">이미 멤버</span>
+                    <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{t('serviceDetail.members.alreadyMember')}</span>
                   ) : (
                     <UserPlus className="w-4 h-4 text-blue-500" />
                   )}
@@ -855,15 +864,15 @@ function MembersTab({ serviceId }: { serviceId: string }) {
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
             <Users className="w-4 h-4 text-gray-500" />
-            멤버 목록
-            <span className="text-xs font-normal text-gray-400">({members.length}명)</span>
+            {t('serviceDetail.members.memberList')}
+            <span className="text-xs font-normal text-gray-400">{t('serviceDetail.members.memberCount', { count: members.length })}</span>
           </h3>
         </div>
         {members.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <Users className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-            <p className="text-sm font-medium">등록된 멤버가 없습니다</p>
-            <p className="text-xs mt-1">위 검색창에서 멤버를 추가하세요</p>
+            <p className="text-sm font-medium">{t('serviceDetail.members.noMembers')}</p>
+            <p className="text-xs mt-1">{t('serviceDetail.members.noMembersHint')}</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -876,7 +885,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-gray-900">{member.user.username}</span>
                     <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] font-semibold rounded-full ${roleBadgeClass(member.role)}`}>
-                      {roleIcon(member.role)}{roleLabel(member.role)}
+                      {roleIcon(member.role)}{t(ROLE_I18N_KEYS[member.role] || 'serviceDetail.roles.user')}
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">{member.user.loginid} · {member.user.deptname}</p>
@@ -890,8 +899,8 @@ function MembersTab({ serviceId }: { serviceId: string }) {
                         disabled={actionLoading}
                         className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-7 cursor-pointer"
                       >
-                        <option value="ADMIN">서비스 관리자</option>
-                        <option value="USER">사용자</option>
+                        <option value="ADMIN">{t('serviceDetail.roles.serviceAdmin')}</option>
+                        <option value="USER">{t('serviceDetail.roles.user')}</option>
                       </select>
                       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
                     </div>
@@ -899,7 +908,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
                       onClick={() => removeMember(member.userId)}
                       disabled={actionLoading}
                       className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                      title="멤버 제거"
+                      title={t('serviceDetail.members.removeMember')}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -919,6 +928,7 @@ function MembersTab({ serviceId }: { serviceId: string }) {
 // ════════════════════════════════════════════
 
 function RateLimitTab({ serviceId }: { serviceId: string }) {
+  const { t } = useTranslation();
   const [commonRL, setCommonRL] = useState<CommonRateLimit | null>(null);
   const [userRLs, setUserRLs] = useState<UserRateLimit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -988,9 +998,9 @@ function RateLimitTab({ serviceId }: { serviceId: string }) {
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
             <Gauge className="w-4 h-4 text-blue-500" />
-            서비스 공통 Rate Limit
+            {t('serviceDetail.rateLimit.commonRateLimit')}
           </h3>
-          <p className="text-xs text-gray-400 mt-1">개별 설정이 없는 모든 사용자에게 기본 적용됩니다.</p>
+          <p className="text-xs text-gray-400 mt-1">{t('serviceDetail.rateLimit.commonRateLimitDesc')}</p>
         </div>
         <div className="p-6">
           {commonRL && (
@@ -998,36 +1008,36 @@ function RateLimitTab({ serviceId }: { serviceId: string }) {
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-blue-100"><Gauge className="w-4 h-4 text-blue-600" /></div>
                 <div>
-                  <p className="text-sm font-bold text-gray-900">{formatTokens(commonRL.maxTokens)} 토큰</p>
-                  <p className="text-xs text-gray-500">/ {commonRL.window === 'FIVE_HOURS' ? '5시간' : '24시간'}</p>
+                  <p className="text-sm font-bold text-gray-900">{t('serviceDetail.rateLimit.tokens', { count: formatTokens(commonRL.maxTokens) })}</p>
+                  <p className="text-xs text-gray-500">/ {commonRL.window === 'FIVE_HOURS' ? t('serviceDetail.rateLimit.fiveHours') : t('serviceDetail.rateLimit.twentyFourHours')}</p>
                 </div>
               </div>
               <button onClick={removeCommon} disabled={saving}
                 className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
-                제거
+                {t('common.remove')}
               </button>
             </div>
           )}
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">최대 토큰</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('serviceDetail.rateLimit.maxTokens')}</label>
               <input type="number" value={rlForm.maxTokens} onChange={e => setRlForm({ ...rlForm, maxTokens: e.target.value })}
                 min={1} className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors" />
             </div>
             <div className="w-32">
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">기간</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('serviceDetail.rateLimit.period')}</label>
               <div className="relative">
                 <select value={rlForm.window} onChange={e => setRlForm({ ...rlForm, window: e.target.value as 'FIVE_HOURS' | 'DAY' })}
                   className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-8 transition-colors">
-                  <option value="FIVE_HOURS">5시간</option>
-                  <option value="DAY">24시간</option>
+                  <option value="FIVE_HOURS">{t('serviceDetail.rateLimit.fiveHours')}</option>
+                  <option value="DAY">{t('serviceDetail.rateLimit.twentyFourHours')}</option>
                 </select>
                 <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
             </div>
             <button onClick={saveCommon} disabled={saving}
               className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : '저장'}
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.save')}
             </button>
           </div>
         </div>
@@ -1038,16 +1048,16 @@ function RateLimitTab({ serviceId }: { serviceId: string }) {
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
             <Users className="w-4 h-4 text-gray-500" />
-            사용자별 Rate Limit
-            <span className="text-xs font-normal text-gray-400">({userRLs.length}명)</span>
+            {t('serviceDetail.rateLimit.perUserRateLimit')}
+            <span className="text-xs font-normal text-gray-400">{t('serviceDetail.rateLimit.perUserCount', { count: userRLs.length })}</span>
           </h3>
-          <p className="text-xs text-gray-400 mt-1">개별 설정이 공통 설정보다 우선 적용됩니다.</p>
+          <p className="text-xs text-gray-400 mt-1">{t('serviceDetail.rateLimit.perUserRateLimitDesc')}</p>
         </div>
         {userRLs.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <Gauge className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-            <p className="text-sm font-medium">사용자별 Rate Limit이 설정되지 않았습니다</p>
-            <p className="text-xs mt-1">시스템 관리자 페이지에서 설정할 수 있습니다</p>
+            <p className="text-sm font-medium">{t('serviceDetail.rateLimit.noUserRateLimit')}</p>
+            <p className="text-xs mt-1">{t('serviceDetail.rateLimit.noUserRateLimitHint')}</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -1070,8 +1080,8 @@ function RateLimitTab({ serviceId }: { serviceId: string }) {
                       <option value="DAY">24h</option>
                     </select>
                     <button onClick={() => saveUserRL(rl.userId)} disabled={saving}
-                      className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">저장</button>
-                    <button onClick={() => setEditUserId(null)} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700">취소</button>
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">{t('common.save')}</button>
+                    <button onClick={() => setEditUserId(null)} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700">{t('common.cancel')}</button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
@@ -1103,6 +1113,7 @@ function RateLimitTab({ serviceId }: { serviceId: string }) {
 // ════════════════════════════════════════════
 
 function ModelsTab({ serviceId }: { serviceId: string }) {
+  const { t } = useTranslation();
   const [, setService] = useState<{ name: string; displayName: string; type: string; status: string } | null>(null);
   const [serviceModels, setServiceModels] = useState<ServiceModelItem[]>([]);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
@@ -1153,14 +1164,13 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
     const filtered = availableModels.filter(m => m.enabled && !used.has(m.id));
     const groups: { type: string; label: string; models: AvailableModel[] }[] = [];
     const typeOrder = ['CHAT', 'IMAGE', 'EMBEDDING', 'RERANKING', 'ASR'];
-    for (const t of typeOrder) {
-      const models = filtered.filter(m => m.type === t);
-      if (models.length > 0) groups.push({ type: t, label: MODEL_TYPE_LABELS[t] || t, models });
+    for (const tp of typeOrder) {
+      const models = filtered.filter(m => m.type === tp);
+      if (models.length > 0) groups.push({ type: tp, label: MODEL_TYPE_I18N_KEYS[tp] ? t(MODEL_TYPE_I18N_KEYS[tp]) : tp, models });
     }
-    // 기타 타입
     const knownTypes = new Set(typeOrder);
     const others = filtered.filter(m => !knownTypes.has(m.type));
-    if (others.length > 0) groups.push({ type: 'OTHER', label: '기타', models: others });
+    if (others.length > 0) groups.push({ type: 'OTHER', label: t('serviceDetail.modelTypes.other'), models: others });
     return groups;
   };
 
@@ -1172,12 +1182,12 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
       setSelectedModelId(''); setAddWeight(1);
       await loadData();
     } catch (err: unknown) {
-      alert((err as { response?: { data?: { error?: string } } })?.response?.data?.error || '실패');
+      alert((err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('serviceDetail.models.failed'));
     } finally { setSaving(false); }
   };
 
   const removeModel = async (sm: ServiceModelItem) => {
-    if (!confirm(`'${sm.model.displayName}'을 제거하시겠습니까?`)) return;
+    if (!confirm(t('serviceDetail.models.confirmRemoveModel', { name: sm.model.displayName }))) return;
     setSaving(true);
     try { await api.delete(`/services/${serviceId}/service-models/${sm.id}`); await loadData(); } catch { /* */ } finally { setSaving(false); }
   };
@@ -1195,7 +1205,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
 
   const deleteGroup = async (alias: string) => {
     const items = serviceModels.filter(sm => sm.aliasName === alias);
-    if (!confirm(`'${alias}' 그룹(${items.length}개 모델)을 삭제하시겠습니까?`)) return;
+    if (!confirm(t('serviceDetail.models.confirmDeleteGroup', { alias, count: items.length }))) return;
     setSaving(true);
     try { for (const sm of items) await api.delete(`/services/${serviceId}/service-models/${sm.id}`); await loadData(); } catch { /* */ } finally { setSaving(false); }
   };
@@ -1211,7 +1221,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
         await api.post(`/services/${serviceId}/models`, { modelId: sm.modelId, aliasName: nv, weight: sm.weight, sortOrder: sm.sortOrder, enabled: sm.enabled });
       }
       setEditingAlias(null); await loadData();
-    } catch (err: unknown) { alert((err as { response?: { data?: { error?: string } } })?.response?.data?.error || '실패'); } finally { setSaving(false); }
+    } catch (err: unknown) { alert((err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('serviceDetail.models.failed')); } finally { setSaving(false); }
   };
 
   const openCopyModal = async () => {
@@ -1236,7 +1246,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
       await loadData();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '모델 설정 복사에 실패했습니다.');
+      alert(msg || t('serviceDetail.models.copyModelsFailed'));
     } finally {
       setCopying(false);
     }
@@ -1249,18 +1259,18 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
       {/* Info banner + Copy button */}
       <div className="flex items-start gap-3">
         <div className="flex-1 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-xl px-5 py-4">
-          <p className="text-sm text-blue-800 font-medium">v1/models 가상 모델 설정</p>
-          <p className="text-xs text-blue-600 mt-1 leading-relaxed">
-            <strong>표시 모델명</strong>을 만들고 실제 LLM 모델을 배치하세요. 내부적으로 <strong>가중치 기반 라운드로빈</strong>으로 분배됩니다.
-          </p>
+          <p className="text-sm text-blue-800 font-medium">{t('serviceDetail.models.virtualModelConfig')}</p>
+          <p className="text-xs text-blue-600 mt-1 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: t('serviceDetail.models.virtualModelDesc').replace(/<1>/g, '<strong>').replace(/<\/1>/g, '</strong>').replace(/<3>/g, '<strong>').replace(/<\/3>/g, '</strong>') }}
+          />
         </div>
         <button
           onClick={openCopyModal}
           className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
-          title="다른 서비스에서 모델 설정 복사"
+          title={t('serviceDetail.models.copyConfigTooltip')}
         >
           <Copy className="w-3.5 h-3.5" />
-          설정 복사
+          {t('serviceDetail.models.copyConfig')}
         </button>
       </div>
 
@@ -1271,32 +1281,32 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Copy className="w-4 h-4 text-indigo-500" />
-                <h3 className="text-sm font-semibold text-gray-900">다른 서비스에서 모델 설정 복사</h3>
+                <h3 className="text-sm font-semibold text-gray-900">{t('serviceDetail.models.copyFromOtherService')}</h3>
               </div>
               <button onClick={() => setShowCopyModal(false)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
             </div>
             <div className="px-5 py-4 space-y-4">
               {/* Source selection */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">소스 서비스 선택</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">{t('serviceDetail.models.selectSourceService')}</label>
                 <select
                   value={copySourceId}
                   onChange={e => { setCopySourceId(e.target.value); setCopyResult(null); }}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                 >
-                  <option value="">서비스를 선택하세요...</option>
+                  <option value="">{t('serviceDetail.models.selectServicePlaceholder')}</option>
                   {myServices.map(s => (
                     <option key={s.id} value={s.id}>{s.displayName} ({s.name})</option>
                   ))}
                 </select>
                 {myServices.length === 0 && (
-                  <p className="text-[11px] text-gray-400 mt-1">관리 가능한 다른 서비스가 없습니다.</p>
+                  <p className="text-[11px] text-gray-400 mt-1">{t('serviceDetail.models.noOtherServices')}</p>
                 )}
               </div>
 
               {/* Mode selection */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">복사 방식</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">{t('serviceDetail.models.copyMode')}</label>
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setCopyMode('merge'); setCopyResult(null); }}
@@ -1306,8 +1316,8 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                         : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    <div className="font-semibold">병합</div>
-                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 유지 + 새로 추가</div>
+                    <div className="font-semibold">{t('serviceDetail.models.merge')}</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">{t('serviceDetail.models.mergeDesc')}</div>
                   </button>
                   <button
                     onClick={() => { setCopyMode('replace'); setCopyResult(null); }}
@@ -1317,14 +1327,14 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                         : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    <div className="font-semibold">덮어쓰기</div>
-                    <div className="text-[10px] mt-0.5 opacity-70">기존 설정 삭제 후 복사</div>
+                    <div className="font-semibold">{t('serviceDetail.models.overwrite')}</div>
+                    <div className="text-[10px] mt-0.5 opacity-70">{t('serviceDetail.models.overwriteDesc')}</div>
                   </button>
                 </div>
                 {copyMode === 'replace' && (
                   <p className="text-[11px] text-red-500 mt-1.5 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" />
-                    기존 모델 설정이 모두 삭제됩니다.
+                    {t('serviceDetail.models.overwriteWarning')}
                   </p>
                 )}
               </div>
@@ -1334,7 +1344,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                 <div className={`px-3 py-2.5 rounded-lg text-xs ${copyResult.copied > 0 ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
                   <p className="font-medium">{copyResult.message}</p>
                   {copyResult.skipped > 0 && (
-                    <p className="mt-1 text-[11px] opacity-70">건너뜀: {copyResult.skipped}개 (중복 또는 비활성)</p>
+                    <p className="mt-1 text-[11px] opacity-70">{t('serviceDetail.models.skipped', { count: copyResult.skipped })}</p>
                   )}
                 </div>
               )}
@@ -1344,7 +1354,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                 onClick={() => setShowCopyModal(false)}
                 className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                {copyResult ? '닫기' : '취소'}
+                {copyResult ? t('common.close') : t('common.cancel')}
               </button>
               {!copyResult && (
                 <button
@@ -1355,7 +1365,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                   }`}
                 >
                   {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Copy className="w-3 h-3" />}
-                  {copyMode === 'replace' ? '덮어쓰기' : '복사'}
+                  {copyMode === 'replace' ? t('serviceDetail.models.overwrite') : t('common.copy')}
                 </button>
               )}
             </div>
@@ -1391,9 +1401,9 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                         className="p-0.5 text-gray-300 hover:text-gray-500"><Edit2 className="w-3 h-3" /></button>
                     </div>
                     <p className="text-[11px] text-gray-400 mt-0.5">
-                      {group.items.length}개 모델{enabledN > 1 ? ` · 라운드로빈 ${totalW}회/사이클` : ''}
+                      {t('serviceDetail.models.modelCount', { count: group.items.length })}{enabledN > 1 ? ` · ${t('serviceDetail.models.roundRobin', { count: totalW })}` : ''}
                       {group.items[0]?.fallbackModel && (
-                        <span className="ml-1.5 text-amber-600">· 폴백: {group.items[0].fallbackModel.displayName}</span>
+                        <span className="ml-1.5 text-amber-600">· {t('serviceDetail.models.fallback', { name: group.items[0].fallbackModel.displayName })}</span>
                       )}
                     </p>
                   </div>
@@ -1414,16 +1424,16 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                     }}
                     disabled={saving}
                     className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 max-w-[150px] truncate focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400"
-                    title="에러 시 폴백 모델"
+                    title={t('serviceDetail.models.fallbackTooltip')}
                   >
-                    <option value="">폴백 없음</option>
+                    <option value="">{t('serviceDetail.models.noFallback')}</option>
                     {availableModels.filter(m => m.enabled).map(m => (
                       <option key={m.id} value={m.id}>{m.displayName}</option>
                     ))}
                   </select>
                   {/* Retry count */}
-                  <div className="flex items-center gap-1" title="에러 시 재시도 횟수 (0=재시도 안함)">
-                    <span className="text-[10px] text-gray-400">재시도</span>
+                  <div className="flex items-center gap-1" title={t('serviceDetail.models.retryLabel')}>
+                    <span className="text-[10px] text-gray-400">{t('serviceDetail.models.retryLabel')}</span>
                     <select
                       value={group.items[0]?.maxRetries ?? 0}
                       onChange={async (e) => {
@@ -1441,13 +1451,13 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                       className="w-12 px-1 py-1.5 text-xs text-center border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       {[0, 1, 2, 3, 5, 10].map(n => (
-                        <option key={n} value={n}>{n}회</option>
+                        <option key={n} value={n}>{t('serviceDetail.models.retryCount', { count: n })}</option>
                       ))}
                     </select>
                   </div>
                   <button onClick={() => setAddingToAlias(addingToAlias === group.aliasName ? null : group.aliasName)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100">
-                    <Plus className="w-3 h-3" />모델 추가
+                    <Plus className="w-3 h-3" />{t('serviceDetail.models.addModel')}
                   </button>
                   <button onClick={() => deleteGroup(group.aliasName)} disabled={saving}
                     className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
@@ -1460,10 +1470,10 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
               <div className="px-5 py-3 border-b border-gray-100 bg-blue-50/30">
                 <div className="flex items-end gap-3">
                   <div className="flex-1">
-                    <label className="block text-[11px] font-medium text-gray-500 mb-1">모델 선택 (타입별 분류)</label>
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">{t('serviceDetail.models.selectModelByType')}</label>
                     <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}
                       className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none">
-                      <option value="">모델을 선택하세요...</option>
+                      <option value="">{t('serviceDetail.models.selectModelPlaceholder')}</option>
                       {getGroupedAvailable(group.aliasName).map(g => (
                         <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
                           {g.models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
@@ -1472,13 +1482,13 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                     </select>
                   </div>
                   <div className="w-20">
-                    <label className="block text-[11px] font-medium text-gray-500 mb-1">가중치</label>
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">{t('serviceDetail.models.weight')}</label>
                     <input type="number" min={1} max={10} value={addWeight} onChange={e => setAddWeight(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
                       className="w-full px-2 py-1.5 text-xs text-center border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
                   </div>
                   <button onClick={() => addModel(group.aliasName)} disabled={!selectedModelId || saving}
                     className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50">
-                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}추가
+                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}{t('common.add')}
                   </button>
                   <button onClick={() => { setAddingToAlias(null); setSelectedModelId(''); }} className="p-1.5 text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>
                 </div>
@@ -1487,7 +1497,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
 
             {/* Models in group */}
             {group.items.length === 0 ? (
-              <div className="text-center py-6 text-xs text-gray-400">모델을 추가하세요.</div>
+              <div className="text-center py-6 text-xs text-gray-400">{t('serviceDetail.models.addModelPlaceholder')}</div>
             ) : (
               <div>
                 {group.items.map(sm => {
@@ -1506,7 +1516,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className={`text-sm font-medium truncate ${bad ? 'text-red-700 line-through' : 'text-gray-900'}`}>{sm.model.displayName}</p>
-                          {bad && <span className="text-[10px] font-medium bg-red-100 text-red-600 px-1.5 py-0.5 rounded">접근 불가</span>}
+                          {bad && <span className="text-[10px] font-medium bg-red-100 text-red-600 px-1.5 py-0.5 rounded">{t('serviceDetail.models.notAccessible')}</span>}
                           {group.items.length > 1 && sm.enabled && !bad && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 rounded">
                               <Zap className="w-2.5 h-2.5" />RR
@@ -1525,7 +1535,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                         </div>
                       )}
                       {!bad && (
-                        <button onClick={() => toggleEnabled(sm)} disabled={saving} className="flex-shrink-0" title={sm.enabled ? '비활성화' : '활성화'}>
+                        <button onClick={() => toggleEnabled(sm)} disabled={saving} className="flex-shrink-0" title={sm.enabled ? t('serviceDetail.models.deactivate') : t('serviceDetail.models.activate')}>
                           {sm.enabled ? <ToggleRight className="w-6 h-6 text-blue-500" /> : <ToggleLeft className="w-6 h-6 text-gray-300" />}
                         </button>
                       )}
@@ -1541,7 +1551,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
               <div className="px-5 py-2.5 bg-gray-50 border-t border-gray-100">
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
                   <Zap className="w-3 h-3 text-blue-500" />
-                  <span className="font-medium">라운드로빈:</span>
+                  <span className="font-medium">{t('serviceDetail.models.roundRobinLabel')}</span>
                   {group.items.filter(sm => sm.enabled && sm.accessible).map((sm, i) => (
                     <span key={sm.id}>
                       {i > 0 && <span className="text-gray-300 mx-0.5">&rarr;</span>}
@@ -1562,7 +1572,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
           <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-3">
             <Zap className="w-4 h-4 text-gray-400" />
             <div className="flex-1"><code className="text-sm font-semibold text-gray-900">{addingToAlias}</code>
-              <p className="text-[11px] text-gray-400 mt-0.5">모델을 추가하면 그룹이 생성됩니다.</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{t('serviceDetail.models.addModelToGroup')}</p>
             </div>
             <button onClick={() => setAddingToAlias(null)} className="p-1.5 text-gray-300 hover:text-red-500"><X className="w-4 h-4" /></button>
           </div>
@@ -1571,7 +1581,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
               <div className="flex-1">
                 <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}
                   className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none">
-                  <option value="">모델을 선택하세요...</option>
+                  <option value="">{t('serviceDetail.models.selectModelPlaceholder')}</option>
                   {getGroupedAvailable(addingToAlias).map(g => (
                     <optgroup key={g.type} label={`── ${g.label} (${g.models.length}) ──`}>
                       {g.models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
@@ -1580,7 +1590,7 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
                 </select>
               </div>
               <button onClick={() => addModel(addingToAlias)} disabled={!selectedModelId || saving}
-                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50">추가</button>
+                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50">{t('common.add')}</button>
             </div>
           </div>
         </div>
@@ -1589,18 +1599,18 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
       {/* New alias button */}
       {showNewForm ? (
         <div className="bg-white border border-gray-200 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">새 표시 모델 추가</h3>
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">{t('serviceDetail.models.newDisplayModel')}</h3>
           <div className="flex items-end gap-3">
             <div className="flex-1">
               <input type="text" value={newAliasName} onChange={e => setNewAliasName(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && newAliasName.trim()) { setShowNewForm(false); setNewAliasName(''); setAddingToAlias(newAliasName.trim()); } }}
-                placeholder="예: gpt-4o, claude-sonnet"
+                placeholder={t('serviceDetail.models.aliasPlaceholder')}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400" autoFocus />
             </div>
             <button onClick={() => { if (newAliasName.trim()) { setShowNewForm(false); setAddingToAlias(newAliasName.trim()); setNewAliasName(''); } }}
               disabled={!newAliasName.trim()}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-              <Plus className="w-4 h-4 inline mr-1" />만들기
+              <Plus className="w-4 h-4 inline mr-1" />{t('serviceDetail.models.create')}
             </button>
             <button onClick={() => { setShowNewForm(false); setNewAliasName(''); }} className="p-2 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
           </div>
@@ -1608,15 +1618,15 @@ function ModelsTab({ serviceId }: { serviceId: string }) {
       ) : (
         <button onClick={() => setShowNewForm(true)}
           className="w-full py-4 border-2 border-dashed border-gray-200 rounded-xl text-sm font-medium text-gray-400 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50/30 transition-all flex items-center justify-center gap-2">
-          <Plus className="w-4 h-4" />새 표시 모델 추가
+          <Plus className="w-4 h-4" />{t('serviceDetail.models.newDisplayModel')}
         </button>
       )}
 
       {aliasGroups.length === 0 && !showNewForm && (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
           <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm font-medium text-gray-900 mb-1">등록된 모델이 없습니다</p>
-          <p className="text-sm text-gray-500">"새 표시 모델 추가"를 눌러 시작하세요.</p>
+          <p className="text-sm font-medium text-gray-900 mb-1">{t('serviceDetail.models.noModels')}</p>
+          <p className="text-sm text-gray-500">{t('serviceDetail.models.noModelsHint')}</p>
         </div>
       )}
     </div>
@@ -1720,6 +1730,7 @@ function formatErrKST(dateStr: string): string {
 }
 
 function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<SvcErrorLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 0 });
@@ -1797,7 +1808,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
       const res = await api.post(`/admin/error-logs/${logId}/analyze`, { modelId: selectedModel });
       setAnalyses(prev => new Map(prev).set(logId, res.data.analysis));
     } catch (err: any) {
-      const msg = err.response?.data?.error || err.response?.data?.detail || 'AI 분석에 실패했습니다';
+      const msg = err.response?.data?.error || err.response?.data?.detail || t('serviceDetail.errors.aiAnalysisFailed');
       setAnalyzeErrors(prev => new Map(prev).set(logId, msg));
     } finally {
       setAnalyzingId(null);
@@ -1815,8 +1826,8 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             <AlertTriangle className="w-5 h-5 text-red-600" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-pastel-800 tracking-tight">에러 관리</h2>
-            <p className="text-xs text-pastel-500 mt-0.5">이 서비스에서 발생한 API 에러를 추적합니다</p>
+            <h2 className="text-lg font-bold text-pastel-800 tracking-tight">{t('serviceDetail.errors.errorManagement')}</h2>
+            <p className="text-xs text-pastel-500 mt-0.5">{t('serviceDetail.errors.errorTrackingDesc')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -1824,14 +1835,14 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             value={selectedModel}
             onChange={e => setSelectedModel(e.target.value)}
             className="px-3 py-2 text-xs bg-white border border-gray-200 rounded-lg text-pastel-700 focus:outline-none focus:ring-2 focus:ring-violet-500/20 max-w-[200px]"
-            title="AI 분석에 사용할 LLM 선택"
+            title={t('serviceDetail.errors.selectLLMForAnalysis')}
           >
             {models.map(m => (
               <option key={m.id} value={m.id}>{m.displayName}</option>
             ))}
           </select>
           <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
-            <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}건</span>
+            <span className="text-sm font-semibold text-pastel-700">{t('serviceDetail.errors.totalCount', { count: pagination.total.toLocaleString() })}</span>
           </div>
         </div>
       </div>
@@ -1843,7 +1854,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-400" />
             <input
               type="text"
-              placeholder="사용자 ID 검색..."
+              placeholder={t('serviceDetail.errors.searchUserId')}
               value={userId}
               onChange={e => setUserId(e.target.value)}
               className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-red-500/15 focus:border-red-500/30"
@@ -1854,7 +1865,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             onChange={e => { setStatusCode(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
             className="px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700"
           >
-            <option value="">전체 상태코드</option>
+            <option value="">{t('serviceDetail.errors.allStatusCodes')}</option>
             <option value="400">400 Bad Request</option>
             <option value="401">401 Unauthorized</option>
             <option value="403">403 Forbidden</option>
@@ -1867,33 +1878,33 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             onChange={e => { setCategory(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
             className="px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700"
           >
-            <option value="">전체 카테고리</option>
+            <option value="">{t('serviceDetail.errors.allCategories')}</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200/60 text-sm text-pastel-600 hover:bg-pastel-50"
           >
-            <Filter className="w-4 h-4" />날짜
+            <Filter className="w-4 h-4" />{t('serviceDetail.errors.date')}
             <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
         </div>
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-gray-100 flex gap-4 items-end">
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-pastel-500 mb-1">시작일</label>
+              <label className="block text-xs font-semibold text-pastel-500 mb-1">{t('serviceDetail.errors.startDate')}</label>
               <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
                 className="w-full px-3 py-2 bg-white border border-gray-200/60 rounded-lg text-sm" />
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-pastel-500 mb-1">종료일</label>
+              <label className="block text-xs font-semibold text-pastel-500 mb-1">{t('serviceDetail.errors.endDate')}</label>
               <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
                 className="w-full px-3 py-2 bg-white border border-gray-200/60 rounded-lg text-sm" />
             </div>
             {hasFilters && (
               <button onClick={() => { setStatusCode(''); setCategory(''); setUserId(''); setStartDate(''); setEndDate(''); }}
                 className="flex items-center gap-1 text-sm text-pastel-500 hover:text-red-500 pb-2">
-                <X className="w-3.5 h-3.5" />초기화
+                <X className="w-3.5 h-3.5" />{t('common.reset')}
               </button>
             )}
           </div>
@@ -1907,12 +1918,12 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[30px]"></th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[155px]">시각</th>
-                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[60px]">코드</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">사용자</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">모델</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase">원인</th>
-                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[80px]">분석</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[155px]">{t('serviceDetail.errors.tableTime')}</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[60px]">{t('serviceDetail.errors.tableCode')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">{t('serviceDetail.errors.tableUser')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">{t('serviceDetail.errors.tableModel')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase">{t('serviceDetail.errors.tableCause')}</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[80px]">{t('serviceDetail.errors.tableAnalysis')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
@@ -1920,15 +1931,15 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                 <tr><td colSpan={7} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-10 h-10 rounded-full border-[3px] border-red-500 border-t-transparent animate-spin" />
-                    <p className="text-sm text-pastel-500">에러 로그 불러오는 중...</p>
+                    <p className="text-sm text-pastel-500">{t('serviceDetail.errors.loadingErrors')}</p>
                   </div>
                 </td></tr>
               ) : logs.length === 0 ? (
                 <tr><td colSpan={7} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <AlertTriangle className="w-8 h-8 text-pastel-300" />
-                    <p className="text-sm text-pastel-600">에러 로그가 없습니다</p>
-                    <p className="text-xs text-pastel-400">이 서비스에서 발생한 에러가 없습니다</p>
+                    <p className="text-sm text-pastel-600">{t('serviceDetail.errors.noErrors')}</p>
+                    <p className="text-xs text-pastel-400">{t('serviceDetail.errors.noErrorsDesc')}</p>
                   </div>
                 </td></tr>
               ) : logs.map(log => {
@@ -1992,7 +2003,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                           </div>
                         ) : (
                           <span className="text-xs text-pastel-400 italic">
-                            {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : '원인 미상'}
+                            {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : t('serviceDetail.errors.unknownCause')}
                           </span>
                         )}
                       </td>
@@ -2015,12 +2026,12 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                         <td colSpan={7} className="p-0">
                           <div className="px-5 py-4 bg-gray-50/80 border-b border-gray-200 animate-slide-down">
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3 text-xs">
-                              <div><span className="text-pastel-400 block">사용자</span><span className="text-pastel-700 font-medium">{log.userId || '-'}</span></div>
-                              <div><span className="text-pastel-400 block">부서</span><span className="text-pastel-700">{log.deptname || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">{t('serviceDetail.errors.detailUser')}</span><span className="text-pastel-700 font-medium">{log.userId || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">{t('serviceDetail.errors.detailDept')}</span><span className="text-pastel-700">{log.deptname || '-'}</span></div>
                               <div><span className="text-pastel-400 block">IP</span><span className="text-pastel-700 font-mono">{log.ipAddress || '-'}</span></div>
                               <div><span className="text-pastel-400 block">Latency</span><span className="text-pastel-700">{log.latencyMs != null ? `${log.latencyMs}ms` : '-'}</span></div>
-                              <div><span className="text-pastel-400 block">모델</span><span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span></div>
-                              <div><span className="text-pastel-400 block">요청</span><span className="text-pastel-700 font-mono">{log.method} {log.path}</span></div>
+                              <div><span className="text-pastel-400 block">{t('serviceDetail.errors.detailModel')}</span><span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span></div>
+                              <div><span className="text-pastel-400 block">{t('serviceDetail.errors.detailRequest')}</span><span className="text-pastel-700 font-mono">{log.method} {log.path}</span></div>
                               <div className="col-span-2"><span className="text-pastel-400 block">User-Agent</span><span className="text-pastel-700 truncate block max-w-[400px]" title={log.userAgent || ''}>{log.userAgent || '-'}</span></div>
                             </div>
                             {log.errorMessage && (
@@ -2032,9 +2043,9 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                               <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2.5">
                                   <Zap className="w-3.5 h-3.5 text-slate-600" />
-                                  <span className="text-xs font-semibold text-slate-700">엔드포인트 시도 이력</span>
+                                  <span className="text-xs font-semibold text-slate-700">{t('serviceDetail.errors.endpointAttemptHistory')}</span>
                                   <span className="text-[10px] text-slate-400 ml-auto">
-                                    총 {log.errorDetails.totalAttempts}회 시도 | Timeout 설정: {(log.errorDetails.timeoutMs / 1000).toFixed(0)}초
+                                    {t('serviceDetail.errors.totalAttempts', { count: log.errorDetails.totalAttempts })} | {t('serviceDetail.errors.timeoutSetting', { seconds: (log.errorDetails.timeoutMs / 1000).toFixed(0) })}
                                   </span>
                                 </div>
                                 <div className="space-y-2">
@@ -2071,7 +2082,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                               <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
                                   <Sparkles className="w-3.5 h-3.5 text-violet-600" />
-                                  <span className="text-xs font-semibold text-violet-800">AI 원인 분석</span>
+                                  <span className="text-xs font-semibold text-violet-800">{t('serviceDetail.errors.aiCauseAnalysis')}</span>
                                   <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${ERR_SEVERITY_COLORS[analysis.severity] || ''}`}>{analysis.severity}</span>
                                   {analysis.errorPattern && (
                                     <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
@@ -2079,28 +2090,28 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
                                       analysis.errorPattern === 'recurring' ? 'bg-amber-100 text-amber-700' :
                                       'bg-gray-100 text-gray-600'
                                     }`}>
-                                      {analysis.errorPattern === 'outage' ? '서비스 장애' : analysis.errorPattern === 'recurring' ? '반복 발생' : '일회성'}
+                                      {analysis.errorPattern === 'outage' ? t('serviceDetail.errors.serviceOutage') : analysis.errorPattern === 'recurring' ? t('serviceDetail.errors.recurring') : t('serviceDetail.errors.oneTime')}
                                     </span>
                                   )}
                                   <span className="text-[10px] text-violet-500 ml-auto">{analysis.category}</span>
                                 </div>
                                 <div className="space-y-1.5 text-xs text-pastel-700">
-                                  <div><span className="font-semibold text-violet-700">원인:</span> {analysis.cause}</div>
-                                  <div><span className="font-semibold text-violet-700">상세:</span> {analysis.detail}</div>
-                                  <div><span className="font-semibold text-violet-700">해결:</span> {analysis.suggestion}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('serviceDetail.errors.cause')}</span> {analysis.cause}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('serviceDetail.errors.detail')}</span> {analysis.detail}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('serviceDetail.errors.resolution')}</span> {analysis.suggestion}</div>
                                 </div>
                               </div>
                             ) : isAnalyzing ? (
                               <div className="flex items-center gap-2 p-3 bg-violet-50 border border-violet-100 rounded-lg">
                                 <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />
-                                <span className="text-xs text-violet-600">AI 원인 분석 중...</span>
+                                <span className="text-xs text-violet-600">{t('serviceDetail.errors.aiAnalyzing')}</span>
                               </div>
                             ) : errMsg ? (
                               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg">
                                 <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
                                 <span className="text-xs text-red-600">{errMsg}</span>
                                 <button onClick={(e) => { e.stopPropagation(); analyzeError(log.id); }}
-                                  className="ml-auto text-xs text-violet-600 hover:underline">재시도</button>
+                                  className="ml-auto text-xs text-violet-600 hover:underline">{t('common.retry')}</button>
                               </div>
                             ) : null}
                           </div>
@@ -2117,15 +2128,15 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
-              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>건 중{' '}
+              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span> {t('serviceDetail.errors.ofTotal', { total: '' })}{' '}
               <span className="font-medium">{((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-{Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}</span>
             </p>
             <div className="flex items-center gap-1.5">
               <button onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))} disabled={pagination.page <= 1}
-                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">이전</button>
+                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">{t('common.prev')}</button>
               <span className="px-3 py-2 text-sm text-pastel-600">{pagination.page} / {pagination.totalPages}</span>
               <button onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))} disabled={pagination.page >= pagination.totalPages}
-                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">다음</button>
+                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">{t('common.next')}</button>
             </div>
           </div>
         )}
@@ -2138,6 +2149,7 @@ function ServiceErrorsTab({ serviceId }: { serviceId: string }) {
 // TestAccountsTab — 서비스별 테스트 계정 관리 (최대 3개)
 // ════════════════════════════════════════════
 function TestAccountsTab({ serviceId }: { serviceId: string }) {
+  const { t } = useTranslation();
   const [accounts, setAccounts] = useState<TestAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState<string[]>([]);
@@ -2175,22 +2187,22 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
   };
 
   const handleSave = async () => {
-    if (!form.loginid.trim()) { setError('ID를 입력하세요'); return; }
-    if (!form.deptname) { setError('팀을 선택하세요'); return; }
+    if (!form.loginid.trim()) { setError(t('serviceDetail.testAccounts.enterLoginId')); return; }
+    if (!form.deptname) { setError(t('serviceDetail.testAccounts.selectTeam')); return; }
     setSaving(true);
     setError('');
     try {
       if (editingId) {
         await testAccountApi.update(serviceId, editingId, {
           loginid: form.loginid.trim(),
-          username: form.username.trim() || '테스트 사용자',
+          username: form.username.trim() || t('serviceDetail.testAccounts.defaultUsername'),
           deptname: form.deptname,
           description: form.description.trim() || null,
         });
       } else {
         await testAccountApi.create(serviceId, {
           loginid: form.loginid.trim(),
-          username: form.username.trim() || '테스트 사용자',
+          username: form.username.trim() || t('serviceDetail.testAccounts.defaultUsername'),
           deptname: form.deptname,
           description: form.description.trim() || undefined,
         });
@@ -2198,13 +2210,13 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
       resetForm();
       loadAccounts();
     } catch (err: any) {
-      setError(err.response?.data?.error || '저장에 실패했습니다');
+      setError(err.response?.data?.error || t('common.saveFailed'));
     }
     setSaving(false);
   };
 
   const handleDelete = async (a: TestAccount) => {
-    if (!confirm(`테스트 계정 '${a.loginid}'을(를) 삭제하시겠습니까?`)) return;
+    if (!confirm(t('serviceDetail.testAccounts.confirmDelete', { id: a.loginid }))) return;
     try {
       await testAccountApi.delete(serviceId, a.id);
       loadAccounts();
@@ -2224,13 +2236,13 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
         <div>
           <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <FlaskConical className="w-5 h-5 text-amber-500" />
-            테스트 계정
+            {t('serviceDetail.testAccounts.title')}
             <span className="text-sm font-normal text-gray-400 ml-1">
-              {accounts.length} / 3
+              {t('serviceDetail.testAccounts.countDisplay', { current: accounts.length, max: 3 })}
             </span>
           </h3>
           <p className="text-sm text-gray-500 mt-0.5">
-            개발/테스트용 가상 계정입니다. 프록시는 정상 동작하지만 통계/집계에서 제외됩니다.
+            {t('serviceDetail.testAccounts.description')}
           </p>
         </div>
         {accounts.length < 3 && !showForm && (
@@ -2238,7 +2250,7 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
             onClick={() => { resetForm(); setShowForm(true); }}
             className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm transition-all"
           >
-            <Plus className="w-4 h-4" /> 추가
+            <Plus className="w-4 h-4" /> {t('common.add')}
           </button>
         )}
       </div>
@@ -2247,7 +2259,7 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
       {showForm && (
         <div className="bg-amber-50/50 border border-amber-200/60 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-amber-700">
-            {editingId ? '테스트 계정 수정' : '새 테스트 계정'}
+            {editingId ? t('serviceDetail.testAccounts.editAccount') : t('serviceDetail.testAccounts.newAccount')}
           </h4>
 
           {error && (
@@ -2258,45 +2270,45 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">로그인 ID *</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('serviceDetail.testAccounts.loginId')}</label>
               <input
                 type="text"
                 value={form.loginid}
                 onChange={e => setForm(f => ({ ...f, loginid: e.target.value }))}
-                placeholder="예: test-user-01"
+                placeholder={t('serviceDetail.testAccounts.loginIdPlaceholder')}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">표시 이름</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('serviceDetail.testAccounts.displayName')}</label>
               <input
                 type="text"
                 value={form.username}
                 onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                placeholder="테스트 사용자"
+                placeholder={t('serviceDetail.testAccounts.displayNamePlaceholder')}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">팀 (부서) *</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('serviceDetail.testAccounts.team')}</label>
               <select
                 value={form.deptname}
                 onChange={e => setForm(f => ({ ...f, deptname: e.target.value }))}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none bg-white"
               >
-                <option value="">-- 팀 선택 --</option>
+                <option value="">{t('serviceDetail.testAccounts.teamSelectPlaceholder')}</option>
                 {departments.map(d => (
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">설명</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{t('serviceDetail.testAccounts.descriptionLabel')}</label>
               <input
                 type="text"
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                placeholder="용도 (선택)"
+                placeholder={t('serviceDetail.testAccounts.descriptionPlaceholder')}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-400 outline-none"
               />
             </div>
@@ -2309,13 +2321,13 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 rounded-lg transition-all"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              {editingId ? '수정' : '생성'}
+              {editingId ? t('common.edit') : t('common.create')}
             </button>
             <button
               onClick={resetForm}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-all"
             >
-              <X className="w-4 h-4" /> 취소
+              <X className="w-4 h-4" /> {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -2325,8 +2337,8 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
       {accounts.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <FlaskConical className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">등록된 테스트 계정이 없습니다</p>
-          <p className="text-xs mt-1">서비스당 최대 3개까지 생성할 수 있습니다</p>
+          <p className="text-sm">{t('serviceDetail.testAccounts.noAccounts')}</p>
+          <p className="text-xs mt-1">{t('serviceDetail.testAccounts.noAccountsHint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -2339,7 +2351,7 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-900 text-sm">{a.loginid}</span>
-                    {a.username && a.username !== '테스트 사용자' && (
+                    {a.username && a.username !== t('serviceDetail.testAccounts.defaultUsername') && (
                       <span className="text-xs text-gray-400">({a.username})</span>
                     )}
                   </div>
@@ -2357,14 +2369,14 @@ function TestAccountsTab({ serviceId }: { serviceId: string }) {
                 <button
                   onClick={() => startEdit(a)}
                   className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
-                  title="수정"
+                  title={t('common.edit')}
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(a)}
                   className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                  title="삭제"
+                  title={t('common.delete')}
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

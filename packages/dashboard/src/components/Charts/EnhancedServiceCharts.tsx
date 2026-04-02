@@ -4,10 +4,12 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { TrendingUp, Users, Zap, BarChart3, Activity, CalendarDays } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
 import { useBusinessDayToggle } from '../../hooks/useBusinessDayToggle';
+import i18n from '../../i18n';
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
@@ -17,14 +19,6 @@ const COLORS = [
 
 type ChartType = 'cumUsers' | 'cumTokens' | 'dau' | 'mau' | 'requests' | 'deptUsage';
 
-const TABS: { key: ChartType; label: string; icon: React.ElementType }[] = [
-  { key: 'cumUsers', label: '누적 사용자', icon: Users },
-  { key: 'cumTokens', label: '누적 토큰', icon: Zap },
-  { key: 'dau', label: '서비스별 DAU', icon: Activity },
-  { key: 'mau', label: '서비스별 MAU', icon: CalendarDays },
-  { key: 'requests', label: '일별 요청수', icon: BarChart3 },
-  { key: 'deptUsage', label: '부서별 사용량', icon: TrendingUp },
-];
 
 function formatNum(n: number): string {
   if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
@@ -58,14 +52,14 @@ function OverflowTable({ data, keys, label }: { data: Record<string, unknown>[];
 
   return (
     <div className="mt-4 border-t border-gray-100 pt-4">
-      <p className="text-xs text-gray-500 mb-2">그 외 {keys.length}개 서비스 {label}</p>
+      <p className="text-xs text-gray-500 mb-2">{i18n.t('charts.enhancedService.otherServicesSummary', { count: keys.length, label })}</p>
       <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-gray-50">
             <tr>
-              <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
-              <th className="text-right py-2 px-3 font-medium text-gray-500">합계</th>
-              <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+              <th className="text-left py-2 px-3 font-medium text-gray-500">{i18n.t('charts.enhancedService.serviceColumn')}</th>
+              <th className="text-right py-2 px-3 font-medium text-gray-500">{i18n.t('charts.enhancedService.totalColumn')}</th>
+              <th className="text-right py-2 px-3 font-medium text-gray-500">{i18n.t('charts.enhancedService.latestColumn')}</th>
             </tr>
           </thead>
           <tbody>
@@ -84,6 +78,15 @@ function OverflowTable({ data, keys, label }: { data: Record<string, unknown>[];
 }
 
 export default function EnhancedServiceCharts() {
+  const { t } = useTranslation();
+  const TABS: { key: ChartType; label: string; icon: React.ElementType }[] = [
+    { key: 'cumUsers', label: t('charts.enhancedService.tabCumUsers'), icon: Users },
+    { key: 'cumTokens', label: t('charts.enhancedService.tabCumTokens'), icon: Zap },
+    { key: 'dau', label: t('charts.enhancedService.tabDau'), icon: Activity },
+    { key: 'mau', label: t('charts.enhancedService.tabMau'), icon: CalendarDays },
+    { key: 'requests', label: t('charts.enhancedService.tabRequests'), icon: BarChart3 },
+    { key: 'deptUsage', label: t('charts.enhancedService.tabDeptUsage'), icon: TrendingUp },
+  ];
   const [tab, setTab] = useState<ChartType>('cumUsers');
   const [days, setDays] = useState(30);
   const holidayDates = useHolidayDates();
@@ -179,7 +182,7 @@ export default function EnhancedServiceCharts() {
             ))}
           </LineChart>
         </ResponsiveContainer>
-        <OverflowTable data={data} keys={rest} label="요약" />
+        <OverflowTable data={data} keys={rest} label={t('charts.enhancedService.summary')} />
       </>
     );
   };
@@ -214,7 +217,7 @@ export default function EnhancedServiceCharts() {
             ))}
           </AreaChart>
         </ResponsiveContainer>
-        <OverflowTable data={data} keys={rest} label="요약" />
+        <OverflowTable data={data} keys={rest} label={t('charts.enhancedService.summary')} />
       </>
     );
   };
@@ -230,18 +233,18 @@ export default function EnhancedServiceCharts() {
         {hasBg && estimationMeta && estimationMeta.callsPerPersonPerDay > 0 && (
           <div className="text-xs text-gray-400 text-right mb-3 space-y-0.5">
             <div>
-              <span>1인당 하루 평균: <strong className="text-gray-600">{estimationMeta.callsPerPersonPerDay}건</strong></span>
+              <span>{t('charts.enhancedService.perPersonDailyAvg')}<strong className="text-gray-600">{t('charts.enhancedService.perPersonDailyAvgValue', { count: estimationMeta.callsPerPersonPerDay })}</strong></span>
               <span className="mx-2">|</span>
-              <span>STANDARD 평균 DAU: <strong className="text-gray-600">{estimationMeta.standardAvgDailyDAU}명</strong></span>
+              <span>{t('charts.enhancedService.standardAvgDau')}<strong className="text-gray-600">{t('charts.enhancedService.standardAvgDauValue', { count: estimationMeta.standardAvgDailyDAU })}</strong></span>
               <span className="mx-2">|</span>
-              <span>영업일: <strong className="text-gray-600">{estimationMeta.businessDays}일</strong></span>
+              <span>{t('charts.enhancedService.businessDays')}<strong className="text-gray-600">{t('charts.enhancedService.businessDaysValue', { count: estimationMeta.businessDays })}</strong></span>
             </div>
             <div className="flex items-center gap-1 justify-end text-gray-400">
               <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
-              <span>= 추정 (BACKGROUND)</span>
+              <span>{t('charts.enhancedService.estimatedBg')}</span>
               <span className="mx-1">|</span>
               <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
-              <span>= 실측 (STANDARD)</span>
+              <span>{t('charts.enhancedService.actualStd')}</span>
             </div>
           </div>
         )}
@@ -269,15 +272,15 @@ export default function EnhancedServiceCharts() {
                               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
                               <span className="text-gray-700">{key}:</span>
                               <span className="font-semibold text-gray-900">
-                                {isBg ? `≈${value}명` : `${value}명`}
+                                {isBg ? t('charts.enhancedService.approxUsers', { count: value }) : t('charts.enhancedService.exactUsers', { count: value })}
                               </span>
                               <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
-                                ({isBg ? '추정' : '실측'})
+                                ({isBg ? t('charts.enhancedService.estimated') : t('charts.enhancedService.actual')})
                               </span>
                             </div>
                             {isBg && cpd && value > 0 && (
                               <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
-                                해당일 호출 {Math.round(value * cpd).toLocaleString()}회 &divide; 1인당 평균 {cpd}회 = {value}명
+                                {t('charts.enhancedService.dailyCallsEstimation', { calls: Math.round(value * cpd).toLocaleString(), perPerson: cpd, result: value })}
                               </p>
                             )}
                           </div>
@@ -303,7 +306,7 @@ export default function EnhancedServiceCharts() {
             ))}
           </LineChart>
         </ResponsiveContainer>
-        <OverflowTable data={data} keys={rest} label="요약" />
+        <OverflowTable data={data} keys={rest} label={t('charts.enhancedService.summary')} />
       </>
     );
   };
@@ -335,7 +338,7 @@ export default function EnhancedServiceCharts() {
                     <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
                       <span className="font-semibold text-gray-800">{monthLabel}</span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isFixed ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
-                        {isFixed ? '확정' : '실시간'}
+                        {isFixed ? t('charts.enhancedService.fixed') : t('charts.enhancedService.realtime')}
                       </span>
                     </div>
                     <div className="space-y-1.5">
@@ -354,15 +357,15 @@ export default function EnhancedServiceCharts() {
                               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
                               <span className="text-gray-700">{displayName}:</span>
                               <span className="font-semibold text-gray-900">
-                                {isBg ? `≈${value}명` : `${value}명`}
+                                {isBg ? t('charts.enhancedService.approxUsers', { count: value }) : t('charts.enhancedService.exactUsers', { count: value })}
                               </span>
                               <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
-                                ({isBg ? '추정' : '실측'})
+                                ({isBg ? t('charts.enhancedService.estimated') : t('charts.enhancedService.actual')})
                               </span>
                             </div>
                             {isBg && bgDetail && callsPerMonth && (
                               <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
-                                해당 월 호출 {bgDetail.totalCalls.toLocaleString()}회 &divide; 1인당 월평균 {callsPerMonth}회 = {bgDetail.estimatedMAU}명
+                                {t('charts.enhancedService.monthlyCallsEstimation', { calls: bgDetail.totalCalls.toLocaleString(), perPerson: callsPerMonth, result: bgDetail.estimatedMAU })}
                               </p>
                             )}
                           </div>
@@ -396,14 +399,14 @@ export default function EnhancedServiceCharts() {
         </ResponsiveContainer>
         {restSvcs.length > 0 && (
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <p className="text-xs text-gray-500 mb-2">그 외 {restSvcs.length}개 서비스</p>
+            <p className="text-xs text-gray-500 mb-2">{t('charts.enhancedService.otherServicesCount', { count: restSvcs.length })}</p>
             <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-gray-50">
                   <tr>
-                    <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-500">최근 MAU</th>
-                    <th className="text-right py-2 px-3 font-medium text-gray-500">타입</th>
+                    <th className="text-left py-2 px-3 font-medium text-gray-500">{t('charts.enhancedService.serviceColumn')}</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-500">{t('charts.enhancedService.latestMau')}</th>
+                    <th className="text-right py-2 px-3 font-medium text-gray-500">{t('charts.enhancedService.type')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -413,7 +416,7 @@ export default function EnhancedServiceCharts() {
                       <td className="text-right py-1.5 px-3 text-gray-600">{(lastMonth[svc.id] as number) || 0}</td>
                       <td className="text-right py-1.5 px-3">
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${svc.type === 'BACKGROUND' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                          {svc.type === 'BACKGROUND' ? '추정' : '실측'}
+                          {svc.type === 'BACKGROUND' ? t('charts.enhancedService.estimated') : t('charts.enhancedService.actual')}
                         </span>
                       </td>
                     </tr>
@@ -479,8 +482,8 @@ export default function EnhancedServiceCharts() {
             <BarChart3 className="w-4 h-4 text-indigo-600" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-gray-800">서비스별 상세 메트릭</h2>
-            <p className="text-xs text-gray-500">모든 서비스의 주요 지표를 한눈에 비교</p>
+            <h2 className="text-lg font-bold text-gray-800">{t('charts.enhancedService.title')}</h2>
+            <p className="text-xs text-gray-500">{t('charts.enhancedService.subtitle')}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -494,7 +497,7 @@ export default function EnhancedServiceCharts() {
                   : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
-              {d}일
+              {t('charts.enhancedService.daysLabel', { days: d })}
             </button>
           ))}
         </div>
@@ -524,7 +527,7 @@ export default function EnhancedServiceCharts() {
           <div className="flex items-center justify-center h-80">
             <div className="text-center">
               <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="mt-2 text-sm text-gray-500">차트 로딩 중...</p>
+              <p className="mt-2 text-sm text-gray-500">{t('charts.enhancedService.chartLoading')}</p>
             </div>
           </div>
         ) : (
@@ -547,7 +550,7 @@ function EmptyState() {
     <div className="flex items-center justify-center h-80">
       <div className="text-center">
         <BarChart3 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-        <p className="text-sm text-gray-500">데이터가 아직 없습니다</p>
+        <p className="text-sm text-gray-500">{i18n.t('charts.enhancedService.noDataYet')}</p>
       </div>
     </div>
   );

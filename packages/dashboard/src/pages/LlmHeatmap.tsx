@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Activity, Clock, AlertTriangle, BarChart3, TrendingUp, Users, CheckCircle2, XCircle, HeartPulse, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -93,6 +94,7 @@ const successRateColor = (v: number): string => {
 
 // ── Component ──
 export default function LlmHeatmap() {
+  const { t } = useTranslation();
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [heatmap, setHeatmap] = useState<HeatmapCell[]>([]);
@@ -300,56 +302,56 @@ export default function LlmHeatmap() {
     format: (v: number) => string;
   }> = [
     {
-      key: 'callCount', label: '호출 수', desc: '시간대별 총 API 호출 건수 — 사용 패턴과 피크 타임을 파악합니다.',
+      key: 'callCount', label: t('llmHeatmap.tabCallCount'), desc: t('llmHeatmap.tabCallCountDesc'),
       icon: BarChart3,
       getValue: c => c.callCount,
       getColor: v => callCountColor(v, maxCalls),
       format: v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v),
     },
     {
-      key: 'latency', label: '평균 응답시간', desc: '성공 요청의 평균 응답 지연(ms). 빨간색은 5초 이상으로 사용자 체감 지연 심각.',
+      key: 'latency', label: t('llmHeatmap.tabAvgLatency'), desc: t('llmHeatmap.tabAvgLatencyDesc'),
       icon: Clock,
       getValue: c => c.avgLatency ?? 0,
       getColor: v => latencyColor(v || null),
       format: v => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}`,
     },
     {
-      key: 'p95', label: 'P95 응답시간', desc: '상위 5% 요청의 응답 지연(ms). 꼬리 지연이 길면 일부 사용자가 매우 느린 응답을 경험합니다.',
+      key: 'p95', label: t('llmHeatmap.tabP95Latency'), desc: t('llmHeatmap.tabP95LatencyDesc'),
       icon: TrendingUp,
       getValue: c => c.p95Latency ?? 0,
       getColor: v => latencyColor(v || null),
       format: v => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}`,
     },
     {
-      key: 'timeout', label: '타임아웃', desc: '504 응답 또는 120초 초과 요청 수. 1건 이상이면 주의, 5건 이상이면 긴급.',
+      key: 'timeout', label: t('llmHeatmap.tabTimeout'), desc: t('llmHeatmap.tabTimeoutDesc'),
       icon: AlertTriangle,
       getValue: c => c.timeoutCount,
       getColor: v => timeoutColor(v),
       format: v => String(v),
     },
     {
-      key: 'errorRate', label: '실 응답 에러율', desc: '실제 호출 중 에러 비율 (에러 수 ÷ 실제 호출 수). 호출이 없는 시간대는 빈칸.',
+      key: 'errorRate', label: t('llmHeatmap.tabErrorRate'), desc: t('llmHeatmap.tabErrorRateDesc'),
       icon: XCircle,
       getValue: c => c.callCount > 0 ? Math.round(c.errorCount / c.callCount * 100) : -1,
       getColor: v => v < 0 ? '#f8fafc' : errorRateColor(v),
       format: v => v < 0 ? '' : `${v}%`,
     },
     {
-      key: 'successRate', label: '실 응답 성공률', desc: '실제 호출 중 성공 비율 (성공 수 ÷ 실제 호출 수). 호출이 없는 시간대는 빈칸.',
+      key: 'successRate', label: t('llmHeatmap.tabSuccessRate'), desc: t('llmHeatmap.tabSuccessRateDesc'),
       icon: CheckCircle2,
       getValue: c => c.callCount > 0 ? Math.round(c.successCount / c.callCount * 100) : -1,
       getColor: v => v < 0 ? '#f8fafc' : successRateColor(v),
       format: v => v < 0 ? '' : `${v}%`,
     },
     {
-      key: 'hcLatency', label: 'HC 응답시간', desc: '헬스체크 프로빙(10분 간격) 평균 응답시간(ms). 실제 사용과 별개로 엔드포인트 상태를 모니터링합니다.',
+      key: 'hcLatency', label: t('llmHeatmap.tabHcLatency'), desc: t('llmHeatmap.tabHcLatencyDesc'),
       icon: HeartPulse,
       getValue: c => c.hcAvgLatency ?? 0,
       getColor: v => latencyColor(v || null),
       format: v => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${v}`,
     },
     {
-      key: 'hcSuccess', label: 'HC 성공률 %', desc: '헬스체크 성공률. 100% = 해당 시간대에 모든 프로빙 성공. 90% 미만이면 엔드포인트 불안정.',
+      key: 'hcSuccess', label: t('llmHeatmap.tabHcSuccess'), desc: t('llmHeatmap.tabHcSuccessDesc'),
       icon: ShieldCheck,
       getValue: c => c.hcCount > 0 ? Math.round(c.hcSuccess / c.hcCount * 100) : 0,
       getColor: v => successRateColor(v),
@@ -359,7 +361,7 @@ export default function LlmHeatmap() {
 
   const activeTab = tabs.find(t => t.key === hmTab) || tabs[0];
 
-  if (loading) return <LoadingSpinner message="모델 목록 로딩 중..." />;
+  if (loading) return <LoadingSpinner message={t('llmHeatmap.loadingModels')} />;
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -369,8 +371,8 @@ export default function LlmHeatmap() {
           <Activity className="w-6 h-6 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">LLM 모델 히트맵</h1>
-          <p className="text-sm text-gray-500">등록된 모델별 날짜×시간 호출 패턴 · 응답시간 · 에러 분석</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('llmHeatmap.title')}</h1>
+          <p className="text-sm text-gray-500">{t('llmHeatmap.description')}</p>
         </div>
       </div>
 
@@ -379,7 +381,7 @@ export default function LlmHeatmap() {
         <div className="px-4 pt-4 pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">모델 선택</p>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">{t('llmHeatmap.modelSelection')}</p>
               {selectedModels.size > 0 && (
                 <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded-full">{selectedModels.size}</span>
               )}
@@ -387,34 +389,34 @@ export default function LlmHeatmap() {
             <div className="flex items-center gap-2">
               {selectedModels.size >= 2 && (
                 <div className="flex bg-gray-100 rounded-lg p-0.5">
-                  <button onClick={() => setViewMode('merge')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'merge' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>합산</button>
-                  <button onClick={() => setViewMode('compare')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'compare' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>비교</button>
+                  <button onClick={() => setViewMode('merge')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'merge' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>{t('llmHeatmap.merge')}</button>
+                  <button onClick={() => setViewMode('compare')} className={`px-2 py-1 text-[10px] font-medium rounded-md transition-all ${viewMode === 'compare' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500'}`}>{t('llmHeatmap.compare')}</button>
                 </div>
               )}
               <button
                 onClick={() => setSelectedModels(prev => prev.size === models.length ? new Set() : new Set(models.map(m => m.modelId)))}
                 className="text-[10px] text-purple-600 hover:text-purple-800 font-medium"
               >
-                {selectedModels.size === models.length ? '전체 해제' : '전체 선택'}
+                {selectedModels.size === models.length ? t('llmHeatmap.deselectAll') : t('llmHeatmap.selectAll')}
               </button>
-              <span className="text-xs text-gray-400">{models.length}개 모델</span>
+              <span className="text-xs text-gray-400">{t('llmHeatmap.modelCount', { count: models.length })}</span>
               <select
                 value={days}
                 onChange={e => setDays(Number(e.target.value))}
                 className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50"
               >
-                <option value={7}>7일</option>
-                <option value={14}>14일</option>
-                <option value={30}>30일</option>
-                <option value={60}>60일</option>
-                <option value={90}>90일</option>
+                <option value={7}>{t('llmHeatmap.daysSuffix', { count: 7 })}</option>
+                <option value={14}>{t('llmHeatmap.daysSuffix', { count: 14 })}</option>
+                <option value={30}>{t('llmHeatmap.daysSuffix', { count: 30 })}</option>
+                <option value={60}>{t('llmHeatmap.daysSuffix', { count: 60 })}</option>
+                <option value={90}>{t('llmHeatmap.daysSuffix', { count: 90 })}</option>
               </select>
             </div>
           </div>
           {models.length > 8 && (
             <input
               type="text"
-              placeholder="모델 검색..."
+              placeholder={t('llmHeatmap.searchModel')}
               value={modelSearch}
               onChange={e => setModelSearch(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
@@ -461,7 +463,7 @@ export default function LlmHeatmap() {
 
                   <div className="flex items-center justify-between">
                     <span className={`text-[11px] font-semibold tabular-nums ${isActive ? 'text-purple-600' : 'text-gray-600'}`}>
-                      {m.totalCalls.toLocaleString()}회
+                      {t('llmHeatmap.callsSuffix', { count: m.totalCalls.toLocaleString() })}
                     </span>
                     <span className="text-[10px] text-gray-400">{m.modelType}</span>
                   </div>
@@ -470,7 +472,7 @@ export default function LlmHeatmap() {
             })}
           </div>
           {filteredModels.length === 0 && (
-            <p className="text-center text-sm text-gray-400 py-4">검색 결과 없음</p>
+            <p className="text-center text-sm text-gray-400 py-4">{t('llmHeatmap.noSearchResults')}</p>
           )}
         </div>
       </div>
@@ -478,14 +480,14 @@ export default function LlmHeatmap() {
       {/* ── Summary Cards ── */}
       {selectedModels.size > 0 && !heatmapLoading && heatmap.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-          <SummaryCard icon={BarChart3} label="총 호출" value={totals.totalCalls.toLocaleString()} sub="건" color="purple" />
-          <SummaryCard icon={Clock} label="평균 응답" value={totals.avgLatency !== null ? `${totals.avgLatency}` : '-'} sub="ms" color="blue" />
-          <SummaryCard icon={AlertTriangle} label="타임아웃" value={totals.totalTimeouts.toLocaleString()} sub="건" color="red" />
-          <SummaryCard icon={XCircle} label="에러" value={totals.totalErrors.toLocaleString()} sub="건" color="amber" />
-          <SummaryCard icon={Users} label="최대 DAU" value={String(totals.maxUsers)} sub="명" color="green" />
-          <SummaryCard icon={HeartPulse} label="HC 프로빙" value={totals.totalHc.toLocaleString()} sub="회" color="blue" />
-          <SummaryCard icon={ShieldCheck} label="HC 성공률" value={totals.hcSuccessRate !== null ? `${totals.hcSuccessRate}` : '-'} sub="%" color="green" />
-          <SummaryCard icon={Clock} label="HC 평균" value={totals.hcAvgLatency !== null ? `${totals.hcAvgLatency}` : '-'} sub="ms" color="purple" />
+          <SummaryCard icon={BarChart3} label={t('llmHeatmap.summaryTotalCalls')} value={totals.totalCalls.toLocaleString()} sub={t('llmHeatmap.unitCalls')} color="purple" />
+          <SummaryCard icon={Clock} label={t('llmHeatmap.summaryAvgResponse')} value={totals.avgLatency !== null ? `${totals.avgLatency}` : '-'} sub={t('llmHeatmap.unitMs')} color="blue" />
+          <SummaryCard icon={AlertTriangle} label={t('llmHeatmap.summaryTimeout')} value={totals.totalTimeouts.toLocaleString()} sub={t('llmHeatmap.unitCalls')} color="red" />
+          <SummaryCard icon={XCircle} label={t('llmHeatmap.summaryError')} value={totals.totalErrors.toLocaleString()} sub={t('llmHeatmap.unitCalls')} color="amber" />
+          <SummaryCard icon={Users} label={t('llmHeatmap.summaryMaxDAU')} value={String(totals.maxUsers)} sub={t('llmHeatmap.unitPeople')} color="green" />
+          <SummaryCard icon={HeartPulse} label={t('llmHeatmap.summaryHcProbing')} value={totals.totalHc.toLocaleString()} sub={t('llmHeatmap.unitTimes')} color="blue" />
+          <SummaryCard icon={ShieldCheck} label={t('llmHeatmap.summaryHcSuccessRate')} value={totals.hcSuccessRate !== null ? `${totals.hcSuccessRate}` : '-'} sub={t('llmHeatmap.unitPercent')} color="green" />
+          <SummaryCard icon={Clock} label={t('llmHeatmap.summaryHcAvg')} value={totals.hcAvgLatency !== null ? `${totals.hcAvgLatency}` : '-'} sub={t('llmHeatmap.unitMs')} color="purple" />
         </div>
       )}
 
@@ -494,18 +496,18 @@ export default function LlmHeatmap() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
           {heatmapLoading ? (
             <div className="flex items-center justify-center py-20">
-              <LoadingSpinner message={`${selectedModels.size}개 모델 데이터 로딩 중...`} />
+              <LoadingSpinner message={t('llmHeatmap.loadingData', { count: selectedModels.size })} />
             </div>
           ) : heatmapError ? (
             <div className="text-center py-16">
               <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
-              <p className="text-sm font-medium text-red-600 mb-1">데이터 로딩 실패</p>
+              <p className="text-sm font-medium text-red-600 mb-1">{t('llmHeatmap.dataLoadFailed')}</p>
               <p className="text-xs text-red-400 font-mono">{heatmapError}</p>
             </div>
           ) : heatmap.length === 0 ? (
             <div className="text-center py-20 text-gray-400">
               <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">선택 기간 내 호출 기록이 없습니다.</p>
+              <p className="text-sm">{t('llmHeatmap.noCallRecords')}</p>
             </div>
           ) : (
             <>
@@ -553,19 +555,19 @@ export default function LlmHeatmap() {
                 return (
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="bg-red-50 border border-red-100 rounded-lg p-2.5">
-                      <p className="text-[9px] font-semibold text-red-600 mb-0.5">피크타임 (14~16시)</p>
+                      <p className="text-[9px] font-semibold text-red-600 mb-0.5">{t('llmHeatmap.peakTime')}</p>
                       <p className="text-lg font-black text-red-700 tabular-nums">{peakStats.avg}</p>
-                      <p className="text-[9px] text-red-400">{peakStats.count}건 평균</p>
+                      <p className="text-[9px] text-red-400">{t('llmHeatmap.avgOfCount', { count: peakStats.count })}</p>
                     </div>
                     <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-                      <p className="text-[9px] font-semibold text-gray-500 mb-0.5">비업무시간 (20~06시)</p>
+                      <p className="text-[9px] font-semibold text-gray-500 mb-0.5">{t('llmHeatmap.offHours')}</p>
                       <p className="text-lg font-black text-gray-700 tabular-nums">{offStats.avg}</p>
-                      <p className="text-[9px] text-gray-400">{offStats.count}건 평균</p>
+                      <p className="text-[9px] text-gray-400">{t('llmHeatmap.avgOfCount', { count: offStats.count })}</p>
                     </div>
                     <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5">
-                      <p className="text-[9px] font-semibold text-blue-600 mb-0.5">전체 (24시간)</p>
+                      <p className="text-[9px] font-semibold text-blue-600 mb-0.5">{t('llmHeatmap.allDay')}</p>
                       <p className="text-lg font-black text-blue-700 tabular-nums">{allStats.avg}</p>
-                      <p className="text-[9px] text-blue-400">{allStats.count}건 평균</p>
+                      <p className="text-[9px] text-blue-400">{t('llmHeatmap.avgOfCount', { count: allStats.count })}</p>
                     </div>
                   </div>
                 );
@@ -596,7 +598,7 @@ export default function LlmHeatmap() {
               {/* ── Daily Trend Mini Chart ── */}
               {daily.length > 1 && (viewMode === 'merge' || selectedModels.size === 1) && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-[10px] font-semibold text-gray-600 mb-2">일별 추이</p>
+                  <p className="text-[10px] font-semibold text-gray-600 mb-2">{t('llmHeatmap.dailyTrend')}</p>
                   <div className="flex items-end gap-[2px] h-16">
                     {(() => {
                       const maxDaily = Math.max(...daily.map(x => x.callCount), 1);
@@ -615,7 +617,14 @@ export default function LlmHeatmap() {
                             backgroundColor: hasTimeout ? '#f59e0b' : isWeekend ? '#c4b5fd' : '#8b5cf6',
                             minWidth: '3px',
                           }}
-                          title={`${d.date}\n호출: ${d.callCount.toLocaleString()}\n평균: ${d.avgLatency ?? '-'}ms\n타임아웃: ${d.timeoutCount}\n에러: ${d.errorCount}\n사용자: ${d.uniqueUsers}명`}
+                          title={[
+                            d.date,
+                            t('llmHeatmap.dailyTooltipCalls', { count: d.callCount.toLocaleString() }),
+                            t('llmHeatmap.dailyTooltipAvg', { latency: d.avgLatency ?? '-' }),
+                            t('llmHeatmap.dailyTooltipTimeout', { count: d.timeoutCount }),
+                            t('llmHeatmap.dailyTooltipError', { count: d.errorCount }),
+                            t('llmHeatmap.dailyTooltipUsers', { count: d.uniqueUsers }),
+                          ].join('\n')}
                         />
                       );
                     });
@@ -624,9 +633,9 @@ export default function LlmHeatmap() {
                   <div className="flex justify-between mt-1">
                     <span className="text-[8px] text-gray-400">{daily[0]?.date.slice(5)}</span>
                     <div className="flex items-center gap-3 text-[8px] text-gray-400">
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-purple-500 inline-block" /> 평일</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-purple-300 inline-block" /> 주말</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400 inline-block" /> 타임아웃 발생</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-purple-500 inline-block" /> {t('llmHeatmap.weekday')}</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-purple-300 inline-block" /> {t('llmHeatmap.weekendLabel')}</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-400 inline-block" /> {t('llmHeatmap.timeoutOccurred')}</span>
                     </div>
                     <span className="text-[8px] text-gray-400">{daily[daily.length - 1]?.date.slice(5)}</span>
                   </div>
@@ -648,6 +657,8 @@ function HeatmapGrid({ dates, cellMap, activeTab, hmTab, compact }: {
   hmTab: string;
   compact?: boolean;
 }) {
+  const { t } = useTranslation();
+  const weekdayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
   const cellH = compact ? 'h-5' : 'h-7';
   const fontSize = compact ? 'text-[6px]' : 'text-[8px]';
   return (
@@ -661,8 +672,9 @@ function HeatmapGrid({ dates, cellMap, activeTab, hmTab, compact }: {
             ))}
           </div>
           {dates.map(dt => {
-            const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][new Date(dt + 'T00:00:00+09:00').getDay()];
-            const isWeekend = dayOfWeek === '토' || dayOfWeek === '일';
+            const dayIdx = new Date(dt + 'T00:00:00+09:00').getDay();
+            const dayOfWeek = t(`llmHeatmap.weekdays.${weekdayKeys[dayIdx]}`);
+            const isWeekend = dayIdx === 0 || dayIdx === 6;
             return (
               <div key={dt} className="flex items-center">
                 <div className={`w-20 shrink-0 text-[9px] pr-1.5 text-right tabular-nums ${isWeekend ? 'text-red-400 font-semibold' : 'text-gray-500'}`}>
@@ -681,11 +693,11 @@ function HeatmapGrid({ dates, cellMap, activeTab, hmTab, compact }: {
                       className={`flex-1 ${cellH} border border-white/60 cursor-help flex items-center justify-center ${fontSize} font-bold`}
                       style={{ backgroundColor: bg, color: textColor }}
                       title={[
-                        `${dt} ${h}시`,
-                        `호출: ${cell?.callCount ?? 0} (성공 ${cell?.successCount ?? 0})`,
-                        `평균: ${cell?.avgLatency ?? '-'}ms · P95: ${cell?.p95Latency ?? '-'}ms`,
-                        `타임아웃: ${cell?.timeoutCount ?? 0} · 에러: ${cell?.errorCount ?? 0}`,
-                        `HC: ${cell?.hcCount ?? 0}회 (${cell?.hcAvgLatency ?? '-'}ms)`,
+                        t('llmHeatmap.tooltipDate', { date: dt, hour: h }),
+                        t('llmHeatmap.tooltipCalls', { count: cell?.callCount ?? 0, success: cell?.successCount ?? 0 }),
+                        t('llmHeatmap.tooltipLatency', { avg: cell?.avgLatency ?? '-', p95: cell?.p95Latency ?? '-' }),
+                        t('llmHeatmap.tooltipErrors', { timeout: cell?.timeoutCount ?? 0, error: cell?.errorCount ?? 0 }),
+                        t('llmHeatmap.tooltipHc', { count: cell?.hcCount ?? 0, latency: cell?.hcAvgLatency ?? '-' }),
                       ].join('\n')}
                     >
                       {val > 0 ? activeTab.format(val) : val === 0 && (hmTab === 'errorRate' || hmTab === 'successRate' || hmTab === 'hcSuccess') && cell && (hmTab.startsWith('hc') ? cell.hcCount > 0 : cell.callCount > 0) ? activeTab.format(val) : ''}
@@ -699,13 +711,13 @@ function HeatmapGrid({ dates, cellMap, activeTab, hmTab, compact }: {
       </div>
       {!compact && (
         <div className="mt-3 flex items-center gap-2 text-[9px] text-gray-500">
-          <span>낮음</span>
+          <span>{t('llmHeatmap.legendLow')}</span>
           {activeTab.key === 'callCount' && ['#ddd6fe', '#c4b5fd', '#a78bfa', '#8b5cf6', '#7c3aed'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           {(activeTab.key === 'latency' || activeTab.key === 'p95' || activeTab.key === 'hcLatency') && ['#f0fdf4', '#22d3ee', '#3b82f6', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           {activeTab.key === 'timeout' && ['#f0fdf4', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           {activeTab.key === 'errorRate' && ['#f0fdf4', '#fde68a', '#fb923c', '#f59e0b', '#dc2626', '#7f1d1d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
           {(activeTab.key === 'successRate' || activeTab.key === 'hcSuccess') && ['#dc2626', '#f59e0b', '#86efac', '#22c55e', '#15803d'].map((c, i) => <div key={i} className="w-5 h-3 rounded-sm" style={{ backgroundColor: c }} />)}
-          <span>높음</span>
+          <span>{t('llmHeatmap.legendHigh')}</span>
         </div>
       )}
     </>

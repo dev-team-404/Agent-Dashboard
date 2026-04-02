@@ -1,7 +1,9 @@
 import { BookOpen } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useTour } from '../../hooks/useTour';
 
 export default function TourTriggerButton() {
+  const { t } = useTranslation();
   const { startTour, isTourActive, isTourCompleted } = useTour();
 
   if (isTourActive) return null;
@@ -9,7 +11,7 @@ export default function TourTriggerButton() {
   return (
     <button
       onClick={startTour}
-      title="가이드 투어 시작"
+      title={t('tourGuides.tourTrigger.startTour')}
       className={`
         fixed bottom-6 right-20 z-[9999]
         w-12 h-12 rounded-full

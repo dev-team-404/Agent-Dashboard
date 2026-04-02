@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BarChart3, TrendingUp, Calendar, Zap, Clock, Activity } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {
@@ -48,6 +49,7 @@ interface ServiceInfo {
 const COLORS = ['#4A90D9', '#6366F1', '#8B5CF6', '#10B981', '#F59E0B', '#F43F5E'];
 
 export default function MyUsage() {
+  const { t } = useTranslation();
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStat[]>([]);
   const [modelUsage, setModelUsage] = useState<ModelUsage[]>([]);
@@ -116,9 +118,9 @@ export default function MyUsage() {
   if (loading) return <LoadingSpinner />;
 
   const summaryCards = summary ? [
-    { label: '오늘', icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },
-    { label: '이번 주', icon: Calendar, tokens: summary.week.totalTokens, requests: summary.week.requests, iconBg: 'bg-indigo-50', iconColor: 'text-accent-indigo' },
-    { label: '이번 달', icon: TrendingUp, tokens: summary.month.totalTokens, requests: summary.month.requests, iconBg: 'bg-violet-50', iconColor: 'text-accent-violet' },
+    { label: t('myUsage.today'), icon: Zap, tokens: summary.today.totalTokens, requests: summary.today.requests, iconBg: 'bg-blue-50', iconColor: 'text-samsung-blue' },
+    { label: t('myUsage.thisWeek'), icon: Calendar, tokens: summary.week.totalTokens, requests: summary.week.requests, iconBg: 'bg-indigo-50', iconColor: 'text-accent-indigo' },
+    { label: t('myUsage.thisMonth'), icon: TrendingUp, tokens: summary.month.totalTokens, requests: summary.month.requests, iconBg: 'bg-violet-50', iconColor: 'text-accent-violet' },
   ] : [];
 
   return (
@@ -126,10 +128,10 @@ export default function MyUsage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in">
         <div>
-          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">내 사용량</h1>
-          <p className="text-sm text-pastel-500 mt-1">나의 LLM API 사용 현황을 확인하세요</p>
+          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('myUsage.title')}</h1>
+          <p className="text-sm text-pastel-500 mt-1">{t('myUsage.subtitle')}</p>
           <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-            내 토큰 사용량과 요청 기록을 확인합니다. Rate Limit이 설정된 경우 남은 한도를 확인할 수 있습니다. 서비스별 필터로 상세 내역을 조회하세요.
+            {t('myUsage.description')}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -139,7 +141,7 @@ export default function MyUsage() {
               onChange={(e) => setSelectedServiceId(e.target.value)}
               className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/40 bg-white shadow-sm font-medium text-pastel-700 transition-all"
             >
-              <option value="">전체 서비스</option>
+              <option value="">{t('myUsage.allServices')}</option>
               {services.map((service) => (
                 <option key={service.id} value={service.id}>{service.displayName}</option>
               ))}
@@ -156,7 +158,7 @@ export default function MyUsage() {
                     : 'text-pastel-600 hover:bg-pastel-50'
                 }`}
               >
-                {d}일
+                {t('myUsage.daysUnit', { d })}
               </button>
             ))}
           </div>
@@ -177,7 +179,7 @@ export default function MyUsage() {
               <p className="text-3xl font-bold text-pastel-800 tracking-tight">{formatNumber(tokens)}</p>
               <div className="flex items-center gap-1.5 mt-2">
                 <Activity className="w-3.5 h-3.5 text-pastel-400" />
-                <p className="text-sm text-pastel-500 font-medium">{requests.toLocaleString()} 요청</p>
+                <p className="text-sm text-pastel-500 font-medium">{requests.toLocaleString()} {t('myUsage.requestUnit')}</p>
               </div>
             </div>
           ))}
@@ -192,7 +194,7 @@ export default function MyUsage() {
             <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
               <BarChart3 className="w-[18px] h-[18px] text-samsung-blue" />
             </div>
-            <h2 className="font-bold text-pastel-800 text-[15px]">일별 토큰 사용량</h2>
+            <h2 className="font-bold text-pastel-800 text-[15px]">{t('myUsage.dailyTokenUsage')}</h2>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -208,8 +210,8 @@ export default function MyUsage() {
                 <YAxis tickFormatter={formatNumber} stroke="#94A3B8" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }}
-                  formatter={(value: number) => [formatNumber(value), '토큰']}
-                  labelFormatter={(label) => `날짜: ${label}`}
+                  formatter={(value: number) => [formatNumber(value), t('myUsage.tokenLabel')]}
+                  labelFormatter={(label) => t('myUsage.dateLabel', { date: label })}
                 />
                 <Area type="monotone" dataKey="totalTokens" stroke="#4A90D9" strokeWidth={2.5} fillOpacity={1} fill="url(#colorTokensMyUsage)" />
               </AreaChart>
@@ -219,7 +221,7 @@ export default function MyUsage() {
 
         {/* Model Usage Pie */}
         <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm hover:shadow-md transition-shadow animate-stagger-5">
-          <h2 className="font-bold text-pastel-800 text-[15px] mb-6">모델별 사용량</h2>
+          <h2 className="font-bold text-pastel-800 text-[15px] mb-6">{t('myUsage.modelUsage')}</h2>
           {modelUsage.length > 0 ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -253,7 +255,7 @@ export default function MyUsage() {
                 <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-pastel-100 flex items-center justify-center">
                   <BarChart3 className="w-6 h-6 text-pastel-400" />
                 </div>
-                <p className="text-sm text-pastel-500 font-medium">사용 데이터가 없습니다</p>
+                <p className="text-sm text-pastel-500 font-medium">{t('myUsage.noUsageData')}</p>
               </div>
             </div>
           )}
@@ -262,7 +264,7 @@ export default function MyUsage() {
 
       {/* Daily Requests Bar Chart */}
       <div className="bg-white rounded-lg p-6 border border-gray-100/80 shadow-sm hover:shadow-md transition-shadow animate-stagger-6">
-        <h2 className="font-bold text-pastel-800 text-[15px] mb-6">일별 요청 수 및 토큰</h2>
+        <h2 className="font-bold text-pastel-800 text-[15px] mb-6">{t('myUsage.dailyRequestsAndTokens')}</h2>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={dailyStats}>
@@ -272,9 +274,9 @@ export default function MyUsage() {
               <YAxis yAxisId="right" orientation="right" stroke="#6366F1" fontSize={12} tickFormatter={formatNumber} tickLine={false} axisLine={false} />
               <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #E2E8F0', borderRadius: '8px', boxShadow: '0 8px 32px rgb(0 0 0 / 0.08)', padding: '12px 16px' }} />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
-              <Bar yAxisId="left" dataKey="requests" fill="#4A90D9" name="요청 수" radius={[6, 6, 0, 0]} />
-              <Bar yAxisId="right" dataKey="inputTokens" fill="#6366F1" name="입력 토큰" radius={[6, 6, 0, 0]} />
-              <Bar yAxisId="right" dataKey="outputTokens" fill="#8B5CF6" name="출력 토큰" radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="left" dataKey="requests" fill="#4A90D9" name={t('myUsage.requestCount')} radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="right" dataKey="inputTokens" fill="#6366F1" name={t('myUsage.inputTokens')} radius={[6, 6, 0, 0]} />
+              <Bar yAxisId="right" dataKey="outputTokens" fill="#8B5CF6" name={t('myUsage.outputTokens')} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -287,18 +289,18 @@ export default function MyUsage() {
             <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
               <Clock className="w-[18px] h-[18px] text-samsung-blue" />
             </div>
-            <h2 className="font-bold text-pastel-800 text-[15px]">최근 사용 기록</h2>
+            <h2 className="font-bold text-pastel-800 text-[15px]">{t('myUsage.recentUsage')}</h2>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50">
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">시간</th>
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
-                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
-                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">출력</th>
-                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colTime')}</th>
+                <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colModel')}</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colInput')}</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colOutput')}</th>
+                <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colTotal')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -319,7 +321,7 @@ export default function MyUsage() {
               ) : (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-pastel-500 text-sm font-medium">
-                    사용 기록이 없습니다
+                    {t('myUsage.noRecentUsage')}
                   </td>
                 </tr>
               )}
@@ -332,17 +334,17 @@ export default function MyUsage() {
       {modelUsage.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-100/80 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-gray-100/80">
-            <h2 className="font-bold text-pastel-800 text-[15px]">모델별 상세 사용량</h2>
+            <h2 className="font-bold text-pastel-800 text-[15px]">{t('myUsage.modelDetailUsage')}</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50">
-                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">모델</th>
-                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">요청</th>
-                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">입력</th>
-                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">출력</th>
-                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">합계</th>
+                  <th className="px-6 py-3.5 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colModelName')}</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colRequests')}</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colInput')}</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colOutput')}</th>
+                  <th className="px-6 py-3.5 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('myUsage.colTotal')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">

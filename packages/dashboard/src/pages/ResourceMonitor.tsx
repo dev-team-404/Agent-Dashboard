@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuServerApi, gpuCapacityApi } from '../services/api';
 import {
@@ -96,6 +98,7 @@ function ServerModal({ open, onClose, onSubmit, edit, testing, testResult, onTes
   open: boolean; onClose: () => void; onSubmit: (d: FormData) => void; edit?: GpuServer | null;
   testing: boolean; testResult: any; onTest: (d: any) => void; existingHosts: string[];
 }) {
+  const { t } = useTranslation();
   const [f, setF] = useState<FormData>(EMPTY_FORM);
   const set = (k: keyof FormData, v: any) => setF(p => ({ ...p, [k]: v }));
   const dupHost = !edit && existingHosts.includes(f.host);
@@ -107,22 +110,22 @@ function ServerModal({ open, onClose, onSubmit, edit, testing, testResult, onTes
 
   if (!open) return null;
   return (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-    <div className="flex items-center justify-between px-4 py-3 border-b"><h3 className="font-semibold text-sm text-gray-900">{edit ? '서버 수정' : '서버 추가'}</h3><button onClick={onClose}><X className="w-4 h-4 text-gray-400" /></button></div>
+    <div className="flex items-center justify-between px-4 py-3 border-b"><h3 className="font-semibold text-sm text-gray-900">{edit ? t('resourceMonitor.modal.editServer') : t('resourceMonitor.modal.addServer')}</h3><button onClick={onClose}><X className="w-4 h-4 text-gray-400" /></button></div>
     <div className="p-4 space-y-3"><div className="grid grid-cols-2 gap-3">
-      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">서버 이름</label><input className={ic} placeholder="GPU서버-1" value={f.name} onChange={e => set('name', e.target.value)} /></div>
-      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">호스트 (IP){dupHost && <span className="text-red-500 ml-1">중복!</span>}</label><input className={`${ic} ${dupHost ? 'border-red-400' : ''}`} placeholder="192.168.1.100" value={f.host} onChange={e => set('host', e.target.value)} /></div>
-      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">SSH 포트</label><input type="number" className={ic} value={f.sshPort} onChange={e => set('sshPort', parseInt(e.target.value) || 22)} /></div>
-      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">사용자명</label><input className={ic} placeholder="root" value={f.sshUsername} onChange={e => set('sshUsername', e.target.value)} /></div>
-      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">비밀번호{edit && <span className="text-gray-400 ml-1">(변경 시만)</span>}</label><input type="password" className={ic} placeholder="••••" value={f.sshPassword} onChange={e => set('sshPassword', e.target.value)} /></div>
-      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">설명</label><input className={ic} placeholder="vLLM 서빙 전용 서버" value={f.description} onChange={e => set('description', e.target.value)} /></div>
-      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">폴링 (초)</label><input type="number" className={ic} value={f.pollIntervalSec} onChange={e => set('pollIntervalSec', parseInt(e.target.value) || 60)} /></div>
-      <div className="flex items-end pb-0.5"><label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" className="rounded text-blue-600" checked={f.isLocal} onChange={e => set('isLocal', e.target.checked)} />로컬 서버</label></div>
+      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.serverName')}</label><input className={ic} placeholder="GPU-Server-1" value={f.name} onChange={e => set('name', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.hostIp')}{dupHost && <span className="text-red-500 ml-1">{t('resourceMonitor.modal.duplicate')}</span>}</label><input className={`${ic} ${dupHost ? 'border-red-400' : ''}`} placeholder="192.168.1.100" value={f.host} onChange={e => set('host', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.sshPort')}</label><input type="number" className={ic} value={f.sshPort} onChange={e => set('sshPort', parseInt(e.target.value) || 22)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.username')}</label><input className={ic} placeholder="root" value={f.sshUsername} onChange={e => set('sshUsername', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.password')}{edit && <span className="text-gray-400 ml-1">{t('resourceMonitor.modal.passwordEditHint')}</span>}</label><input type="password" className={ic} placeholder="••••" value={f.sshPassword} onChange={e => set('sshPassword', e.target.value)} /></div>
+      <div className="col-span-2"><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.description')}</label><input className={ic} placeholder={t('resourceMonitor.modal.descriptionPlaceholder')} value={f.description} onChange={e => set('description', e.target.value)} /></div>
+      <div><label className="block text-[10px] font-medium text-gray-500 mb-0.5">{t('resourceMonitor.modal.pollingSec')}</label><input type="number" className={ic} value={f.pollIntervalSec} onChange={e => set('pollIntervalSec', parseInt(e.target.value) || 60)} /></div>
+      <div className="flex items-end pb-0.5"><label className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" className="rounded text-blue-600" checked={f.isLocal} onChange={e => set('isLocal', e.target.checked)} />{t('resourceMonitor.modal.localServer')}</label></div>
     </div>
     {testResult && <div className={`p-2 rounded text-xs ${testResult.success ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}><p className="font-medium">{testResult.message}</p>{testResult.gpuInfo && <pre className="mt-1 text-[10px] opacity-80 whitespace-pre-wrap max-h-32 overflow-y-auto">{testResult.gpuInfo}</pre>}</div>}
     </div>
     <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-      <button onClick={() => onTest({ host: f.host, sshPort: f.sshPort, sshUsername: f.sshUsername, sshPassword: f.sshPassword })} disabled={testing || !f.host || !f.sshUsername || !f.sshPassword} className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-50 flex items-center gap-1"><TestTube className="w-3 h-3" />{testing ? '테스트 중...' : '연결 테스트'}</button>
-      <div className="flex gap-2"><button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500">취소</button><button onClick={() => onSubmit(f)} disabled={!f.name || !f.host || !f.sshUsername || (!edit && !f.sshPassword) || dupHost} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg disabled:opacity-50">{edit ? '수정' : '등록'}</button></div>
+      <button onClick={() => onTest({ host: f.host, sshPort: f.sshPort, sshUsername: f.sshUsername, sshPassword: f.sshPassword })} disabled={testing || !f.host || !f.sshUsername || !f.sshPassword} className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-50 flex items-center gap-1"><TestTube className="w-3 h-3" />{testing ? t('resourceMonitor.modal.testingConn') : t('resourceMonitor.modal.connTest')}</button>
+      <div className="flex gap-2"><button onClick={onClose} className="px-3 py-1.5 text-xs text-gray-500">{t('common.cancel')}</button><button onClick={() => onSubmit(f)} disabled={!f.name || !f.host || !f.sshUsername || (!edit && !f.sshPassword) || dupHost} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-lg disabled:opacity-50">{edit ? t('resourceMonitor.modal.modify') : t('resourceMonitor.modal.register')}</button></div>
     </div>
   </div></div>);
 }
@@ -137,6 +140,7 @@ interface ModelGroup {
 }
 
 function ModelGroupCard({ group }: { group: ModelGroup }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [dbg, setDbg] = useState(false);
   const [hist, setHist] = useState<any[]>([]);
@@ -253,11 +257,11 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
             <p className="text-sm font-bold text-blue-600">{totalTps > 0 ? totalTps : '-'}</p>
           </div>
           <div>
-            <p className="text-[9px] text-gray-400">처리 중</p>
+            <p className="text-[9px] text-gray-400">{t('resourceMonitor.modelCard.processing')}</p>
             <p className="text-sm font-bold text-emerald-600">{totalRunning}</p>
           </div>
           <div>
-            <p className="text-[9px] text-gray-400">대기</p>
+            <p className="text-[9px] text-gray-400">{t('resourceMonitor.modelCard.waiting')}</p>
             <p className={`text-sm font-bold ${totalWaiting > 0 ? 'text-amber-600' : 'text-gray-300'}`}>{totalWaiting}</p>
           </div>
         </div>
@@ -267,14 +271,14 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           <div className="mt-1.5 flex items-center gap-2">
             <div className="flex-1"><MiniBar pct={compositeCapacity} color={utilCls(compositeCapacity)} h="h-1.5" /></div>
             <span className={`text-[9px] font-bold ${utilTxt(compositeCapacity)}`}>{compositeCapacity}%</span>
-            <span className={`text-[9px] ${modelHeadroom != null && modelHeadroom <= 20 ? 'text-red-500' : 'text-emerald-500'}`}>여유 {modelHeadroom}%</span>
+            <span className={`text-[9px] ${modelHeadroom != null && modelHeadroom <= 20 ? 'text-red-500' : 'text-emerald-500'}`}>{t('resourceMonitor.modelCard.headroom')} {modelHeadroom}%</span>
           </div>
         )}
         {(tokPct != null || kvPctBm != null || concPct != null) && (
           <div className="flex gap-2 mt-0.5 text-[7px] text-gray-400">
-            <span>처리량 <b className="text-gray-600">{tokPct ?? '-'}%</b></span>
+            <span>{t('resourceMonitor.modelCard.throughput')} <b className="text-gray-600">{tokPct ?? '-'}%</b></span>
             <span>KV <b className={`${(kvPctBm || 0) >= 80 ? 'text-red-600' : 'text-gray-600'}`}>{kvPctBm ?? '-'}%</b></span>
-            <span>동시처리 <b className="text-gray-600">{concPct ?? '-'}%</b></span>
+            <span>{t('resourceMonitor.modelCard.concurrent')} <b className="text-gray-600">{concPct ?? '-'}%</b></span>
           </div>
         )}
       </div>
@@ -287,12 +291,12 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
             {avgTtft != null && <span>TTFT: <b className="text-gray-700">{avgTtft >= 1000 ? `${(avgTtft / 1000).toFixed(1)}s` : `${avgTtft}ms`}</b></span>}
             {totalPromptTps > 0 && <span>Prefill: <b className="text-gray-700">{Math.round(totalPromptTps)} tok/s</b></span>}
             {totalGenTps > 0 && <span>Decode: <b className="text-gray-700">{Math.round(totalGenTps)} tok/s</b></span>}
-            {preemptCount > 0 && <span className="text-red-500">Preemption: <b>{preemptCount}회</b></span>}
+            {preemptCount > 0 && <span className="text-red-500">Preemption: <b>{t('resourceMonitor.modelCard.preemptionCount', { count: preemptCount })}</b></span>}
           </div>
 
           {/* 노드별 GPU */}
           <div className="space-y-1">
-            <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">노드별 GPU</p>
+            <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">{t('resourceMonitor.modelCard.nodeGpu')}</p>
             {nodes.map((n, i) => (
               <div key={i} className="flex items-center gap-2 text-[10px]">
                 <span className="text-gray-500 w-28 truncate" title={n.name}>{n.name.replace('DTGPT-', '')}</span>
@@ -306,12 +310,12 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           {/* 24시간 차트 */}
           {hist.length > 0 && (<div className="space-y-2">
             <div className="flex items-center gap-2">
-              <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">24시간 추이</p>
-              {hist.every(h => !h.tps || h.tps === 0) && <span className="text-[8px] text-amber-500">tok/s: 패치 후 데이터 수집 중 (시간 경과 시 표시)</span>}
+              <p className="text-[9px] font-medium text-gray-400 uppercase tracking-wider">{t('resourceMonitor.modelCard.trend24h')}</p>
+              {hist.every(h => !h.tps || h.tps === 0) && <span className="text-[8px] text-amber-500">{t('resourceMonitor.modelCard.tpsCollecting')}</span>}
             </div>
             {/* KV Cache + tok/s */}
             <div>
-              <p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) / tok/s</p>
+              <p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.modelCard.kvCacheTps')}</p>
               <ResponsiveContainer width="100%" height={100}>
                 <AreaChart data={hist}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -326,15 +330,15 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
             </div>
             {/* 대기/처리 요청 */}
             <div>
-              <p className="text-[9px] text-gray-400 mb-0.5">처리 중(R) / 대기(W) 요청 수</p>
+              <p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.modelCard.runningWaiting')}</p>
               <ResponsiveContainer width="100%" height={80}>
                 <AreaChart data={hist}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="time" tick={{ fontSize: 8 }} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 8 }} />
                   <Tooltip content={<Tip />} />
-                  <Area type="monotone" dataKey="running" name="처리 중" stroke="#10b981" fill="#10b98120" strokeWidth={1.5} dot={false} />
-                  <Area type="monotone" dataKey="waiting" name="대기" stroke="#f59e0b" fill="#f59e0b20" strokeWidth={1.5} dot={false} />
+                  <Area type="monotone" dataKey="running" name={t('resourceMonitor.modelCard.chartRunning')} stroke="#10b981" fill="#10b98120" strokeWidth={1.5} dot={false} />
+                  <Area type="monotone" dataKey="waiting" name={t('resourceMonitor.modelCard.chartWaiting')} stroke="#f59e0b" fill="#f59e0b20" strokeWidth={1.5} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -343,9 +347,9 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
           {/* 디버그 */}
           <div className="flex items-center gap-2">
             <button onClick={() => setDbg(!dbg)} className="text-[9px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5">
-              <Activity className="w-3 h-3" />{dbg ? '디버그 닫기' : '디버그 로그'}
+              <Activity className="w-3 h-3" />{dbg ? t('resourceMonitor.modelCard.debugClose') : t('resourceMonitor.modelCard.debugLog')}
             </button>
-            {dbg && <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(debugData, null, 2)); }} className="text-[9px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"><Copy className="w-3 h-3" />복사</button>}
+            {dbg && <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(debugData, null, 2)); }} className="text-[9px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5"><Copy className="w-3 h-3" />{t('common.copy')}</button>}
           </div>
           {dbg && (
             <pre className="text-[9px] bg-gray-900 text-green-400 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto select-all whitespace-pre-wrap">
@@ -360,6 +364,7 @@ function ModelGroupCard({ group }: { group: ModelGroup }) {
 
 // ── Compact Server Card ──
 function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: RealtimeEntry; onEdit: () => void; onDelete: () => void; onToggle: () => void; onCopy: () => void; }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [hist, setHist] = useState<any>(null);
   const [hrs, setHrs] = useState(24);
@@ -433,33 +438,33 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {spec && <span className="text-[10px] text-gray-400">{spec.label} x{gc}</span>}
           <span className="text-[10px] text-gray-400 ml-auto">{s.host}</span>
           <div className="flex items-center gap-0.5 ml-1">
-            <button onClick={onEdit} className="p-1 text-gray-300 hover:text-gray-500" title="수정"><Pencil className="w-3 h-3" /></button>
-            <button onClick={onCopy} className="p-1 text-gray-300 hover:text-blue-500" title="복사"><Copy className="w-3 h-3" /></button>
+            <button onClick={onEdit} className="p-1 text-gray-300 hover:text-gray-500" title={t('resourceMonitor.serverCard.editTooltip')}><Pencil className="w-3 h-3" /></button>
+            <button onClick={onCopy} className="p-1 text-gray-300 hover:text-blue-500" title={t('resourceMonitor.serverCard.copyTooltip')}><Copy className="w-3 h-3" /></button>
             <button onClick={onToggle} className={`px-1.5 py-0.5 text-[9px] rounded ${s.enabled ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400'}`}>{s.enabled ? 'ON' : 'OFF'}</button>
-            <button onClick={onDelete} className="p-1 text-gray-300 hover:text-red-400" title="삭제"><Trash2 className="w-3 h-3" /></button>
+            <button onClick={onDelete} className="p-1 text-gray-300 hover:text-red-400" title={t('resourceMonitor.serverCard.deleteTooltip')}><Trash2 className="w-3 h-3" /></button>
           </div>
         </div>
 
         {m?.error ? <p className="text-[10px] text-red-500"><WifiOff className="w-3 h-3 inline mr-0.5" />{m.error}</p> : ok ? (<>
           {/* ── 1) 벤치마크 기반 4개 게이지 ── */}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1.5">
-            <div className="flex items-center gap-1.5 text-[10px]" title={`종합 용량 = max(처리량 ${ca?.tokPct ?? '-'}%, KV ${ca?.kvPct ?? '-'}%, 동시 ${ca?.concPct ?? '-'}%)\n병목: ${ca?.bottleneck === 'throughput' ? '처리량' : ca?.bottleneck === 'kvMemory' ? 'KV메모리' : ca?.bottleneck === 'concurrency' ? '동시처리' : '-'}`}>
-              <span className="text-gray-500 w-10 shrink-0">종합</span>
+            <div className="flex items-center gap-1.5 text-[10px]" title={t('resourceMonitor.serverCard.compositeTooltip', { tokPct: ca?.tokPct ?? '-', kvPct: ca?.kvPct ?? '-', concPct: ca?.concPct ?? '-', bottleneck: ca?.bottleneck === 'throughput' ? t('resourceMonitor.serverCard.bottleneckThroughput') : ca?.bottleneck === 'kvMemory' ? t('resourceMonitor.serverCard.bottleneckKvMemory') : ca?.bottleneck === 'concurrency' ? t('resourceMonitor.serverCard.bottleneckConcurrency') : '-' })}>
+              <span className="text-gray-500 w-10 shrink-0">{t('resourceMonitor.serverCard.composite')}</span>
               <div className="flex-1"><MiniBar pct={serverComposite || 0} color={utilCls(serverComposite || 0)} h="h-2" /></div>
               <b className={`w-7 text-right ${serverComposite != null ? utilTxt(serverComposite) : 'text-gray-300'}`}>{serverComposite != null ? Math.round(serverComposite) : '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]" title="처리량 = 현재 tok/s ÷ 벤치마크 피크 tok/s">
-              <span className="text-gray-500 w-10 shrink-0">처리량</span>
+            <div className="flex items-center gap-1.5 text-[10px]" title={t('resourceMonitor.serverCard.throughputTooltip')}>
+              <span className="text-gray-500 w-10 shrink-0">{t('resourceMonitor.serverCard.throughput')}</span>
               <div className="flex-1"><MiniBar pct={ca?.tokPct || 0} color="bg-blue-400" h="h-2" /></div>
               <b className={`w-7 text-right ${ca?.tokPct != null ? utilTxt(ca.tokPct) : 'text-gray-300'}`}>{ca?.tokPct ?? '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]" title="KV 메모리 = 현재 KV Cache 사용률 (80%+ 위험)">
-              <span className="text-gray-500 w-10 shrink-0">KV</span>
+            <div className="flex items-center gap-1.5 text-[10px]" title={t('resourceMonitor.serverCard.kvTooltip')}>
+              <span className="text-gray-500 w-10 shrink-0">{t('resourceMonitor.serverCard.kv')}</span>
               <div className="flex-1"><MiniBar pct={ca?.kvPct || 0} color="bg-purple-400" h="h-2" /></div>
               <b className={`w-7 text-right ${ca?.kvPct != null && ca.kvPct >= 80 ? 'text-red-600' : ca?.kvPct != null && ca.kvPct >= 50 ? 'text-amber-600' : 'text-gray-700'}`}>{ca?.kvPct ?? '-'}%</b>
             </div>
-            <div className="flex items-center gap-1.5 text-[10px]" title="여유 = 100% - 종합 용량">
-              <span className="text-gray-500 w-10 shrink-0">여유</span>
+            <div className="flex items-center gap-1.5 text-[10px]" title={t('resourceMonitor.serverCard.headroomTooltip')}>
+              <span className="text-gray-500 w-10 shrink-0">{t('resourceMonitor.serverCard.headroom')}</span>
               <div className="flex-1"><MiniBar pct={serverHeadroom || 0} color={serverHeadroom != null && serverHeadroom <= 20 ? 'bg-red-400' : 'bg-emerald-400'} h="h-2" /></div>
               <b className={`w-7 text-right ${serverHeadroom != null ? (serverHeadroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{serverHeadroom ?? '-'}%</b>
             </div>
@@ -469,18 +474,18 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           <div className="flex items-center gap-2 mb-1.5 text-[10px] flex-wrap">
             <span className="text-blue-600 font-semibold">{currentTps > 0 ? currentTps.toFixed(1) : '-'} <span className="font-normal">tok/s</span></span>
             {kvPct != null && <span className="text-gray-400">KV <b className={kvPct >= 80 ? 'text-red-600' : kvPct >= 50 ? 'text-amber-600' : 'text-emerald-600'}>{kvPct.toFixed(0)}%</b></span>}
-            {(() => { const w = eps.reduce((a, e) => a + (e.waitingRequests || 0), 0); return w > 0 ? <span className="text-red-500 font-semibold">대기 {w}건</span> : <span className="text-emerald-500">대기 0</span>; })()}
-            {ca?.benchmark && <span className="text-gray-300 text-[8px]">벤치마크 {ca.benchmark.peakTps} tok/s</span>}
-            {!ca && !kvPct && <span className="text-gray-300">데이터 수집 중</span>}
+            {(() => { const w = eps.reduce((a, e) => a + (e.waitingRequests || 0), 0); return w > 0 ? <span className="text-red-500 font-semibold">{t('resourceMonitor.serverCard.waitingCount', { count: w })}</span> : <span className="text-emerald-500">{t('resourceMonitor.serverCard.waitingZero')}</span>; })()}
+            {ca?.benchmark && <span className="text-gray-300 text-[8px]">{t('resourceMonitor.serverCard.benchmark', { tps: ca.benchmark.peakTps })}</span>}
+            {!ca && !kvPct && <span className="text-gray-300">{t('resourceMonitor.serverCard.dataCollecting')}</span>}
           </div>
 
           {/* ── 3) 영업시간 평균 ── */}
           <div className="mb-1.5 p-1.5 bg-blue-50/50 rounded border border-blue-100/50">
-            <p className="text-[8px] text-blue-500 mb-1">KST 9-18시 영업일 기준 (주말·등록 휴일 제외) | 최근 24h 영업시간 평균</p>
+            <p className="text-[8px] text-blue-500 mb-1">{t('resourceMonitor.serverCard.businessHoursLabel')}</p>
             <div className="grid grid-cols-3 gap-1.5">
-              <div className="text-[9px]"><span className="text-blue-600 font-medium">GPU 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgGpuUtil || 0} color={utilCls(hist?.businessHoursAvg?.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist?.businessHoursAvg?.avgGpuUtil || 0)}>{hist?.businessHoursAvg?.avgGpuUtil ?? '-'}%</b></div></div>
-              <div className="text-[9px]"><span className="text-blue-600 font-medium">VRAM 사용률</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist?.businessHoursAvg?.avgMemUtil ?? '-'}%</b></div></div>
-              <div className="text-[9px]"><span className="text-blue-600 font-medium">종합용량</span><div className="flex items-center gap-1"><MiniBar pct={ca?.compositeCapacity || 0} color={utilCls(ca?.compositeCapacity || 0)} h="h-1.5" /><b className={utilTxt(ca?.compositeCapacity || 0)}>{ca?.compositeCapacity != null ? Math.round(ca.compositeCapacity) : '-'}%</b></div></div>
+              <div className="text-[9px]"><span className="text-blue-600 font-medium">{t('resourceMonitor.serverCard.gpuUtil')}</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgGpuUtil || 0} color={utilCls(hist?.businessHoursAvg?.avgGpuUtil || 0)} h="h-1.5" /><b className={utilTxt(hist?.businessHoursAvg?.avgGpuUtil || 0)}>{hist?.businessHoursAvg?.avgGpuUtil ?? '-'}%</b></div></div>
+              <div className="text-[9px]"><span className="text-blue-600 font-medium">{t('resourceMonitor.serverCard.vramUtil')}</span><div className="flex items-center gap-1"><MiniBar pct={hist?.businessHoursAvg?.avgMemUtil || 0} color="bg-indigo-400" h="h-1.5" /><b>{hist?.businessHoursAvg?.avgMemUtil ?? '-'}%</b></div></div>
+              <div className="text-[9px]"><span className="text-blue-600 font-medium">{t('resourceMonitor.serverCard.compositeCapacity')}</span><div className="flex items-center gap-1"><MiniBar pct={ca?.compositeCapacity || 0} color={utilCls(ca?.compositeCapacity || 0)} h="h-1.5" /><b className={utilTxt(ca?.compositeCapacity || 0)}>{ca?.compositeCapacity != null ? Math.round(ca.compositeCapacity) : '-'}%</b></div></div>
             </div>
           </div>
 
@@ -490,7 +495,7 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
             {ramPct != null && <span className="flex items-center gap-1"><MemoryStick className="w-3 h-3" />RAM <b className={ramPct > 85 ? 'text-red-600' : 'text-gray-700'}>{ramPct}%</b></span>}
             {diskPct != null && <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />Disk <b className={diskPct > 90 ? 'text-red-600' : 'text-gray-700'}>{diskPct}%</b><span className="text-gray-400">({m.diskFreeGb}GB free)</span></span>}
             {currentTps > 0 && <span className="flex items-center gap-1 text-blue-600"><Activity className="w-3 h-3" /><b>{currentTps.toFixed(1)}</b> tok/s</span>}
-            {eps.length > 0 && <span className="flex items-center gap-1"><Layers className="w-3 h-3" />LLM {eps.length}개</span>}
+            {eps.length > 0 && <span className="flex items-center gap-1"><Layers className="w-3 h-3" />{t('resourceMonitor.serverCard.llmCount', { count: eps.length })}</span>}
             {kvPct != null && <span>KV <b className={utilTxt(kvPct)}>{kvPct.toFixed(0)}%</b></span>}
           </div>
 
@@ -500,16 +505,16 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               {eps.map((ep, i) => (
                 <span key={i} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${llmBadge(ep.type)} cursor-help`}
                   title={[
-                    `TTFT: 첫 토큰까지 시간 (${ep.ttftMs != null ? Math.round(ep.ttftMs) + 'ms' : '-'})`,
-                    `TPOT: 토큰 간 지연 (${ep.tpotMs != null ? Math.round(ep.tpotMs) + 'ms' : '-'})`,
-                    `E2E: 전체 요청 시간 (${ep.e2eLatencyMs != null ? Math.round(ep.e2eLatencyMs) + 'ms' : '-'})`,
-                    `Cache Hit: 프롬프트 캐시 적중률 (${ep.prefixCacheHitRate != null ? (ep.prefixCacheHitRate * 100).toFixed(1) + '%' : '-'})`,
-                    `Preemption: VRAM 부족으로 밀려난 요청 (${ep.preemptionCount ?? 0}회)`,
-                    `Queue: 대기열 체류 시간 (${ep.queueTimeMs != null ? Math.round(ep.queueTimeMs) + 'ms' : '-'})`,
+                    t('resourceMonitor.serverCard.ttftLabel', { value: ep.ttftMs != null ? Math.round(ep.ttftMs) + 'ms' : '-' }),
+                    t('resourceMonitor.serverCard.tpotLabel', { value: ep.tpotMs != null ? Math.round(ep.tpotMs) + 'ms' : '-' }),
+                    t('resourceMonitor.serverCard.e2eLabel', { value: ep.e2eLatencyMs != null ? Math.round(ep.e2eLatencyMs) + 'ms' : '-' }),
+                    t('resourceMonitor.serverCard.cacheHitLabel', { value: ep.prefixCacheHitRate != null ? (ep.prefixCacheHitRate * 100).toFixed(1) + '%' : '-' }),
+                    t('resourceMonitor.serverCard.preemptionLabel', { value: t('resourceMonitor.modelCard.preemptionCount', { count: ep.preemptionCount ?? 0 }) }),
+                    t('resourceMonitor.serverCard.queueLabel', { value: ep.queueTimeMs != null ? Math.round(ep.queueTimeMs) + 'ms' : '-' }),
                   ].join('\n')}>
                   {(() => {
                     const overloaded = (ep.kvCacheUsagePct != null && ep.kvCacheUsagePct > 80) || (ep.waitingRequests || 0) > 0 || (ep.preemptionCount || 0) > 0;
-                    return overloaded ? <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title="과부하: KV>80% 또는 대기큐>0 또는 Preemption>0" /> : null;
+                    return overloaded ? <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" title={t('resourceMonitor.serverCard.overloadTitle')} /> : null;
                   })()}
                   <span className="uppercase">{ep.type}</span>
                   {ep.modelNames?.[0] && <span className="opacity-75 truncate max-w-[100px]">{ep.modelNames[0]}</span>}
@@ -523,18 +528,18 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
               ))}
             </div>
           )}
-        </>) : <p className="text-[10px] text-gray-400">대기 중...</p>}
+        </>) : <p className="text-[10px] text-gray-400">{t('resourceMonitor.serverCard.waitingPending')}</p>}
       </div>
 
       {/* ── 상세 펼침 ── */}
       {ok && (<>
         <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-center gap-1 py-1.5 text-[10px] text-gray-400 hover:text-gray-600 hover:bg-gray-50 border-t border-gray-100">
-          {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}{open ? '접기' : '상세 보기'}
+          {open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}{open ? t('resourceMonitor.serverCard.collapse') : t('resourceMonitor.serverCard.expand')}
         </button>
         {open && (<div className="border-t border-gray-100 text-xs">
           {/* GPU별 상세 */}
           <div className="px-3 py-2 space-y-1">
-            <p className="text-[10px] font-medium text-gray-500 mb-1">GPU 상세</p>
+            <p className="text-[10px] font-medium text-gray-500 mb-1">{t('resourceMonitor.serverCard.gpuDetail')}</p>
             {m!.gpus.map(g => {
               const mp = g.memTotalMb > 0 ? (g.memUsedMb / g.memTotalMb) * 100 : 0;
               return (<div key={g.index} className="flex items-center gap-2 py-1 border-b border-gray-50 last:border-0">
@@ -553,27 +558,27 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {/* 처리량 3단 분석 */}
           {ta && (ta.theoreticalMaxTps || ta.peakTps) && (
             <div className="px-3 py-2 border-t border-gray-100">
-              <p className="text-[10px] font-medium text-gray-500 mb-1.5">벤치마크 대비 {ca?.benchmark?.source === 'manual' ? '(수동)' : '(자동 P95)'}</p>
+              <p className="text-[10px] font-medium text-gray-500 mb-1.5">{t('resourceMonitor.serverCard.benchmarkVs')} {ca?.benchmark?.source === 'manual' ? t('resourceMonitor.serverCard.benchmarkManual') : t('resourceMonitor.serverCard.benchmarkAutoP95')}</p>
               <div className="space-y-1">
-                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">처리량</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-blue-400 rounded-full" style={{ width: `${Math.min(ca?.tokPct || 0, 100)}%` }} /></div><span className="text-[9px] w-14 text-right text-blue-600">{ca?.tokPct ?? '-'}%</span></div>
-                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">KV메모리</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-purple-400 rounded-full" style={{ width: `${Math.min(ca?.kvPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.kvPct || 0) >= 80 ? 'text-red-600' : 'text-purple-600'}`}>{ca?.kvPct ?? '-'}%</span></div>
-                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">동시처리</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-amber-400 rounded-full" style={{ width: `${Math.min(ca?.concPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.concPct || 0) >= 100 ? 'text-red-600' : 'text-amber-600'}`}>{ca?.concPct ?? '-'}%</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">{t('resourceMonitor.serverCard.benchmarkThroughput')}</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-blue-400 rounded-full" style={{ width: `${Math.min(ca?.tokPct || 0, 100)}%` }} /></div><span className="text-[9px] w-14 text-right text-blue-600">{ca?.tokPct ?? '-'}%</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">{t('resourceMonitor.serverCard.benchmarkKvMemory')}</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-purple-400 rounded-full" style={{ width: `${Math.min(ca?.kvPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.kvPct || 0) >= 80 ? 'text-red-600' : 'text-purple-600'}`}>{ca?.kvPct ?? '-'}%</span></div>
+                <div className="flex items-center gap-1.5"><span className="text-[9px] text-gray-400 w-14 text-right">{t('resourceMonitor.serverCard.benchmarkConcurrency')}</span><div className="flex-1 h-1.5 bg-gray-100 rounded-full"><div className="h-full bg-amber-400 rounded-full" style={{ width: `${Math.min(ca?.concPct || 0, 100)}%` }} /></div><span className={`text-[9px] w-14 text-right ${(ca?.concPct || 0) >= 100 ? 'text-red-600' : 'text-amber-600'}`}>{ca?.concPct ?? '-'}%</span></div>
               </div>
               <div className="flex gap-4 mt-1.5 text-[9px]">
-                <span className="text-gray-500">현재: <b className="text-blue-600">{(ca?.currentTps || 0).toFixed(1)} tok/s</b></span>
-                <span className="text-gray-500">벤치마크: <b>{ca?.benchmark?.peakTps ?? '-'} tok/s</b></span>
-                {ca?.bottleneck && <span className="text-orange-600 font-semibold">병목: {ca.bottleneck === 'throughput' ? '처리량' : ca.bottleneck === 'kvMemory' ? 'KV메모리' : '동시처리'}</span>}
+                <span className="text-gray-500">{t('resourceMonitor.serverCard.current')} <b className="text-blue-600">{(ca?.currentTps || 0).toFixed(1)} tok/s</b></span>
+                <span className="text-gray-500">{t('resourceMonitor.serverCard.benchmarkLabel')} <b>{ca?.benchmark?.peakTps ?? '-'} tok/s</b></span>
+                {ca?.bottleneck && <span className="text-orange-600 font-semibold">{t('resourceMonitor.serverCard.bottleneckLabel')} {ca.bottleneck === 'throughput' ? t('resourceMonitor.serverCard.bottleneckThroughput') : ca.bottleneck === 'kvMemory' ? t('resourceMonitor.serverCard.bottleneckKvMemory') : t('resourceMonitor.serverCard.bottleneckConcurrency')}</span>}
               </div>
             </div>
           )}
 
           {/* 히스토리 차트 */}
           <div className="px-3 py-2 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-medium text-gray-500">사용률 추이</span><div className="flex gap-0.5">{[6, 12, 24, 72].map(h => <button key={h} onClick={() => setHrs(h)} className={`px-1.5 py-0.5 text-[9px] rounded ${hrs === h ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{h}h</button>)}</div></div>
-            {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>KST 9-18시 영업일 평균 (주말·등록 휴일 제외): GPU <b>{hist.businessHoursAvg.avgGpuUtil}%</b> VRAM <b>{hist.businessHoursAvg.avgMemUtil}%</b> ({hist.businessHoursAvg.sampleCount}건)</span></div>}
+            <div className="flex items-center justify-between mb-2"><span className="text-[10px] font-medium text-gray-500">{t('resourceMonitor.serverCard.usageTrend')}</span><div className="flex gap-0.5">{[6, 12, 24, 72].map(h => <button key={h} onClick={() => setHrs(h)} className={`px-1.5 py-0.5 text-[9px] rounded ${hrs === h ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{h}h</button>)}</div></div>
+            {hist?.businessHoursAvg && <div className="flex items-center gap-2 mb-2 p-1.5 bg-blue-50 rounded text-[9px] text-blue-700"><Clock className="w-3 h-3" /><span>{t('resourceMonitor.serverCard.businessHoursAvgLabel', { gpu: hist.businessHoursAvg.avgGpuUtil, vram: hist.businessHoursAvg.avgMemUtil, count: hist.businessHoursAvg.sampleCount })}</span></div>}
             <div className="space-y-3">
               {/* KV Cache + GPU 사용률 */}
-              <div><p className="text-[9px] text-gray-400 mb-0.5">KV Cache / GPU 사용률 (%)</p>
+              <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.kvCacheGpu')}</p>
               <ResponsiveContainer width="100%" height={140}><AreaChart data={dd}><defs><linearGradient id="gG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} /><stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} tickFormatter={v => `${v}%`} /><Tooltip content={<Tip />} /><Area type="monotone" dataKey="kvCache" name="KV Cache" stroke="#8b5cf6" fill="url(#gG)" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="gpuUtil" name="GPU" stroke="#94a3b8" strokeWidth={1} dot={false} /></AreaChart></ResponsiveContainer></div>
               {/* tok/s 처리량 (합산 + LLM별) */}
               {(() => {
@@ -583,14 +588,14 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
                 const llmKeys = [...allKeys].filter(k => !reserved.has(k) && !k.endsWith('_kv') && !k.endsWith('_ttft'));
                 const kvKeys = [...allKeys].filter(k => k.endsWith('_kv'));
                 return (<>
-                  <div><p className="text-[9px] text-gray-400 mb-0.5">처리량 (tok/s){llmKeys.length > 1 && <span className="ml-1 text-blue-500">— LLM별 분리</span>}</p>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.throughputTps')}{llmKeys.length > 1 && <span className="ml-1 text-blue-500">{t('resourceMonitor.serverCard.throughputPerLlm')}</span>}</p>
                   <ResponsiveContainer width="100%" height={llmKeys.length > 1 ? 130 : 100}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
-                    {llmKeys.length > 1 && <Line type="monotone" dataKey="throughput" name="합산" stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 2" />}
+                    {llmKeys.length > 1 && <Line type="monotone" dataKey="throughput" name={t('resourceMonitor.serverCard.sumLabel')} stroke="#94a3b8" strokeWidth={1} dot={false} strokeDasharray="4 2" />}
                     {llmKeys.length > 0 ? llmKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k} stroke={llmColors[i % llmColors.length]} strokeWidth={2} dot={false} />) : <Line type="monotone" dataKey="throughput" name="tok/s" stroke="#3b82f6" strokeWidth={2} dot={false} />}
                   </LineChart></ResponsiveContainer></div>
                   {/* LLM별 KV Cache */}
                   {kvKeys.length >= 1 && (
-                    <div><p className="text-[9px] text-gray-400 mb-0.5">KV Cache (%) — LLM별</p>
+                    <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.kvCachePerLlm')}</p>
                     <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
                       {kvKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k.replace('_kv', '')} stroke={llmColors[i % llmColors.length]} strokeWidth={1.5} dot={false} />)}
                     </LineChart></ResponsiveContainer></div>
@@ -598,18 +603,18 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
                 </>);
               })()}
               {/* CPU / RAM / VRAM */}
-              <div><p className="text-[9px] text-gray-400 mb-0.5">시스템 리소스 (%)</p>
+              <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.systemResource')}</p>
               <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis domain={[0, 100]} tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="ramPct" name="RAM" stroke="#ec4899" strokeWidth={1} dot={false} /><Line type="monotone" dataKey="memPct" name="VRAM" stroke="#f59e0b" strokeWidth={1} dot={false} /></LineChart></ResponsiveContainer></div>
               {/* TTFT + Preemption (서비스 품질) */}
               {(() => {
                 const ttftKeys = [...new Set<string>()]; dd.forEach((d: any) => Object.keys(d).filter(k => k.endsWith('_ttft')).forEach(k => { if (!ttftKeys.includes(k)) ttftKeys.push(k); }));
                 const clr = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
                 return (<>
-                  <div><p className="text-[9px] text-gray-400 mb-0.5">TTFT — 첫 토큰까지 시간 (ms) {ttftKeys.length > 0 ? '· LLM별' : ''}</p>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.ttftFirstToken')} {ttftKeys.length > 0 ? t('resourceMonitor.serverCard.ttftPerLlm') : ''}</p>
                   <ResponsiveContainer width="100%" height={80}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} />
                     {ttftKeys.length > 0 ? ttftKeys.map((k, i) => <Line key={k} type="monotone" dataKey={k} name={k.replace('_ttft', '')} stroke={clr[i % clr.length]} strokeWidth={1.5} dot={false} />) : <Line type="monotone" dataKey="ttft" name="TTFT" stroke="#f59e0b" strokeWidth={1.5} dot={false} />}
                   </LineChart></ResponsiveContainer></div>
-                  <div><p className="text-[9px] text-gray-400 mb-0.5">Preemption — VRAM 부족 밀려남 (횟수, 증가 시 증설 시그널)</p>
+                  <div><p className="text-[9px] text-gray-400 mb-0.5">{t('resourceMonitor.serverCard.preemptionVram')}</p>
                   <ResponsiveContainer width="100%" height={60}><LineChart data={dd}><CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" /><XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" /><YAxis tick={{ fontSize: 9 }} /><Tooltip content={<Tip />} /><Line type="monotone" dataKey="preempt" name="Preemption" stroke="#ef4444" strokeWidth={1.5} dot={false} /></LineChart></ResponsiveContainer></div>
                 </>);
               })()}
@@ -619,19 +624,19 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {/* AI 코칭 */}
           <div className="px-3 py-2 border-t border-gray-100">
             <div className="flex items-center gap-2">
-              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.coaching(s.id); setCoach(r.data.coaching); } catch { setCoach(null); } finally { setCoachL(false); } }} className="text-[9px] text-indigo-500 hover:text-indigo-700 underline">{coachL ? '로딩...' : 'AI 코칭 보기'}</button>
-              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.runCoaching(s.id); setCoach(r.data.coaching); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setCoachL(false); } }} className="text-[9px] text-purple-500 hover:text-purple-700 underline">{coachL ? '분석 중...' : '지금 분석'}</button>
+              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.coaching(s.id); setCoach(r.data.coaching); } catch { setCoach(null); } finally { setCoachL(false); } }} className="text-[9px] text-indigo-500 hover:text-indigo-700 underline">{coachL ? t('resourceMonitor.serverCard.aiCoachLoading') : t('resourceMonitor.serverCard.aiCoachView')}</button>
+              <button onClick={async () => { setCoachL(true); try { const r = await gpuServerApi.runCoaching(s.id); setCoach(r.data.coaching); } catch (e: any) { alert(e?.response?.data?.error || t('resourceMonitor.failed')); } finally { setCoachL(false); } }} className="text-[9px] text-purple-500 hover:text-purple-700 underline">{coachL ? t('resourceMonitor.serverCard.analyzing') : t('resourceMonitor.serverCard.analyzeNow')}</button>
             </div>
             {coach && (
               <div className="mt-1.5 p-2 bg-indigo-50 rounded-lg text-[9px] space-y-1">
                 <p className="text-[8px] text-indigo-400">{coach.timestamp ? new Date(coach.timestamp).toLocaleString('ko-KR') : ''}</p>
-                {coach.paramCheck && <p><b className="text-indigo-600">파라미터 검증:</b> {coach.paramCheck}</p>}
-                {coach.precisionAdvice && <p><b className="text-indigo-600">정밀도 최적화:</b> {coach.precisionAdvice}</p>}
-                {coach.batchAdvice && <p><b className="text-indigo-600">배치 최적화:</b> {coach.batchAdvice}</p>}
-                {coach.qualityIssues && <p><b className="text-indigo-600">품질 이슈:</b> {coach.qualityIssues}</p>}
+                {coach.paramCheck && <p><b className="text-indigo-600">{t('resourceMonitor.serverCard.paramCheck')}</b> {coach.paramCheck}</p>}
+                {coach.precisionAdvice && <p><b className="text-indigo-600">{t('resourceMonitor.serverCard.precisionAdvice')}</b> {coach.precisionAdvice}</p>}
+                {coach.batchAdvice && <p><b className="text-indigo-600">{t('resourceMonitor.serverCard.batchAdvice')}</b> {coach.batchAdvice}</p>}
+                {coach.qualityIssues && <p><b className="text-indigo-600">{t('resourceMonitor.serverCard.qualityIssues')}</b> {coach.qualityIssues}</p>}
                 {coach.topRecommendations?.length > 0 && (
                   <div className="mt-1 p-1.5 bg-white rounded border border-indigo-200">
-                    <b className="text-indigo-700">권고:</b>
+                    <b className="text-indigo-700">{t('resourceMonitor.serverCard.recommendations')}</b>
                     <ul className="list-disc ml-3 mt-0.5">{coach.topRecommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
                   </div>
                 )}
@@ -642,8 +647,8 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
           {/* 디버그 */}
           <div className="px-3 py-2 border-t border-gray-100">
             <div className="flex items-center gap-2">
-              <button onClick={async () => { setDbgL(true); try { const r = await gpuServerApi.debug(s.id); setDbg(r.data.raw); } catch (e: any) { setDbg('Error: ' + e.message); } finally { setDbgL(false); } }} className="text-[9px] text-gray-400 hover:text-gray-600 underline">{dbgL ? '조회 중...' : 'SSH Raw 출력 (디버그)'}</button>
-              {dbg && <button onClick={() => { try { navigator.clipboard.writeText(dbg); } catch { const ta = document.createElement('textarea'); ta.value = dbg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } alert('복사됨'); }} className="text-[9px] text-blue-400 hover:text-blue-600 underline">복사</button>}
+              <button onClick={async () => { setDbgL(true); try { const r = await gpuServerApi.debug(s.id); setDbg(r.data.raw); } catch (e: any) { setDbg('Error: ' + e.message); } finally { setDbgL(false); } }} className="text-[9px] text-gray-400 hover:text-gray-600 underline">{dbgL ? t('resourceMonitor.serverCard.querying') : t('resourceMonitor.serverCard.sshRawDebug')}</button>
+              {dbg && <button onClick={() => { try { navigator.clipboard.writeText(dbg); } catch { const ta = document.createElement('textarea'); ta.value = dbg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); } alert(t('resourceMonitor.serverCard.copied')); }} className="text-[9px] text-blue-400 hover:text-blue-600 underline">{t('common.copy')}</button>}
             </div>
             {dbg && <pre className="mt-1 p-2 bg-gray-900 text-green-400 rounded text-[9px] max-h-48 overflow-auto whitespace-pre-wrap">{dbg}</pre>}
           </div>
@@ -655,195 +660,19 @@ function ServerCard({ entry, onEdit, onDelete, onToggle, onCopy }: { entry: Real
 
 
 // ── GPU 모니터링 가이드북 ──
-const GUIDE_SLIDES = [
-  {
-    title: 'GPU 리소스 모니터란?',
-    icon: '📊',
-    content: `이 페이지는 AI 모델이 돌아가는 GPU 서버의 상태를 실시간으로 보여줍니다.
-
-**한 줄 요약:** "우리 AI 서버, 지금 바쁜가? 여유 있나? 더 필요한가?"
-
-모니터링 대상:
-- **DT Cloud (쿠버네티스)** — 사내 클라우드에서 운영되는 AI 모델들
-- **SSH 서버** — 직접 관리하는 GPU 서버 (DGX 등)
-- **로컬 서버** — 개발/테스트용 서버`,
-  },
-  {
-    title: '쿠버네티스 기본 개념',
-    icon: '☸️',
-    content: `쿠버네티스(K8s)는 컨테이너를 자동으로 관리하는 시스템입니다.
-비유하면 **대형 데이터센터의 관리자**입니다.
-
-핵심 용어 3개만 알면 됩니다:
-
-**Node (노드)** = 물리 서버 1대
-- 예: khdtgpuw01 = GPU 8장이 꽂힌 서버 1대
-
-**Pod (파드)** = 노드 위에서 돌아가는 프로그램 1개
-- 예: llm-glm-47-h200-tp8-xxx = GLM 모델 인스턴스
-
-**Cluster (클러스터)** = 노드들의 묶음
-- 예: DT Cloud = khdtgpuw01~05 노드의 클러스터`,
-  },
-  {
-    title: 'DTGPT 클러스터 구조',
-    icon: '🏗️',
-    content: `현재 DT Cloud 클러스터의 GPU 배치:
-
-**전용 모델 (Dedicated)** — 특정 모델이 GPU를 독점
-┌─ GLM4.7 ─────── khdtgpuw01 (8 GPU) + khdtgpuw04 (8 GPU) = 16 GPU
-└─ Kimi-K2.5 ──── khdtgpuw02 (8 GPU) + khdtgpuw03 (8 GPU) = 16 GPU
-
-TP8 = Tensor Parallel 8 — 모델이 너무 커서 GPU 8장에 나눠서 올림
-
-**공유 모델 (Shared)** — 여러 모델이 GPU를 나눠 씀
-└─ khdtgpuw05 ── MiniMax, Qwen3-Embedding, BGE-M3 등 12+ 모델
-
-**기타 노드**
-└─ khdifyw01 ─── Redis 등 인프라 (AI 모델 아님)`,
-  },
-  {
-    title: '전용 모델 vs 공유 모델',
-    icon: '🔀',
-    content: `**전용 모델 (Dedicated)**
-- GPU를 독점하므로 성능이 안정적
-- GPU Util이 해당 모델의 부하를 정확히 반영
-- 예: GLM4.7이 바쁘면 → khdtgpuw01+04의 GPU Util 올라감
-
-**공유 모델 (Shared)**
-- 여러 모델이 같은 GPU를 나눠 씀
-- GPU Util이 특정 모델의 부하인지 구분 어려움
-- 개별 모델의 KV Cache, Running/Waiting은 정확함
-- 예: BGE-M3가 바빠도 같은 노드의 Qwen3 GPU Util도 올라감
-
-**카드 뱃지:**
-- "8 GPU" = 전용 모델, GPU 수 표시
-- "Shared" = 공유 모델, GPU 공유 중`,
-  },
-  {
-    title: '핵심 지표: GPU Utilization',
-    icon: '🖥️',
-    content: `**GPU Util (%)** = GPU 칩이 얼마나 바쁜지 (nvidia-smi 기준)
-
-- **0~30%**: 여유 — 모델이 idle이거나 가벼운 요청만 처리 중
-- **30~70%**: 정상 — 적절히 활용 중
-- **70~90%**: 바쁨 — 피크타임에 흔함
-- **90%+**: 풀로드 — 더 많은 요청 받으면 대기 발생 가능
-
-**주의:** GPU Util 100%가 항상 나쁜 건 아닙니다.
-배치 처리나 긴 응답 생성 중에는 정상적으로 100% 나옴.
-진짜 문제는 GPU Util이 높으면서 **Waiting > 0**일 때.`,
-  },
-  {
-    title: '핵심 지표: KV Cache',
-    icon: '🧠',
-    content: `**KV Cache (%)** = AI 대화 메모리 사용률
-
-LLM이 응답을 생성할 때, 이전 토큰들의 계산 결과를 GPU 메모리에 저장합니다.
-이걸 KV Cache라고 합니다.
-
-- **0~50%**: 여유 — 더 많은 동시 요청 처리 가능
-- **50~80%**: 주의 — 동시 요청이 많아지면 부족해질 수 있음
-- **80%+**: 위험 — 새 요청이 들어오면 기존 요청을 밀어내야 함 (Preemption)
-
-KV Cache가 높다 = "대화방이 꽉 차서 새 손님이 못 들어옴"
-해결: GPU 증설 또는 max_num_seqs 조정`,
-  },
-  {
-    title: '핵심 지표: tok/s (처리량)',
-    icon: '⚡',
-    content: `**tok/s** = 초당 처리 토큰 수
-
-두 종류가 있습니다:
-
-**Prefill (Prompt) tok/s** — 사용자 입력을 읽는 속도
-- 수천~수만 tok/s가 정상 (병렬 처리)
-- 높을수록 "첫 응답까지 시간(TTFT)"이 짧음
-
-**Decode (Generation) tok/s** — AI가 답변을 쓰는 속도
-- 수십~수백 tok/s가 정상 (순차 처리)
-- 높을수록 "응답이 빨리 완성"됨
-
-**0 tok/s** = 지금 요청이 없음 (idle)
-**null** = 아직 측정 안 됨 (서버 시작 직후)`,
-  },
-  {
-    title: '핵심 지표: 처리 중 vs 대기',
-    icon: '🚦',
-    content: `요청이 vLLM에 도착하면 이런 과정을 거칩니다:
-
-[요청 도착] → [대기 큐 (Waiting)] → [GPU 배치 (Running)] → [응답 완료]
-
-**Running (처리 중, R)** — GPU에서 지금 토큰을 생성하고 있는 요청
-- 사용자는 응답을 받고 있는 중
-- 높아도 괜찮음 (바쁜 것일 뿐)
-
-**Waiting (대기, W)** — GPU에 올리지 못해 줄 서는 요청
-- 사용자는 "로딩 중..." 상태에서 멈춰있음
-- **1건이라도 있으면 누군가 기다리고 있다는 뜻**
-- **5건 이상이면 심각한 과부하**
-
-Waiting이 지속되면 → GPU 증설 또는 모델 최적화 필요`,
-  },
-  {
-    title: '위험 신호: Preemption',
-    icon: '🚨',
-    content: `**Preemption** = KV Cache 부족으로 처리 중이던 요청이 강제 중단됨
-
-순서:
-1. KV Cache 100% 도달
-2. 새 요청이 들어옴
-3. vLLM이 기존 요청 하나를 **강제 중단 (Preemption)**
-4. 중단된 요청은 나중에 처음부터 다시 처리
-
-사용자 체감: "응답 받다가 갑자기 끊기고 다시 시작됨" 또는 "응답이 엄청 느림"
-
-**Preemption > 0이면 GPU 메모리 부족 확정 신호.**
-해결: gpu_memory_utilization 값 조정, max_num_seqs 줄이기, 또는 GPU 증설`,
-  },
-  {
-    title: '메트릭 수집 구조',
-    icon: '🔄',
-    content: `데이터가 화면에 표시되기까지의 흐름:
-
-**DT Cloud (쿠버네티스)**
-vLLM Pod → Prometheus (수집/저장) → 우리 API (60초 폴링) → DB 저장 → UI 표시
-
-- Prometheus가 vLLM의 /metrics 엔드포인트를 주기적으로 수집
-- 우리 API가 Prometheus API를 호출하여 데이터 가져옴
-- tok/s는 counter(누적값)의 변화량을 직접 계산 (delta 방식)
-
-**SSH 서버 (직접 관리)**
-SSH 접속 → nvidia-smi + vLLM /metrics 직접 수집 → DB 저장 → UI 표시
-
-- 서버에 SSH로 접속해서 GPU 상태와 vLLM 메트릭을 직접 읽음
-- Prometheus 없이 독립적으로 동작`,
-  },
-  {
-    title: '언제 걱정해야 하는가?',
-    icon: '🔔',
-    content: `**즉시 대응 필요:**
-- Waiting 지속 5건+ → 사용자 응답 지연 심각
-- Preemption 발생 → KV Cache 부족, 요청 강제 중단
-- KV Cache 90%+ → 곧 Preemption 시작
-
-**주의 관찰:**
-- KV Cache 50~80% → 피크타임에 문제 가능성
-- GPU Util 90%+ & Waiting > 0 → 용량 한계 근접
-
-**정상:**
-- GPU Util 높지만 Waiting = 0 → 잘 처리하고 있음
-- tok/s = 0 → 요청이 없을 뿐 (야간/주말)
-- KV Cache 0% → idle 상태 (정상)
-
-**팁:** 30일 분석 탭의 히트맵에서 피크타임(14~16시) 패턴을 확인하세요.`,
-  },
-];
+const GUIDE_ICONS = ['📊', '☸️', '🏗️', '🔀', '🖥️', '🧠', '⚡', '🚦', '🚨', '🔄', '🔔'];
+const getGuideSlides = () => Array.from({ length: 11 }, (_, idx) => ({
+  title: i18n.t(`resourceMonitor.guide.title${idx}`),
+  icon: GUIDE_ICONS[idx],
+  content: i18n.t(`resourceMonitor.guide.content${idx}`),
+}));
 
 function GuideBook({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(0);
-  const slide = GUIDE_SLIDES[page];
-  const total = GUIDE_SLIDES.length;
+  const slides = getGuideSlides();
+  const slide = slides[page];
+  const total = slides.length;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -889,10 +718,10 @@ function GuideBook({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
           <button onClick={() => setPage(p => Math.max(p - 1, 0))} disabled={page === 0}
             className="px-4 py-2 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
-            ← 이전
+            {t('resourceMonitor.guide.prevSlide')}
           </button>
           <div className="flex gap-1">
-            {GUIDE_SLIDES.map((_, i) => (
+            {slides.map((_, i) => (
               <button key={i} onClick={() => setPage(i)}
                 className={`w-2 h-2 rounded-full transition-all ${i === page ? 'bg-blue-500 w-4' : 'bg-gray-300 hover:bg-gray-400'}`} />
             ))}
@@ -900,12 +729,12 @@ function GuideBook({ onClose }: { onClose: () => void }) {
           {page < total - 1 ? (
             <button onClick={() => setPage(p => p + 1)}
               className="px-4 py-2 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-              다음 →
+              {t('resourceMonitor.guide.nextSlide')}
             </button>
           ) : (
             <button onClick={onClose}
               className="px-4 py-2 text-xs text-white bg-emerald-600 rounded-lg hover:bg-emerald-700">
-              완료
+              {t('resourceMonitor.guide.complete')}
             </button>
           )}
         </div>
@@ -916,6 +745,7 @@ function GuideBook({ onClose }: { onClose: () => void }) {
 
 // ── Main ──
 export default function ResourceMonitor() {
+  const { t } = useTranslation();
   const [data, setData] = useState<RealtimeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'live' | 'analysis'>('live');
@@ -989,7 +819,7 @@ export default function ResourceMonitor() {
   const totLlm = data.reduce((a, e) => a + (e.metrics?.llmEndpoints?.length || 0), 0);
   // totTps — 3분류 KPI에서 각각 계산
 
-  const bottleneckLabel = (b: string | null) => ({ throughput: '처리량', kvMemory: 'KV메모리', concurrency: '동시처리' }[b || ''] || '-');
+  const bottleneckLabel = (b: string | null) => ({ throughput: t('resourceMonitor.kpi.throughput'), kvMemory: t('resourceMonitor.serverCard.benchmarkKvMemory'), concurrency: t('resourceMonitor.kpi.concurrent') }[b || ''] || '-');
 
   // 3분류 KPI 계산 함수
   const calcGroupKpi = (entries: RealtimeEntry[]) => {
@@ -1032,7 +862,7 @@ export default function ResourceMonitor() {
       }
       setModal(false); setEdit(null); setTestR(null); fetch_();
     } catch (e: any) {
-      alert(e?.response?.data?.error || '저장 실패');
+      alert(e?.response?.data?.error || t('resourceMonitor.saveFailed'));
     }
   };
 
@@ -1041,14 +871,14 @@ export default function ResourceMonitor() {
   return (<div className="space-y-4">
     {/* Header */}
     <div className="flex items-center justify-between">
-      <div><h1 className="text-base font-bold text-gray-900 flex items-center gap-1.5"><Server className="w-4 h-4 text-blue-600" />리소스 모니터링</h1>
-        <p className="text-[10px] text-gray-400 mt-0.5">SSH + LLM 자동 탐지{updated && <span className="ml-1">| {updated.toLocaleTimeString('ko-KR')}</span>}</p></div>
+      <div><h1 className="text-base font-bold text-gray-900 flex items-center gap-1.5"><Server className="w-4 h-4 text-blue-600" />{t('resourceMonitor.header.title')}</h1>
+        <p className="text-[10px] text-gray-400 mt-0.5">{t('resourceMonitor.header.subtitle')}{updated && <span className="ml-1">| {updated.toLocaleTimeString('ko-KR')}</span>}</p></div>
       <div className="flex items-center gap-1.5">
-        <button onClick={() => setGuideOpen(true)} className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-gray-500 hover:text-blue-600 rounded hover:bg-blue-50 border border-gray-200" title="GPU 모니터링 가이드">
-          <BarChart3 className="w-3 h-3" />가이드
+        <button onClick={() => setGuideOpen(true)} className="flex items-center gap-1 px-2 py-1.5 text-[10px] text-gray-500 hover:text-blue-600 rounded hover:bg-blue-50 border border-gray-200" title={t('resourceMonitor.header.guideBtn')}>
+          <BarChart3 className="w-3 h-3" />{t('resourceMonitor.header.guideBtn')}
         </button>
         <button onClick={fetch_} className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"><RefreshCw className="w-3.5 h-3.5" /></button>
-        <button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700"><Plus className="w-3.5 h-3.5" />서버 추가</button>
+        <button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-white bg-blue-600 rounded-lg hover:bg-blue-700"><Plus className="w-3.5 h-3.5" />{t('resourceMonitor.header.addServer')}</button>
       </div>
     </div>
 
@@ -1063,25 +893,25 @@ export default function ResourceMonitor() {
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center"><BarChart3 className="w-4 h-4 text-indigo-600" /></div>
             <div>
-              <p className="text-xs font-bold text-gray-900">GPU 수요 예측</p>
+              <p className="text-xs font-bold text-gray-900">{t('resourceMonitor.prediction.title')}</p>
               <div className="flex items-center gap-1 text-[10px] text-gray-500">
-                <span>{new Date(pred.date).toLocaleDateString('ko-KR')} 기준</span>
+                <span>{t('resourceMonitor.prediction.basedOn', { date: new Date(pred.date).toLocaleDateString('ko-KR') })}</span>
                 <span>|</span>
                 {targetEdit ? (
                   <span className="flex items-center gap-1">
-                    <span>목표</span>
+                    <span>{t('resourceMonitor.prediction.target')}</span>
                     <input type="number" min={100} max={500000} value={targetVal} onChange={e => setTargetVal(e.target.value)} className="w-20 px-1 py-0.5 border rounded text-[10px] text-center" />
-                    <span>명</span>
+                    <span>{t('resourceMonitor.prediction.personUnit')}</span>
                     <button disabled={targetSaving} onClick={async () => {
                       const n = parseInt(targetVal);
-                      if (isNaN(n) || n < 100 || n > 500000) { alert('100 ~ 500,000 범위'); return; }
+                      if (isNaN(n) || n < 100 || n > 500000) { alert(t('resourceMonitor.prediction.targetRange')); return; }
                       setTargetSaving(true);
-                      try { await gpuCapacityApi.updateSettings({ targetUserCount: n }); setTargetEdit(false); setPredRunning(true); const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || '실패'); } finally { setTargetSaving(false); setPredRunning(false); }
-                    }} className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[9px] hover:bg-indigo-700 disabled:opacity-50">{targetSaving ? '저장+분석...' : '저장 후 재분석'}</button>
+                      try { await gpuCapacityApi.updateSettings({ targetUserCount: n }); setTargetEdit(false); setPredRunning(true); const r = await gpuCapacityApi.run(); setPred(r.data.prediction); } catch (e: any) { alert(e?.response?.data?.error || t('resourceMonitor.failed')); } finally { setTargetSaving(false); setPredRunning(false); }
+                    }} className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[9px] hover:bg-indigo-700 disabled:opacity-50">{targetSaving ? t('resourceMonitor.prediction.savingAndAnalyzing') : t('resourceMonitor.prediction.saveAndReanalyze')}</button>
                     <button onClick={() => setTargetEdit(false)} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
                   </span>
                 ) : (
-                  <button onClick={() => { setTargetVal(String(pred.targetUserCount || 15000)); setTargetEdit(true); }} className="text-indigo-600 hover:text-indigo-800 underline decoration-dotted">목표 {pred.targetUserCount?.toLocaleString()}명 ✏️</button>
+                  <button onClick={() => { setTargetVal(String(pred.targetUserCount || 15000)); setTargetEdit(true); }} className="text-indigo-600 hover:text-indigo-800 underline decoration-dotted">{t('resourceMonitor.prediction.targetEdit', { count: pred.targetUserCount?.toLocaleString() })} ✏️</button>
                 )}
               </div>
             </div>
@@ -1096,15 +926,15 @@ export default function ResourceMonitor() {
               } catch (e: any) {
                 // timeout이어도 서버에서 분석 진행 중일 수 있음 → 폴링으로 결과 확인
                 if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
-                  alert('분석이 진행 중입니다. 완료되면 자동으로 업데이트됩니다.');
+                  alert(t('resourceMonitor.prediction.analysisInProgress'));
                 } else {
-                  alert(e?.response?.data?.error || '실패');
+                  alert(e?.response?.data?.error || t('resourceMonitor.failed'));
                 }
               } finally { setPredRunning(false); }
-            }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? '분석 중... (완료 시 자동 반영)' : '예측 재실행'}</button>
+            }} disabled={predRunning} className="text-[10px] text-indigo-600 hover:text-indigo-800 disabled:opacity-50">{predRunning ? t('resourceMonitor.prediction.analyzingAutoUpdate') : t('resourceMonitor.prediction.rerunPrediction')}</button>
             <button onClick={async () => {
-              try { await gpuCapacityApi.refreshBenchmarks(); alert('벤치마크 재산정 완료. 새로고침하면 반영됩니다.'); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || '벤치마크 재산정 실패'); }
-            }} className="text-[10px] text-emerald-600 hover:text-emerald-800">벤치마크 재산정</button>
+              try { await gpuCapacityApi.refreshBenchmarks(); alert(t('resourceMonitor.prediction.refreshBenchmarksComplete')); fetch_(); } catch (e: any) { alert(e?.response?.data?.error || t('resourceMonitor.prediction.refreshBenchmarksFailed')); }
+            }} className="text-[10px] text-emerald-600 hover:text-emerald-800">{t('resourceMonitor.prediction.refreshBenchmarks')}</button>
           </div>
         </div>
 
@@ -1117,21 +947,21 @@ export default function ResourceMonitor() {
           return (
           <div className="mb-3 p-3 bg-amber-50 rounded-lg border-2 border-amber-300 text-[11px] text-amber-900 shadow-sm">
             <div className="flex items-center justify-between mb-1.5">
-              <p className="font-bold text-amber-800 text-xs flex items-center gap-1">⚠ 추정 조건 안내</p>
-              <button onClick={() => { if (!noticeEdit && !noticeText) setNoticeText(defaultNotice); setNoticeEdit(!noticeEdit); }} className="text-[9px] text-amber-600 hover:text-amber-800 underline">{noticeEdit ? '닫기' : '편집'}</button>
+              <p className="font-bold text-amber-800 text-xs flex items-center gap-1">⚠ {t('resourceMonitor.prediction.estimationNotice')}</p>
+              <button onClick={() => { if (!noticeEdit && !noticeText) setNoticeText(defaultNotice); setNoticeEdit(!noticeEdit); }} className="text-[9px] text-amber-600 hover:text-amber-800 underline">{noticeEdit ? t('resourceMonitor.prediction.closeNotice') : t('resourceMonitor.prediction.editNotice')}</button>
             </div>
             {noticeEdit ? (
               <div className="space-y-1">
-                <textarea value={noticeText} onChange={e => setNoticeText(e.target.value)} rows={5} className="w-full px-2 py-1 border rounded text-[10px] font-mono" placeholder="마크다운 형식으로 작성 (**굵게**, [링크](url))" />
+                <textarea value={noticeText} onChange={e => setNoticeText(e.target.value)} rows={5} className="w-full px-2 py-1 border rounded text-[10px] font-mono" placeholder={t('resourceMonitor.prediction.markdownPlaceholder')} />
                 <div className="flex gap-2">
                   <button onClick={async () => {
                     try {
                       await gpuCapacityApi.updateSettings({ notice: noticeText } as any);
                       setNoticeEdit(false);
                       fetch_();
-                    } catch { alert('저장 실패'); }
-                  }} className="px-2 py-0.5 bg-amber-600 text-white rounded text-[9px]">저장</button>
-                  <button onClick={() => { setNoticeText(defaultNotice); }} className="px-2 py-0.5 bg-gray-200 rounded text-[9px]">기본값 복원</button>
+                    } catch { alert(t('resourceMonitor.saveFailed')); }
+                  }} className="px-2 py-0.5 bg-amber-600 text-white rounded text-[9px]">{t('resourceMonitor.prediction.saveNotice')}</button>
+                  <button onClick={() => { setNoticeText(defaultNotice); }} className="px-2 py-0.5 bg-gray-200 rounded text-[9px]">{t('resourceMonitor.prediction.restoreDefault')}</button>
                 </div>
               </div>
             ) : (
@@ -1145,27 +975,27 @@ export default function ResourceMonitor() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
           {/* 현재 피크 기준 */}
           <div className={`bg-white/80 rounded-lg p-3 border ${peakShort.isShort ? 'border-red-200' : 'border-gray-200'}`}>
-            <p className="text-[10px] font-bold text-orange-700 mb-2">📊 현재 피크 기준 부족분 <span className="font-normal text-gray-400">(7일 영업시간)</span></p>
+            <p className="text-[10px] font-bold text-orange-700 mb-2">📊 {t('resourceMonitor.prediction.peakShortage')} <span className="font-normal text-gray-400">{t('resourceMonitor.prediction.peakShortage7d')}</span></p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div className="cursor-help" title={"KV Cache = AI 모델이 대화 내용을 기억하기 위해 사용하는 메모리입니다.\n\n80% 이상이면 메모리 부족으로 응답이 느려지거나 요청이 밀려날 수 있습니다.\n즉, 사용자가 체감하는 응답 속도가 저하됩니다."}><p className="text-[9px] text-gray-500">피크 KV Cache ⓘ</p><p className={`text-lg font-bold ${peakShort.peakKvMax >= 80 ? 'text-red-600' : peakShort.peakKvMax >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakKvMax ?? '-'}%</p></div>
-              <div className="cursor-help" title={"대기 요청 = GPU가 바빠서 처리를 기다리는 요청의 비율입니다.\n\n30% 이상이면 사용자들이 응답 대기 시간이 길어지는 것을 체감합니다.\nGPU 증설이 필요한 직접적인 시그널입니다."}><p className="text-[9px] text-gray-500">대기 요청 빈도 ⓘ</p><p className={`text-lg font-bold ${peakShort.waitingFrequencyPct >= 30 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.waitingFrequencyPct ?? 0}%</p></div>
-              <div className="cursor-help" title={"VRAM = GPU의 작업 메모리입니다.\n\n이 수치가 0보다 크면 현재 GPU 메모리가 부족하여\n피크 시간대에 서비스 품질이 저하될 수 있습니다."}><p className="text-[9px] text-gray-500">피크 부족 VRAM ⓘ</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
-              <div className="cursor-help" title={"B300 = NVIDIA의 최신 GPU 장비 (192GB 메모리)입니다.\n\n현재 피크 부하에서 서비스 품질을 유지하기 위해\n당장 추가해야 하는 GPU 장비 수입니다."}><p className="text-[9px] text-gray-500">즉시 필요 ⓘ</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.peakKvTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.peakKvCache')} ⓘ</p><p className={`text-lg font-bold ${peakShort.peakKvMax >= 80 ? 'text-red-600' : peakShort.peakKvMax >= 60 ? 'text-amber-600' : 'text-emerald-600'}`}>{peakShort.peakKvMax ?? '-'}%</p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.waitingFrequencyTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.waitingFrequency')} ⓘ</p><p className={`text-lg font-bold ${peakShort.waitingFrequencyPct >= 30 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.waitingFrequencyPct ?? 0}%</p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.peakShortVramTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.peakShortVram')} ⓘ</p><p className={`text-lg font-bold ${peakShort.gapVram > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{peakShort.gapVram > 0 ? `+${peakShort.gapVram}` : '0'}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.immediateNeedTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.immediateNeed')} ⓘ</p><p className={`text-xl font-black ${peakShort.b300Units > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{peakShort.b300Units || 0}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p></div>
             </div>
             {peakShort.isShort && peakShort.reasons?.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-1">
-                {peakShort.reasons.map((r: string, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px] font-semibold cursor-help" title={r.includes('KV cache') ? 'KV Cache가 80% 이상이면 메모리 부족으로 새 요청이 밀려나거나 응답이 느려집니다.\n즉시 GPU 증설을 검토하세요.' : r.includes('대기 요청') ? '전체 모니터링 중 30% 이상에서 대기 요청이 발생하고 있습니다.\n사용자들이 응답 대기를 체감하고 있을 가능성이 높습니다.' : r.includes('Preemption') ? 'Preemption = 처리 중이던 요청이 밀려나는 현상입니다.\n빈발하면 응답 실패나 지연이 발생합니다.' : r}>⚠ {r}</span>)}
+                {peakShort.reasons.map((r: string, i: number) => <span key={i} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded text-[9px] font-semibold cursor-help" title={r.includes('KV cache') ? t('resourceMonitor.prediction.kvCacheTooltipShort') : r.includes('대기 요청') || r.includes('Waiting') ? t('resourceMonitor.prediction.waitingTooltipShort') : r.includes('Preemption') ? t('resourceMonitor.prediction.preemptionTooltipShort') : r}>⚠ {r}</span>)}
               </div>
             )}
-            {!peakShort.isShort && <p className="text-[9px] text-emerald-600 mt-1">✅ 현재 피크에서는 여유 있음</p>}
+            {!peakShort.isShort && <p className="text-[9px] text-emerald-600 mt-1">✅ {t('resourceMonitor.prediction.peakOk')}</p>}
           </div>
           {/* 목표 인원 기준 */}
           <div className="bg-white/80 rounded-lg p-3 border border-indigo-200">
-            <p className="text-[10px] font-bold text-indigo-700 mb-2">🎯 목표 {pred.targetUserCount?.toLocaleString()}명 기준 부족분</p>
+            <p className="text-[10px] font-bold text-indigo-700 mb-2">🎯 {t('resourceMonitor.prediction.targetShortage', { count: pred.targetUserCount?.toLocaleString() })}</p>
             <div className="grid grid-cols-3 gap-2">
-              <div className="cursor-help" title={"현재 보유한 전체 GPU 메모리 용량입니다.\n모든 서버의 GPU VRAM을 합산한 값입니다."}><p className="text-[9px] text-gray-500">현재 VRAM ⓘ</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
-              <div className="cursor-help" title={"목표 사용자 수를 서비스하기 위해 필요한\n총 GPU 메모리 용량입니다.\n안전 마진(1.5배)이 포함되어 있습니다."}><p className="text-[9px] text-gray-500">필요 VRAM ⓘ</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p><p className="text-[9px] text-gray-400">+{Math.round(pred.gapVramGb)}GB</p></div>
-              <div className="cursor-help" title={"목표 사용자 수 달성을 위해 추가로 구매해야 하는\nB300 GPU 장비 수입니다.\n\n현재 인프라 + 이 수량 = 목표 서비스 가능"}><p className="text-[9px] text-gray-500">추가 필요 ⓘ</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p><p className="text-[9px] text-gray-400">(192GB/장)</p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.currentVramTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.currentVram')} ⓘ</p><p className="text-lg font-bold text-gray-900">{Math.round(pred.currentTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.requiredVramTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.requiredVram')} ⓘ</p><p className="text-lg font-bold text-indigo-700">{Math.round(pred.predictedTotalVramGb)}<span className="text-[9px] font-normal text-gray-400 ml-0.5">GB</span></p><p className="text-[9px] text-gray-400">+{Math.round(pred.gapVramGb)}GB</p></div>
+              <div className="cursor-help" title={t('resourceMonitor.prediction.additionalNeededTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.additionalNeeded')} ⓘ</p><p className="text-xl font-black text-indigo-700">{pred.predictedB300Units}<span className="text-xs font-normal text-gray-500 ml-0.5">B300</span></p><p className="text-[9px] text-gray-400">(192GB/{t('resourceMonitor.unitB300')})</p></div>
             </div>
           </div>
         </div>
@@ -1173,29 +1003,29 @@ export default function ResourceMonitor() {
         {/* 포화 시점 + 사용자 현황 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 mb-3">
           <div className="bg-white/60 rounded-lg p-2 border border-gray-100">
-            <p className="text-[9px] text-gray-500">현재 사용자</p>
-            <p className="text-lg font-bold text-gray-900">{pred.currentUsers?.toLocaleString()}<span className="text-[9px] text-gray-400 ml-0.5">명</span></p>
+            <p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.currentUsers')}</p>
+            <p className="text-lg font-bold text-gray-900">{pred.currentUsers?.toLocaleString()}<span className="text-[9px] text-gray-400 ml-0.5">{t('resourceMonitor.prediction.personUnit')}</span></p>
             <p className="text-[9px] text-gray-400">DAU {Math.round(pred.currentDau)}</p>
           </div>
           {cd.scaling?.weeksUntilSaturated != null && (
-            <div className={`rounded-lg p-2 border cursor-help ${cd.scaling.weeksUntilSaturated === 0 ? 'bg-red-100 border-red-300' : 'bg-red-50 border-red-200'}`} title={"현재 성장 추세가 유지되면 GPU 용량이\n한계에 도달하는 예상 시점입니다.\n\n이 시점 전에 GPU 증설이 완료되어야\n서비스 장애를 방지할 수 있습니다."}>
-              <p className="text-[9px] text-red-600 font-semibold">포화 예상 ⓘ</p>
-              <p className="text-lg font-black text-red-700">{cd.scaling.weeksUntilSaturated === 0 ? '즉시' : `${cd.scaling.weeksUntilSaturated}주 후`}</p>
-              <p className="text-[9px] text-red-500">{cd.scaling.weeksUntilSaturated === 0 ? '이미 포화 상태!' : '현재 성장률 유지 시'}</p>
+            <div className={`rounded-lg p-2 border cursor-help ${cd.scaling.weeksUntilSaturated === 0 ? 'bg-red-100 border-red-300' : 'bg-red-50 border-red-200'}`} title={t('resourceMonitor.prediction.saturationTooltip')}>
+              <p className="text-[9px] text-red-600 font-semibold">{t('resourceMonitor.prediction.saturationEstimate')} ⓘ</p>
+              <p className="text-lg font-black text-red-700">{cd.scaling.weeksUntilSaturated === 0 ? t('resourceMonitor.prediction.saturationImmediate') : t('resourceMonitor.prediction.saturationWeeks', { count: cd.scaling.weeksUntilSaturated })}</p>
+              <p className="text-[9px] text-red-500">{cd.scaling.weeksUntilSaturated === 0 ? t('resourceMonitor.prediction.saturationAlready') : t('resourceMonitor.prediction.saturationGrowth')}</p>
             </div>
           )}
-          <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={"현재 대비 목표까지 필요한 확장 배율입니다.\n\n사용자 수 증가 + 인당 토큰 소비 증가를\n모두 반영한 종합 배율입니다."}><p className="text-[9px] text-gray-500">스케일링 배율 ⓘ</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">6개월 성장 반영</p></div>
-          {cd.dimensionalBreakdown && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={`3차원 부족분:\n처리량: B300 ${cd.dimensionalBreakdown.throughput?.b300 ?? '-'}장\nKV메모리: B300 ${cd.dimensionalBreakdown.kvMemory?.b300 ?? '-'}장\n동시처리: B300 ${cd.dimensionalBreakdown.concurrency?.b300 ?? '-'}장`}><p className="text-[9px] text-gray-500">종합 용량 ⓘ</p><p className="text-lg font-bold text-blue-600">{cd.dimensionalBreakdown.bottleneck === 'throughput' ? '처리량' : cd.dimensionalBreakdown.bottleneck === 'kvMemory' ? 'KV메모리' : '동시처리'}<span className="text-xs font-normal text-gray-400 ml-1">병목</span></p></div>}
-          {cd.dimensionalBreakdown?.bottleneck && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={`병목 차원: 3개 차원 중 가장 부족한 리소스\n처리량 B300 ${cd.dimensionalBreakdown.throughput?.b300 ?? '-'}장\nKV메모리 B300 ${cd.dimensionalBreakdown.kvMemory?.b300 ?? '-'}장\n동시처리 B300 ${cd.dimensionalBreakdown.concurrency?.b300 ?? '-'}장`}><p className="text-[9px] text-gray-500">병목 ⓘ</p><p className="text-lg font-bold text-orange-600">{cd.dimensionalBreakdown.bottleneck === 'throughput' ? '처리량' : cd.dimensionalBreakdown.bottleneck === 'kvMemory' ? 'KV메모리' : '동시처리'}</p></div>}
+          <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={t('resourceMonitor.prediction.scalingRatioTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.scalingRatio')} ⓘ</p><p className="text-lg font-bold text-gray-900">x{cd.growth?.growthAdjustedScaling || cd.scaling?.scalingFactor || '-'}</p><p className="text-[9px] text-gray-400">{t('resourceMonitor.prediction.sixMonthGrowth')}</p></div>
+          {cd.dimensionalBreakdown && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={t('resourceMonitor.prediction.bottleneckDimTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.compositeCapacity')} ⓘ</p><p className="text-lg font-bold text-blue-600">{bottleneckLabel(cd.dimensionalBreakdown.bottleneck)}<span className="text-xs font-normal text-gray-400 ml-1">{t('resourceMonitor.prediction.bottleneckDimLabel')}</span></p></div>}
+          {cd.dimensionalBreakdown?.bottleneck && <div className="bg-white/60 rounded-lg p-2 border border-gray-100 cursor-help" title={t('resourceMonitor.prediction.bottleneckDimTooltip')}><p className="text-[9px] text-gray-500">{t('resourceMonitor.prediction.bottleneckDimLabel')} ⓘ</p><p className="text-lg font-bold text-orange-600">{bottleneckLabel(cd.dimensionalBreakdown.bottleneck)}</p></div>}
         </div>
 
         {/* 배포 모델 분포 */}
         {cd.modelBreakdown?.length > 0 && (
           <div className="mb-2">
-            <p className="text-[9px] font-bold text-gray-700 mb-1">배포 모델 (throughput 비율)</p>
+            <p className="text-[9px] font-bold text-gray-700 mb-1">{t('resourceMonitor.prediction.deployedModels')}</p>
             <div className="flex flex-wrap gap-1">
               {cd.modelBreakdown.map((m: any, i: number) => (
-                <span key={i} className="px-2 py-1 bg-white/70 rounded-lg text-[9px] border border-gray-200" title={`params: ${m.params || '?'}B | 평균 ${m.avgTps} tok/s | 이론max ${m.theoreticalMaxTps} tok/s | 대역폭max ${m.bandwidthMaxTps || '?'} tok/s | GPU ${m.gpuCount}장`}>
+                <span key={i} className="px-2 py-1 bg-white/70 rounded-lg text-[9px] border border-gray-200" title={`params: ${m.params || '?'}B | avg ${m.avgTps} tok/s | max ${m.theoreticalMaxTps} tok/s | bw max ${m.bandwidthMaxTps || '?'} tok/s | GPU ${m.gpuCount}`}>
                   <b>{m.name}</b> <span className="text-gray-500">{m.params ? `${m.params}B` : '?'} ({m.precision})</span> <span className="text-indigo-600 font-bold">{m.tpsRatio}%</span>
                   <span className="text-gray-400 ml-1">{m.avgTps} tok/s</span>
                 </span>
@@ -1207,9 +1037,9 @@ export default function ResourceMonitor() {
         {/* 성장률 + 에러율 */}
         {cd.growth && (
           <div className="flex flex-wrap gap-3 mb-2 text-[10px]">
-            <span className="text-gray-500 cursor-help" title={"사용자 1인당 토큰 소비량의 주간 증가율입니다.\n\n이 값이 높으면 같은 사용자 수에도 GPU 부하가\n빠르게 증가하고 있다는 의미입니다.\nagentic AI, 코딩 도구 등이 확산되면 급증합니다."}>인당 토큰 성장: <b>{cd.growth.tokensPerUserGrowthRate}%</b>/주 ⓘ</span>
-            <span className="text-gray-500 cursor-help" title={"인당 토큰 성장률을 6개월(26주)간 복리 적용한 배율입니다.\n\n예: 주 5% 성장 → 6개월 후 약 3.6배\n이 배율이 스케일링 계산에 직접 반영됩니다."}>6개월 토큰 성장 배율: <b>x{cd.growth.tokenGrowthMultiplier6mo || cd.growth.growthMultiplier6mo}</b> ⓘ</span>
-            {cd.inputs?.errorRate > 0 && <span className="text-gray-500 cursor-help" title={"최근 7일간 전체 요청 중 에러(HTTP 400+)가 발생한 비율입니다.\n\n5% 이상이면 GPU 과부하 또는 서비스 문제의 신호입니다.\n에러율이 높을수록 예측에 안전 마진을 추가합니다."}>에러율: <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b> ⓘ</span>}
+            <span className="text-gray-500 cursor-help" title={t('resourceMonitor.prediction.tokenGrowthPerUserTooltip')}>{t('resourceMonitor.prediction.tokenGrowthPerUser')} <b>{cd.growth.tokensPerUserGrowthRate}%</b>{t('resourceMonitor.perWeek')} ⓘ</span>
+            <span className="text-gray-500 cursor-help" title={t('resourceMonitor.prediction.tokenGrowth6moTooltip')}>{t('resourceMonitor.prediction.tokenGrowth6mo')} <b>x{cd.growth.tokenGrowthMultiplier6mo || cd.growth.growthMultiplier6mo}</b> ⓘ</span>
+            {cd.inputs?.errorRate > 0 && <span className="text-gray-500 cursor-help" title={t('resourceMonitor.prediction.errorRateTooltip')}>{t('resourceMonitor.prediction.errorRate')} <b className={cd.inputs.errorRate > 5 ? 'text-red-600' : 'text-gray-700'}>{cd.inputs.errorRate}%</b> ⓘ</span>}
           </div>
         )}
         {/* 서비스별 Top */}
@@ -1223,20 +1053,20 @@ export default function ResourceMonitor() {
         {/* 미연결 장비 (모니터링 불가, 추정에 포함) */}
         <div className="mb-2">
           <div className="flex items-center gap-2 mb-1">
-            <p className="text-[9px] font-bold text-gray-700">미연결 장비 <span className="font-normal text-gray-400">(모니터링 불가, 평균 사용률로 추정에 포함)</span></p>
+            <p className="text-[9px] font-bold text-gray-700">{t('resourceMonitor.prediction.unmonitoredEquip')} <span className="font-normal text-gray-400">{t('resourceMonitor.prediction.unmonitoredEquipDesc')}</span></p>
             <button onClick={async () => {
               if (!fleetEdit) {
                 try { const r = await gpuCapacityApi.getSettings(); setFleetList(r.data.unmonitoredFleet || []); } catch {}
               }
               setFleetEdit(!fleetEdit);
-            }} className="text-[9px] text-indigo-600 hover:text-indigo-800 underline decoration-dotted">{fleetEdit ? '닫기' : '편집'}</button>
+            }} className="text-[9px] text-indigo-600 hover:text-indigo-800 underline decoration-dotted">{fleetEdit ? t('resourceMonitor.prediction.closeFleet') : t('resourceMonitor.prediction.editFleet')}</button>
           </div>
           {/* 현재 등록된 미연결 장비 표시 */}
           {cd.unmonitoredFleet?.length > 0 && !fleetEdit && (
             <div className="flex flex-wrap gap-1">
               {cd.unmonitoredFleet.map((f: any, i: number) => (
-                <span key={i} className="px-2 py-1 bg-amber-50 rounded-lg text-[9px] border border-amber-200 cursor-help" title={`미연결 장비: 모니터링 데이터 없음\n연결된 장비의 평균 사용률로 가정하여 추정에 포함\nVRAM: ${f.totalVramGb || f.count * (f.vramGb || 80)}GB`}>
-                  <b>{f.type}</b> ×{f.count} <span className="text-amber-600">({f.label || '미연결'})</span>
+                <span key={i} className="px-2 py-1 bg-amber-50 rounded-lg text-[9px] border border-amber-200 cursor-help" title={`${t('resourceMonitor.prediction.unmonitoredTooltip')}\nVRAM: ${f.totalVramGb || f.count * (f.vramGb || 80)}GB`}>
+                  <b>{f.type}</b> ×{f.count} <span className="text-amber-600">({f.label || t('resourceMonitor.prediction.unmonitoredLabel')})</span>
                 </span>
               ))}
             </div>
@@ -1252,14 +1082,14 @@ export default function ResourceMonitor() {
                     <option value="B300">B300 (192GB)</option>
                     <option value="A100">A100 (80GB)</option>
                   </select>
-                  <input type="number" min={0} value={f.count} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, count: parseInt(e.target.value) || 0 }; setFleetList(nl); }} className="w-16 px-1.5 py-1 border rounded text-[10px] text-center" placeholder="수량" />
-                  <span className="text-gray-400">장</span>
-                  <input value={f.label} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, label: e.target.value }; setFleetList(nl); }} className="flex-1 px-1.5 py-1 border rounded text-[10px]" placeholder="라벨 (예: HPC망)" />
+                  <input type="number" min={0} value={f.count} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, count: parseInt(e.target.value) || 0 }; setFleetList(nl); }} className="w-16 px-1.5 py-1 border rounded text-[10px] text-center" placeholder={t('resourceMonitor.prediction.quantity')} />
+                  <span className="text-gray-400">{t('resourceMonitor.prediction.unitCount')}</span>
+                  <input value={f.label} onChange={e => { const nl = [...fleetList]; nl[i] = { ...f, label: e.target.value }; setFleetList(nl); }} className="flex-1 px-1.5 py-1 border rounded text-[10px]" placeholder={t('resourceMonitor.prediction.labelPlaceholder')} />
                   <button onClick={() => setFleetList(fleetList.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-xs">×</button>
                 </div>
               ))}
               <div className="flex gap-2">
-                <button onClick={() => setFleetList([...fleetList, { type: 'H200', count: 0, label: '', vramGb: 141 }])} className="px-2 py-1 text-[9px] bg-gray-100 rounded hover:bg-gray-200">+ 장비 추가</button>
+                <button onClick={() => setFleetList([...fleetList, { type: 'H200', count: 0, label: '', vramGb: 141 }])} className="px-2 py-1 text-[9px] bg-gray-100 rounded hover:bg-gray-200">{t('resourceMonitor.prediction.addEquipment')}</button>
                 <button disabled={fleetSaving} onClick={async () => {
                   setFleetSaving(true);
                   try {
@@ -1269,9 +1099,9 @@ export default function ResourceMonitor() {
                     setPredRunning(true);
                     const r = await gpuCapacityApi.run();
                     setPred(r.data.prediction);
-                  } catch (e: any) { alert(e?.response?.data?.error || '실패'); }
+                  } catch (e: any) { alert(e?.response?.data?.error || t('resourceMonitor.failed')); }
                   finally { setFleetSaving(false); setPredRunning(false); }
-                }} className="px-2 py-1 text-[9px] bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{fleetSaving ? '저장+재분석...' : '저장 후 재분석'}</button>
+                }} className="px-2 py-1 text-[9px] bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50">{fleetSaving ? t('resourceMonitor.prediction.savingAndRerunning') : t('resourceMonitor.prediction.saveAndRerun')}</button>
               </div>
             </div>
           )}
@@ -1280,31 +1110,31 @@ export default function ResourceMonitor() {
         {/* 계산 논리 */}
         {cd && (
           <details className="text-[10px]">
-            <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">계산 논리 보기</summary>
+            <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">{t('resourceMonitor.prediction.viewCalculation')}</summary>
             <div className="mt-2 p-2 bg-white/70 rounded-lg space-y-1 text-gray-600">
-              <p><b>1. 스케일링:</b> DAU 비율 {(cd.inputs?.dauRatio * 100).toFixed(1)}% → x{cd.scaling?.scalingFactor} × 인당 토큰 성장 x{cd.growth?.tokenGrowthMultiplier6mo || cd.growth?.growthMultiplier6mo} = <b>x{cd.growth?.growthAdjustedScaling}</b></p>
-              <p className="text-[9px] text-gray-400 ml-2">DAU 증가는 target에 이미 포함. 인당 토큰 소비 증가만 추가 반영.</p>
-              <p><b>2. Method A</b> (실측 피크 throughput 기반): <b>B300 {cd.methodA?.b300 ?? cd.methodA?.totalVramA}장</b></p>
+              <p><b>{t('resourceMonitor.prediction.calcScaling')}</b> DAU {(cd.inputs?.dauRatio * 100).toFixed(1)}% → x{cd.scaling?.scalingFactor} × token growth x{cd.growth?.tokenGrowthMultiplier6mo || cd.growth?.growthMultiplier6mo} = <b>x{cd.growth?.growthAdjustedScaling}</b></p>
+              <p className="text-[9px] text-gray-400 ml-2">{t('resourceMonitor.prediction.calcDauNote')}</p>
+              <p><b>{t('resourceMonitor.prediction.calcMethodA')}</b> {t('resourceMonitor.prediction.calcMethodADesc')} <b>B300 {cd.methodA?.b300 ?? cd.methodA?.totalVramA}{t('resourceMonitor.unitB300')}</b></p>
               {cd.methodA?.detail && <p className="text-[9px] text-gray-400 ml-2">{cd.methodA.detail}</p>}
-              <p><b>3. Method B</b> (VRAM 복제 기반): <b>B300 {cd.methodB?.b300 ?? '?'}장</b> {cd.methodB?.totalVramNeeded ? `(필요 ${cd.methodB.totalVramNeeded}GB)` : ''}</p>
-              <p><b>4. 최종:</b> max(A,B) × 안전마진 {pred.safetyMargin} × 에러보정 {cd.scaling?.errorMargin} = <b>B300 {pred.predictedB300Units}장</b> ({Math.round(pred.predictedTotalVramGb)}GB)</p>
-              {cd.inputs?.detectedModels?.length > 0 && <p><b>감지 모델:</b> {cd.inputs.detectedModels.join(', ')}</p>}
-              {cd.modelBreakdown?.length > 0 && <div><b>모델별:</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, 이론max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}장</li>)}</ul></div>}
-              {cd.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>주의:</b> {cd.confidenceIssues.join(', ')}</p>}
-              {cd.recommendations?.length > 0 && <div className="mt-1"><b>권고:</b><ul className="list-disc ml-4">{cd.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
+              <p><b>{t('resourceMonitor.prediction.calcMethodB')}</b> {t('resourceMonitor.prediction.calcMethodBDesc')} <b>B300 {cd.methodB?.b300 ?? '?'}{t('resourceMonitor.unitB300')}</b> {cd.methodB?.totalVramNeeded ? `(${cd.methodB.totalVramNeeded}GB)` : ''}</p>
+              <p><b>{t('resourceMonitor.prediction.calcFinal')}</b> max(A,B) × safety {pred.safetyMargin} × error {cd.scaling?.errorMargin} = <b>B300 {pred.predictedB300Units}{t('resourceMonitor.unitB300')}</b> ({Math.round(pred.predictedTotalVramGb)}GB)</p>
+              {cd.inputs?.detectedModels?.length > 0 && <p><b>{t('resourceMonitor.prediction.detectedModels')}</b> {cd.inputs.detectedModels.join(', ')}</p>}
+              {cd.modelBreakdown?.length > 0 && <div><b>{t('resourceMonitor.prediction.perModelLabel')}</b><ul className="list-disc ml-4">{cd.modelBreakdown.map((m: any, i: number) => <li key={i}>{m.name}: {m.params || '?'}B ({m.precision}), throughput {m.tpsRatio}%, max {m.theoreticalMaxTps} tok/s, GPU {m.gpuCount}</li>)}</ul></div>}
+              {cd.confidenceIssues?.length > 0 && <p className="text-amber-600"><b>{t('resourceMonitor.prediction.caution')}</b> {cd.confidenceIssues.join(', ')}</p>}
+              {cd.recommendations?.length > 0 && <div className="mt-1"><b>{t('resourceMonitor.prediction.recommendationsLabel')}</b><ul className="list-disc ml-4">{cd.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>}
               {/* 월별 예측 테이블 */}
               {cd.monthlyForecast?.length > 0 && (
                 <div className="mt-3 pt-2 border-t border-gray-200">
-                  <p className="font-bold text-gray-700 mb-1">📅 월별 GPU 수요 예측 (올해 말까지, 인당 토큰 성장 반영)</p>
+                  <p className="font-bold text-gray-700 mb-1">📅 {t('resourceMonitor.prediction.monthlyForecast')}</p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-[9px] border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className="px-2 py-1 text-left border border-gray-200 font-semibold">월</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="인당 토큰 소비 증가율을 해당 월까지 복리 적용한 배율입니다.">토큰 성장</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="현재 인프라 유지 시, 토큰 성장만으로 추가 필요한 B300 수.\n목표 인원 무관 — 순수 성장 대응 비용입니다.">성장만 B300</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="목표 인원 달성 + 토큰 성장 대응에 필요한 총 추가 B300 수.">목표 기준 B300</th>
-                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title="해당 월에 목표 기준 필요한 총 GPU 메모리(VRAM) 예측치입니다.">필요 VRAM</th>
+                          <th className="px-2 py-1 text-left border border-gray-200 font-semibold">{t('resourceMonitor.prediction.monthCol')}</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title={t('resourceMonitor.prediction.tokenGrowthColTooltip')}>{t('resourceMonitor.prediction.tokenGrowthCol')}</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title={t('resourceMonitor.prediction.growthOnlyB300Tooltip')}>{t('resourceMonitor.prediction.growthOnlyB300')}</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title={t('resourceMonitor.prediction.targetB300Tooltip')}>{t('resourceMonitor.prediction.targetB300')}</th>
+                          <th className="px-2 py-1 text-right border border-gray-200 font-semibold cursor-help" title={t('resourceMonitor.prediction.requiredVramColTooltip')}>{t('resourceMonitor.prediction.requiredVramCol')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1312,15 +1142,15 @@ export default function ResourceMonitor() {
                           <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                             <td className="px-2 py-1 border border-gray-200 font-medium">{f.month}</td>
                             <td className="px-2 py-1 border border-gray-200 text-right">x{f.tokenGrowthMultiplier}</td>
-                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.growthOnlyB300 > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>+{f.growthOnlyB300}장</td>
-                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.b300Units > 0 ? 'text-indigo-700' : 'text-emerald-600'}`}>+{f.b300Units}장</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.growthOnlyB300 > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>+{f.growthOnlyB300}{t('resourceMonitor.unitB300')}</td>
+                            <td className={`px-2 py-1 border border-gray-200 text-right font-bold ${f.b300Units > 0 ? 'text-indigo-700' : 'text-emerald-600'}`}>+{f.b300Units}{t('resourceMonitor.unitB300')}</td>
                             <td className="px-2 py-1 border border-gray-200 text-right">{f.predictedVramGb?.toLocaleString()}GB</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <p className="text-[8px] text-gray-400 mt-1">* 안전마진 1.5배 및 에러보정 포함. 인당 토큰 소비 증가만 반영 (DAU 증가는 목표에 이미 포함).</p>
+                  <p className="text-[8px] text-gray-400 mt-1">{t('resourceMonitor.prediction.safetyNote')}</p>
                 </div>
               )}
             </div>
@@ -1329,18 +1159,18 @@ export default function ResourceMonitor() {
         {/* AI 분석 — 2탭: 기술 분석 + 경영 보고서 */}
         {pred.aiAnalysis && pred.modelId !== 'none' && (
           <details className="text-[10px] mt-1">
-            <summary className="cursor-pointer text-purple-600 font-medium hover:text-purple-800">AI 분석 리포트</summary>
+            <summary className="cursor-pointer text-purple-600 font-medium hover:text-purple-800">{t('resourceMonitor.prediction.aiAnalysisReport')}</summary>
             <div className="mt-2 space-y-2">
               {/* 경영 보고서 (비전문가용) */}
               {cd.executiveReport && (
                 <div className="p-3 bg-blue-50/80 rounded-lg border border-blue-200">
-                  <p className="text-[10px] font-bold text-blue-700 mb-1">경영 의사결정 보고서</p>
+                  <p className="text-[10px] font-bold text-blue-700 mb-1">{t('resourceMonitor.prediction.executiveReport')}</p>
                   <div className="text-gray-700 text-[11px] leading-snug" dangerouslySetInnerHTML={{ __html: mdToHtml(cd.executiveReport || '') }} />
                 </div>
               )}
               {/* 기술 분석 (전문가용) */}
               <div className="p-3 bg-white/70 rounded-lg">
-                <p className="text-[10px] font-bold text-purple-700 mb-1">기술 상세 분석</p>
+                <p className="text-[10px] font-bold text-purple-700 mb-1">{t('resourceMonitor.prediction.technicalAnalysis')}</p>
                 <div className="text-gray-700 text-[11px] leading-snug" dangerouslySetInnerHTML={{ __html: mdToHtml(pred.aiAnalysis || '') }} />
               </div>
             </div>
@@ -1354,32 +1184,32 @@ export default function ResourceMonitor() {
     {data.length > 0 && (
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="px-3 pt-2">
-          <p className="text-[9px] text-gray-500">종합 용량 = max(처리량%, KV메모리%, 동시처리%) — 벤치마크(관측 P95 피크) 대비 | 영업시간: KST 9-18시 영업일</p>
+          <p className="text-[9px] text-gray-500">{t('resourceMonitor.kpi.compositeDesc')}</p>
         </div>
         {/* 실시간 3분류 */}
         <div className="px-3 pt-1">
-          <p className="text-[9px] font-bold text-blue-600 mb-1">실시간 (Current)</p>
+          <p className="text-[9px] font-bold text-blue-600 mb-1">{t('resourceMonitor.kpi.realtimeCurrent')}</p>
         </div>
         <div className="px-3 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
           {[
-            { kpi: kpiSsh, label: 'SSH 서버', unit: '대', from: 'from-emerald-50', to: 'to-teal-50', border: 'border-emerald-200', color: 'text-emerald-700', sub: 'text-emerald-500' },
-            { kpi: kpiDedicated, label: 'DT 전용 모델', unit: '노드', from: 'from-blue-50', to: 'to-indigo-50', border: 'border-blue-200', color: 'text-blue-700', sub: 'text-blue-400' },
-            { kpi: kpiShared, label: 'DT 공유 모델', unit: '노드', from: 'from-purple-50', to: 'to-fuchsia-50', border: 'border-purple-200', color: 'text-purple-700', sub: 'text-purple-400' },
+            { kpi: kpiSsh, label: t('resourceMonitor.kpi.sshServer'), unit: t('resourceMonitor.kpi.unitServers'), from: 'from-emerald-50', to: 'to-teal-50', border: 'border-emerald-200', color: 'text-emerald-700', sub: 'text-emerald-500' },
+            { kpi: kpiDedicated, label: t('resourceMonitor.kpi.dtDedicated'), unit: t('resourceMonitor.kpi.unitNodes'), from: 'from-blue-50', to: 'to-indigo-50', border: 'border-blue-200', color: 'text-blue-700', sub: 'text-blue-400' },
+            { kpi: kpiShared, label: t('resourceMonitor.kpi.dtShared'), unit: t('resourceMonitor.kpi.unitNodes'), from: 'from-purple-50', to: 'to-fuchsia-50', border: 'border-purple-200', color: 'text-purple-700', sub: 'text-purple-400' },
           ].filter(g => g.kpi.count > 0).map(({ kpi, label, unit, from, to, border, color, sub }) => (
             <div key={label} className={`bg-gradient-to-br ${from} ${to} rounded-lg p-2.5 border ${border}`}>
               <div className="flex items-center justify-between mb-1">
                 <p className={`text-[9px] font-bold ${color}`}>{label} <span className={`font-normal ${sub}`}>({kpi.count}{unit})</span></p>
-                {kpi.bottleneck && <span className="text-[8px] text-orange-500">병목: {bottleneckLabel(kpi.bottleneck)}</span>}
+                {kpi.bottleneck && <span className="text-[8px] text-orange-500">{t('resourceMonitor.kpi.bottleneckPrefix')} {bottleneckLabel(kpi.bottleneck)}</span>}
               </div>
               <div className="flex items-end gap-2.5">
-                <div><p className="text-[7px] text-gray-400">종합</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">{t('resourceMonitor.kpi.composite')}</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">{t('resourceMonitor.kpi.headroom')}</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
                 <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpi.tps > 0 ? kpi.tps : '-'}</p></div>
               </div>
               <div className="flex gap-2 mt-1 text-[7px] text-gray-400">
-                <span>처리량 <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
+                <span>{t('resourceMonitor.kpi.throughput')} <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
                 <span>KV <b className={`${(kpi.kvPct || 0) >= 80 ? 'text-red-600' : (kpi.kvPct || 0) >= 50 ? 'text-amber-600' : 'text-gray-600'}`}>{kpi.kvPct ?? '-'}%</b></span>
-                <span>동시처리 <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
+                <span>{t('resourceMonitor.kpi.concurrent')} <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
               </div>
             </div>
           ))}
@@ -1387,7 +1217,7 @@ export default function ResourceMonitor() {
         {/* 인프라 요약 (한 줄) */}
         <div className="px-3 pb-2">
           <div className="flex items-center gap-3 text-[9px] text-gray-500">
-            <span>{totGpu}GPU · {totLlm}LLM · {online}/{data.length}서버</span>
+            <span>{t('resourceMonitor.kpi.serverSummary', { gpu: totGpu, llm: totLlm, online, total: data.length })}</span>
             <span>CPU <b>{avgCpu ?? '-'}%</b></span>
             <span>RAM <b>{avgRam ?? '-'}%</b></span>
             <span>Disk <b>{avgDisk ?? '-'}%</b></span>
@@ -1395,11 +1225,11 @@ export default function ResourceMonitor() {
         </div>
         {/* 영업일 평균 3분류 */}
         <div className="px-3 pt-1 border-t border-gray-100">
-          <p className="text-[9px] font-bold text-emerald-600 mb-1">영업일 평균 (KST 9-18시, 최근 {anaDays}일) <span className="font-normal text-gray-400">{ana?.businessHours?.sampleCount || 0}건</span></p>
+          <p className="text-[9px] font-bold text-emerald-600 mb-1">{t('resourceMonitor.kpi.businessHoursAvg', { days: anaDays })} <span className="font-normal text-gray-400">{ana?.businessHours?.sampleCount || 0}</span></p>
         </div>
         {(() => {
           const bh = ana?.businessHours;
-          if (!bh) return <div className="px-3 pb-3 text-[9px] text-gray-400">분석 데이터 없음</div>;
+          if (!bh) return <div className="px-3 pb-3 text-[9px] text-gray-400">{t('resourceMonitor.kpi.noAnalysisData')}</div>;
 
           // 3분류별 벤치마크 합산
           const calcBhGroup = (entries: RealtimeEntry[]) => {
@@ -1419,21 +1249,21 @@ export default function ResourceMonitor() {
           return (
         <div className="px-3 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
           {[
-            { kpi: bhSsh, label: 'SSH 서버', count: data.filter(e => !e.server.isLocal && e.server.sshPort > 0).length, border: 'border-emerald-100', bg: 'bg-emerald-50/50', color: 'text-emerald-700' },
-            { kpi: bhDedicated, label: 'DT 전용 모델', count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))).length, border: 'border-blue-100', bg: 'bg-blue-50/50', color: 'text-blue-700' },
-            { kpi: bhShared, label: 'DT 공유 모델', count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).every(ep => ep.containerName?.startsWith('shared-') || !ep.containerName)).length, border: 'border-purple-100', bg: 'bg-purple-50/50', color: 'text-purple-700' },
+            { kpi: bhSsh, label: t('resourceMonitor.kpi.sshServer'), count: data.filter(e => !e.server.isLocal && e.server.sshPort > 0).length, border: 'border-emerald-100', bg: 'bg-emerald-50/50', color: 'text-emerald-700' },
+            { kpi: bhDedicated, label: t('resourceMonitor.kpi.dtDedicated'), count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).some(ep => !ep.containerName?.startsWith('shared-'))).length, border: 'border-blue-100', bg: 'bg-blue-50/50', color: 'text-blue-700' },
+            { kpi: bhShared, label: t('resourceMonitor.kpi.dtShared'), count: data.filter(e => !e.server.isLocal && e.server.sshPort === 0 && (e.metrics?.llmEndpoints || []).every(ep => ep.containerName?.startsWith('shared-') || !ep.containerName)).length, border: 'border-purple-100', bg: 'bg-purple-50/50', color: 'text-purple-700' },
           ].filter(g => g.count > 0).map(({ kpi, label, border, bg, color }) => (
             <div key={label} className={`${bg} rounded-lg p-2 border ${border}`}>
               <p className={`text-[8px] font-semibold ${color} mb-1`}>{label}</p>
               <div className="flex items-end gap-2.5">
-                <div><p className="text-[7px] text-gray-400">종합</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
-                <div><p className="text-[7px] text-gray-400">여유</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">{t('resourceMonitor.kpi.composite')}</p><p className={`text-lg font-black ${kpi.composite != null ? utilTxt(kpi.composite) : 'text-gray-300'}`}>{kpi.composite ?? '-'}%</p></div>
+                <div><p className="text-[7px] text-gray-400">{t('resourceMonitor.kpi.headroom')}</p><p className={`text-lg font-black ${kpi.headroom != null ? (kpi.headroom <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{kpi.headroom ?? '-'}%</p></div>
                 <div><p className="text-[7px] text-gray-400">tok/s</p><p className="text-lg font-black text-blue-600">{kpi.tps ?? '-'}</p></div>
               </div>
               <div className="flex gap-2 mt-1 text-[7px] text-gray-400">
-                <span>처리량 <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
+                <span>{t('resourceMonitor.kpi.throughput')} <b className="text-gray-600">{kpi.tokPct ?? '-'}%</b></span>
                 <span>KV <b className={`${(kpi.kvPct || 0) >= 80 ? 'text-red-600' : 'text-gray-600'}`}>{kpi.kvPct ?? '-'}%</b></span>
-                <span>동시 <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
+                <span>{t('resourceMonitor.kpi.concurrentShort')} <b className="text-gray-600">{kpi.concPct ?? '-'}%</b></span>
               </div>
             </div>
           ))}
@@ -1446,14 +1276,14 @@ export default function ResourceMonitor() {
     {/* Tabs */}
     {data.length > 0 && (
       <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 w-fit text-xs">
-        <button onClick={() => setTab('live')} className={`px-3 py-1 rounded-md ${tab === 'live' ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500'}`}>실시간</button>
-        <button onClick={() => setTab('analysis')} className={`px-3 py-1 rounded-md ${tab === 'analysis' ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500'}`}>분석</button>
+        <button onClick={() => setTab('live')} className={`px-3 py-1 rounded-md ${tab === 'live' ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500'}`}>{t('resourceMonitor.tabs.live')}</button>
+        <button onClick={() => setTab('analysis')} className={`px-3 py-1 rounded-md ${tab === 'analysis' ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500'}`}>{t('resourceMonitor.tabs.analysis')}</button>
       </div>
     )}
 
     {/* Live Tab */}
     {tab === 'live' && (data.length === 0 ? (
-      <div className="bg-white rounded-lg border p-10 text-center"><Server className="w-10 h-10 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400 mb-3">등록된 서버 없음</p><button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="text-xs text-blue-600 hover:underline">+ 서버 추가</button></div>
+      <div className="bg-white rounded-lg border p-10 text-center"><Server className="w-10 h-10 text-gray-200 mx-auto mb-2" /><p className="text-xs text-gray-400 mb-3">{t('resourceMonitor.live.noServers')}</p><button onClick={() => { setEdit(null); setTestR(null); setModal(true); }} className="text-xs text-blue-600 hover:underline">{t('resourceMonitor.live.addServer')}</button></div>
     ) : (() => {
       // 3분류: K8s(Prometheus, sshPort=0) / SSH(직접 추가) / 로컬
       const k8sEntries = data.filter(e => !e.server.isLocal && e.server.sshPort === 0);
@@ -1505,8 +1335,8 @@ export default function ResourceMonitor() {
           {dedicatedGroups.length > 0 && (<>
             <div className="flex items-center gap-2 mb-2">
               <Layers className="w-3.5 h-3.5 text-blue-500" />
-              <span className="text-xs font-semibold text-gray-700">DT Cloud 전용 모델</span>
-              <span className="text-[10px] text-gray-400">{dedicatedGroups.length}개 모델</span>
+              <span className="text-xs font-semibold text-gray-700">{t('resourceMonitor.live.dtDedicatedModels')}</span>
+              <span className="text-[10px] text-gray-400">{t('resourceMonitor.live.modelCount', { count: dedicatedGroups.length })}</span>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
               {dedicatedGroups.map(g => <ModelGroupCard key={g.instance} group={g} />)}
@@ -1516,8 +1346,8 @@ export default function ResourceMonitor() {
           {sharedGroups.length > 0 && (<div className={dedicatedGroups.length > 0 ? 'mt-4' : ''}>
             <div className="flex items-center gap-2 mb-2">
               <Layers className="w-3.5 h-3.5 text-purple-500" />
-              <span className="text-xs font-semibold text-gray-700">DT Cloud 공유 모델</span>
-              <span className="text-[10px] text-gray-400">{sharedGroups.length}개 모델 · GPU 공유</span>
+              <span className="text-xs font-semibold text-gray-700">{t('resourceMonitor.live.dtSharedModels')}</span>
+              <span className="text-[10px] text-gray-400">{t('resourceMonitor.live.sharedGpu', { count: sharedGroups.length })}</span>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
               {sharedGroups.map(g => <ModelGroupCard key={g.instance} group={g} />)}
@@ -1528,8 +1358,8 @@ export default function ResourceMonitor() {
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 mt-3">
               {k8sNoLlm.map(e => <ServerCard key={e.server.id} entry={e}
                 onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
-                onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
-                onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+                onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' ' + i18n.t('resourceMonitor.live.copyName'), host: '' } as any); setTestR(null); setModal(true); }}
+                onDelete={async () => { if (confirm(t('resourceMonitor.live.deleteConfirm', { name: e.server.name }))) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
                 onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
               />)}
             </div>
@@ -1540,14 +1370,14 @@ export default function ResourceMonitor() {
         {sshEntries.length > 0 && (<div>
           <div className="flex items-center gap-2 mb-2">
             <Cpu className="w-3.5 h-3.5 text-emerald-500" />
-            <span className="text-xs font-semibold text-gray-700">SSH 서버</span>
-            <span className="text-[10px] text-gray-400">{sshEntries.length}대</span>
+            <span className="text-xs font-semibold text-gray-700">{t('resourceMonitor.live.sshServers')}</span>
+            <span className="text-[10px] text-gray-400">{t('resourceMonitor.live.sshCount', { count: sshEntries.length })}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {sshEntries.map(e => <ServerCard key={e.server.id} entry={e}
               onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
-              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
-              onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' ' + i18n.t('resourceMonitor.live.copyName'), host: '' } as any); setTestR(null); setModal(true); }}
+              onDelete={async () => { if (confirm(t('resourceMonitor.live.deleteConfirm', { name: e.server.name }))) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
               onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
             />)}
           </div>
@@ -1557,14 +1387,14 @@ export default function ResourceMonitor() {
         {localEntries.length > 0 && (<div>
           <div className="flex items-center gap-2 mb-2">
             <Server className="w-3.5 h-3.5 text-gray-500" />
-            <span className="text-xs font-semibold text-gray-700">로컬 서버</span>
-            <span className="text-[10px] text-gray-400">{localEntries.length}대</span>
+            <span className="text-xs font-semibold text-gray-700">{t('resourceMonitor.live.localServers')}</span>
+            <span className="text-[10px] text-gray-400">{t('resourceMonitor.live.localCount', { count: localEntries.length })}</span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {localEntries.map(e => <ServerCard key={e.server.id} entry={e}
               onEdit={() => { setEdit(e.server); setTestR(null); setModal(true); }}
-              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' (복사)', host: '' } as any); setTestR(null); setModal(true); }}
-              onDelete={async () => { if (confirm(`"${e.server.name}" 삭제?`)) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
+              onCopy={() => { setEdit({ ...e.server, id: '', name: e.server.name + ' ' + i18n.t('resourceMonitor.live.copyName'), host: '' } as any); setTestR(null); setModal(true); }}
+              onDelete={async () => { if (confirm(t('resourceMonitor.live.deleteConfirm', { name: e.server.name }))) { try { await gpuServerApi.delete(e.server.id); fetch_(); } catch {} } }}
               onToggle={async () => { try { await gpuServerApi.update(e.server.id, { enabled: !e.server.enabled }); fetch_(); } catch {} }}
             />)}
           </div>
@@ -1574,13 +1404,13 @@ export default function ResourceMonitor() {
 
     {/* Analysis Tab */}
     {tab === 'analysis' && (!ana || anaLoading) && (
-      <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">분석 데이터 로딩 중...</p></div></div>
+      <div className="flex items-center justify-center py-20"><div className="text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" /><p className="text-xs text-gray-500">{t('resourceMonitor.analysis.loading')}</p></div></div>
     )}
     {tab === 'analysis' && ana && (<div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="text-xs font-medium text-gray-600">30일 기간 분석 ({ana.totalSnapshots?.toLocaleString() || 0}건{anaServerId ? '' : ', 전체 서버'})</span>
+        <span className="text-xs font-medium text-gray-600">{t('resourceMonitor.analysis.periodLabel', { count: ana.totalSnapshots?.toLocaleString() || 0, serverNote: anaServerId ? '' : t('resourceMonitor.analysis.allServers') })}</span>
         <select value={anaServerId} onChange={e => setAnaServerId(e.target.value)} className="px-2 py-1 text-[10px] border rounded-lg bg-white">
-          <option value="">전체 서버</option>
+          <option value="">{t('resourceMonitor.analysis.allServersOption')}</option>
           {(() => {
             const k8s = data.filter(e => !e.server.isLocal && e.server.sshPort === 0);
             const dedicatedModels = new Map<string, { modelName: string; serverIds: string[] }>();
@@ -1597,15 +1427,15 @@ export default function ResourceMonitor() {
             }
             const sshServers = data.filter(e => !e.server.isLocal && e.server.sshPort > 0);
             return (<>
-              {dedicatedModels.size > 0 && <optgroup label="DT 전용 모델">
+              {dedicatedModels.size > 0 && <optgroup label={t('resourceMonitor.analysis.dtDedicatedGroup')}>
                 {Array.from(dedicatedModels.entries()).map(([inst, { modelName, serverIds }]) =>
-                  <option key={inst} value={serverIds.join(',')}>{modelName} ({serverIds.length}노드)</option>
+                  <option key={inst} value={serverIds.join(',')}>{modelName} ({serverIds.length} {t('resourceMonitor.kpi.unitNodes')})</option>
                 )}
               </optgroup>}
-              {sharedServerIds.size > 0 && <optgroup label="DT 공유 모델">
-                <option value={Array.from(sharedServerIds).join(',')}>공유 모델 전체 ({sharedServerIds.size}노드)</option>
+              {sharedServerIds.size > 0 && <optgroup label={t('resourceMonitor.analysis.dtSharedGroup')}>
+                <option value={Array.from(sharedServerIds).join(',')}>{t('resourceMonitor.analysis.sharedAll', { count: sharedServerIds.size })}</option>
               </optgroup>}
-              {sshServers.length > 0 && <optgroup label="SSH 서버">
+              {sshServers.length > 0 && <optgroup label={t('resourceMonitor.analysis.sshGroup')}>
                 {sshServers.map(e => <option key={e.server.id} value={e.server.id}>{e.server.name}</option>)}
               </optgroup>}
             </>);
@@ -1634,25 +1464,25 @@ export default function ResourceMonitor() {
 
         const Card = ({ title, color, border, d }: { title: string; color: string; border: string; d: any[] }) => (
           <div className={`bg-white rounded-lg border p-3 shadow-sm ${border}`}>
-            <p className={`text-[10px] font-semibold ${color} mb-2 flex items-center gap-1`}><Clock className="w-3 h-3" />{title} <span className="font-normal text-gray-400">({d.length}건)</span></p>
+            <p className={`text-[10px] font-semibold ${color} mb-2 flex items-center gap-1`}><Clock className="w-3 h-3" />{title} <span className="font-normal text-gray-400">({d.length})</span></p>
             <div className="grid grid-cols-4 gap-x-3 gap-y-1 text-[10px]">
               <div><span className="text-gray-400">tok/s</span><p className="text-lg font-black text-blue-600">{avg(d.filter((x: any) => x.tps > 0).map((x: any) => x.tps)) ?? '-'}</p></div>
               <div><span className="text-gray-400">KV %</span><p className="text-lg font-black text-purple-600">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
-              <div><span className="text-gray-400">대기 건수</span><p className={`text-lg font-black ${(avg(d.map((x: any) => x.wait)) || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{avg(d.map((x: any) => x.wait)) ?? '0'}</p></div>
+              <div><span className="text-gray-400">{t('resourceMonitor.analysis.waitingCount')}</span><p className={`text-lg font-black ${(avg(d.map((x: any) => x.wait)) || 0) > 1 ? 'text-red-600' : 'text-emerald-600'}`}>{avg(d.map((x: any) => x.wait)) ?? '0'}</p></div>
               <div><span className="text-gray-400">GPU Util</span><p className="text-lg font-black text-gray-600">{avg(d.filter((x: any) => x.gpu > 0).map((x: any) => x.gpu)) ?? '-'}%</p></div>
-              <div><span className="text-gray-300">Preemption</span><p className={`text-sm font-bold ${(avg(d.map((x: any) => x.preempt)) || 0) > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{avg(d.map((x: any) => x.preempt)) ?? '0'}회</p></div>
-              <div><span className="text-gray-300">처리량%</span><p className="text-sm font-bold text-blue-400">{calcPct(d, 'tps', totalBmTps) ?? '-'}%</p></div>
+              <div><span className="text-gray-300">Preemption</span><p className={`text-sm font-bold ${(avg(d.map((x: any) => x.preempt)) || 0) > 0 ? 'text-red-500' : 'text-emerald-500'}`}>{avg(d.map((x: any) => x.preempt)) ?? '0'}{t('resourceMonitor.analysis.preemptionCount')}</p></div>
+              <div><span className="text-gray-300">{t('resourceMonitor.analysis.throughputPct')}</span><p className="text-sm font-bold text-blue-400">{calcPct(d, 'tps', totalBmTps) ?? '-'}%</p></div>
               <div><span className="text-gray-300">KV%</span><p className="text-sm font-bold text-purple-400">{avg(d.filter((x: any) => x.kv > 0).map((x: any) => x.kv)) ?? '-'}%</p></div>
-              <div><span className="text-gray-300">동시처리%</span><p className={`text-sm font-bold ${(calcPct(d, 'wait', totalBmConc) || 0) > 100 ? 'text-red-500' : 'text-amber-400'}`}>{calcPct(d, 'wait', totalBmConc) ?? '-'}%</p></div>
+              <div><span className="text-gray-300">{t('resourceMonitor.analysis.concurrentPct')}</span><p className={`text-sm font-bold ${(calcPct(d, 'wait', totalBmConc) || 0) > 100 ? 'text-red-500' : 'text-amber-400'}`}>{calcPct(d, 'wait', totalBmConc) ?? '-'}%</p></div>
             </div>
           </div>
         );
 
         return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Card title="피크타임 (14~16시)" color="text-red-600" border="border-red-100" d={peak} />
-          <Card title="비업무시간 (20~06시)" color="text-gray-500" border="border-gray-100" d={off} />
-          <Card title="전체 (24시간)" color="text-blue-600" border="border-blue-100" d={all} />
+          <Card title={t('resourceMonitor.analysis.peakTime')} color="text-red-600" border="border-red-100" d={peak} />
+          <Card title={t('resourceMonitor.analysis.offHours')} color="text-gray-500" border="border-gray-100" d={off} />
+          <Card title={t('resourceMonitor.analysis.allDay')} color="text-blue-600" border="border-blue-100" d={all} />
         </div>);
       })()}
 
@@ -1665,14 +1495,14 @@ export default function ResourceMonitor() {
         const totalBmConc = data.reduce((a, e) => a + (e.capacityAnalysis?.benchmark?.peakConcurrent || 0), 0);
 
         const tabs: Array<{ key: string; label: string; desc: string; color: (v: number) => string }> = [
-          { key: 'tps', label: 'tok/s', desc: '초당 토큰 생성 수 — AI가 얼마나 빠르게 응답하고 있는지. 높을수록 활발.', color: (v: number) => v > 500 ? '#dc2626' : v > 100 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
-          { key: 'kv', label: 'KV Cache %', desc: 'AI 대화 메모리 사용률 — 80% 이상이면 메모리 부족으로 응답이 느려지거나 요청이 밀릴 수 있음.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
-          { key: 'wait', label: '대기 건수', desc: 'GPU가 바빠서 처리를 기다리는 요청 수 — 1건 이상이면 사용자가 대기 체감. 5건 이상이면 심각.', color: (v: number) => v >= 5 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
-          { key: 'preempt', label: 'Preemption', desc: 'VRAM 부족으로 밀려난 요청 수 — 처리 중이던 요청이 강제로 중단됨. 사용자가 응답 실패를 경험.', color: (v: number) => v >= 3 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
-          { key: 'tpsPct', label: '처리량 %', desc: '벤치마크(과거 피크) 대비 현재 처리 속도 비율. 100% = 과거 피크 수준, 초과 = 역대 최고 부하.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
-          { key: 'kvPct', label: 'KV %', desc: 'KV Cache 사용률 (0-100%). 80% 이상 빨간색 = 메모리 부족 위험.', color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
-          { key: 'concPct', label: '동시처리 %', desc: '벤치마크 대비 동시 요청 비율. 100% 초과 = 과거 피크보다 더 많은 요청이 동시 처리 중. 과부하 신호.', color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
-          { key: 'gpu', label: 'GPU Util %', desc: 'nvidia-smi GPU 사용률 — GPU 칩이 얼마나 바쁜지. 100%가 항상 과부하는 아님 (모델 로딩만으로도 높을 수 있음).', color: (v: number) => v >= 90 ? '#dc2626' : v >= 70 ? '#f59e0b' : v > 0 ? '#22c55e' : '#f3f4f6' },
+          { key: 'tps', label: t('resourceMonitor.analysis.heatmapTps'), desc: t('resourceMonitor.analysis.heatmapTpsDesc'), color: (v: number) => v > 500 ? '#dc2626' : v > 100 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kv', label: t('resourceMonitor.analysis.heatmapKv'), desc: t('resourceMonitor.analysis.heatmapKvDesc'), color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'wait', label: t('resourceMonitor.analysis.heatmapWait'), desc: t('resourceMonitor.analysis.heatmapWaitDesc'), color: (v: number) => v >= 5 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
+          { key: 'preempt', label: t('resourceMonitor.analysis.heatmapPreempt'), desc: t('resourceMonitor.analysis.heatmapPreemptDesc'), color: (v: number) => v >= 3 ? '#dc2626' : v >= 1 ? '#f59e0b' : '#10b981' },
+          { key: 'tpsPct', label: t('resourceMonitor.analysis.heatmapTpsPct'), desc: t('resourceMonitor.analysis.heatmapTpsPctDesc'), color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#3b82f6' : '#f3f4f6' },
+          { key: 'kvPct', label: t('resourceMonitor.analysis.heatmapKvPct'), desc: t('resourceMonitor.analysis.heatmapKvPctDesc'), color: (v: number) => v >= 80 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#8b5cf6' : '#f3f4f6' },
+          { key: 'concPct', label: t('resourceMonitor.analysis.heatmapConcPct'), desc: t('resourceMonitor.analysis.heatmapConcPctDesc'), color: (v: number) => v >= 120 ? '#7f1d1d' : v >= 100 ? '#dc2626' : v >= 50 ? '#f59e0b' : v > 0 ? '#f97316' : '#f3f4f6' },
+          { key: 'gpu', label: t('resourceMonitor.analysis.heatmapGpu'), desc: t('resourceMonitor.analysis.heatmapGpuDesc'), color: (v: number) => v >= 90 ? '#dc2626' : v >= 70 ? '#f59e0b' : v > 0 ? '#22c55e' : '#f3f4f6' },
         ];
         const activeTab = tabs.find(t => t.key === hmTab) || tabs[0];
 
@@ -1691,7 +1521,7 @@ export default function ResourceMonitor() {
         return (
         <div className="bg-white rounded-lg border p-4 shadow-sm">
           <div className="mb-1">
-            <p className="text-[10px] font-semibold text-gray-600 mb-1.5">3대 지표 히트맵 (날짜 × 시간, 30일)</p>
+            <p className="text-[10px] font-semibold text-gray-600 mb-1.5">{t('resourceMonitor.analysis.heatmapTitle')}</p>
             <div className="grid grid-cols-7 gap-0.5 mb-1">
             {tabs.map(t => (
               <button key={t.key} onClick={() => setHmTab(t.key)} className={`py-1.5 text-[10px] rounded font-medium ${hmTab === t.key ? 'bg-blue-600 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{t.label}</button>
@@ -1711,13 +1541,13 @@ export default function ResourceMonitor() {
               {/* 날짜 행 */}
               {dates.map(dt => (
                 <div key={dt} className="flex items-center">
-                  <div className="w-20 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)} {['일','월','화','수','목','금','토'][new Date(dt + 'T00:00:00+09:00').getDay()]}</div>
+                  <div className="w-20 shrink-0 text-[8px] text-gray-500 pr-1 text-right">{dt.slice(5)} {(t('resourceMonitor.analysis.dayNames', { returnObjects: true }) as string[])[new Date(dt + 'T00:00:00+09:00').getDay()]}</div>
                   {Array.from({ length: 24 }, (_, h) => {
                     const cell = hm.find(d => d.date === dt && d.hour === h);
                     const val = cell ? getValue(cell) : 0;
                     const bg = activeTab.color(val);
                     return (
-                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}시\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n대기: ${cell?.wait ?? '-'}건\nPreemption: ${cell?.preempt ?? '0'}회\nGPU: ${cell?.gpu ?? '-'}%${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? ((hmTab === 'wait' || hmTab === 'preempt') ? Math.round(val) : val >= 1000 ? `${(val/1000).toFixed(1)}k` : val >= 100 ? Math.round(val) : val < 1 ? val.toFixed(1) : Math.round(val)) : ''}</div>
+                      <div key={h} className="flex-1 h-7 border border-white/50 cursor-help flex items-center justify-center text-[8px] font-bold" style={{ backgroundColor: bg, color: val > 0 ? (bg === '#dc2626' || bg === '#7f1d1d' ? '#fff' : bg === '#f59e0b' || bg === '#f97316' ? '#fff' : '#1e293b') : '#d1d5db' }} title={`${dt} ${h}h\ntok/s: ${cell?.tps ?? '-'}\nKV: ${cell?.kv ?? '-'}%\n${t('resourceMonitor.analysis.waitingCount')}: ${cell?.wait ?? '-'}\nPreemption: ${cell?.preempt ?? '0'}\nGPU: ${cell?.gpu ?? '-'}%${hmTab.includes('Pct') || hmTab === 'preempt' ? `\n${activeTab.label}: ${val}${hmTab.includes('Pct') ? '%' : ''}` : ''}`}>{val > 0 ? ((hmTab === 'wait' || hmTab === 'preempt') ? Math.round(val) : val >= 1000 ? `${(val/1000).toFixed(1)}k` : val >= 100 ? Math.round(val) : val < 1 ? val.toFixed(1) : Math.round(val)) : ''}</div>
                     );
                   })}
                 </div>

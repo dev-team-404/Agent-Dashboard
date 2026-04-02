@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Zap, TrendingUp, Calendar, Plus, Loader2 } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuPowerApi } from '../services/api';
@@ -17,7 +18,7 @@ function formatTs(iso: string) {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
-  return `${mm}-${dd} ${hh}시`;
+  return `${mm}-${dd} ${hh}h`;
 }
 
 function formatTsFull(iso: string) {
@@ -26,6 +27,7 @@ function formatTsFull(iso: string) {
 }
 
 export default function GpuPowerUsage() {
+  const { t } = useTranslation();
   const [data, setData] = useState<GpuRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -72,7 +74,7 @@ export default function GpuPowerUsage() {
 
     const ratio = parseFloat(formRatio);
     if (isNaN(ratio) || ratio < 0 || ratio > 100) {
-      setError('사용률은 0~100 사이 값을 입력하세요.');
+      setError(t('gpuPowerUsage.validationError'));
       return;
     }
 
@@ -80,11 +82,11 @@ export default function GpuPowerUsage() {
     try {
       const ts = new Date(formDatetime).toISOString();
       await gpuPowerApi.save({ timestamp: ts, power_avg_usage_ratio: ratio });
-      setSuccess(`${formatTsFull(ts)} 데이터가 저장되었습니다.`);
+      setSuccess(t('gpuPowerUsage.saveSuccess', { time: formatTsFull(ts) }));
       setFormRatio('');
       await loadData();
     } catch {
-      setError('저장에 실패했습니다.');
+      setError(t('gpuPowerUsage.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -104,7 +106,7 @@ export default function GpuPowerUsage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
             <Zap className="w-4 h-4" />
-            <span>최신 사용률</span>
+            <span>{t('gpuPowerUsage.latestUsage')}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{stats.latest}%</p>
           <p className="text-xs text-gray-400 mt-1">{stats.latestTs}</p>
@@ -112,22 +114,22 @@ export default function GpuPowerUsage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
             <TrendingUp className="w-4 h-4" />
-            <span>7일 평균</span>
+            <span>{t('gpuPowerUsage.avg7Day')}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{stats.avg}%</p>
-          <p className="text-xs text-gray-400 mt-1">{stats.count}건 데이터</p>
+          <p className="text-xs text-gray-400 mt-1">{t('gpuPowerUsage.dataCount', { count: stats.count })}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
             <Zap className="w-4 h-4 text-red-500" />
-            <span>최대 사용률</span>
+            <span>{t('gpuPowerUsage.maxUsage')}</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{stats.max}%</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
             <Calendar className="w-4 h-4" />
-            <span>데이터 기간</span>
+            <span>{t('gpuPowerUsage.dataPeriod')}</span>
           </div>
           <p className="text-sm font-semibold text-gray-900 mt-1">
             {data.length > 0 ? `${formatTsFull(data[0].timestamp)} ~ ${formatTsFull(data[data.length - 1].timestamp)}` : '-'}
@@ -137,10 +139,10 @@ export default function GpuPowerUsage() {
 
       {/* Chart */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">시간별 GPU 평균 전력 사용률 (%)</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">{t('gpuPowerUsage.chartTitle')}</h3>
         {data.length === 0 ? (
           <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-            데이터가 없습니다. 아래 폼에서 데이터를 입력하세요.
+            {t('gpuPowerUsage.noDataMessage')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={360}>
@@ -173,10 +175,10 @@ export default function GpuPowerUsage() {
                   boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
                   fontSize: '12px',
                 }}
-                formatter={(value: number) => [`${value}%`, '전력 사용률']}
-                labelFormatter={(label) => `시각: ${label}`}
+                formatter={(value: number) => [`${value}%`, t('gpuPowerUsage.powerUsageLabel')]}
+                labelFormatter={(label) => t('gpuPowerUsage.timeLabel', { label })}
               />
-              <ReferenceLine y={stats.avg} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: `평균 ${stats.avg}%`, position: 'right', fontSize: 11, fill: '#f59e0b' }} />
+              <ReferenceLine y={stats.avg} stroke="#f59e0b" strokeDasharray="4 4" label={{ value: t('gpuPowerUsage.avgLabel', { value: stats.avg }), position: 'right', fontSize: 11, fill: '#f59e0b' }} />
               <Line
                 type="monotone"
                 dataKey="power_avg_usage_ratio"
@@ -194,11 +196,11 @@ export default function GpuPowerUsage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <Plus className="w-4 h-4" />
-          데이터 입력
+          {t('gpuPowerUsage.dataInput')}
         </h3>
         <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">시각 (시간 단위로 정규화됨)</label>
+            <label className="block text-xs text-gray-500 mb-1">{t('gpuPowerUsage.timeInputLabel')}</label>
             <input
               type="datetime-local"
               value={formDatetime}
@@ -208,7 +210,7 @@ export default function GpuPowerUsage() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">평균 전력 사용률 (%)</label>
+            <label className="block text-xs text-gray-500 mb-1">{t('gpuPowerUsage.avgPowerUsageLabel')}</label>
             <input
               type="number"
               step="0.01"
@@ -216,7 +218,7 @@ export default function GpuPowerUsage() {
               max="100"
               value={formRatio}
               onChange={e => setFormRatio(e.target.value)}
-              placeholder="예: 72.35"
+              placeholder={t('gpuPowerUsage.examplePlaceholder')}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               required
             />
@@ -227,7 +229,7 @@ export default function GpuPowerUsage() {
             className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            저장
+            {t('gpuPowerUsage.save')}
           </button>
         </form>
         {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
@@ -238,15 +240,15 @@ export default function GpuPowerUsage() {
       {data.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100">
-            <h3 className="text-sm font-semibold text-gray-900">상세 데이터</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{t('gpuPowerUsage.detailData')}</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-500 text-xs">
-                  <th className="text-left px-6 py-3 font-medium">시각</th>
-                  <th className="text-right px-6 py-3 font-medium">평균 전력 사용률</th>
-                  <th className="text-left px-6 py-3 font-medium w-1/2">시각화</th>
+                  <th className="text-left px-6 py-3 font-medium">{t('gpuPowerUsage.colTime')}</th>
+                  <th className="text-right px-6 py-3 font-medium">{t('gpuPowerUsage.colAvgPowerUsage')}</th>
+                  <th className="text-left px-6 py-3 font-medium w-1/2">{t('gpuPowerUsage.colVisualization')}</th>
                 </tr>
               </thead>
               <tbody>

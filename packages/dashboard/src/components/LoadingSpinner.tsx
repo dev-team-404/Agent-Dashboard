@@ -4,6 +4,7 @@
  * - inline: 섹션/카드 내부
  * - TableLoadingRow: 테이블 tbody 내 로딩 행
  */
+import i18n from '../i18n';
 
 interface LoadingSpinnerProps {
   /** 로딩 메시지 (null이면 숨김) */
@@ -22,11 +23,12 @@ const SIZES = {
 } as const;
 
 export default function LoadingSpinner({
-  message = '데이터를 불러오는 중...',
+  message,
   size = 'md',
   fullPage = true,
   className = '',
 }: LoadingSpinnerProps) {
+  const resolvedMessage = message === undefined ? i18n.t('components.loadingSpinner.loading') : message;
   const s = SIZES[size];
 
   const spinner = (
@@ -39,9 +41,9 @@ export default function LoadingSpinner({
           className={`absolute inset-0 ${s.ring} rounded-full ${s.border} border-samsung-blue border-t-transparent animate-spin`}
         />
       </div>
-      {message && (
+      {resolvedMessage && (
         <p className={`${s.gap} ${s.text} font-medium text-pastel-500`}>
-          {message}
+          {resolvedMessage}
         </p>
       )}
     </div>
@@ -61,7 +63,7 @@ export default function LoadingSpinner({
 /** 테이블 tbody 안에서 사용하는 로딩 행 */
 export function TableLoadingRow({
   colSpan,
-  message = '데이터를 불러오는 중...',
+  message,
 }: {
   colSpan: number;
   message?: string;
@@ -69,7 +71,7 @@ export function TableLoadingRow({
   return (
     <tr>
       <td colSpan={colSpan} className="px-5 py-20 text-center">
-        <LoadingSpinner fullPage={false} message={message} />
+        <LoadingSpinner fullPage={false} message={message ?? i18n.t('components.loadingSpinner.loading')} />
       </td>
     </tr>
   );

@@ -1,5 +1,6 @@
 import { BookOpen, X, ChevronLeft, ChevronRight, Copy, Check } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface GuidePanelProps {
   title: string;
@@ -16,6 +17,7 @@ interface GuidePanelProps {
 }
 
 export function CopyBlock({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     try {
@@ -44,7 +46,7 @@ export function CopyBlock({ text }: { text: string }) {
       <button
         onClick={handleCopy}
         className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
-        title="복사"
+        title={t('tourGuides.guidePanel.copy')}
       >
         {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
       </button>
@@ -79,11 +81,12 @@ export function StepDesc({ children }: { children: React.ReactNode }) {
 }
 
 export function FieldGuide({ label, desc, example }: { label: string; desc: string; example?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="py-1.5">
       <span className="font-semibold text-gray-800">{label}</span>
       <span className="text-gray-500"> — {desc}</span>
-      {example && <div className="text-[12px] text-blue-600 mt-0.5 font-mono bg-blue-50/60 px-1.5 py-0.5 rounded inline-block">예: {example}</div>}
+      {example && <div className="text-[12px] text-blue-600 mt-0.5 font-mono bg-blue-50/60 px-1.5 py-0.5 rounded inline-block">{t('tourGuides.guidePanel.example', { example })}</div>}
     </div>
   );
 }
@@ -93,6 +96,7 @@ export default function GuidePanel({
   onPrev, onNext, onClose,
   showPrev = true, nextLabel, nextDisabled = false, hideFooter = false,
 }: GuidePanelProps) {
+  const { t } = useTranslation();
   return (
     <div className="fixed bottom-20 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[400px] max-h-[75vh] z-[9998] bg-white rounded-xl shadow-2xl border border-gray-200/80 flex flex-col overflow-hidden animate-slide-up">
       {/* Header */}
@@ -135,7 +139,7 @@ export default function GuidePanel({
               className="inline-flex items-center gap-1 px-3 py-1.5 text-[13px] font-medium text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
-              이전
+              {t('tourGuides.guidePanel.prev')}
             </button>
           ) : (
             <div />
@@ -145,7 +149,7 @@ export default function GuidePanel({
             disabled={nextDisabled}
             className="inline-flex items-center gap-1 px-4 py-1.5 text-[13px] font-semibold text-white bg-samsung-blue rounded-lg hover:bg-samsung-blue-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {nextLabel || (currentStep === totalSteps - 1 ? '완료' : '다음')}
+            {nextLabel || (currentStep === totalSteps - 1 ? t('tourGuides.guidePanel.done') : t('tourGuides.guidePanel.next'))}
             {currentStep < totalSteps - 1 && !nextLabel && <ChevronRight className="w-3.5 h-3.5" />}
           </button>
         </div>

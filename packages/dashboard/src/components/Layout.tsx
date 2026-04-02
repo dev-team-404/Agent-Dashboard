@@ -1,6 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, KeyRound, FolderTree, Zap, Activity, Flame, Megaphone } from 'lucide-react';
+import { Users, LogOut, Menu, X, Shield, BookOpen, BarChart3, Home, CalendarDays, Cpu, PanelLeftClose, PanelLeftOpen, Store, Code, FileText, ClipboardList, Wrench, ShieldCheck, Target, Sparkles, AlertTriangle, Key, KeyRound, FolderTree, Zap, Activity, Flame, Megaphone, Globe } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { serviceApi } from '../services/api';
 
 interface User {
@@ -41,15 +42,16 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
-const getUserNavItems = (adminRole: AdminRole) => [
-  { path: '/public-dashboard', label: '공개 대시보드', icon: BarChart3 },
-  { path: '/services', label: '나에게 공개된 서비스', icon: Store },
-  { path: '/my-services', label: adminRole ? '서비스 관리' : '내 서비스', icon: Wrench },
-  { path: '/my-usage', label: '내 사용량', icon: BarChart3 },
-  ...(!adminRole ? [{ path: '/admin-request', label: '관리자 권한 신청', icon: ShieldCheck }] : []),
+const getUserNavItems = (adminRole: AdminRole, t: (key: string) => string) => [
+  { path: '/public-dashboard', label: t('sidebar.publicDashboard'), icon: BarChart3 },
+  { path: '/services', label: t('sidebar.availableServices'), icon: Store },
+  { path: '/my-services', label: adminRole ? t('sidebar.serviceManagement') : t('sidebar.myServices'), icon: Wrench },
+  { path: '/my-usage', label: t('sidebar.myUsage'), icon: BarChart3 },
+  ...(!adminRole ? [{ path: '/admin-request', label: t('sidebar.adminRequest'), icon: ShieldCheck }] : []),
 ];
 
 export default function Layout({ children, user, isAdmin, adminRole, onLogout }: LayoutProps) {
+  const { t, i18n } = useTranslation();
   const location = useLocation();
   const { serviceId } = useParams<{ serviceId?: string }>();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -57,6 +59,11 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
     return localStorage.getItem('sidebar_collapsed') === 'true';
   });
   const [services, setServices] = useState<Service[]>([]);
+
+  const toggleLanguage = () => {
+    const next = i18n.language === 'ko' ? 'en' : 'ko';
+    i18n.changeLanguage(next);
+  };
 
   useEffect(() => {
     if (isAdmin) loadServices();
@@ -86,41 +93,42 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
   };
 
   const getCurrentPageLabel = () => {
-    if (location.pathname === '/') return '통합 대시보드';
-    if (location.pathname === '/public-dashboard') return '공개 대시보드';
-    if (location.pathname === '/models') return 'LLM 모델 관리';
-    if (location.pathname === '/users') return '사용자 관리';
-    if (location.pathname === '/service-targets') return 'Saved M/M 관리';
-    if (location.pathname === '/holidays') return '휴일 관리';
-    if (location.pathname === '/my-usage') return '내 사용량';
-    if (location.pathname === '/my-services') return adminRole ? '서비스 관리' : '내 서비스';
-    if (location.pathname === '/services') return '나에게 공개된 서비스';
-    if (location.pathname === '/admin-request') return '관리자 권한 신청';
-    if (location.pathname === '/admin-requests-manage') return '권한 신청 관리';
-    if (location.pathname === '/system-llm') return '레지스트리 LLM 관리';
-    if (location.pathname === '/api-key') return 'API 비밀번호';
-    if (location.pathname === '/request-logs') return '요청 로그';
-    if (location.pathname === '/audit-logs') return '감사 로그';
-    if (location.pathname === '/error-management') return '에러 관리';
-    if (location.pathname === '/knox-verifications') return '인증 기록';
-    if (location.pathname === '/insight-usage-rate') return 'AI 사용률 인사이트';
-    if (location.pathname === '/insight-service-usage') return '서비스 사용량 인사이트';
-    if (location.pathname === '/org-tree') return '조직도';
-    if (location.pathname === '/gpu-power') return 'DT GPU Power Usage';
-    if (location.pathname === '/resource-monitor') return '리소스 모니터링';
-    if (location.pathname === '/oidc-clients') return 'OIDC 클라이언트 관리';
-    if (location.pathname === '/llm-heatmap') return 'LLM 모델 히트맵';
-    if (location.pathname === '/promotional-models') return '홍보 모델 관리';
+    if (location.pathname === '/') return t('pageTitle.unifiedDashboard');
+    if (location.pathname === '/public-dashboard') return t('pageTitle.publicDashboard');
+    if (location.pathname === '/models') return t('pageTitle.llmModelManagement');
+    if (location.pathname === '/users') return t('pageTitle.userManagement');
+    if (location.pathname === '/service-targets') return t('pageTitle.savedMmManagement');
+    if (location.pathname === '/holidays') return t('pageTitle.holidayManagement');
+    if (location.pathname === '/my-usage') return t('pageTitle.myUsage');
+    if (location.pathname === '/my-services') return adminRole ? t('pageTitle.serviceManagement') : t('pageTitle.myServices');
+    if (location.pathname === '/services') return t('pageTitle.availableServices');
+    if (location.pathname === '/admin-request') return t('pageTitle.adminRequest');
+    if (location.pathname === '/admin-requests-manage') return t('pageTitle.permissionRequestManagement');
+    if (location.pathname === '/system-llm') return t('pageTitle.registryLlmManagement');
+    if (location.pathname === '/api-key') return t('pageTitle.apiPassword');
+    if (location.pathname === '/request-logs') return t('pageTitle.requestLogs');
+    if (location.pathname === '/audit-logs') return t('pageTitle.auditLogs');
+    if (location.pathname === '/error-management') return t('pageTitle.errorManagement');
+    if (location.pathname === '/knox-verifications') return t('pageTitle.authRecords');
+    if (location.pathname === '/insight-usage-rate') return t('pageTitle.aiUsageInsight');
+    if (location.pathname === '/insight-service-usage') return t('pageTitle.serviceUsageInsight');
+    if (location.pathname === '/org-tree') return t('pageTitle.orgTree');
+    if (location.pathname === '/gpu-power') return t('pageTitle.gpuPower');
+    if (location.pathname === '/resource-monitor') return t('pageTitle.resourceMonitoring');
+    if (location.pathname === '/oidc-clients') return t('pageTitle.oidcClients');
+    if (location.pathname === '/llm-heatmap') return t('pageTitle.llmHeatmap');
+    if (location.pathname === '/promotional-models') return t('pageTitle.promotionalModels');
+    if (location.pathname === '/platform-story') return t('pageTitle.platformStory');
     if (location.pathname.startsWith('/service/')) {
       const service = services.find(s => s.id === serviceId);
-      if (location.pathname.includes('/users')) return `${service?.displayName || ''} 사용자`;
-      return `${service?.displayName || ''} 대시보드`;
+      if (location.pathname.includes('/users')) return t('pageTitle.serviceUsers', { name: service?.displayName || '' });
+      return t('pageTitle.serviceDashboard', { name: service?.displayName || '' });
     }
     return 'Agent Registry';
   };
 
-  const roleLabel = adminRole === 'SUPER_ADMIN' ? '슈퍼관리자' :
-                    adminRole === 'ADMIN' ? '시스템 관리자' : '사용자';
+  const roleLabel = adminRole === 'SUPER_ADMIN' ? t('roles.superAdmin') :
+                    adminRole === 'ADMIN' ? t('roles.admin') : t('roles.user');
 
   const sidebarWidth = sidebarCollapsed ? 'w-[72px]' : 'w-60';
   const mainMargin = sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-60';
@@ -202,15 +210,15 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
           {isAdmin && (
             <div>
               {!sidebarCollapsed && (
-                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">시스템 관리</p>
+                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('sidebar.systemAdmin')}</p>
               )}
               <div className="space-y-0.5">
-                <NavLink path="/" label="통합 대시보드" icon={Home} />
-                <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
-                <NavLink path="/service-targets" label="Saved M/M 관리" icon={Target} />
-                <NavLink path="/insight-usage-rate" label="AI 사용률 인사이트" icon={BarChart3} />
-                <NavLink path="/insight-service-usage" label="서비스 사용량 인사이트" icon={Cpu} />
-                <NavLink path="/admin-requests-manage" label="권한 신청 관리" icon={ShieldCheck} />
+                <NavLink path="/" label={t('sidebar.unifiedDashboard')} icon={Home} />
+                <NavLink path="/models" label={t('sidebar.llmModelManagement')} icon={Cpu} />
+                <NavLink path="/service-targets" label={t('sidebar.savedMmManagement')} icon={Target} />
+                <NavLink path="/insight-usage-rate" label={t('sidebar.aiUsageInsight')} icon={BarChart3} />
+                <NavLink path="/insight-service-usage" label={t('sidebar.serviceUsageInsight')} icon={Cpu} />
+                <NavLink path="/admin-requests-manage" label={t('sidebar.permissionRequestManagement')} icon={ShieldCheck} />
               </div>
             </div>
           )}
@@ -219,24 +227,24 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
           {adminRole === 'SUPER_ADMIN' && (
             <div>
               {!sidebarCollapsed && (
-                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">슈퍼 관리자</p>
+                <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('sidebar.superAdmin')}</p>
               )}
               <div className="space-y-0.5">
-                <NavLink path="/users" label="사용자 관리" icon={Users} />
-                <NavLink path="/system-llm" label="레지스트리 LLM 관리" icon={Sparkles} />
-                <NavLink path="/api-key" label="API 비밀번호" icon={Key} />
-                <NavLink path="/request-logs" label="요청 로그" icon={FileText} />
-                <NavLink path="/audit-logs" label="감사 로그" icon={ClipboardList} />
-                <NavLink path="/error-management" label="에러 관리" icon={AlertTriangle} />
-                <NavLink path="/knox-verifications" label="인증 기록" icon={ShieldCheck} />
-                <NavLink path="/holidays" label="휴일 관리" icon={CalendarDays} />
-                <NavLink path="/org-tree" label="조직도" icon={FolderTree} />
-                <NavLink path="/gpu-power" label="DT GPU Power Usage" icon={Zap} />
-                <NavLink path="/llm-heatmap" label="LLM 모델 히트맵" icon={Flame} />
-                <NavLink path="/resource-monitor" label="리소스 모니터링" icon={Activity} />
-                <NavLink path="/oidc-clients" label="OIDC 클라이언트" icon={KeyRound} />
-                <NavLink path="/promotional-models" label="홍보 모델 관리" icon={Megaphone} />
-                <ExternalNavLink href="/internal/docs" label="Internal API" icon={Code} />
+                <NavLink path="/users" label={t('sidebar.userManagement')} icon={Users} />
+                <NavLink path="/system-llm" label={t('sidebar.registryLlmManagement')} icon={Sparkles} />
+                <NavLink path="/api-key" label={t('sidebar.apiPassword')} icon={Key} />
+                <NavLink path="/request-logs" label={t('sidebar.requestLogs')} icon={FileText} />
+                <NavLink path="/audit-logs" label={t('sidebar.auditLogs')} icon={ClipboardList} />
+                <NavLink path="/error-management" label={t('sidebar.errorManagement')} icon={AlertTriangle} />
+                <NavLink path="/knox-verifications" label={t('sidebar.authRecords')} icon={ShieldCheck} />
+                <NavLink path="/holidays" label={t('sidebar.holidayManagement')} icon={CalendarDays} />
+                <NavLink path="/org-tree" label={t('sidebar.orgTree')} icon={FolderTree} />
+                <NavLink path="/gpu-power" label={t('sidebar.gpuPower')} icon={Zap} />
+                <NavLink path="/llm-heatmap" label={t('sidebar.llmHeatmap')} icon={Flame} />
+                <NavLink path="/resource-monitor" label={t('sidebar.resourceMonitoring')} icon={Activity} />
+                <NavLink path="/oidc-clients" label={t('sidebar.oidcClients')} icon={KeyRound} />
+                <NavLink path="/promotional-models" label={t('sidebar.promotionalModels')} icon={Megaphone} />
+                <ExternalNavLink href="/internal/docs" label={t('sidebar.internalApi')} icon={Code} />
               </div>
             </div>
           )}
@@ -244,10 +252,10 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
           {/* Personal */}
           <div>
             {!sidebarCollapsed && (
-              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">개인</p>
+              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('sidebar.personal')}</p>
             )}
             <div className="space-y-0.5">
-              {getUserNavItems(adminRole).map(({ path, label, icon }) => (
+              {getUserNavItems(adminRole, t).map(({ path, label, icon }) => (
                 <NavLink key={path} path={path} label={label} icon={icon} />
               ))}
             </div>
@@ -256,22 +264,34 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
           {/* Resources */}
           <div>
             {!sidebarCollapsed && (
-              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">리소스</p>
+              <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('sidebar.resources')}</p>
             )}
             <div className="space-y-0.5">
-              <ExternalNavLink href={import.meta.env.VITE_DOCS_URL || '/docs/'} label="문서" icon={BookOpen} />
+              <ExternalNavLink href={import.meta.env.VITE_DOCS_URL || '/docs/'} label={t('sidebar.docs')} icon={BookOpen} />
               {isAdmin && (
-                <ExternalNavLink href="/api/api-docs/ui" label="API 문서" icon={Code} />
+                <ExternalNavLink href="/api/api-docs/ui" label={t('sidebar.apiDocs')} icon={Code} />
               )}
-              <NavLink path="/platform-story" label="플랫폼 스토리" icon={FileText} />
+              <NavLink path="/platform-story" label={t('sidebar.platformStory')} icon={FileText} />
             </div>
           </div>
 
+          {/* Language toggle */}
+          <div className={sidebarCollapsed ? '' : ''}>
+            <button
+              onClick={toggleLanguage}
+              title={t('language.label')}
+              className={`flex items-center gap-3 px-3 py-2 rounded-md w-full text-[13px] text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] transition-colors ${sidebarCollapsed ? 'justify-center px-2' : ''}`}
+            >
+              <Globe className="w-[18px] h-[18px] flex-shrink-0" />
+              {!sidebarCollapsed && <span>{i18n.language === 'ko' ? 'English' : '한국어'}</span>}
+            </button>
+          </div>
+
           {/* Collapse toggle */}
-          <div className="hidden lg:block pt-2">
+          <div className="hidden lg:block">
             <button
               onClick={toggleCollapse}
-              title={sidebarCollapsed ? '펼치기' : '접기'}
+              title={sidebarCollapsed ? t('sidebar.expand') : t('sidebar.collapse')}
               className={`flex items-center gap-3 px-3 py-2 rounded-md w-full text-[13px] text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] transition-colors ${sidebarCollapsed ? 'justify-center px-2' : ''}`}
             >
               {sidebarCollapsed ? (
@@ -279,7 +299,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               ) : (
                 <>
                   <PanelLeftClose className="w-[18px] h-[18px] flex-shrink-0" />
-                  <span>접기</span>
+                  <span>{t('sidebar.collapse')}</span>
                 </>
               )}
             </button>
@@ -293,7 +313,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               <div className="w-7 h-7 bg-gray-700 rounded-full flex items-center justify-center">
                 <span className="text-[11px] font-medium text-gray-200">{user.username.charAt(0).toUpperCase()}</span>
               </div>
-              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title="로그아웃">
+              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title={t('sidebar.logout')}>
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -313,7 +333,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 </div>
                 <p className="text-[11px] text-gray-500 truncate">{decodeUnicodeEscape(user.deptname)}</p>
               </div>
-              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title="로그아웃">
+              <button onClick={onLogout} className="p-1.5 text-gray-600 hover:text-gray-300 transition-colors" title={t('sidebar.logout')}>
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>

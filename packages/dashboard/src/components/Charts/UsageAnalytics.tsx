@@ -7,6 +7,7 @@ import {
 import {
   Download, Loader2, Calendar, BarChart3, AlertTriangle, RefreshCw, Layers,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
@@ -99,6 +100,7 @@ interface DauItem {
 }
 
 export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [preset, setPreset] = useState<Preset>('30d');
   const [loading, setLoading] = useState(true);
@@ -120,10 +122,10 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
   }, [preset]);
 
   const tabs: { key: Tab; label: string }[] = [
-    { key: 'overview', label: '개요' },
-    { key: 'user', label: '사용자별' },
-    { key: 'model', label: '모델별' },
-    { key: 'department', label: '부서별' },
+    { key: 'overview', label: t('charts.usageAnalytics.tabOverview') },
+    { key: 'user', label: t('charts.usageAnalytics.tabUser') },
+    { key: 'model', label: t('charts.usageAnalytics.tabModel') },
+    { key: 'department', label: t('charts.usageAnalytics.tabDepartment') },
   ];
 
   const loadData = useCallback(async () => {
@@ -250,12 +252,12 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       <div className="bg-white rounded-2xl shadow-card p-8">
         <div className="flex flex-col items-center justify-center h-64 gap-4">
           <AlertTriangle className="w-12 h-12 text-red-400" />
-          <p className="text-gray-600">사용량 데이터를 불러오는데 실패했습니다.</p>
+          <p className="text-gray-600">{t('charts.usageAnalytics.errorMessage')}</p>
           <button
             onClick={loadData}
             className="px-4 py-2 bg-samsung-blue text-white rounded-lg hover:bg-blue-600 flex items-center gap-2"
           >
-            <RefreshCw className="w-4 h-4" /> 다시 시도
+            <RefreshCw className="w-4 h-4" /> {t('charts.usageAnalytics.retry')}
           </button>
         </div>
       </div>
@@ -268,7 +270,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-samsung-blue" />
-          사용량 분석
+          {t('charts.usageAnalytics.title')}
         </h2>
         <button
           onClick={handleExport}
@@ -294,7 +296,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                {p === '7d' ? '7일' : p === '30d' ? '30일' : '90일'}
+                {p === '7d' ? t('charts.usageAnalytics.days7') : p === '30d' ? t('charts.usageAnalytics.days30') : t('charts.usageAnalytics.days90')}
               </button>
             ))}
           </div>
@@ -334,40 +336,40 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
           {businessDayStats && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <SummaryCard
-                label="일평균 요청 (영업일)"
+                label={t('charts.usageAnalytics.avgRequestsBusinessDay')}
                 value={formatNumber(businessDayStats.avgRequests)}
               />
               <SummaryCard
-                label="일평균 입력 토큰"
+                label={t('charts.usageAnalytics.avgInputTokens')}
                 value={formatNumber(businessDayStats.avgInputTokens)}
               />
               <SummaryCard
-                label="일평균 출력 토큰"
+                label={t('charts.usageAnalytics.avgOutputTokens')}
                 value={formatNumber(businessDayStats.avgOutputTokens)}
               />
               <SummaryCard
-                label="영업일 수"
-                value={`${businessDayStats.days}일`}
-                sub={`전체 ${businessDayStats.totalDays}일 중`}
+                label={t('charts.usageAnalytics.businessDayCount')}
+                value={t('charts.usageAnalytics.businessDayValue', { days: businessDayStats.days })}
+                sub={t('charts.usageAnalytics.businessDayOfTotal', { totalDays: businessDayStats.totalDays })}
               />
             </div>
           )}
 
           {/* Daily Trend Area Chart */}
           <div className="bg-white rounded-xl shadow-card p-6">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">일별 토큰 사용량 추이</h3>
+            <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.dailyTokenTrend')}</h3>
             {dailyChartData.length === 0 ? (
-              <div className="h-72 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+              <div className="h-72 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={dailyChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDate} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
-                  <Tooltip formatter={(value: number) => formatNumber(value)} labelFormatter={(l) => `날짜: ${l}`} />
+                  <Tooltip formatter={(value: number) => formatNumber(value)} labelFormatter={(l) => t('charts.usageAnalytics.dateLabel', { date: l })} />
                   <Legend />
-                  <Area type="monotone" dataKey="inputTokens" name="입력 토큰" stroke="#06B6D4" fill="#06B6D4" fillOpacity={0.15} />
-                  <Area type="monotone" dataKey="outputTokens" name="출력 토큰" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.15} />
+                  <Area type="monotone" dataKey="inputTokens" name={t('charts.usageAnalytics.inputTokens')} stroke="#06B6D4" fill="#06B6D4" fillOpacity={0.15} />
+                  <Area type="monotone" dataKey="outputTokens" name={t('charts.usageAnalytics.outputTokens')} stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.15} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -377,17 +379,17 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {/* DAU */}
             <div className="bg-white rounded-xl shadow-card p-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-4">일별 활성 사용자</h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.dailyActiveUsers')}</h3>
               {filteredDauData.length === 0 ? (
-                <div className="h-64 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+                <div className="h-64 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={filteredDauData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={formatDate} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip labelFormatter={(l) => `날짜: ${l}`} />
-                    <Line type="monotone" dataKey="userCount" name="활성 사용자" stroke="#10B981" strokeWidth={2} dot={{ r: 2 }} />
+                    <Tooltip labelFormatter={(l) => t('charts.usageAnalytics.dateLabel', { date: l })} />
+                    <Line type="monotone" dataKey="userCount" name={t('charts.usageAnalytics.activeUsers')} stroke="#10B981" strokeWidth={2} dot={{ r: 2 }} />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -395,9 +397,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
 
             {/* Model usage */}
             <div className="bg-white rounded-xl shadow-card p-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-4">모델별 사용량</h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.modelUsage')}</h3>
               {modelChartData.length === 0 ? (
-                <div className="h-64 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+                <div className="h-64 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280 + (modelChartData.length > 5 ? 40 : 0)}>
                   <BarChart data={modelChartData} margin={{ bottom: modelChartData.length > 5 ? 60 : 20 }}>
@@ -413,8 +415,8 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
                     <Tooltip formatter={(value: number) => formatNumber(value)} />
                     <Legend />
-                    <Bar dataKey="inputTokens" name="입력 토큰" fill="#06B6D4" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="outputTokens" name="출력 토큰" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="inputTokens" name={t('charts.usageAnalytics.inputTokens')} fill="#06B6D4" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="outputTokens" name={t('charts.usageAnalytics.outputTokens')} radius={[4, 4, 0, 0]}>
                       {modelChartData.map((_: unknown, i: number) => (
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}
@@ -431,9 +433,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       {!loading && activeTab === 'user' && (
         <div className="space-y-5">
           <div className="bg-white rounded-xl shadow-card p-6">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">사용자별 사용량 (Top 20)</h3>
+            <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.userUsageTop20')}</h3>
             {userChartData.length === 0 ? (
-              <div className="h-72 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+              <div className="h-72 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(300, userChartData.length * 28)}>
                 <BarChart data={userChartData} layout="vertical">
@@ -442,9 +444,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                   <YAxis type="category" dataKey="loginid" tick={{ fontSize: 10 }} width={100} />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
-                  <Bar dataKey="requests" name="요청 수" fill="#6366F1" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="inputTokens" name="입력 토큰" fill="#06B6D4" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="outputTokens" name="출력 토큰" fill="#EC4899" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="requests" name={t('charts.usageAnalytics.requestCount')} fill="#6366F1" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="inputTokens" name={t('charts.usageAnalytics.inputTokens')} fill="#06B6D4" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="outputTokens" name={t('charts.usageAnalytics.outputTokens')} fill="#EC4899" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -456,12 +458,12 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">사용자 ID</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">이름</th>
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">부서</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">요청 수</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">입력 토큰</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">출력 토큰</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.userId')}</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.name')}</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.department')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.requestCount')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.inputTokens')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.outputTokens')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -491,7 +493,7 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
               <div className="flex items-start gap-2">
                 <Layers className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-xs font-medium text-blue-700 mb-1">동일 모델 합산 표시</p>
+                  <p className="text-xs font-medium text-blue-700 mb-1">{t('charts.usageAnalytics.modelMergeBanner')}</p>
                   <div className="space-y-1">
                     {Object.entries(modelMergeGroups).map(([canonical, names]) => (
                       <div key={canonical} className="flex items-center gap-1.5 text-xs">
@@ -506,9 +508,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
             </div>
           )}
           <div className="bg-white rounded-xl shadow-card p-6">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">모델별 사용량</h3>
+            <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.modelUsage')}</h3>
             {modelChartData.length === 0 ? (
-              <div className="h-72 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+              <div className="h-72 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
             ) : (
               <ResponsiveContainer width="100%" height={300 + (modelChartData.length > 5 ? 40 : 0)}>
                 <BarChart data={modelChartData} margin={{ bottom: modelChartData.length > 5 ? 60 : 20 }}>
@@ -524,9 +526,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={formatNumber} />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
-                  <Bar dataKey="requests" name="요청 수" fill="#6366F1" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="inputTokens" name="입력 토큰" fill="#06B6D4" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="outputTokens" name="출력 토큰" fill="#EC4899" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="requests" name={t('charts.usageAnalytics.requestCount')} fill="#6366F1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="inputTokens" name={t('charts.usageAnalytics.inputTokens')} fill="#06B6D4" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="outputTokens" name={t('charts.usageAnalytics.outputTokens')} fill="#EC4899" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -537,10 +539,10 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">모델</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">요청 수</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">입력 토큰</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">출력 토큰</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.model')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.requestCount')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.inputTokens')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.outputTokens')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -549,8 +551,8 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                       <td className="py-2.5 px-4 font-medium text-gray-900">
                         {m.modelName}
                         {m.mergedFrom && m.mergedFrom.length > 1 && (
-                          <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={`합산: ${m.mergedFrom.join(', ')}`}>
-                            {m.mergedFrom.length}개 합산
+                          <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={m.mergedFrom.join(', ')}>
+                            {t('charts.usageAnalytics.mergedCount', { count: m.mergedFrom.length })}
                           </span>
                         )}
                       </td>
@@ -570,9 +572,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
       {!loading && activeTab === 'department' && (
         <div className="space-y-5">
           <div className="bg-white rounded-xl shadow-card p-6">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">부서별 사용량</h3>
+            <h3 className="text-base font-semibold text-gray-900 mb-4">{t('charts.usageAnalytics.deptUsage')}</h3>
             {deptChartData.length === 0 ? (
-              <div className="h-72 flex items-center justify-center text-gray-400">데이터가 없습니다</div>
+              <div className="h-72 flex items-center justify-center text-gray-400">{t('common.noData')}</div>
             ) : (
               <ResponsiveContainer width="100%" height={Math.max(300, deptChartData.length * 28)}>
                 <BarChart data={deptChartData} layout="vertical">
@@ -581,9 +583,9 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
                   <YAxis type="category" dataKey="deptname" tick={{ fontSize: 10 }} width={140} />
                   <Tooltip formatter={(value: number) => formatNumber(value)} />
                   <Legend />
-                  <Bar dataKey="requests" name="요청 수" fill="#6366F1" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="inputTokens" name="입력 토큰" fill="#06B6D4" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="outputTokens" name="출력 토큰" fill="#F59E0B" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="requests" name={t('charts.usageAnalytics.requestCount')} fill="#6366F1" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="inputTokens" name={t('charts.usageAnalytics.inputTokens')} fill="#06B6D4" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="outputTokens" name={t('charts.usageAnalytics.outputTokens')} fill="#F59E0B" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -594,10 +596,10 @@ export default function UsageAnalytics({ serviceId }: UsageAnalyticsProps) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50">
-                    <th className="text-left py-3 px-4 font-medium text-gray-500">부서</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">요청 수</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">입력 토큰</th>
-                    <th className="text-right py-3 px-4 font-medium text-gray-500">출력 토큰</th>
+                    <th className="text-left py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.deptColumn')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.requestCount')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.inputTokens')}</th>
+                    <th className="text-right py-3 px-4 font-medium text-gray-500">{t('charts.usageAnalytics.outputTokens')}</th>
                   </tr>
                 </thead>
                 <tbody>

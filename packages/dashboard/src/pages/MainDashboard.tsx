@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Users, Activity, Zap, TrendingUp,
   Clock, BarChart3, Layers, CalendarDays,
@@ -217,6 +218,7 @@ function stableColorIndex(name: string): number {
 }
 
 export default function MainDashboard({ adminRole: _adminRole }: MainDashboardProps) {
+  const { t } = useTranslation();
   const [globalOverview, setGlobalOverview] = useState<GlobalOverviewService[]>([]);
   const [globalTotals, setGlobalTotals] = useState<GlobalTotals | null>(null);
   const [serviceDaily, setServiceDaily] = useState<ServiceDailyData[]>([]);
@@ -448,7 +450,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             }
           } else if (saved > 0) {
             // 레거시 호환: breakdown 없으면 등록 부서에 귀속
-            const dept = s.registeredByDept || '미지정';
+            const dept = s.registeredByDept || t('mainDashboard.unassigned');
             deptMap.set(dept, (deptMap.get(dept) || 0) + saved);
           }
         }
@@ -648,14 +650,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             </ResponsiveContainer>
             {restServices.length > 0 && (
               <div className="mt-4 border-t border-gray-100 pt-3">
-                <p className="text-xs text-gray-400 mb-2">그 외 {restServices.length}개 서비스</p>
+                <p className="text-xs text-gray-400 mb-2">{t('mainDashboard.otherServices', { count: restServices.length })}</p>
                 <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-gray-50">
                       <tr>
-                        <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
-                        <th className="text-right py-2 px-3 font-medium text-gray-500">총 요청</th>
-                        <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+                        <th className="text-left py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colService')}</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colTotalRequests')}</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colRecent')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -677,7 +679,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             )}
           </>
         ) : (
-          <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-72 text-pastel-400">{t('mainDashboard.noData')}</div>
         );
 
       case 'bu-stats':
@@ -688,18 +690,18 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#9ca3af" />
               <YAxis yAxisId="left" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} stroke="#9ca3af" tickFormatter={(v: number) => formatNumber(v)} />
-              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [formatNumber(value) + '명', name]} />
+              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} formatter={(value: number, name: string) => [formatNumber(value) + t('mainDashboard.personSuffix'), name]} />
               <Legend />
               {deptUsersBUs.map((bu, i) => (
-                <RechartsLine key={`${bu}_cumulative`} yAxisId="left" type="monotone" dataKey={`${bu}_cumulative`} name={`${bu} (누적)`} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
+                <RechartsLine key={`${bu}_cumulative`} yAxisId="left" type="monotone" dataKey={`${bu}_cumulative`} name={`${bu} ${t('mainDashboard.cumulative')}`} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} />
               ))}
               {deptUsersBUs.map((bu, i) => (
-                <Bar key={`${bu}_active`} yAxisId="right" dataKey={`${bu}_active`} name={`${bu} (활성)`} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.4} radius={[2, 2, 0, 0]} />
+                <Bar key={`${bu}_active`} yAxisId="right" dataKey={`${bu}_active`} name={`${bu} ${t('mainDashboard.active')}`} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.4} radius={[2, 2, 0, 0]} />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-72 text-pastel-400">{t('mainDashboard.noData')}</div>
         );
 
       case 'dept':
@@ -719,14 +721,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             </ResponsiveContainer>
             {restCombos.length > 0 && (
               <div className="mt-4 border-t border-gray-100 pt-3">
-                <p className="text-xs text-gray-400 mb-2">그 외 {restCombos.length}개 조합</p>
+                <p className="text-xs text-gray-400 mb-2">{t('mainDashboard.otherCombinations', { count: restCombos.length })}</p>
                 <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-gray-50">
                       <tr>
-                        <th className="text-left py-2 px-3 font-medium text-gray-500">사업부/서비스</th>
-                        <th className="text-right py-2 px-3 font-medium text-gray-500">총 요청</th>
-                        <th className="text-right py-2 px-3 font-medium text-gray-500">최근</th>
+                        <th className="text-left py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colBUService')}</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colTotalRequests')}</th>
+                        <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colRecent')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -748,7 +750,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             )}
           </>
         ) : (
-          <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-72 text-pastel-400">{t('mainDashboard.noData')}</div>
         );
 
       case 'usage':
@@ -774,7 +776,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-72 text-pastel-400">데이터가 없습니다</div>
+          <div className="flex items-center justify-center h-72 text-pastel-400">{t('mainDashboard.noData')}</div>
         );
 
       default:
@@ -783,15 +785,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
   };
 
   const chartTabs: { key: ChartTab; label: string; icon: React.ElementType }[] = [
-    { key: 'gpu', label: 'GPU', icon: Cpu },
-    { key: 'latency', label: '응답지연', icon: Clock },
-    { key: 'dept', label: '부서별', icon: Users },
-    { key: 'mm', label: '연간 M/M', icon: TrendingUp },
-    { key: 'analysis', label: '상세분석', icon: BarChart3 },
-    { key: 'dau-mau', label: 'DAU+MAU', icon: Activity },
-    { key: 'service-metrics', label: '서비스 메트릭', icon: Layers },
-    { key: 'usage', label: '사용량 분석', icon: Zap },
-    { key: 'bu-stats', label: '사업부 통계', icon: Users },
+    { key: 'gpu', label: t('mainDashboard.tabGPU'), icon: Cpu },
+    { key: 'latency', label: t('mainDashboard.tabLatency'), icon: Clock },
+    { key: 'dept', label: t('mainDashboard.tabDept'), icon: Users },
+    { key: 'mm', label: t('mainDashboard.tabMM'), icon: TrendingUp },
+    { key: 'analysis', label: t('mainDashboard.tabAnalysis'), icon: BarChart3 },
+    { key: 'dau-mau', label: t('mainDashboard.tabDAUMAU'), icon: Activity },
+    { key: 'service-metrics', label: t('mainDashboard.tabServiceMetrics'), icon: Layers },
+    { key: 'usage', label: t('mainDashboard.tabUsage'), icon: Zap },
+    { key: 'bu-stats', label: t('mainDashboard.tabBUStats'), icon: Users },
   ];
 
   return (
@@ -803,12 +805,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             <>
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
               <span>
-                데이터 갱신 {dataFetchedAt.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                {t('mainDashboard.dataRefresh', { time: dataFetchedAt.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) })}
               </span>
               <button
                 onClick={loadData}
                 className="ml-1 text-gray-400 hover:text-gray-600 transition-colors"
-                title="새로고침"
+                title={t('mainDashboard.refresh')}
               >
                 ↻
               </button>
@@ -819,12 +821,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       </div>
       {/* Hero Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 lg:gap-5">
-        <StatCard label="전체 사용자" value={totalUsers} icon={Users} gradient="bg-gradient-to-r from-blue-500 to-blue-600" description="모든 서비스 합계" delay={0} />
-        <StatCard label="오늘 DAU" value={todayActive} icon={Activity} gradient="bg-gradient-to-r from-emerald-500 to-teal-500" description="실시간 활성 사용자" delay={80} />
-        <StatCard label="영업일 평균 DAU" value={Math.round(avgDailyActiveExcluding)} icon={Activity} gradient="bg-gradient-to-r from-orange-500 to-amber-500" description="최근 30일, 주말/휴일 제외" highlight delay={160} />
-        <StatCard label="평균 MAU" value={avgMau} icon={CalendarDays} gradient="bg-gradient-to-r from-indigo-500 to-blue-500" description="최근 3개월 평균" delay={240} />
-        <StatCard label="총 토큰 사용" value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description="누적 합계" delay={320} />
-        <StatCard label="총 API 요청" value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description="누적 합계" delay={400} />
+        <StatCard label={t('mainDashboard.totalUsers')} value={totalUsers} icon={Users} gradient="bg-gradient-to-r from-blue-500 to-blue-600" description={t('mainDashboard.allServicesTotal')} delay={0} />
+        <StatCard label={t('mainDashboard.todayDAU')} value={todayActive} icon={Activity} gradient="bg-gradient-to-r from-emerald-500 to-teal-500" description={t('mainDashboard.realtimeActiveUsers')} delay={80} />
+        <StatCard label={t('mainDashboard.businessDayAvgDAU')} value={Math.round(avgDailyActiveExcluding)} icon={Activity} gradient="bg-gradient-to-r from-orange-500 to-amber-500" description={t('mainDashboard.last30DaysExcluding')} highlight delay={160} />
+        <StatCard label={t('mainDashboard.avgMAU')} value={avgMau} icon={CalendarDays} gradient="bg-gradient-to-r from-indigo-500 to-blue-500" description={t('mainDashboard.last3MonthsAvg')} delay={240} />
+        <StatCard label={t('mainDashboard.totalTokenUsage')} value={totalTokens} icon={TrendingUp} gradient="bg-gradient-to-r from-violet-500 to-purple-500" description={t('mainDashboard.cumulativeTotal')} delay={320} />
+        <StatCard label={t('mainDashboard.totalAPIRequests')} value={totalRequests} icon={Zap} gradient="bg-gradient-to-r from-amber-500 to-yellow-500" description={t('mainDashboard.cumulativeTotal')} delay={400} />
       </div>
       {/* GPU 리소스 요약 */}
       {gpuData.length > 0 && (() => {
@@ -844,8 +846,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
         return (
           <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-xl border border-blue-100 p-4 animate-slide-up" style={{ animationDelay: '450ms' }}>
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">GPU 리소스</span><span className="text-[10px] text-gray-400">서버 {online.length}/{gpuData.length} 온라인</span></div>
-              <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">상세 보기 →</a>
+              <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-600" /><span className="text-sm font-bold text-gray-900">{t('mainDashboard.gpuResources')}</span><span className="text-[10px] text-gray-400">{t('mainDashboard.serverOnline', { online: online.length, total: gpuData.length })}</span></div>
+              <a href="/resource-monitor" className="text-[10px] text-blue-600 hover:underline">{t('mainDashboard.viewDetails')}</a>
             </div>
             {/* GPU 부족분 예측 요약 */}
             {gpuPrediction && (() => {
@@ -854,15 +856,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               const bn = dim?.bottleneck;
               return (
                 <div className="mb-3">
-                  <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">벤치마크 기반 GPU 예측</p>
+                  <p className="text-[9px] text-emerald-600 font-semibold mb-1.5">{t('mainDashboard.benchmarkGpuPrediction')}</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
-                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">인프라</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} 온라인</p></div>
-                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={`3차원 부족분:\n처리량: B300 ${dim?.throughput?.b300 ?? '-'}장\nKV메모리: B300 ${dim?.kvMemory?.b300 ?? '-'}장\n동시처리: B300 ${dim?.concurrency?.b300 ?? '-'}장`}>
-                      <p className="text-[9px] text-orange-700 font-semibold">병목 ⓘ</p>
-                      <p className="text-lg font-bold text-orange-600">{bn === 'throughput' ? '처리량' : bn === 'kvMemory' ? 'KV메모리' : bn === 'concurrency' ? '동시처리' : '-'}</p>
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">{t('mainDashboard.infrastructure')}</p><p className="text-sm font-bold text-gray-900">{totGpu}GPU · {totLlm}LLM</p><p className="text-[9px] text-gray-500">{online.length}/{gpuData.length} {t('mainDashboard.online')}</p></div>
+                    <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm cursor-help" title={t('mainDashboard.gpuPredTooltip', { throughput: dim?.throughput?.b300 ?? '-', kvMemory: dim?.kvMemory?.b300 ?? '-', concurrency: dim?.concurrency?.b300 ?? '-' })}>
+                      <p className="text-[9px] text-orange-700 font-semibold">{t('mainDashboard.bottleneck')}</p>
+                      <p className="text-lg font-bold text-orange-600">{bn === 'throughput' ? t('mainDashboard.throughput') : bn === 'kvMemory' ? t('mainDashboard.kvMemory') : bn === 'concurrency' ? t('mainDashboard.concurrency') : '-'}</p>
                     </div>
-                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2 cursor-help" title={"목표 사용자 수 달성을 위한 추가 B300.\n3차원(처리량/KV/동시처리) 중 가장 큰 값 × 안전마진."}>
-                      <p className="text-[9px] text-indigo-700 font-semibold">목표 {pred.targetUserCount?.toLocaleString()}명 기준 ⓘ</p>
+                    <div className="bg-indigo-50 rounded-lg p-2.5 border border-indigo-200 shadow-sm sm:col-span-2 cursor-help" title={t('mainDashboard.targetTooltip')}>
+                      <p className="text-[9px] text-indigo-700 font-semibold">{t('mainDashboard.targetBasedLabel', { count: pred.targetUserCount?.toLocaleString() })}</p>
                       <p className="text-xl font-black text-indigo-700">+{pred.predictedB300Units}<span className="text-[9px] font-normal text-gray-500 ml-0.5">B300</span></p>
                     </div>
                   </div>
@@ -870,7 +872,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               );
             })()}
             {/* 실시간 */}
-            <p className="text-[9px] text-blue-600 font-semibold mb-1.5">실시간 (직접 연결 서버)</p>
+            <p className="text-[9px] text-blue-600 font-semibold mb-1.5">{t('mainDashboard.realtime')}</p>
             {(() => {
               // 실시간 데이터가 있는 서버만 (DTGPT Prometheus 서버 제외)
               const liveServers = gpuData.filter((e: any) => e.capacityAnalysis?.compositeCapacity != null && !e.server?.description?.includes('[DTGPT-Prometheus]'));
@@ -879,17 +881,17 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               const liveTps = liveServers.reduce((a: number, e: any) => a + (e.capacityAnalysis?.currentTps || 0), 0);
               return (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-                <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={"종합 용량 = 벤치마크 대비 현재 사용 비율\n직접 연결된 서버만 (DTGPT 제외)"}><p className="text-[9px] text-blue-600 font-semibold">종합 용량 ⓘ</p><p className={`text-lg font-bold ${avgComp != null && avgComp >= 80 ? 'text-red-600' : avgComp != null && avgComp >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgComp ?? '-'}%</p></div>
-                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">여유</p><p className={`text-lg font-bold ${hr != null ? (hr <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{hr ?? '-'}%</p></div>
-                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">처리량</p><p className="text-lg font-bold text-blue-600">{liveTps > 0 ? liveTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
-                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-500 font-semibold">서버</p><p className="text-sm font-bold text-gray-700">{liveServers.length}대 실시간 / {gpuData.length - liveServers.length}대 과거</p></div>
+                <div className="bg-blue-50 rounded-lg p-2.5 border border-blue-200 shadow-sm cursor-help" title={t('mainDashboard.compositeCapacityTooltip')}><p className="text-[9px] text-blue-600 font-semibold">{t('mainDashboard.compositeCapacity')}</p><p className={`text-lg font-bold ${avgComp != null && avgComp >= 80 ? 'text-red-600' : avgComp != null && avgComp >= 50 ? 'text-amber-600' : 'text-gray-900'}`}>{avgComp ?? '-'}%</p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">{t('mainDashboard.headroom')}</p><p className={`text-lg font-bold ${hr != null ? (hr <= 20 ? 'text-red-600' : 'text-emerald-600') : 'text-gray-300'}`}>{hr ?? '-'}%</p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-700 font-semibold">{t('mainDashboard.throughputLabel')}</p><p className="text-lg font-bold text-blue-600">{liveTps > 0 ? liveTps.toFixed(1) : '-'}<span className="text-[9px] font-normal"> tok/s</span></p></div>
+                <div className="bg-white rounded-lg p-2.5 border border-gray-200 shadow-sm"><p className="text-[9px] text-gray-500 font-semibold">{t('mainDashboard.serverCount')}</p><p className="text-sm font-bold text-gray-700">{t('mainDashboard.serverRealtimePast', { live: liveServers.length, past: gpuData.length - liveServers.length })}</p></div>
               </div>);
             })()}
             {/* 과사용/저사용 */}
             {(over.length > 0 || under.length > 0) && (
               <div className="flex flex-wrap gap-2 mt-2 text-[10px]">
-                {over.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> 과부하{s.bottleneck ? ` (${s.bottleneck === 'throughput' ? '처리량' : s.bottleneck === 'kvMemory' ? 'KV' : '동시'})` : ''}</span>)}
-                {under.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> 여유</span>)}
+                {over.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> {s.bottleneck ? t('mainDashboard.overloadWithBottleneck', { type: s.bottleneck === 'throughput' ? t('mainDashboard.throughput') : s.bottleneck === 'kvMemory' ? 'KV' : t('mainDashboard.concurrency') }) : t('mainDashboard.overload')}</span>)}
+                {under.map((s: any) => <span key={s.name} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{s.name} <b>{Math.round(s.util)}%</b> {t('mainDashboard.headroomStatus')}</span>)}
               </div>
             )}
           </div>
@@ -904,9 +906,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
           </span>
           <span className="text-sm font-medium text-emerald-700">
-            현재 <span className="font-bold text-emerald-800">{todayActive}명</span>이 오늘 서비스를 사용했습니다
+            {t('mainDashboard.currentUsersActivePrefix')}<span className="font-bold text-emerald-800">{todayActive}{t('mainDashboard.personSuffix')}</span>{t('mainDashboard.currentUsersActiveSuffix')}
           </span>
-          <span className="text-xs text-emerald-500 ml-auto">실시간</span>
+          <span className="text-xs text-emerald-500 ml-auto">{t('mainDashboard.realtimeLabel')}</span>
         </div>
       )}
 
@@ -929,12 +931,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   {hasIssue ? <AlertTriangle className="w-4 h-4 text-red-500" /> : <Cpu className="w-4 h-4 text-blue-600" />}
                 </div>
                 <h2 className="text-sm font-semibold text-pastel-800">
-                  모델 상태
-                  {hasIssue && <span className="ml-2 text-xs text-red-600 font-medium">장애 {unhealthyEntries.length}건</span>}
+                  {t('mainDashboard.modelStatus')}
+                  {hasIssue && <span className="ml-2 text-xs text-red-600 font-medium">{t('mainDashboard.issueCount', { count: unhealthyEntries.length })}</span>}
                 </h2>
               </div>
               <div className="flex items-center gap-4 text-sm">
-                <span className="text-pastel-500">전체 <span className="font-bold text-pastel-700">{totalEnabledModels}</span></span>
+                <span className="text-pastel-500">{t('mainDashboard.totalLabel')} <span className="font-bold text-pastel-700">{totalEnabledModels}</span></span>
                 <span className="flex items-center gap-1">
                   <span className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-green-700 font-medium">{healthyCount}</span>
@@ -957,7 +959,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <div className="px-6 pb-4 pt-0">
                 <div className="flex items-center gap-1.5 text-xs text-red-600 mb-2">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span className="font-medium">장애 모델</span>
+                  <span className="font-medium">{t('mainDashboard.failedModels')}</span>
                 </div>
                 <div className="space-y-2">
                   {unhealthyEntries.map(([modelId, s]) => {
@@ -970,7 +972,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                         <div className="flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                           <span className="font-medium">{s.modelName}</span>
-                          <span className="text-red-400 text-[10px] ml-auto">{ago}분 전</span>
+                          <span className="text-red-400 text-[10px] ml-auto">{t('mainDashboard.minutesAgo', { count: ago })}</span>
                         </div>
                         {s.errorMessage && (
                           <p className="mt-1 text-[11px] text-red-500 break-all line-clamp-2 ml-3">
@@ -1009,7 +1011,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <div className="space-y-4">
             {/* 서버별 비교 */}
             <div className="bg-white rounded-lg border p-5 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">서버별 종합 용량 비교 (벤치마크 대비)</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-3">{t('mainDashboard.serverCapacityComparison')}</h3>
               <div className="space-y-2">
                 {serverUtils.map((s: any) => (
                   <div key={s.name} className="flex items-center gap-3">
@@ -1021,7 +1023,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     </div>
                     {s.health != null && <span className={`text-xs font-bold w-12 text-right ${s.health >= 85 ? 'text-emerald-600' : s.health >= 70 ? 'text-amber-600' : 'text-red-600'}`}>{s.health}%</span>}
                     {s.tps > 0 && <span className="text-xs text-blue-600 w-16 text-right">{s.tps.toFixed(1)} t/s</span>}
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${s.util > 70 ? 'bg-red-100 text-red-600' : s.util < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{s.util > 70 ? '과부하' : s.util < 20 ? '여유' : '정상'}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${s.util > 70 ? 'bg-red-100 text-red-600' : s.util < 20 ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>{s.util > 70 ? t('mainDashboard.overload') : s.util < 20 ? t('mainDashboard.headroomStatus') : t('mainDashboard.normal')}</span>
                   </div>
                 ))}
               </div>
@@ -1030,27 +1032,27 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             {gpuPrediction && (
               <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 p-5 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-gray-800">GPU 수요 예측 ({gpuPrediction.targetUserCount?.toLocaleString()}명 기준)</h3>
+                  <h3 className="text-sm font-bold text-gray-800">{t('mainDashboard.gpuDemandPrediction', { count: gpuPrediction.targetUserCount?.toLocaleString() })}</h3>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${gpuPrediction.aiConfidence === 'HIGH' ? 'bg-emerald-100 text-emerald-700' : gpuPrediction.aiConfidence === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{gpuPrediction.aiConfidence}</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-                  <div><span className="text-gray-500">현재 사용자</span><p className="text-lg font-bold">{gpuPrediction.currentUsers?.toLocaleString()}명</p></div>
-                  <div><span className="text-gray-500">현재 VRAM</span><p className="text-lg font-bold">{Math.round(gpuPrediction.currentTotalVramGb)}GB</p></div>
-                  <div><span className="text-gray-500">예상 필요</span><p className="text-lg font-bold text-indigo-700">{Math.round(gpuPrediction.predictedTotalVramGb)}GB</p></div>
-                  <div><span className="text-gray-500">부족분</span><p className={`text-lg font-bold ${gpuPrediction.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{gpuPrediction.gapVramGb > 0 ? '+' : ''}{Math.round(gpuPrediction.gapVramGb)}GB</p></div>
-                  <div><span className="text-gray-500">추가 필요</span><p className="text-2xl font-black text-indigo-700">{gpuPrediction.predictedB300Units} <span className="text-sm font-normal">B300</span></p></div>
+                  <div><span className="text-gray-500">{t('mainDashboard.currentUsers')}</span><p className="text-lg font-bold">{gpuPrediction.currentUsers?.toLocaleString()}{t('mainDashboard.personSuffix')}</p></div>
+                  <div><span className="text-gray-500">{t('mainDashboard.currentVRAM')}</span><p className="text-lg font-bold">{Math.round(gpuPrediction.currentTotalVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">{t('mainDashboard.estimatedNeeded')}</span><p className="text-lg font-bold text-indigo-700">{Math.round(gpuPrediction.predictedTotalVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">{t('mainDashboard.deficit')}</span><p className={`text-lg font-bold ${gpuPrediction.gapVramGb > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{gpuPrediction.gapVramGb > 0 ? '+' : ''}{Math.round(gpuPrediction.gapVramGb)}GB</p></div>
+                  <div><span className="text-gray-500">{t('mainDashboard.additionalNeeded')}</span><p className="text-2xl font-black text-indigo-700">{gpuPrediction.predictedB300Units} <span className="text-sm font-normal">B300</span></p></div>
                 </div>
                 {gpuPrediction.aiAnalysis && gpuPrediction.modelId !== 'none' && (
-                  <details className="mt-3 text-[10px]"><summary className="cursor-pointer text-indigo-600 font-medium">AI 분석 리포트</summary><div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (gpuPrediction.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} /></details>
+                  <details className="mt-3 text-[10px]"><summary className="cursor-pointer text-indigo-600 font-medium">{t('mainDashboard.aiAnalysisReport')}</summary><div className="mt-2 p-3 bg-white/70 rounded-lg text-gray-700 leading-relaxed text-[11px] [&_strong]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2 [&_h3]:font-bold [&_h3]:mt-1 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1" dangerouslySetInnerHTML={{ __html: (gpuPrediction.aiAnalysis || '').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/^### (.*$)/gm, '<h3>$1</h3>').replace(/^## (.*$)/gm, '<h2>$1</h2>').replace(/^- (.*$)/gm, '<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>').replace(/^\d+\. (.*$)/gm, '<li>$1</li>').replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') }} /></details>
                 )}
               </div>
             )}
-            <p className="text-xs text-gray-400 text-center"><a href="/resource-monitor" className="text-blue-600 hover:underline">리소스 모니터링에서 상세 보기 →</a></p>
+            <p className="text-xs text-gray-400 text-center"><a href="/resource-monitor" className="text-blue-600 hover:underline">{t('mainDashboard.viewInResourceMonitor')}</a></p>
           </div>
         );
       })()}
       {activeTab === 'gpu' && gpuData.length === 0 && (
-        <div className="bg-white rounded-lg border p-10 text-center text-sm text-gray-400">등록된 GPU 서버가 없습니다. <a href="/resource-monitor" className="text-blue-600 hover:underline">리소스 모니터링</a>에서 서버를 추가하세요.</div>
+        <div className="bg-white rounded-lg border p-10 text-center text-sm text-gray-400">{t('mainDashboard.noGpuServers')} <a href="/resource-monitor" className="text-blue-600 hover:underline">{t('mainDashboard.addGpuServerGuide')}</a>{t('mainDashboard.addGpuServerSuffix')}</div>
       )}
 
       {/* ── 응답지연 탭 ── */}
@@ -1061,9 +1063,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           <div className="flex items-start gap-2">
             <Layers className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-xs font-medium text-blue-700 mb-1">동일 모델 합산 표시</p>
+              <p className="text-xs font-medium text-blue-700 mb-1">{t('mainDashboard.modelMergeBanner')}</p>
               <p className="text-xs text-blue-600 leading-relaxed">
-                같은 엔드포인트 · 모델 ID의 복수 등록 모델이 합산 집계됩니다.
+                {t('mainDashboard.modelMergeDescription')}
               </p>
               <div className="mt-2 space-y-1">
                 {Object.entries(modelMergeGroups).map(([canonical, names]) => (
@@ -1085,10 +1087,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             <div className="p-2 rounded-lg bg-indigo-50">
               <Clock className="w-4 h-4 text-indigo-600" />
             </div>
-            <h2 className="text-sm font-semibold text-pastel-800">응답 지연</h2>
+            <h2 className="text-sm font-semibold text-pastel-800">{t('mainDashboard.responseLatency')}</h2>
           </div>
           {serverNow && (
-            <span className="text-xs text-pastel-400 font-mono">서버 {serverNow}</span>
+            <span className="text-xs text-pastel-400 font-mono">{t('mainDashboard.serverTime', { time: serverNow })}</span>
           )}
         </div>
         <div className="p-6 space-y-8">
@@ -1099,15 +1101,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
               </span>
-              <h3 className="text-sm font-semibold text-pastel-700">헬스체크 모니터링</h3>
-              <span className="text-xs text-pastel-400 ml-1">10분 간격 자동 프로빙</span>
+              <h3 className="text-sm font-semibold text-pastel-700">{t('mainDashboard.healthCheckMonitoring')}</h3>
+              <span className="text-xs text-pastel-400 ml-1">{t('mainDashboard.healthCheckInterval')}</span>
               {hcModelNames.length > 0 && (
                 <div className="relative ml-auto">
                   <button
                     onClick={() => setLegendOpen(prev => ({ ...prev, hc: !prev.hc }))}
                     className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
                   >
-                    범례
+                    {t('mainDashboard.legend')}
                     <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.hc ? 'rotate-180' : ''}`} />
                   </button>
                   {legendOpen.hc && (
@@ -1167,7 +1169,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-40 text-pastel-400 text-sm bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                헬스체크 데이터 수집 중... (최초 실행까지 약 1분 소요)
+                {t('mainDashboard.healthCheckCollecting')}
               </div>
             )}
           </div>
@@ -1176,14 +1178,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           {latencyRechartsData.length > 0 && (
             <div className="border-t border-gray-100 pt-6">
               <div className="flex items-center gap-2 mb-4">
-                <h3 className="text-sm font-semibold text-pastel-700">실제 사용 기반 응답 지연</h3>
+                <h3 className="text-sm font-semibold text-pastel-700">{t('mainDashboard.usageBasedLatency')}</h3>
                 {latencyKeys.length > 0 && (
                   <div className="relative ml-auto">
                     <button
                       onClick={() => setLegendOpen(prev => ({ ...prev, usage: !prev.usage }))}
                       className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
                     >
-                      범례
+                      {t('mainDashboard.legend')}
                       <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.usage ? 'rotate-180' : ''}`} />
                     </button>
                     {legendOpen.usage && (
@@ -1206,10 +1208,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                       {stat.serviceName} / {stat.modelName.length > 15 ? stat.modelName.slice(0, 15) + '...' : stat.modelName}
                     </p>
                     <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                      <div><span className="text-pastel-400">10분:</span> <span className="font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span></div>
-                      <div><span className="text-pastel-400">30분:</span> <span className="font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span></div>
-                      <div><span className="text-pastel-400">1시간:</span> <span className="font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span></div>
-                      <div><span className="text-pastel-400">24시간:</span> <span className="font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span></div>
+                      <div><span className="text-pastel-400">{t('mainDashboard.min10')}</span> <span className="font-medium">{stat.avg10m ? `${(stat.avg10m / 1000).toFixed(1)}s` : '-'}</span></div>
+                      <div><span className="text-pastel-400">{t('mainDashboard.min30')}</span> <span className="font-medium">{stat.avg30m ? `${(stat.avg30m / 1000).toFixed(1)}s` : '-'}</span></div>
+                      <div><span className="text-pastel-400">{t('mainDashboard.hour1')}</span> <span className="font-medium">{stat.avg1h ? `${(stat.avg1h / 1000).toFixed(1)}s` : '-'}</span></div>
+                      <div><span className="text-pastel-400">{t('mainDashboard.hour24')}</span> <span className="font-medium">{stat.avg24h ? `${(stat.avg24h / 1000).toFixed(1)}s` : '-'}</span></div>
                     </div>
                   </div>
                 ))}
@@ -1231,7 +1233,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           {/* 3) 일별/주별/월별 추이 */}
           <div className="border-t border-gray-100 pt-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-pastel-700">응답 지연 추이</h3>
+              <h3 className="text-sm font-semibold text-pastel-700">{t('mainDashboard.latencyTrend')}</h3>
               <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
                 {(['daily', 'weekly', 'monthly'] as const).map(g => (
                   <button
@@ -1241,14 +1243,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                       latencyGranularity === g ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
-                    {g === 'daily' ? '일별' : g === 'weekly' ? '주별' : '월별'}
+                    {g === 'daily' ? t('mainDashboard.daily') : g === 'weekly' ? t('mainDashboard.weekly') : t('mainDashboard.monthly')}
                   </button>
                 ))}
               </div>
             </div>
 
             {loadingTrend ? (
-              <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">로딩 중...</div>
+              <div className="flex items-center justify-center h-40 text-pastel-400 text-sm">{t('mainDashboard.loadingEllipsis')}</div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* 헬스체크 프로빙 추이 */}
@@ -1266,13 +1268,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   return (
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <p className="text-xs text-pastel-400">헬스체크 프로빙 평균 응답시간</p>
+                        <p className="text-xs text-pastel-400">{t('mainDashboard.healthCheckAvgLatency')}</p>
                         <div className="relative ml-auto">
                           <button
                             onClick={() => setLegendOpen(prev => ({ ...prev, trendHC: !prev.trendHC }))}
                             className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
                           >
-                            범례
+                            {t('mainDashboard.legend')}
                             <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.trendHC ? 'rotate-180' : ''}`} />
                           </button>
                           {legendOpen.trendHC && (
@@ -1317,13 +1319,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                   return (
                     <div>
                       <div className="flex items-center gap-2 mb-3">
-                        <p className="text-xs text-pastel-400">실사용 평균 응답시간</p>
+                        <p className="text-xs text-pastel-400">{t('mainDashboard.usageAvgLatency')}</p>
                         <div className="relative ml-auto">
                           <button
                             onClick={() => setLegendOpen(prev => ({ ...prev, trendUsage: !prev.trendUsage }))}
                             className="flex items-center gap-1 px-2.5 py-1 text-xs text-pastel-500 hover:text-pastel-700 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors"
                           >
-                            범례
+                            {t('mainDashboard.legend')}
                             <ChevronDown className={`w-3 h-3 transition-transform ${legendOpen.trendUsage ? 'rotate-180' : ''}`} />
                           </button>
                           {legendOpen.trendUsage && (
@@ -1354,7 +1356,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 })()}
 
                 {Object.keys(latencyTrendHC).length === 0 && Object.keys(latencyTrendUsage).length === 0 && (
-                  <div className="col-span-full flex items-center justify-center h-40 text-pastel-400 text-sm">추이 데이터가 없습니다</div>
+                  <div className="col-span-full flex items-center justify-center h-40 text-pastel-400 text-sm">{t('mainDashboard.noTrendData')}</div>
                 )}
               </div>
             )}
@@ -1368,19 +1370,19 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 className="flex items-center gap-2 text-sm font-semibold text-pastel-700 hover:text-pastel-900 transition-colors mb-3"
               >
                 <ChevronDown className={`w-4 h-4 transition-transform ${latencyTableOpen ? 'rotate-180' : ''}`} />
-                서비스 / 모델 상세 ({latencyStats.length})
+                {t('mainDashboard.serviceModelDetail', { count: latencyStats.length })}
               </button>
               {latencyTableOpen && (
                 <div className="overflow-x-auto rounded-lg border border-pastel-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-pastel-50/80">
-                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스 / 모델</th>
-                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">10분</th>
-                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">30분</th>
-                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">1시간</th>
-                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">24시간</th>
-                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">요청수</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.serviceModel')}</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.col10min')}</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.col30min')}</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.col1hour')}</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.col24hour')}</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.requestCount')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1389,8 +1391,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                           <td className="py-3 px-4 font-medium text-pastel-800">
                             {stat.serviceName} / {stat.modelName}
                             {stat.mergedFrom && stat.mergedFrom.length > 1 && (
-                              <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={`합산: ${stat.mergedFrom.join(', ')}`}>
-                                {stat.mergedFrom.length}개 합산
+                              <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded font-normal" title={t('mainDashboard.mergedTooltip', { names: stat.mergedFrom.join(', ') })}>
+                                {t('mainDashboard.mergedCount', { count: stat.mergedFrom.length })}
                               </span>
                             )}
                           </td>
@@ -1432,10 +1434,10 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <div className="border-t border-gray-100 pt-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-pastel-700">Timeout 발생 현황</h3>
-                    <span className="text-xs text-pastel-400">최근 10 영업일 · 요청 timeout 2분</span>
+                    <h3 className="text-sm font-semibold text-pastel-700">{t('mainDashboard.timeoutStatus')}</h3>
+                    <span className="text-xs text-pastel-400">{t('mainDashboard.timeoutPeriod')}</span>
                   </div>
-                  <span className="text-xs text-orange-600 font-bold">총 {totalTimeouts}건</span>
+                  <span className="text-xs text-orange-600 font-bold">{t('mainDashboard.totalCount', { count: totalTimeouts })}</span>
                 </div>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={timeoutChartData}>
@@ -1454,7 +1456,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
           })()}
 
           {latencyRechartsData.length === 0 && hcRechartsData.length === 0 && Object.keys(latencyTrendHC).length === 0 && Object.keys(latencyTrendUsage).length === 0 && latencyStats.length === 0 && (
-            <div className="flex items-center justify-center h-40 text-pastel-400">지연 시간 데이터가 없습니다</div>
+            <div className="flex items-center justify-center h-40 text-pastel-400">{t('mainDashboard.noLatencyData')}</div>
           )}
         </div>
       </div>
@@ -1465,7 +1467,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {activeTab === 'dept' && <>
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden">
         <div className="p-6">
-          <h2 className="text-sm font-bold text-pastel-800 mb-4">부서별 상세</h2>
+          <h2 className="text-sm font-bold text-pastel-800 mb-4">{t('mainDashboard.deptDetail')}</h2>
           {renderChartContent()}
         </div>
 
@@ -1476,9 +1478,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-pastel-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">누적 사용자</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">일평균 활성</th>
+                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.businessUnit')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.cumulativeUsers')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.dailyAvgActive')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1507,9 +1509,9 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-pastel-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">총 요청수</th>
+                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.businessUnit')}</th>
+                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.service')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.totalRequests')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1545,8 +1547,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <Target className="w-4 h-4 text-emerald-600" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-pastel-800">부서별 Saved M/M 분포</h2>
-                <p className="text-xs text-pastel-500">부서별 절감 실적 비중</p>
+                <h2 className="text-lg font-bold text-pastel-800">{t('mainDashboard.deptSavedMMDistribution')}</h2>
+                <p className="text-xs text-pastel-500">{t('mainDashboard.deptSavingsShare')}</p>
               </div>
             </div>
             <div className="p-6">
@@ -1589,7 +1591,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 </div>
               ) : (
                 <div className="h-72 flex items-center justify-center text-pastel-400 text-sm">
-                  Saved M/M 데이터가 없습니다
+                  {t('mainDashboard.noSavedMMData')}
                 </div>
               )}
             </div>
@@ -1602,17 +1604,17 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <Sparkles className="w-4 h-4 text-violet-600" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-pastel-800">연간 M/M 목표 달성 현황</h2>
-                <p className="text-xs text-pastel-500">올해 목표 7,000 M/M 대비</p>
+                <h2 className="text-lg font-bold text-pastel-800">{t('mainDashboard.annualMMTarget')}</h2>
+                <p className="text-xs text-pastel-500">{t('mainDashboard.annualMMTargetDesc')}</p>
               </div>
             </div>
             <div className="p-6">
               {(() => {
                 const ANNUAL_TARGET = 7000;
                 const chartData = [
-                  { name: '연간 목표', value: ANNUAL_TARGET, fill: '#e5e7eb' },
-                  { name: '실제 Saved M/M', value: Math.round(mmTargetData.totalSavedMM * 10) / 10, fill: '#10b981' },
-                  { name: 'AI 추정 합산', value: mmTargetData.totalAiEstimatedMM, fill: '#8b5cf6' },
+                  { name: t('mainDashboard.annualTarget'), value: ANNUAL_TARGET, fill: '#e5e7eb' },
+                  { name: t('mainDashboard.actualSavedMM'), value: Math.round(mmTargetData.totalSavedMM * 10) / 10, fill: '#10b981' },
+                  { name: t('mainDashboard.aiEstimateTotal'), value: mmTargetData.totalAiEstimatedMM, fill: '#8b5cf6' },
                 ];
                 const maxVal = Math.max(ANNUAL_TARGET, mmTargetData.totalSavedMM, mmTargetData.totalAiEstimatedMM);
                 return (
@@ -1646,12 +1648,12 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 bg-emerald-50 rounded-lg text-center">
-                        <p className="text-[10px] text-emerald-500 font-medium uppercase">실제 Saved</p>
+                        <p className="text-[10px] text-emerald-500 font-medium uppercase">{t('mainDashboard.actualSaved')}</p>
                         <p className="text-lg font-bold text-emerald-700">{mmTargetData.totalSavedMM.toFixed(1)}</p>
                         <p className="text-[10px] text-emerald-400">{((mmTargetData.totalSavedMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
                       </div>
                       <div className="p-3 bg-violet-50 rounded-lg text-center">
-                        <p className="text-[10px] text-violet-500 font-medium uppercase">AI 추정</p>
+                        <p className="text-[10px] text-violet-500 font-medium uppercase">{t('mainDashboard.aiEstimate')}</p>
                         <p className="text-lg font-bold text-violet-700">{mmTargetData.totalAiEstimatedMM.toFixed(1)}</p>
                         <p className="text-[10px] text-violet-400">{((mmTargetData.totalAiEstimatedMM / ANNUAL_TARGET) * 100).toFixed(1)}%</p>
                       </div>
@@ -1680,8 +1682,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <CalendarDays className="w-5 h-5 text-indigo-500" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">MAU 월별 변화</h2>
-                <p className="text-sm text-gray-500 mt-0.5">서비스별 월간 활성 사용자 추이 (BACKGROUND: 추정)</p>
+                <h2 className="text-lg font-semibold text-gray-900">{t('mainDashboard.mauMonthlyChange')}</h2>
+                <p className="text-sm text-gray-500 mt-0.5">{t('mainDashboard.mauMonthlyDesc')}</p>
               </div>
             </div>
             {mauEstimationMeta && (() => {
@@ -1692,19 +1694,19 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 <div className="text-xs text-gray-400 text-right space-y-0.5">
                   {latestBaseline && (
                     <div>
-                      <span>1인당 하루 평균: <strong className="text-gray-600">{latestBaseline.callsPerPersonPerDay}건</strong></span>
+                      <span>{t('mainDashboard.avgPerPersonPerDayPlain')} <strong className="text-gray-600">{t('mainDashboard.countItems', { count: latestBaseline.callsPerPersonPerDay })}</strong></span>
                       <span className="mx-2">|</span>
-                      <span>1인당 월 평균: <strong className="text-gray-600">{latestBaseline.callsPerPersonPerMonth}건</strong></span>
+                      <span>{t('mainDashboard.avgPerPersonPerMonthPlain')} <strong className="text-gray-600">{t('mainDashboard.countItems', { count: latestBaseline.callsPerPersonPerMonth })}</strong></span>
                       <span className="mx-2">|</span>
-                      <span>영업일: <strong className="text-gray-600">{latestBaseline.businessDays}일</strong></span>
+                      <span>{t('mainDashboard.businessDaysPlain')} <strong className="text-gray-600">{t('mainDashboard.countDays', { count: latestBaseline.businessDays })}</strong></span>
                     </div>
                   )}
                   <div className="flex items-center gap-1 justify-end text-gray-400">
                     <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" strokeDasharray="4 2" /></svg>
-                    <span>= 추정 (BACKGROUND)</span>
+                    <span>{t('mainDashboard.estimationBG')}</span>
                     <span className="mx-1">|</span>
                     <svg width="20" height="2"><line x1="0" y1="1" x2="20" y2="1" stroke="#6b7280" strokeWidth="2" /></svg>
-                    <span>= 실측 (STANDARD)</span>
+                    <span>{t('mainDashboard.measurementSTD')}</span>
                   </div>
                 </div>
               );
@@ -1733,7 +1735,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                       <div key={svc.id} className="p-3 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: CHART_COLORS[i % CHART_COLORS.length] }}>
                         <p className="text-xs text-gray-500 truncate">
                           {svc.displayName}
-                          {isBg && <span className="ml-1 text-[10px] text-amber-500 font-medium">(추정)</span>}
+                          {isBg && <span className="ml-1 text-[10px] text-amber-500 font-medium">({t('mainDashboard.estimated')})</span>}
                         </p>
                         <div className="flex items-baseline gap-2">
                           <p className="text-lg font-bold text-gray-900">{latestMau}</p>
@@ -1745,7 +1747,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                         </div>
                         {isBg && bgDetail && (
                           <p className="text-[10px] text-amber-500">
-                            월 호출: {bgDetail.totalCalls.toLocaleString()}건
+                            {t('mainDashboard.monthCalls', { count: bgDetail.totalCalls.toLocaleString() })}
                           </p>
                         )}
                       </div>
@@ -1778,7 +1780,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                               <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
                                 <span className="font-semibold text-gray-800">{monthLabel}</span>
                                 <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isFixed ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
-                                  {isFixed ? '확정' : '실시간'}
+                                  {isFixed ? t('mainDashboard.confirmed') : t('mainDashboard.liveStatus')}
                                 </span>
                               </div>
                               <div className="space-y-1.5">
@@ -1797,15 +1799,15 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                                         <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
                                         <span className="text-gray-700">{displayName}:</span>
                                         <span className="font-semibold text-gray-900">
-                                          {isBg ? `≈${value}명` : `${value}명`}
+                                          {isBg ? t('mainDashboard.approxCount', { count: value }) : t('mainDashboard.exactCount', { count: value })}{t('mainDashboard.personSuffix')}
                                         </span>
                                         <span className={`text-[10px] ${isBg ? 'text-amber-500' : 'text-blue-500'}`}>
-                                          ({isBg ? '추정' : '실측'})
+                                          ({isBg ? t('mainDashboard.estimated') : t('mainDashboard.measured')})
                                         </span>
                                       </div>
                                       {isBg && bgDetail && callsPerMonth && (
                                         <p className="ml-[18px] text-[11px] text-gray-400 leading-tight mt-0.5">
-                                          해당 월 호출 {bgDetail.totalCalls.toLocaleString()}회 &divide; 1인당 월평균 {callsPerMonth}회 = {bgDetail.estimatedMAU}명
+                                          {t('mainDashboard.monthCallsCalc', { calls: bgDetail.totalCalls.toLocaleString(), avg: callsPerMonth, result: bgDetail.estimatedMAU })}
                                         </p>
                                       )}
                                     </div>
@@ -1840,14 +1842,14 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                 </div>
                 {restMauServices.length > 0 && (
                   <div className="mt-4 border-t border-gray-100 pt-4 px-2">
-                    <p className="text-xs text-gray-500 mb-2">그 외 {restMauServices.length}개 서비스</p>
+                    <p className="text-xs text-gray-500 mb-2">{t('mainDashboard.otherServices', { count: restMauServices.length })}</p>
                     <div className="overflow-x-auto max-h-48 overflow-y-auto rounded-lg border border-gray-100">
                       <table className="w-full text-xs">
                         <thead className="sticky top-0 bg-gray-50">
                           <tr>
-                            <th className="text-left py-2 px-3 font-medium text-gray-500">서비스</th>
-                            <th className="text-right py-2 px-3 font-medium text-gray-500">최근 MAU</th>
-                            <th className="text-right py-2 px-3 font-medium text-gray-500">타입</th>
+                            <th className="text-left py-2 px-3 font-medium text-gray-500">{t('mainDashboard.colService')}</th>
+                            <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.recentMAU')}</th>
+                            <th className="text-right py-2 px-3 font-medium text-gray-500">{t('mainDashboard.type')}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1859,7 +1861,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
                                 <td className="text-right py-1.5 px-3 text-gray-600">{latestMau}</td>
                                 <td className="text-right py-1.5 px-3">
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded ${svc.type === 'BACKGROUND' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                    {svc.type === 'BACKGROUND' ? '추정' : '실측'}
+                                    {svc.type === 'BACKGROUND' ? t('mainDashboard.estimated') : t('mainDashboard.measured')}
                                   </span>
                                 </td>
                               </tr>
@@ -1888,7 +1890,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {/* ── 사용량 분석 탭 ── */}
       {activeTab === 'usage' && <>
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
-        <h2 className="text-sm font-bold text-pastel-800 mb-4">사업부별 토큰 사용량</h2>
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">{t('mainDashboard.buTokenUsage')}</h2>
         {renderChartContent()}
       </div>
       <UsageAnalytics />
@@ -1897,7 +1899,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {/* ── 상세분석 탭 ── */}
       {activeTab === 'analysis' && <>
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
-        <h2 className="text-sm font-bold text-pastel-800 mb-4">서비스별 일일 요청 추이</h2>
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">{t('mainDashboard.dailyRequestTrend')}</h2>
         {renderChartContent()}
       </div>
 
@@ -1906,7 +1908,7 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
       {/* ── 사업부별 통계 탭 ── */}
       {activeTab === 'bu-stats' && <>
       <div className="bg-white rounded-lg border border-gray-200 shadow-card overflow-hidden p-6">
-        <h2 className="text-sm font-bold text-pastel-800 mb-4">사업부별 사용자 추이</h2>
+        <h2 className="text-sm font-bold text-pastel-800 mb-4">{t('mainDashboard.buUserTrend')}</h2>
         {renderChartContent()}
       </div>
       {/* Department Token Table */}
@@ -1916,8 +1918,8 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
             <BarChart3 className="w-4 h-4 text-blue-600" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-pastel-800">사업부별 상세 통계</h2>
-            <p className="text-xs text-pastel-500">최근 30일 기준</p>
+            <h2 className="text-lg font-bold text-pastel-800">{t('mainDashboard.buDetailedStats')}</h2>
+            <p className="text-xs text-pastel-500">{t('mainDashboard.last30Days')}</p>
           </div>
         </div>
         <div className="p-6">
@@ -1926,11 +1928,11 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-pastel-50/80">
-                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">사업부</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">누적 사용자</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">일평균 활성</th>
-                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">총 토큰</th>
-                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">모델별 토큰</th>
+                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.colBU')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.colCumulativeUsers')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.colDailyAvgActive')}</th>
+                    <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.colTotalTokens')}</th>
+                    <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('mainDashboard.colModelTokens')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1958,13 +1960,13 @@ export default function MainDashboard({ adminRole: _adminRole }: MainDashboardPr
               </table>
               {deptStats.length > 15 && (
                 <p className="text-center text-sm text-pastel-400 py-3 border-t border-pastel-50">
-                  {deptStats.length - 15}개 사업부 더 있음
+                  {t('mainDashboard.moreBUs', { count: deptStats.length - 15 })}
                 </p>
               )}
             </div>
           ) : (
             <div className="text-center py-12 text-pastel-400">
-              사업부별 통계 데이터가 없습니다.
+              {t('mainDashboard.noBUStatsData')}
             </div>
           )}
         </div>

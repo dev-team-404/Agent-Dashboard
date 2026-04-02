@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'recharts';
 import { Users, TrendingUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
@@ -28,13 +29,7 @@ interface CumulativeData {
   newUsers: number;
 }
 
-const DATE_RANGE_OPTIONS = [
-  { label: '2주', value: 14 },
-  { label: '1개월', value: 30 },
-  { label: '3개월', value: 90 },
-  { label: '6개월', value: 180 },
-  { label: '1년', value: 365 },
-];
+// DATE_RANGE_OPTIONS moved inside component for i18n
 
 type ChartType = 'cumulative' | 'daily';
 
@@ -43,6 +38,14 @@ interface UserStatsChartProps {
 }
 
 export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
+  const { t } = useTranslation();
+  const DATE_RANGE_OPTIONS = [
+    { label: t('charts.userStats.week2'), value: 14 },
+    { label: t('charts.userStats.month1'), value: 30 },
+    { label: t('charts.userStats.month3'), value: 90 },
+    { label: t('charts.userStats.month6'), value: 180 },
+    { label: t('charts.userStats.year1'), value: 365 },
+  ];
   const [dailyData, setDailyData] = useState<DailyActiveData[]>([]);
   const [cumulativeData, setCumulativeData] = useState<CumulativeData[]>([]);
   const [totalUniqueUsers, setTotalUniqueUsers] = useState(0);
@@ -148,12 +151,12 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                {chartType === 'cumulative' ? '누적 사용자 수' : '일별 활성 사용자'}
+                {chartType === 'cumulative' ? t('charts.userStats.cumulativeUsers') : t('charts.userStats.dailyActiveUsers')}
               </h2>
               <p className="text-sm text-gray-500">
                 {chartType === 'cumulative'
-                  ? `총 ${totalCumulativeUsers}명 (기간 내 신규 ${cumulativeStats.newInPeriod}명)`
-                  : `기간 내 총 ${totalUniqueUsers}명`}
+                  ? t('charts.userStats.cumulativeSubtitle', { total: totalCumulativeUsers, new: cumulativeStats.newInPeriod })
+                  : t('charts.userStats.dailySubtitle', { total: totalUniqueUsers })}
               </p>
             </div>
           </div>
@@ -184,7 +187,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            누적 사용자
+            {t('charts.userStats.cumulativeButton')}
           </button>
           <button
             onClick={() => setChartType('daily')}
@@ -194,7 +197,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            일별 활성 사용자
+            {t('charts.userStats.dailyButton')}
           </button>
         </div>
       </div>
@@ -204,32 +207,32 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <p className="text-2xl font-bold text-gray-900">{totalCumulativeUsers}</p>
-            <p className="text-xs text-gray-500">전체 사용자</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.totalUsers')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <p className="text-2xl font-bold text-gray-900">+{cumulativeStats.newInPeriod}</p>
-            <p className="text-xs text-gray-500">기간 내 신규</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.newInPeriod')}</p>
           </div>
           <div className="text-center p-3 bg-green-50 rounded-lg">
             <p className="text-2xl font-bold text-green-600">
               {cumulativeStats.growthRate > 0 ? '+' : ''}{cumulativeStats.growthRate}%
             </p>
-            <p className="text-xs text-gray-500">성장률</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.growthRate')}</p>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <p className="text-2xl font-bold text-gray-900">{dailyStats.today}</p>
-            <p className="text-xs text-gray-500">오늘</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.todayStat')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded-lg">
             <p className="text-2xl font-bold text-gray-900">{dailyStats.avg}</p>
-            <p className="text-xs text-gray-500">일평균</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.dailyAvg')}</p>
           </div>
           <div className="text-center p-3 bg-blue-50 rounded-lg">
             <p className="text-2xl font-bold text-blue-600">{dailyStats.max}</p>
-            <p className="text-xs text-gray-500">최대</p>
+            <p className="text-xs text-gray-500">{t('charts.userStats.maxStat')}</p>
           </div>
         </div>
       )}
@@ -239,7 +242,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
         {chartType === 'cumulative' ? (
           filteredCumulativeData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-gray-400">
-              데이터가 없습니다
+              {t('common.noData')}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -273,13 +276,13 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                   }}
                   formatter={(value: number, name: string) => [
-                    `${value}명`,
-                    name === 'cumulativeUsers' ? '누적 사용자' : '신규 사용자',
+                    `${value}`,
+                    name === 'cumulativeUsers' ? t('charts.userStats.cumulativeUsersLegend') : t('charts.userStats.newUsersLegend'),
                   ]}
-                  labelFormatter={(label) => `날짜: ${label}`}
+                  labelFormatter={(label) => t('charts.userStats.dateLabel', { date: label })}
                 />
                 <Legend
-                  formatter={(value) => (value === 'cumulativeUsers' ? '누적 사용자' : '신규 사용자')}
+                  formatter={(value) => (value === 'cumulativeUsers' ? t('charts.userStats.cumulativeUsersLegend') : t('charts.userStats.newUsersLegend'))}
                 />
                 <Line
                   type="monotone"
@@ -303,7 +306,7 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
           )
         ) : filteredDailyData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-gray-400">
-            데이터가 없습니다
+            {t('common.noData')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -336,8 +339,8 @@ export default function UserStatsChart({ serviceId }: UserStatsChartProps) {
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                 }}
-                formatter={(value: number) => [`${value}명`, '활성 사용자']}
-                labelFormatter={(label) => `날짜: ${label}`}
+                formatter={(value: number) => [`${value}`, t('charts.userStats.activeUsersLegend')]}
+                labelFormatter={(label) => t('charts.userStats.dateLabel', { date: label })}
               />
               <Area
                 type="monotone"

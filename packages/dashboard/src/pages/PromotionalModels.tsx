@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Megaphone, Search, Star, Loader2, MessageSquare, Image, Mic, Layers } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -20,6 +21,7 @@ const TYPE_ICONS: Record<string, { icon: typeof MessageSquare; label: string; co
 };
 
 export default function PromotionalModels() {
+  const { t } = useTranslation();
   const [models, setModels] = useState<ModelItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -72,8 +74,8 @@ export default function PromotionalModels() {
           <Megaphone className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-gray-900">홍보 모델 관리</h1>
-          <p className="text-sm text-gray-500">Docs 사이트 랜딩 페이지에 표시할 모델을 선택합니다</p>
+          <h1 className="text-xl font-bold text-gray-900">{t('promotionalModels.title')}</h1>
+          <p className="text-sm text-gray-500">{t('promotionalModels.description')}</p>
         </div>
       </div>
 
@@ -82,11 +84,11 @@ export default function PromotionalModels() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
             <Star className="w-4 h-4" />
-            현재 홍보 중인 모델 ({promoted.length}개)
+            {t('promotionalModels.currentPromoted', { count: promoted.length })}
           </h2>
         </div>
         {promoted.length === 0 ? (
-          <p className="text-sm text-amber-600">아직 선택된 모델이 없습니다. 아래에서 모델을 선택하세요.</p>
+          <p className="text-sm text-amber-600">{t('promotionalModels.noPromotedModels')}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {promoted.map(m => {
@@ -99,7 +101,7 @@ export default function PromotionalModels() {
                   <button
                     onClick={() => togglePromoted(m)}
                     className="ml-1 text-amber-400 hover:text-red-500 transition-colors"
-                    title="홍보 해제"
+                    title={t('promotionalModels.removePromotion')}
                   >
                     &times;
                   </button>
@@ -117,7 +119,7 @@ export default function PromotionalModels() {
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="모델 검색..."
+          placeholder={t('promotionalModels.searchPlaceholder')}
           className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-samsung-blue focus:border-transparent"
         />
       </div>
@@ -127,11 +129,11 @@ export default function PromotionalModels() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-50 border-b">
-              <th className="text-left py-3 px-4 font-medium text-gray-500 w-12">홍보</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500">모델명</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500">모델 ID</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500 w-24">타입</th>
-              <th className="text-left py-3 px-4 font-medium text-gray-500 w-20">순서</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500 w-12">{t('promotionalModels.colPromoted')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('promotionalModels.colModelName')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500">{t('promotionalModels.colModelId')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500 w-24">{t('promotionalModels.colType')}</th>
+              <th className="text-left py-3 px-4 font-medium text-gray-500 w-20">{t('promotionalModels.colOrder')}</th>
             </tr>
           </thead>
           <tbody>
@@ -172,7 +174,7 @@ export default function PromotionalModels() {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div className="py-12 text-center text-gray-400">검색 결과가 없습니다</div>
+          <div className="py-12 text-center text-gray-400">{t('promotionalModels.noSearchResults')}</div>
         )}
       </div>
     </div>

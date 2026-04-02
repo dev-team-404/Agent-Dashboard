@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ShieldCheck, Check, X, Clock, Loader2, Search } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -25,6 +26,7 @@ function formatKST(dateStr: string): string {
 }
 
 export default function AdminRequestsManage() {
+  const { t } = useTranslation();
   const [requests, setRequests] = useState<AdminRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('PENDING');
@@ -59,16 +61,16 @@ export default function AdminRequestsManage() {
       await load();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '처리에 실패했습니다.');
+      alert(msg || t('adminRequestsManage.processFailed'));
     } finally {
       setProcessing(null);
     }
   };
 
   const statusBadge = (status: string) => {
-    if (status === 'APPROVED') return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80"><Check className="w-3 h-3" />승인</span>;
-    if (status === 'REJECTED') return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-red-50 text-red-700 ring-1 ring-red-200/80"><X className="w-3 h-3" />거부</span>;
-    return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200/80"><Clock className="w-3 h-3" />대기중</span>;
+    if (status === 'APPROVED') return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80"><Check className="w-3 h-3" />{t('adminRequestsManage.approved')}</span>;
+    if (status === 'REJECTED') return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-red-50 text-red-700 ring-1 ring-red-200/80"><X className="w-3 h-3" />{t('adminRequestsManage.rejected')}</span>;
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200/80"><Clock className="w-3 h-3" />{t('adminRequestsManage.pending')}</span>;
   };
 
   const pendingCount = requests.filter(r => r.status === 'PENDING').length;
@@ -82,14 +84,14 @@ export default function AdminRequestsManage() {
             <ShieldCheck className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">권한 신청 관리</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">관리자 권한 신청을 승인하거나 거부합니다</p>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('adminRequestsManage.title')}</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">{t('adminRequestsManage.description')}</p>
           </div>
         </div>
         {statusFilter === '' && pendingCount > 0 && (
           <div className="flex items-center gap-2.5 px-4 py-2 bg-amber-50 rounded-lg border border-amber-200">
             <Clock className="w-4 h-4 text-amber-600" />
-            <span className="text-sm font-semibold text-amber-800">대기 {pendingCount}건</span>
+            <span className="text-sm font-semibold text-amber-800">{t('adminRequestsManage.pendingCount', { count: pendingCount })}</span>
           </div>
         )}
       </div>
@@ -97,10 +99,10 @@ export default function AdminRequestsManage() {
       {/* Filter */}
       <div className="flex items-center gap-1 bg-white rounded-lg shadow-sm border border-gray-100/80 p-1">
         {[
-          { key: 'PENDING', label: '대기중' },
-          { key: '', label: '전체' },
-          { key: 'APPROVED', label: '승인' },
-          { key: 'REJECTED', label: '거부' },
+          { key: 'PENDING', label: t('adminRequestsManage.pending') },
+          { key: '', label: t('adminRequestsManage.all') },
+          { key: 'APPROVED', label: t('adminRequestsManage.approved') },
+          { key: 'REJECTED', label: t('adminRequestsManage.rejected') },
         ].map(({ key, label }) => (
           <button
             key={key}
@@ -125,7 +127,7 @@ export default function AdminRequestsManage() {
         ) : requests.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-lg border border-gray-100/80">
             <Search className="w-8 h-8 text-pastel-300 mx-auto mb-3" />
-            <p className="text-sm text-pastel-500">신청 내역이 없습니다</p>
+            <p className="text-sm text-pastel-500">{t('adminRequestsManage.noRequests')}</p>
           </div>
         ) : (
           requests.map(r => (
@@ -157,7 +159,7 @@ export default function AdminRequestsManage() {
 
                 {/* 사유 */}
                 <div className="p-3 bg-pastel-50/50 rounded-lg mb-3">
-                  <p className="text-xs font-medium text-pastel-500 mb-1">신청 사유</p>
+                  <p className="text-xs font-medium text-pastel-500 mb-1">{t('adminRequestsManage.reason')}</p>
                   <p className="text-sm text-pastel-700 leading-relaxed whitespace-pre-wrap">{r.reason}</p>
                 </div>
 
@@ -165,7 +167,7 @@ export default function AdminRequestsManage() {
                 {r.status !== 'PENDING' && (
                   <div className={`p-3 rounded-lg ${r.status === 'APPROVED' ? 'bg-emerald-50' : 'bg-red-50'}`}>
                     <p className="text-xs text-pastel-500">
-                      {r.reviewedBy}이(가) {r.reviewedAt ? formatKST(r.reviewedAt) : ''}에 {r.status === 'APPROVED' ? '승인' : '거부'}
+                      {t('adminRequestsManage.reviewedAction', { reviewer: r.reviewedBy, time: r.reviewedAt ? formatKST(r.reviewedAt) : '', action: r.status === 'APPROVED' ? t('adminRequestsManage.approved') : t('adminRequestsManage.rejected') })}
                     </p>
                     {r.reviewNote && <p className="text-xs mt-1 text-pastel-600">{r.reviewNote}</p>}
                   </div>
@@ -180,7 +182,7 @@ export default function AdminRequestsManage() {
                       className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                     >
                       {processing === r.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                      승인
+                      {t('adminRequestsManage.approve')}
                     </button>
 
                     {showRejectInput === r.id ? (
@@ -189,7 +191,7 @@ export default function AdminRequestsManage() {
                           type="text"
                           value={rejectNote[r.id] || ''}
                           onChange={e => setRejectNote({ ...rejectNote, [r.id]: e.target.value })}
-                          placeholder="거부 사유 (선택)"
+                          placeholder={t('adminRequestsManage.rejectReasonPlaceholder')}
                           className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500/15 focus:border-red-500/30"
                         />
                         <button
@@ -198,13 +200,13 @@ export default function AdminRequestsManage() {
                           className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
                         >
                           {processing === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-                          거부
+                          {t('adminRequestsManage.reject')}
                         </button>
                         <button
                           onClick={() => setShowRejectInput(null)}
                           className="px-2 py-2 text-xs text-pastel-500 hover:text-pastel-700"
                         >
-                          취소
+                          {t('common.cancel')}
                         </button>
                       </div>
                     ) : (
@@ -213,7 +215,7 @@ export default function AdminRequestsManage() {
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
                       >
                         <X className="w-4 h-4" />
-                        거부
+                        {t('adminRequestsManage.reject')}
                       </button>
                     )}
                   </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TrendingUp, TrendingDown, X, ArrowLeft, Users, BarChart3, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import {
@@ -68,6 +69,7 @@ function getMonthParams(p: PeriodTab): { year: number; month: number } {
 }
 
 export default function InsightUsageRate() {
+  const { t } = useTranslation();
   const [period, setPeriod] = useState<PeriodTab>('current');
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -118,7 +120,7 @@ export default function InsightUsageRate() {
     const krNames = detail?.teamKrMap?.[team];
     if (!krNames || krNames.length === 0) return team;
     // 한글 부서명이 1개면 그대로, 여러개면 첫번째 + 외 N개
-    const krLabel = krNames.length === 1 ? krNames[0] : `${krNames[0]} 외 ${krNames.length - 1}`;
+    const krLabel = krNames.length === 1 ? krNames[0] : `${krNames[0]} ${t('insightUsageRate.andMore', { count: krNames.length - 1 })}`;
     return `${team} (${krLabel})`;
   };
 
@@ -136,8 +138,8 @@ export default function InsightUsageRate() {
             <BarChart3 className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">AI 사용률 인사이트</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">센터별 AI 활용 현황을 한눈에 파악합니다</p>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('insightUsageRate.title')}</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">{t('insightUsageRate.subtitle')}</p>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -157,9 +159,9 @@ export default function InsightUsageRate() {
     return (
       <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
         <BarChart3 className="w-12 h-12 text-pastel-300 mb-4" />
-        <p className="text-sm font-semibold text-pastel-600">데이터를 불러올 수 없습니다</p>
+        <p className="text-sm font-semibold text-pastel-600">{t('insightUsageRate.noDataMessage')}</p>
         <button onClick={() => loadData(period)} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-          다시 시도
+          {t('insightUsageRate.retry')}
         </button>
       </div>
     );
@@ -176,8 +178,8 @@ export default function InsightUsageRate() {
             <BarChart3 className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">AI 사용률 인사이트</h1>
-            <p className="text-sm text-pastel-500 mt-0.5">센터별 AI 활용 현황을 한눈에 파악합니다</p>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('insightUsageRate.title')}</h1>
+            <p className="text-sm text-pastel-500 mt-0.5">{t('insightUsageRate.subtitle')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -186,17 +188,17 @@ export default function InsightUsageRate() {
               onClick={() => setPeriod('current')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'current' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              이번달 (실시간)
+              {t('insightUsageRate.thisMonth')}
             </button>
             <button
               onClick={() => setPeriod('last')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === 'last' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              지난달
+              {t('insightUsageRate.lastMonth')}
             </button>
           </div>
           <span className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium">
-            {data.month}{period === 'current' ? ' (진행중)' : ''}
+            {data.month}{period === 'current' ? ` ${t('insightUsageRate.inProgress')}` : ''}
           </span>
         </div>
       </div>
@@ -235,8 +237,8 @@ export default function InsightUsageRate() {
                   <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wider">
                     Saved M/M
                     {center.savedMMSource && center.savedMMSource !== 'manual' && (
-                      <span className="ml-1 text-[9px] text-amber-600 font-normal" title="AI 추정치 포함">
-                        {center.savedMMSource === 'ai_estimate' ? '(AI 추정)' : '(일부 AI)'}
+                      <span className="ml-1 text-[9px] text-amber-600 font-normal" title={center.savedMMSource === 'ai_estimate' ? t('insightUsageRate.aiEstimate') : t('insightUsageRate.partialAi')}>
+                        {center.savedMMSource === 'ai_estimate' ? t('insightUsageRate.aiEstimate') : t('insightUsageRate.partialAi')}
                       </span>
                     )}
                   </p>
@@ -246,7 +248,7 @@ export default function InsightUsageRate() {
 
               <div className="flex items-center gap-2 text-xs text-gray-500">
                 <Users className="w-3 h-3" />
-                <span>{center.teamCount}개 팀</span>
+                <span>{t('insightUsageRate.teamsCount', { count: center.teamCount })}</span>
               </div>
             </button>
           );
@@ -264,7 +266,7 @@ export default function InsightUsageRate() {
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
-              <h2 className="text-lg font-bold text-pastel-800">{selectedCenter} 상세</h2>
+              <h2 className="text-lg font-bold text-pastel-800">{t('insightUsageRate.centerDetail', { name: selectedCenter })}</h2>
             </div>
             <button
               onClick={handleCloseDetail}
@@ -284,7 +286,7 @@ export default function InsightUsageRate() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Team MAU Bar Chart */}
                 <div>
-                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 MAU 비교</h3>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">{t('insightUsageRate.teamMauComparison')}</h3>
                   {detail.teamMauChart.length > 0 ? (
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={detail.teamMauChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
@@ -294,7 +296,7 @@ export default function InsightUsageRate() {
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
                           labelFormatter={teamLabel}
-                          formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
+                          formatter={(value: number) => [t('insightUsageRate.mauPersonUnit', { count: formatNumber(value) }), 'MAU']}
                         />
                         <Bar dataKey="mau" radius={[6, 6, 0, 0]} barSize={32}>
                           {detail.teamMauChart.map((_, i) => (
@@ -304,13 +306,13 @@ export default function InsightUsageRate() {
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">{t('insightUsageRate.noData')}</div>
                   )}
                 </div>
 
                 {/* Monthly MAU Trend */}
                 <div>
-                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">월별 MAU 추이</h3>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">{t('insightUsageRate.monthlyMauTrend')}</h3>
                   {detail.monthlyTrend.length > 0 ? (
                     <ResponsiveContainer width="100%" height={280}>
                       <LineChart data={detail.monthlyTrend} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
@@ -319,13 +321,13 @@ export default function InsightUsageRate() {
                         <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#e5e7eb' }} />
                         <Tooltip
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
-                          formatter={(value: number) => [formatNumber(value) + '명', 'MAU']}
+                          formatter={(value: number) => [t('insightUsageRate.mauPersonUnit', { count: formatNumber(value) }), 'MAU']}
                         />
                         <Line type="monotone" dataKey="mau" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 5, strokeWidth: 2 }} activeDot={{ r: 7 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">{t('insightUsageRate.noData')}</div>
                   )}
                 </div>
               </div>
@@ -334,7 +336,7 @@ export default function InsightUsageRate() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Team Token Bar Chart */}
                 <div>
-                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀별 토큰 사용량</h3>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">{t('insightUsageRate.teamTokenUsage')}</h3>
                   {detail.teamTokenChart && detail.teamTokenChart.length > 0 ? (
                     <ResponsiveContainer width="100%" height={320}>
                       <BarChart data={detail.teamTokenChart} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
@@ -354,13 +356,13 @@ export default function InsightUsageRate() {
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">{t('insightUsageRate.noData')}</div>
                   )}
                 </div>
 
                 {/* Monthly Token Trend */}
                 <div>
-                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">월별 토큰 추이</h3>
+                  <h3 className="text-sm font-semibold text-pastel-700 mb-4">{t('insightUsageRate.monthlyTokenTrend')}</h3>
                   {detail.monthlyTokenTrend && detail.monthlyTokenTrend.length > 0 ? (
                     <ResponsiveContainer width="100%" height={280}>
                       <LineChart data={detail.monthlyTokenTrend} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
@@ -375,21 +377,21 @@ export default function InsightUsageRate() {
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">데이터가 없습니다</div>
+                    <div className="flex items-center justify-center h-48 text-pastel-400 text-sm">{t('insightUsageRate.noData')}</div>
                   )}
                 </div>
               </div>
 
               {/* Team-Service Detail Table */}
               <div>
-                <h3 className="text-sm font-semibold text-pastel-700 mb-4">팀-서비스 상세</h3>
+                <h3 className="text-sm font-semibold text-pastel-700 mb-4">{t('insightUsageRate.teamServiceDetail')}</h3>
                 <div className="overflow-x-auto rounded-lg border border-gray-100">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50/80">
-                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">팀</th>
-                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">서비스</th>
-                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">타입</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('insightUsageRate.colTeam')}</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('insightUsageRate.colService')}</th>
+                        <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('insightUsageRate.colType')}</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">Saved M/M</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">MAU</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">LLM Calls</th>
@@ -398,7 +400,7 @@ export default function InsightUsageRate() {
                     <tbody>
                       {detail.teamServices.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-pastel-400 text-sm">상세 데이터가 없습니다</td>
+                          <td colSpan={6} className="py-12 text-center text-pastel-400 text-sm">{t('insightUsageRate.noDetailData')}</td>
                         </tr>
                       ) : (
                         detail.teamServices.map((ts, idx) => (
@@ -411,7 +413,7 @@ export default function InsightUsageRate() {
                               <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium rounded-full ${
                                 ts.serviceType === 'STANDARD' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80' : 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80'
                               }`}>
-                                {ts.serviceType === 'STANDARD' ? '표준' : '백그라운드'}
+                                {ts.serviceType === 'STANDARD' ? t('insightUsageRate.typeStandard') : t('insightUsageRate.typeBackground')}
                               </span>
                             </td>
                             <td className="text-right py-3 px-4 font-medium tabular-nums">
@@ -419,7 +421,7 @@ export default function InsightUsageRate() {
                                 <span className={ts.savedMMSource === 'ai_estimate' ? 'text-amber-600' : 'text-emerald-700'}>
                                   {ts.savedMM.toFixed(1)}
                                   {ts.savedMMSource === 'ai_estimate' && (
-                                    <span className="ml-1 text-[10px] text-amber-500 font-normal" title="AI 추정치">AI</span>
+                                    <span className="ml-1 text-[10px] text-amber-500 font-normal" title={t('insightUsageRate.aiEstimate')}>AI</span>
                                   )}
                                 </span>
                               ) : '-'}
@@ -436,7 +438,7 @@ export default function InsightUsageRate() {
             </div>
           ) : (
             <div className="flex items-center justify-center py-16 text-pastel-400">
-              상세 데이터를 불러올 수 없습니다
+              {t('insightUsageRate.cannotLoadDetail')}
             </div>
           )}
         </div>

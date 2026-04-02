@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, Zap, Activity, ChevronLeft, ChevronRight, TrendingUp, Info, Building2, Package } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { publicStatsApi } from '../services/api';
@@ -81,41 +83,43 @@ function formatTokens(n: number): string {
   return n.toLocaleString();
 }
 
-const METRICS: MetricConfig[] = [
-  {
-    key: 'dau',
-    label: '영업일 평균 DAU',
-    icon: Users,
-    color: '#2563EB',
-    gradientFrom: '#3B82F6',
-    gradientTo: '#1D4ED8',
-    format: (n) => n.toLocaleString(),
-    unit: '명',
-    description: '영업일(주말·공휴일 제외) 평균 일일 활성 사용자 수',
-  },
-  {
-    key: 'totalTokens',
-    label: '토큰 사용량',
-    icon: Zap,
-    color: '#7C3AED',
-    gradientFrom: '#8B5CF6',
-    gradientTo: '#6D28D9',
-    format: formatTokens,
-    unit: 'tokens',
-    description: '해당 월 총 입출력 토큰 사용량',
-  },
-  {
-    key: 'totalCallCount',
-    label: 'API 호출 수',
-    icon: Activity,
-    color: '#059669',
-    gradientFrom: '#10B981',
-    gradientTo: '#047857',
-    format: formatCompact,
-    unit: '회',
-    description: '해당 월 총 API 요청 수',
-  },
-];
+function getMetrics(t: (key: string) => string): MetricConfig[] {
+  return [
+    {
+      key: 'dau',
+      label: t('publicDashboard.businessDayAvgDAU'),
+      icon: Users,
+      color: '#2563EB',
+      gradientFrom: '#3B82F6',
+      gradientTo: '#1D4ED8',
+      format: (n) => n.toLocaleString(),
+      unit: t('publicDashboard.dauUnit'),
+      description: t('publicDashboard.dauDescription'),
+    },
+    {
+      key: 'totalTokens',
+      label: t('publicDashboard.tokenUsage'),
+      icon: Zap,
+      color: '#7C3AED',
+      gradientFrom: '#8B5CF6',
+      gradientTo: '#6D28D9',
+      format: formatTokens,
+      unit: 'tokens',
+      description: t('publicDashboard.tokenDescription'),
+    },
+    {
+      key: 'totalCallCount',
+      label: t('publicDashboard.apiCallCount'),
+      icon: Activity,
+      color: '#059669',
+      gradientFrom: '#10B981',
+      gradientTo: '#047857',
+      format: formatCompact,
+      unit: t('publicDashboard.callUnit'),
+      description: t('publicDashboard.apiCallDescription'),
+    },
+  ];
+}
 
 const TOP_N = 20;
 const BAR_COLORS = [
@@ -208,7 +212,7 @@ function ChartTooltip({ active, payload, metric }: {
         <span className="text-pastel-400">{metric.unit}</span>
       </div>
       {data.isEstimated && (
-        <p className="text-[10px] text-amber-600 mt-1">* BACKGROUND 서비스 추정값</p>
+        <p className="text-[10px] text-amber-600 mt-1">* {i18n.t('publicDashboard.bgEstimated')}</p>
       )}
     </div>
   );
@@ -272,7 +276,7 @@ function MetricChart({ services, metric, rank }: {
   if (sorted.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
-        데이터가 없습니다
+        {i18n.t('publicDashboard.noData')}
       </div>
     );
   }
@@ -367,7 +371,7 @@ function MetricChart({ services, metric, rank }: {
       {sorted.some(s => s.isEstimated) && (
         <div className="px-6 pb-3 flex items-center gap-1.5 text-[10px] text-amber-600">
           <Info className="w-3 h-3" />
-          <span>반투명 바: BACKGROUND 서비스 (1인당 평균 호출 수 기반 추정)</span>
+          <span>{i18n.t('publicDashboard.transparentBarLegend')}</span>
         </div>
       )}
     </div>
@@ -410,8 +414,8 @@ function DailyDauLineChart({ data }: { data: Record<string, unknown>[] }) {
             <TrendingUp className="w-4 h-4 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-pastel-800">일별 DAU 추이</h3>
-            <p className="text-[11px] text-pastel-400">서비스별 일일 활성 사용자 수 (전체는 교차 서비스 중복제거)</p>
+            <h3 className="text-sm font-semibold text-pastel-800">{i18n.t('publicDashboard.dailyDauTrend')}</h3>
+            <p className="text-[11px] text-pastel-400">{i18n.t('publicDashboard.dailyDauDesc')}</p>
           </div>
         </div>
       </div>
@@ -436,7 +440,7 @@ function DailyDauLineChart({ data }: { data: Record<string, unknown>[] }) {
               contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
               labelFormatter={(l: string) => l}
               formatter={(value: number, name: string) => [
-                `${value}명`,
+                i18n.t('publicDashboard.personUnit', { count: value }),
                 name,
               ]}
             />
@@ -458,7 +462,7 @@ function DailyDauLineChart({ data }: { data: Record<string, unknown>[] }) {
       </div>
       {serviceKeys.length > 10 && (
         <div className="px-6 pb-3 text-[10px] text-pastel-400">
-          * 상위 10개 서비스만 차트에 표시됩니다 (총 {serviceKeys.length}개)
+          * {i18n.t('publicDashboard.topNNote', { count: serviceKeys.length })}
         </div>
       )}
     </div>
@@ -478,7 +482,7 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
   if (data.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
-        팀별 사용량 데이터가 없습니다
+        {i18n.t('publicDashboard.noTeamUsageData')}
       </div>
     );
   }
@@ -501,8 +505,8 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
             <Building2 className="w-4 h-4 text-indigo-600" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-pastel-800">팀별 토큰 사용량 &amp; LLM 호출 수</h3>
-            <p className="text-[11px] text-pastel-400">전체 서비스 합산 기준</p>
+            <h3 className="text-sm font-semibold text-pastel-800">{i18n.t('publicDashboard.teamTokenUsage')}</h3>
+            <p className="text-[11px] text-pastel-400">{i18n.t('publicDashboard.allServicesBasis')}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
@@ -555,8 +559,8 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
                   <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm">
                     <p className="font-semibold text-pastel-800 mb-1">{d.fullName}</p>
                     <div className="space-y-0.5 text-pastel-600">
-                      <p>토큰: <span className="font-mono font-bold text-indigo-600">{formatTokens(d.totalTokens)}</span></p>
-                      <p>호출 수: <span className="font-mono font-bold text-emerald-600">{formatCompact(d.requestCount)}</span> 회</p>
+                      <p>{i18n.t('publicDashboard.tokenLabel')}: <span className="font-mono font-bold text-indigo-600">{formatTokens(d.totalTokens)}</span></p>
+                      <p>{i18n.t('publicDashboard.callCountLabel')}: <span className="font-mono font-bold text-emerald-600">{formatCompact(d.requestCount)}</span></p>
                     </div>
                   </div>
                 );
@@ -565,7 +569,7 @@ function TeamUsageChart({ data }: { data: AggregatedTeamUsage[] }) {
             />
             <Legend
               wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-              formatter={(value: string) => value === 'totalTokens' ? '토큰 사용량' : 'LLM 호출 수'}
+              formatter={(value: string) => value === 'totalTokens' ? i18n.t('publicDashboard.tokenUsageLabel') : i18n.t('publicDashboard.llmCallCount')}
             />
             <Bar
               dataKey="totalTokens"
@@ -615,7 +619,7 @@ function TeamServicesChart({ services }: { services: ServiceData[] }) {
   if (data.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-card p-8 text-center text-pastel-400">
-        팀별 서비스 데이터가 없습니다
+        {i18n.t('publicDashboard.noTeamServiceData')}
       </div>
     );
   }
@@ -638,8 +642,8 @@ function TeamServicesChart({ services }: { services: ServiceData[] }) {
             <Package className="w-4 h-4 text-amber-600" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-pastel-800">팀별 등록한 서비스</h3>
-            <p className="text-[11px] text-pastel-400">각 팀이 배포/등록한 서비스 수</p>
+            <h3 className="text-sm font-semibold text-pastel-800">{i18n.t('publicDashboard.teamRegisteredServices')}</h3>
+            <p className="text-[11px] text-pastel-400">{i18n.t('publicDashboard.teamRegisteredDesc')}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-pastel-400">
@@ -680,7 +684,7 @@ function TeamServicesChart({ services }: { services: ServiceData[] }) {
                   <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-xl shadow-elevated px-4 py-3 text-sm max-w-xs">
                     <p className="font-semibold text-pastel-800 mb-1.5">{d.fullName}</p>
                     <p className="text-pastel-600 mb-1">
-                      서비스 수: <span className="font-mono font-bold text-amber-600">{d.serviceCount}개</span>
+                      {i18n.t('publicDashboard.serviceCountLabel', { count: d.serviceCount })}
                     </p>
                     <div className="text-[11px] text-pastel-400 space-y-0.5">
                       {d.serviceNames.map(name => (
@@ -700,7 +704,7 @@ function TeamServicesChart({ services }: { services: ServiceData[] }) {
                 position: 'right',
                 fontSize: 11,
                 fill: '#6B7280',
-                formatter: (v: number) => `${v}개`,
+                formatter: (v: number) => i18n.t('publicDashboard.countUnit', { count: v }),
               }}
             >
               {chartData.map((_, i) => (
@@ -717,6 +721,7 @@ function TeamServicesChart({ services }: { services: ServiceData[] }) {
 // ── Main Component ──
 
 export default function PublicDashboard() {
+  const { t } = useTranslation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -783,7 +788,7 @@ export default function PublicDashboard() {
       }
     } catch (err) {
       console.error('Failed to load public dashboard:', err);
-      if (!silent) setError('데이터를 불러올 수 없습니다.');
+      if (!silent) setError(t('publicDashboard.loadError'));
     } finally {
       if (!silent) setLoading(false);
     }
@@ -813,9 +818,9 @@ export default function PublicDashboard() {
       {/* Header with month selector */}
       <div className="flex items-center justify-between animate-fade-in">
         <div>
-          <h1 className="text-lg font-bold text-pastel-800 tracking-tight">서비스 사용 현황</h1>
+          <h1 className="text-lg font-bold text-pastel-800 tracking-tight">{t('publicDashboard.serviceUsageStatus')}</h1>
           <p className="text-xs text-pastel-400 mt-0.5">
-            배포 완료된 서비스의 월간 사용량 통계 (DEPLOYED only)
+            {t('publicDashboard.serviceUsageDesc')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -828,7 +833,7 @@ export default function PublicDashboard() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <span className="px-3 py-1 text-sm font-semibold text-pastel-700 min-w-[100px] text-center">
-            {year}년 {month}월
+            {t('publicDashboard.yearMonth', { year, month })}
           </span>
           <button
             onClick={() => goMonth(1)}
@@ -850,21 +855,21 @@ export default function PublicDashboard() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <SummaryCard
-          label="전체 영업일 평균 DAU"
+          label={t('publicDashboard.overallAvgDAU')}
           value={totalDAU}
           icon={Users}
           gradient="from-blue-500 to-blue-700"
           delay={0}
         />
         <SummaryCard
-          label="월간 토큰 사용량"
+          label={t('publicDashboard.monthlyTokenUsage')}
           value={totalTokens}
           icon={Zap}
           gradient="from-violet-500 to-violet-700"
           delay={60}
         />
         <SummaryCard
-          label="월간 API 호출"
+          label={t('publicDashboard.monthlyApiCalls')}
           value={totalCalls}
           icon={Activity}
           gradient="from-emerald-500 to-emerald-700"
@@ -880,7 +885,7 @@ export default function PublicDashboard() {
       {/* Bar Charts */}
       {!error && enabledServices.length > 0 && (
         <div className="space-y-5">
-          {METRICS.map((metric, i) => (
+          {getMetrics(t).map((metric, i) => (
             <MetricChart
               key={metric.key}
               services={enabledServices}
@@ -901,7 +906,7 @@ export default function PublicDashboard() {
 
       {!error && enabledServices.length === 0 && !loading && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-card p-12 text-center">
-          <p className="text-pastel-400 text-sm">해당 기간에 배포된 서비스 데이터가 없습니다.</p>
+          <p className="text-pastel-400 text-sm">{t('publicDashboard.noServiceData')}</p>
         </div>
       )}
     </div>

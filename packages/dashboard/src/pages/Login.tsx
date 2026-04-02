@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LogIn, AlertCircle, ArrowRight, Cpu, Shield, BarChart3, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '../services/api';
 
 interface User {
@@ -33,6 +34,7 @@ function generateOidcState(): string {
 
 
 export default function Login({ onLogin }: LoginProps) {
+  const { t } = useTranslation();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [processingCallback, setProcessingCallback] = useState(false);
@@ -88,7 +90,7 @@ export default function Login({ onLogin }: LoginProps) {
     } catch (err: unknown) {
       console.error('OIDC callback error:', err);
       const message =
-        err instanceof Error ? err.message : 'OIDC 인증 처리 중 오류가 발생했습니다.';
+        err instanceof Error ? err.message : t('login.oidcError');
       setError(message);
       window.history.replaceState({}, document.title, window.location.pathname);
     } finally {
@@ -118,7 +120,7 @@ export default function Login({ onLogin }: LoginProps) {
       onLogin(user, sessionToken, isAdmin, resolvedRole);
     } catch (err) {
       console.error('SSO callback error:', err);
-      setError('SSO 인증 처리 중 오류가 발생했습니다.');
+      setError(t('login.ssoError'));
       window.history.replaceState({}, document.title, window.location.pathname);
     } finally {
       setProcessingCallback(false);
@@ -168,8 +170,8 @@ export default function Login({ onLogin }: LoginProps) {
             <div className="absolute inset-0 rounded-full bg-samsung-blue/10 animate-ping" />
             <div className="relative w-20 h-20 border-[3px] border-samsung-blue/20 border-t-samsung-blue rounded-full animate-spin" />
           </div>
-          <p className="text-lg font-semibold text-pastel-800">인증 처리 중</p>
-          <p className="mt-1.5 text-sm text-pastel-500">잠시만 기다려주세요</p>
+          <p className="text-lg font-semibold text-pastel-800">{t('login.authenticating')}</p>
+          <p className="mt-1.5 text-sm text-pastel-500">{t('login.pleaseWait')}</p>
         </div>
       </div>
     );
@@ -216,12 +218,12 @@ export default function Login({ onLogin }: LoginProps) {
                 {loading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>SSO 페이지로 이동 중...</span>
+                    <span>{t('login.redirectingToSSO')}</span>
                   </>
                 ) : (
                   <>
                     <LogIn className="w-5 h-5" />
-                    <span>SSO로 로그인</span>
+                    <span>{t('login.ssoLogin')}</span>
                     <ArrowRight className="w-4 h-4 ml-auto opacity-60 group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
@@ -231,10 +233,10 @@ export default function Login({ onLogin }: LoginProps) {
               <div className="mt-8 pt-7 border-t border-gray-100/80">
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { icon: Cpu, label: 'LLM 게이트웨이', desc: '멀티모델 프록시', color: 'text-samsung-blue', bg: 'bg-blue-50' },
-                    { icon: Shield, label: '3-Tier 권한', desc: '세분화된 접근제어', color: 'text-accent-indigo', bg: 'bg-indigo-50' },
-                    { icon: BarChart3, label: '실시간 통계', desc: '토큰 사용량 분석', color: 'text-accent-emerald', bg: 'bg-emerald-50' },
-                    { icon: Zap, label: '멀티 서비스', desc: '서비스별 독립 관리', color: 'text-accent-amber', bg: 'bg-amber-50' },
+                    { icon: Cpu, label: t('login.llmGateway'), desc: t('login.multiModelProxy'), color: 'text-samsung-blue', bg: 'bg-blue-50' },
+                    { icon: Shield, label: t('login.threeTierAuth'), desc: t('login.granularAccess'), color: 'text-accent-indigo', bg: 'bg-indigo-50' },
+                    { icon: BarChart3, label: t('login.realtimeStats'), desc: t('login.tokenAnalysis'), color: 'text-accent-emerald', bg: 'bg-emerald-50' },
+                    { icon: Zap, label: t('login.multiService'), desc: t('login.independentManagement'), color: 'text-accent-amber', bg: 'bg-amber-50' },
                   ].map(({ icon: Icon, label, desc, color, bg }, i) => (
                     <div
                       key={label}
@@ -255,7 +257,7 @@ export default function Login({ onLogin }: LoginProps) {
 
           {/* Footer */}
           <div className="text-center mt-8 space-y-1.5 animate-fade-in" style={{ animationDelay: '0.3s' }}>
-            <p className="text-[12px] text-pastel-400 font-medium">Samsung DS 계정으로 로그인됩니다</p>
+            <p className="text-[12px] text-pastel-400 font-medium">{t('login.loginWithSamsung')}</p>
             <p className="text-[11px] text-pastel-300">&copy; 2026 Agent Registry &middot; All rights reserved</p>
           </div>
         </div>

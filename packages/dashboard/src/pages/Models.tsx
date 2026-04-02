@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Plus, Edit2, Trash2, Check, X, Layers, Copy,
   Play, CheckCircle, XCircle, Loader2, Eye, Shield, Globe, Building2,
@@ -81,13 +82,13 @@ interface ModelsProps {
 
 type VisibilityType = 'PUBLIC' | 'BUSINESS_UNIT' | 'TEAM' | 'ADMIN_ONLY' | 'SUPER_ADMIN_ONLY';
 
-const VISIBILITY_CONFIG: Record<VisibilityType, { label: string; icon: typeof Globe; color: string; bg: string; desc: string }> = {
-  PUBLIC: { label: '전체 공개', icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: '모든 서비스에서 사용 가능' },
-  BUSINESS_UNIT: { label: '부서 선택', icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: '조직도에서 허용할 부서를 선택합니다' },
-  TEAM: { label: '부서 선택', icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: '조직도에서 허용할 부서를 선택합니다' },
-  ADMIN_ONLY: { label: '시스템 관리자', icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: '시스템 관리자 + 슈퍼관리자 접근 가능' },
-  SUPER_ADMIN_ONLY: { label: '슈퍼관리자만', icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: '슈퍼관리자만 접근 가능' },
-};
+const getVisibilityConfig = (t: (key: string) => string): Record<VisibilityType, { label: string; icon: typeof Globe; color: string; bg: string; desc: string }> => ({
+  PUBLIC: { label: t('models.visibilityPublic'), icon: Globe, color: 'text-green-600', bg: 'bg-green-50 border-green-200', desc: t('models.visibilityPublicDesc') },
+  BUSINESS_UNIT: { label: t('models.visibilityDeptSelect'), icon: Building2, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', desc: t('models.visibilityDeptSelectDesc') },
+  TEAM: { label: t('models.visibilityDeptSelect'), icon: Users, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', desc: t('models.visibilityDeptSelectDesc') },
+  ADMIN_ONLY: { label: t('models.visibilityAdminOnly'), icon: Lock, color: 'text-red-600', bg: 'bg-red-50 border-red-200', desc: t('models.visibilityAdminOnlyDesc') },
+  SUPER_ADMIN_ONLY: { label: t('models.visibilitySuperAdminOnly'), icon: ShieldCheck, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', desc: t('models.visibilitySuperAdminOnlyDesc') },
+});
 
 const emptyForm = {
   name: '',
@@ -112,6 +113,8 @@ const emptyForm = {
    Main Component
    ────────────────────────────────────────────── */
 export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
+  const { t } = useTranslation();
+  const VISIBILITY_CONFIG = getVisibilityConfig(t);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -223,7 +226,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     setEditingModel(null);
     setForm({
       name: model.name,
-      displayName: `${model.displayName} (복사)`,
+      displayName: `${model.displayName} ${t('models.copySuffix')}`,
       endpointUrl: model.endpointUrl,
       apiKey: model.apiKey || '',
       extraHeaders: model.extraHeaders ? JSON.stringify(model.extraHeaders, null, 2) : '',
@@ -265,7 +268,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runFormTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setTestRunning(true);
@@ -291,7 +294,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
         toolCallD: false,
         allPassed: false,
       });
-      setFormError(error.response?.data?.error || '테스트 실행에 실패했습니다.');
+      setFormError(error.response?.data?.error || t('models.errorTestFailed'));
     } finally {
       setTestRunning(false);
     }
@@ -299,7 +302,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runVisionTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setVisionTestRunning(true);
@@ -315,7 +318,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       });
     } catch (error: any) {
       setVisionTestResult({ visionDescribe: false, visionJudge: false, passed: false });
-      setFormError(error.response?.data?.error || 'Vision 테스트 실행에 실패했습니다.');
+      setFormError(error.response?.data?.error || t('models.errorVisionTestFailed'));
     } finally {
       setVisionTestRunning(false);
     }
@@ -323,7 +326,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runImageTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setImageTestRunning(true);
@@ -338,7 +341,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       });
     } catch (error: any) {
       setImageTestResult({ imageGen: false, passed: false });
-      setFormError(error.response?.data?.error || '이미지 생성 테스트 실행에 실패했습니다.');
+      setFormError(error.response?.data?.error || t('models.errorImageTestFailed'));
     } finally {
       setImageTestRunning(false);
     }
@@ -346,7 +349,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runEmbeddingTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setEmbeddingTestRunning(true);
@@ -356,8 +359,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       const res = await modelsApi.testEmbedding(buildTestPayload());
       setEmbeddingTestResult({ passed: res.data.passed, message: res.data.embedding?.message });
     } catch (error: any) {
-      setEmbeddingTestResult({ passed: false, message: error.response?.data?.error || '임베딩 테스트 실패' });
-      setFormError(error.response?.data?.error || '임베딩 테스트 실행에 실패했습니다.');
+      setEmbeddingTestResult({ passed: false, message: error.response?.data?.error || t('models.embeddingTestFailed') });
+      setFormError(error.response?.data?.error || t('models.errorEmbeddingTestFailed'));
     } finally {
       setEmbeddingTestRunning(false);
     }
@@ -365,7 +368,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runRerankTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setRerankTestRunning(true);
@@ -375,8 +378,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       const res = await modelsApi.testRerank(buildTestPayload());
       setRerankTestResult({ passed: res.data.passed, message: res.data.rerank?.message });
     } catch (error: any) {
-      setRerankTestResult({ passed: false, message: error.response?.data?.error || '리랭킹 테스트 실패' });
-      setFormError(error.response?.data?.error || '리랭킹 테스트 실행에 실패했습니다.');
+      setRerankTestResult({ passed: false, message: error.response?.data?.error || t('models.rerankTestFailed') });
+      setFormError(error.response?.data?.error || t('models.errorRerankTestFailed'));
     } finally {
       setRerankTestRunning(false);
     }
@@ -384,7 +387,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const runAsrTest = async () => {
     if (!form.endpointUrl || !form.name) {
-      setFormError('테스트를 실행하려면 모델 ID와 엔드포인트 URL이 필요합니다.');
+      setFormError(t('models.errorTestRequiresFields'));
       return;
     }
     setAsrTestRunning(true);
@@ -397,8 +400,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       });
       setAsrTestResult({ passed: res.data.passed, message: res.data.asr?.message });
     } catch (error: any) {
-      setAsrTestResult({ passed: false, message: error.response?.data?.error || 'ASR 테스트 실패' });
-      setFormError(error.response?.data?.error || 'ASR 테스트 실행에 실패했습니다.');
+      setAsrTestResult({ passed: false, message: error.response?.data?.error || t('models.asrTestFailed') });
+      setFormError(error.response?.data?.error || t('models.errorAsrTestFailed'));
     } finally {
       setAsrTestRunning(false);
     }
@@ -406,7 +409,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
   const handleSave = async () => {
     if (!form.name || !form.displayName || !form.endpointUrl) {
-      setFormError('이름, 표시 이름, 엔드포인트 URL은 필수입니다.');
+      setFormError(t('models.errorRequiredFields'));
       return;
     }
 
@@ -416,7 +419,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       try {
         extraHeaders = JSON.parse(form.extraHeaders);
       } catch {
-        setFormError('Extra Headers는 유효한 JSON이어야 합니다.');
+        setFormError(t('models.errorExtraHeadersJson'));
         return;
       }
     }
@@ -427,7 +430,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       try {
         extraBody = JSON.parse(form.extraBody);
       } catch {
-        setFormError('Extra Body는 유효한 JSON이어야 합니다.');
+        setFormError(t('models.errorExtraBodyJson'));
         return;
       }
     }
@@ -435,23 +438,23 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     // CHAT type: require tool call test (at least 2 passed)
     if (form.type === 'CHAT') {
       if (!testResult) {
-        setFormError('CHAT 모델은 저장 전에 Tool Call 테스트를 실행해야 합니다. "테스트 실행" 버튼을 클릭하세요.');
+        setFormError(t('models.errorChatTestRequired'));
         return;
       }
       const toolCallsPassed = [testResult.toolCallA, testResult.toolCallB, testResult.toolCallC, testResult.toolCallD].filter(Boolean).length;
       if (toolCallsPassed < 2) {
-        setFormError('최소 2개 이상의 Tool Call 테스트를 통과해야 합니다.');
+        setFormError(t('models.errorMinToolCallPassed'));
         return;
       }
 
       // Vision test required if supportsVision is checked
       if (form.supportsVision) {
         if (!visionTestResult) {
-          setFormError('Vision 모델은 저장 전에 Vision 테스트를 실행해야 합니다. "Vision 테스트" 버튼을 클릭하세요.');
+          setFormError(t('models.errorVisionTestRequired'));
           return;
         }
         if (!visionTestResult.passed) {
-          setFormError('Vision 인식 테스트를 통과해야 Vision 모델로 등록할 수 있습니다.');
+          setFormError(t('models.errorVisionTestMustPass'));
           return;
         }
       }
@@ -460,11 +463,11 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     // IMAGE type: require image gen test
     if (form.type === 'IMAGE') {
       if (!imageTestResult) {
-        setFormError('IMAGE 모델은 저장 전에 이미지 생성 테스트를 실행해야 합니다. "이미지 생성 테스트" 버튼을 클릭하세요.');
+        setFormError(t('models.errorImageTestRequired'));
         return;
       }
       if (!imageTestResult.passed) {
-        setFormError('이미지 생성 테스트를 통과해야 IMAGE 모델로 등록할 수 있습니다.');
+        setFormError(t('models.errorImageTestMustPass'));
         return;
       }
     }
@@ -472,11 +475,11 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     // EMBEDDING type: require embedding test
     if (form.type === 'EMBEDDING') {
       if (!embeddingTestResult) {
-        setFormError('EMBEDDING 모델은 저장 전에 임베딩 테스트를 실행해야 합니다.');
+        setFormError(t('models.errorEmbeddingTestRequired'));
         return;
       }
       if (!embeddingTestResult.passed) {
-        setFormError('임베딩 테스트를 통과해야 EMBEDDING 모델로 등록할 수 있습니다.');
+        setFormError(t('models.errorEmbeddingTestMustPass'));
         return;
       }
     }
@@ -484,11 +487,11 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     // RERANKING type: require rerank test
     if (form.type === 'RERANKING') {
       if (!rerankTestResult) {
-        setFormError('RERANKING 모델은 저장 전에 리랭킹 테스트를 실행해야 합니다.');
+        setFormError(t('models.errorRerankTestRequired'));
         return;
       }
       if (!rerankTestResult.passed) {
-        setFormError('리랭킹 테스트를 통과해야 RERANKING 모델로 등록할 수 있습니다.');
+        setFormError(t('models.errorRerankTestMustPass'));
         return;
       }
     }
@@ -496,11 +499,11 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
     // ASR type: require ASR test
     if (form.type === 'ASR') {
       if (!asrTestResult) {
-        setFormError('ASR 모델은 저장 전에 ASR 테스트를 실행해야 합니다.');
+        setFormError(t('models.errorAsrTestRequired'));
         return;
       }
       if (!asrTestResult.passed) {
-        setFormError('ASR 테스트를 통과해야 ASR 모델로 등록할 수 있습니다.');
+        setFormError(t('models.errorAsrTestMustPass'));
         return;
       }
     }
@@ -540,7 +543,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       setShowModal(false);
       loadModels();
     } catch (error: any) {
-      const errMsg = error.response?.data?.error || '저장에 실패했습니다.';
+      const errMsg = error.response?.data?.error || t('models.errorSaveFailed');
       window.dispatchEvent(new CustomEvent('model-guide-error', { detail: { error: errMsg } }));
       setFormError(errMsg);
     } finally {
@@ -554,7 +557,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       setDeleteTarget(null);
       loadModels();
     } catch (error: any) {
-      alert(error.response?.data?.error || '삭제에 실패했습니다.');
+      alert(error.response?.data?.error || t('models.errorDeleteFailed'));
     }
   };
 
@@ -563,7 +566,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       await modelsApi.toggle(model.id);
       loadModels();
     } catch (error: any) {
-      alert(error.response?.data?.error || '토글에 실패했습니다.');
+      alert(error.response?.data?.error || t('models.errorToggleFailed'));
     }
   };
 
@@ -640,12 +643,12 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-pastel-800">{isAdmin ? 'LLM 모델 관리' : 'LLM 모델'}</h1>
+          <h1 className="text-2xl font-bold text-pastel-800">{isAdmin ? t('models.title') : t('models.titleReadonly')}</h1>
           <p className="text-sm text-pastel-500 mt-1">
-            {models.length}개 모델 | 서비스와 독립적으로 관리됩니다
+            {t('models.modelCount', { count: models.length })}
           </p>
           <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-            LLM 모델을 등록하고 관리합니다. 같은 모델 ID로 여러 개 등록하면 서비스별 라운드로빈에 사용할 수 있습니다.
+            {t('models.description')}
           </p>
         </div>
         {isAdmin && (
@@ -655,7 +658,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
               className="inline-flex items-center gap-1.5 px-3 py-2.5 text-samsung-blue bg-blue-50 border border-blue-200 rounded-ios font-medium text-sm hover:bg-blue-100 transition-colors"
             >
               <BookOpen className="w-4 h-4" />
-              등록 가이드
+              {t('common.registrationGuide')}
             </button>
             <button
               onClick={openCreateModal}
@@ -665,7 +668,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                          transform active:scale-[0.97] transition-all duration-200"
             >
               <Plus className="w-4 h-4" />
-              새 모델 추가
+              {t('models.addModel')}
             </button>
           </div>
         )}
@@ -677,7 +680,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-400" />
           <input
             type="text"
-            placeholder="모델 검색..."
+            placeholder={t('models.searchPlaceholder')}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-pastel-200 rounded-ios text-sm
@@ -691,7 +694,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
             className={`px-3 py-2 rounded-ios text-xs font-medium transition-all duration-200
               ${!visibilityFilter ? 'bg-samsung-blue text-white shadow-ios' : 'bg-white text-pastel-600 border border-pastel-200 hover:bg-pastel-50'}`}
           >
-            전체
+            {t('common.all')}
           </button>
           {(['PUBLIC', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] as VisibilityType[]).map(v => {
             const cfg = VISIBILITY_CONFIG[v];
@@ -716,7 +719,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
         <div className="text-center py-16">
           <Cpu className="w-12 h-12 text-pastel-300 mx-auto" />
           <p className="mt-4 text-pastel-500">
-            {searchQuery || visibilityFilter ? '검색 결과가 없습니다' : '등록된 모델이 없습니다'}
+            {searchQuery || visibilityFilter ? t('models.noSearchResults') : t('models.noModels')}
           </p>
         </div>
       ) : (
@@ -761,20 +764,20 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           {(() => {
                             const ch = cronHealth[model.id];
                             if (!model.enabled || !ch) {
-                              return <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" title="상태 미확인" />;
+                              return <span className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" title={t('models.statusUnknown')} />;
                             }
                             const ago = Math.round((Date.now() - new Date(ch.checkedAt).getTime()) / 60000);
                             const stale = ago > 20;
                             if (ch.success) {
-                              return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stale ? 'bg-yellow-400' : 'bg-green-500'}`} title={`정상 | ${ch.latencyMs}ms | ${ago}분 전`} />;
+                              return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${stale ? 'bg-yellow-400' : 'bg-green-500'}`} title={t('models.statusNormal', { latency: ch.latencyMs, ago })} />;
                             }
-                            return <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title={`장애 | ${ch.errorMessage || 'Unknown'} | ${ago}분 전`} />;
+                            return <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title={t('models.statusFailed', { error: ch.errorMessage || 'Unknown', ago })} />;
                           })()}
                           {model.displayName}
                         </h3>
                         {!model.enabled && (
                           <span className="px-2 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded-full">
-                            비활성
+                            {t('models.inactive')}
                           </span>
                         )}
                         {model.type !== 'CHAT' && (() => {
@@ -852,7 +855,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                         <button
                           onClick={() => handleToggle(model)}
                           className="p-2 rounded-ios hover:bg-pastel-50 transition-all duration-200"
-                          title={model.enabled ? '비활성화' : '활성화'}
+                          title={model.enabled ? t('models.deactivate') : t('models.activate')}
                         >
                           {model.enabled ? (
                             <ToggleRight className="w-5 h-5 text-green-500" />
@@ -867,7 +870,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           onClick={() => openEditModal(model)}
                           className="p-2 rounded-ios text-pastel-500 hover:bg-pastel-50 hover:text-samsung-blue
                                      transition-all duration-200"
-                          title="수정"
+                          title={t('common.edit')}
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
@@ -879,10 +882,10 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           className="inline-flex items-center gap-1 px-2 py-1.5 rounded-ios text-xs font-medium
                                      text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200
                                      transition-all duration-200"
-                          title="복제"
+                          title={t('models.duplicate')}
                         >
                           <Copy className="w-3.5 h-3.5" />
-                          복제
+                          {t('models.duplicate')}
                         </button>
                       )}
 
@@ -891,7 +894,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           onClick={() => setDeleteTarget(model)}
                           className="p-2 rounded-ios text-pastel-500 hover:bg-red-50 hover:text-red-500
                                      transition-all duration-200"
-                          title="삭제"
+                          title={t('common.delete')}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -938,7 +941,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                     {editingModel ? <Edit2 className="w-4 h-4 text-samsung-blue" /> : <Sparkles className="w-4 h-4 text-samsung-blue" />}
                   </div>
                   <h2 className="text-lg font-semibold text-pastel-800">
-                    {editingModel ? '모델 수정' : '새 모델 추가'}
+                    {editingModel ? t('models.editModel') : t('models.createModel')}
                   </h2>
                 </div>
                 <button
@@ -960,14 +963,14 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
               <div className="space-y-4">
                 {/* ── Model Type Selection ── */}
                 <div>
-                  <label className="block text-sm font-medium text-pastel-700 mb-2">모델 타입</label>
+                  <label className="block text-sm font-medium text-pastel-700 mb-2">{t('models.modelType')}</label>
                   <div className="grid grid-cols-2 gap-3">
                     {([
-                      { value: 'CHAT' as const, label: '채팅', desc: 'LLM 채팅 모델', icon: MessageSquare },
-                      { value: 'IMAGE' as const, label: '이미지 생성', desc: '이미지 생성 모델', icon: Image },
-                      { value: 'EMBEDDING' as const, label: '임베딩', desc: '텍스트 임베딩 모델', icon: Layers },
-                      { value: 'RERANKING' as const, label: '리랭킹', desc: '문서 리랭킹 모델', icon: Sparkles },
-                      { value: 'ASR' as const, label: '음성 인식', desc: 'STT/ASR 모델', icon: Mic },
+                      { value: 'CHAT' as const, label: t('models.typeChat'), desc: t('models.typeChatDesc'), icon: MessageSquare },
+                      { value: 'IMAGE' as const, label: t('models.typeImage'), desc: t('models.typeImageDesc'), icon: Image },
+                      { value: 'EMBEDDING' as const, label: t('models.typeEmbedding'), desc: t('models.typeEmbeddingDesc'), icon: Layers },
+                      { value: 'RERANKING' as const, label: t('models.typeReranking'), desc: t('models.typeRerankingDesc'), icon: Sparkles },
+                      { value: 'ASR' as const, label: t('models.typeAsr'), desc: t('models.typeAsrDesc'), icon: Mic },
                     ]).map(opt => {
                       const isSelected = form.type === opt.value;
                       const Icon = opt.icon;
@@ -1001,14 +1004,14 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                 {/* Image Provider (only for IMAGE type) */}
                 {form.type === 'IMAGE' && (
                   <div className="animate-slide-down">
-                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">이미지 Provider</label>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">{t('models.imageProvider')}</label>
                     <select
                       value={form.imageProvider}
                       onChange={e => setForm({ ...form, imageProvider: e.target.value })}
                       className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm bg-white
                                  focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
                     >
-                      <option value="">선택하세요</option>
+                      <option value="">{t('models.selectPlaceholder')}</option>
                       <option value="OPENAI">OPENAI</option>
                       <option value="COMFYUI">COMFYUI</option>
                     </select>
@@ -1018,20 +1021,20 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                 {/* ASR Method (only for ASR type) */}
                 {form.type === 'ASR' && (
                   <div className="animate-slide-down">
-                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">ASR Method</label>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">{t('models.asrMethodLabel')}</label>
                     <select
                       value={form.asrMethod}
                       onChange={e => setForm({ ...form, asrMethod: e.target.value })}
                       className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm bg-white
                                  focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
                     >
-                      <option value="">선택하세요</option>
+                      <option value="">{t('models.selectPlaceholder')}</option>
                       <option value="AUDIO_URL">AUDIO_URL (vLLM chat/completions)</option>
                       <option value="OPENAI_TRANSCRIBE">OPENAI_TRANSCRIBE (Whisper multipart)</option>
                     </select>
                     <p className="mt-1 text-xs text-pastel-400">
-                      AUDIO_URL: base64 오디오를 JSON body로 전송 (VibeVoice-ASR, Qwen3-ASR)<br/>
-                      OPENAI_TRANSCRIBE: 오디오 파일을 multipart로 전송 (Whisper)
+                      {t('models.asrMethodAudioUrl')}<br/>
+                      {t('models.asrMethodOpenaiTranscribe')}
                     </p>
                   </div>
                 )}
@@ -1039,7 +1042,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                 {/* ── Name / Display Name ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">모델 ID *</label>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">{t('models.modelId')}</label>
                     <input
                       type="text"
                       value={form.name}
@@ -1052,7 +1055,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">표시 이름 *</label>
+                    <label className="block text-sm font-medium text-pastel-700 mb-1.5">{t('models.displayNameLabel')}</label>
                     <input
                       type="text"
                       value={form.displayName}
@@ -1066,7 +1069,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
                 {/* ── Endpoint URL ── */}
                 <div>
-                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">엔드포인트 URL * <span className="text-pastel-400 font-normal">(/v1 까지만 입력)</span></label>
+                  <label className="block text-sm font-medium text-pastel-700 mb-1.5">{t('models.endpointUrl')} <span className="text-pastel-400 font-normal">{t('models.endpointUrlSuffix')}</span></label>
                   <input
                     type="text"
                     value={form.endpointUrl}
@@ -1075,7 +1078,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                     className="w-full px-3.5 py-2.5 border border-pastel-200 rounded-ios text-sm font-mono
                                focus:outline-none focus:ring-2 focus:ring-samsung-blue/20 focus:border-samsung-blue transition-all"
                   />
-                  <p className="mt-1 text-xs text-pastel-400">/chat/completions, /embeddings, /rerank, /images/generations 경로는 프록시가 자동으로 분기합니다</p>
+                  <p className="mt-1 text-xs text-pastel-400">{t('models.endpointAutoRoute')}</p>
                 </div>
 
                 {/* ── API Key / Max Tokens ── */}
@@ -1132,7 +1135,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
 
               {/* ── Visibility ── */}
               <div>
-                <label className="block text-sm font-medium text-pastel-700 mb-2">접근 범위</label>
+                <label className="block text-sm font-medium text-pastel-700 mb-2">{t('models.accessScope')}</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {(['PUBLIC', 'TEAM', 'ADMIN_ONLY', 'SUPER_ADMIN_ONLY'] as VisibilityType[]).map(v => {
                     const cfg = VISIBILITY_CONFIG[v];
@@ -1185,8 +1188,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                         after:h-5 after:w-5 after:transition-all peer-checked:bg-samsung-blue" />
                       </div>
                       <div>
-                        <span className="text-sm font-medium text-pastel-700">시스템 관리자 공개</span>
-                        <p className="text-xs text-pastel-400 mt-0.5">활성화 시 다른 팀/사업부의 시스템 관리자도 이 모델을 사용할 수 있습니다</p>
+                        <span className="text-sm font-medium text-pastel-700">{t('models.adminVisibleLabel')}</span>
+                        <p className="text-xs text-pastel-400 mt-0.5">{t('models.adminVisibleDesc')}</p>
                       </div>
                     </label>
                   </div>
@@ -1207,7 +1210,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                     after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
                                     after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500" />
                   </div>
-                  <span className="text-sm text-pastel-700">활성화</span>
+                  <span className="text-sm text-pastel-700">{t('models.enabledLabel')}</span>
                 </label>
 
                 {/* Vision toggle — hidden for IMAGE type */}
@@ -1227,12 +1230,12 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                       after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full
                                       after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500" />
                     </div>
-                    <span className="text-sm text-pastel-700">Vision 지원</span>
+                    <span className="text-sm text-pastel-700">{t('models.visionSupport')}</span>
                   </label>
                 )}
 
                 <div className="flex items-center gap-2 p-3 bg-pastel-50 rounded-ios">
-                  <label className="text-sm text-pastel-700">정렬 순서</label>
+                  <label className="text-sm text-pastel-700">{t('models.sortOrderLabel')}</label>
                   <input
                     type="number"
                     value={form.sortOrder}
@@ -1252,8 +1255,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                         <Play className="w-4 h-4" />
-                        Tool Call 테스트
-                        <span className="text-xs font-normal text-pastel-400">(최소 2개 통과 필요)</span>
+                        {t('models.toolCallTest')}
+                        <span className="text-xs font-normal text-pastel-400">{t('models.toolCallMinimum')}</span>
                       </h3>
                       <button
                         type="button"
@@ -1266,7 +1269,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                    transform active:scale-[0.97]"
                       >
                         {testRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                        테스트 실행
+                        {t('models.runTest')}
                       </button>
                     </div>
 
@@ -1328,8 +1331,8 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           ? 'bg-green-50 text-green-700 border border-green-200'
                           : 'bg-red-50 text-red-700 border border-red-200'
                       }`}>
-                        Tool Call 통과: {getToolCallPassCount(testResult)} / 4
-                        {getToolCallPassCount(testResult) >= 2 ? ' — 통과' : ' — 최소 2개 이상 통과 필요'}
+                        {t('models.toolCallPassCount', { passed: getToolCallPassCount(testResult) })}
+                        {getToolCallPassCount(testResult) >= 2 ? t('models.toolCallPassed') : t('models.toolCallNotPassed')}
                       </div>
                     )}
                   </div>
@@ -1340,7 +1343,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                           <Eye className="w-4 h-4" />
-                          Vision 테스트
+                          {t('models.visionTest')}
                         </h3>
                         <button
                           type="button"
@@ -1353,7 +1356,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                      transform active:scale-[0.97]"
                         >
                           {visionTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-                          Vision 테스트
+                          {t('models.visionTest')}
                         </button>
                       </div>
 
@@ -1386,7 +1389,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                               ? 'bg-green-50 text-green-700 border border-green-200'
                               : 'bg-red-50 text-red-700 border border-red-200'
                           }`}>
-                            {visionTestResult.passed ? 'Vision 테스트 통과' : 'Vision 인식 테스트를 통과해야 Vision 모델로 등록할 수 있습니다'}
+                            {visionTestResult.passed ? t('models.visionTestPassed') : t('models.visionTestRequired')}
                           </div>
                         </div>
                       )}
@@ -1403,7 +1406,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                       <Image className="w-4 h-4" />
-                      이미지 생성 테스트
+                      {t('models.imageGenTest')}
                     </h3>
                     <button
                       type="button"
@@ -1416,7 +1419,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                  transform active:scale-[0.97]"
                     >
                       {imageTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
-                      이미지 생성 테스트
+                      {t('models.imageGenTest')}
                     </button>
                   </div>
 
@@ -1437,7 +1440,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           ? 'bg-green-50 text-green-700 border border-green-200'
                           : 'bg-red-50 text-red-700 border border-red-200'
                       }`}>
-                        {imageTestResult.passed ? '이미지 생성 테스트 통과' : '이미지 생성 테스트를 통과해야 IMAGE 모델로 등록할 수 있습니다'}
+                        {imageTestResult.passed ? t('models.imageGenTestPassed') : t('models.imageGenTestRequired')}
                       </div>
                     </div>
                   )}
@@ -1450,7 +1453,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                       <Layers className="w-4 h-4 text-samsung-blue" />
-                      임베딩 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                      {t('models.embeddingTest')} <span className="text-pastel-400 font-normal text-xs">{t('models.embeddingTestPassRequired')}</span>
                     </h3>
                     <button
                       type="button"
@@ -1461,7 +1464,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                  flex items-center gap-1.5"
                     >
                       {embeddingTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
-                      임베딩 테스트
+                      {t('models.embeddingTest')}
                     </button>
                   </div>
                   {embeddingTestResult && (
@@ -1473,7 +1476,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
                           : <XCircle className="w-4 h-4 text-red-600" />}
                         <p className={`text-xs font-medium ${embeddingTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
-                          {embeddingTestResult.message || (embeddingTestResult.passed ? '임베딩 테스트 통과' : '임베딩 테스트 실패')}
+                          {embeddingTestResult.message || (embeddingTestResult.passed ? t('models.embeddingTestPassed') : t('models.embeddingTestFailed'))}
                         </p>
                       </div>
                     </div>
@@ -1487,7 +1490,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-samsung-blue" />
-                      리랭킹 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                      {t('models.rerankTest')} <span className="text-pastel-400 font-normal text-xs">{t('models.rerankTestPassRequired')}</span>
                     </h3>
                     <button
                       type="button"
@@ -1498,7 +1501,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                  flex items-center gap-1.5"
                     >
                       {rerankTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                      리랭킹 테스트
+                      {t('models.rerankTest')}
                     </button>
                   </div>
                   {rerankTestResult && (
@@ -1510,7 +1513,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
                           : <XCircle className="w-4 h-4 text-red-600" />}
                         <p className={`text-xs font-medium ${rerankTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
-                          {rerankTestResult.message || (rerankTestResult.passed ? '리랭킹 테스트 통과' : '리랭킹 테스트 실패')}
+                          {rerankTestResult.message || (rerankTestResult.passed ? t('models.rerankTestPassed') : t('models.rerankTestFailed'))}
                         </p>
                       </div>
                     </div>
@@ -1524,7 +1527,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-pastel-700 flex items-center gap-2">
                       <Mic className="w-4 h-4 text-samsung-blue" />
-                      ASR 테스트 <span className="text-pastel-400 font-normal text-xs">(통과 필요)</span>
+                      {t('models.asrTest')} <span className="text-pastel-400 font-normal text-xs">{t('models.asrTestPassRequired')}</span>
                     </h3>
                     <button
                       type="button"
@@ -1535,7 +1538,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                                  flex items-center gap-1.5"
                     >
                       {asrTestRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-                      ASR 테스트
+                      {t('models.asrTest')}
                     </button>
                   </div>
                   {asrTestResult && (
@@ -1547,7 +1550,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                           ? <CheckCircle className="w-4 h-4 text-green-600" />
                           : <XCircle className="w-4 h-4 text-red-600" />}
                         <p className={`text-xs font-medium ${asrTestResult.passed ? 'text-green-700' : 'text-red-700'}`}>
-                          {asrTestResult.message || (asrTestResult.passed ? 'ASR 테스트 통과' : 'ASR 테스트 실패')}
+                          {asrTestResult.message || (asrTestResult.passed ? t('models.asrTestPassed') : t('models.asrTestFailed'))}
                         </p>
                       </div>
                     </div>
@@ -1563,7 +1566,7 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   onClick={() => setShowModal(false)}
                   className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-ios transition-colors"
                 >
-                  취소
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSave}
@@ -1576,12 +1579,12 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                   {saving ? (
                     <span className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      저장 중...
+                      {t('common.saving')}
                     </span>
                   ) : (
                     <span className="flex items-center gap-2">
                       <Check className="w-4 h-4" />
-                      {editingModel ? '수정' : '생성'}
+                      {editingModel ? t('common.edit') : t('common.create')}
                     </span>
                   )}
                 </button>
@@ -1599,10 +1602,10 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
                 <Trash2 className="w-6 h-6 text-red-500" />
               </div>
-              <h3 className="text-lg font-semibold text-pastel-800 text-center">모델 삭제</h3>
+              <h3 className="text-lg font-semibold text-pastel-800 text-center">{t('models.deleteModel')}</h3>
               <p className="text-sm text-pastel-500 text-center mt-2">
-                <span className="font-medium text-pastel-700">{deleteTarget.displayName}</span>을(를) 삭제하시겠습니까?
-                <br />이 작업은 되돌릴 수 없습니다.
+                <span className="font-medium text-pastel-700">{deleteTarget.displayName}</span>{t('models.deleteConfirm')}
+                <br />{t('models.deleteIrreversible')}
               </p>
             </div>
             <div className="px-6 pb-6 flex gap-3">
@@ -1611,14 +1614,14 @@ export default function Models({ adminRole, isAdmin, user }: ModelsProps) {
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-pastel-600 bg-pastel-50 rounded-ios
                            hover:bg-pastel-100 transition-colors"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => handleDelete(deleteTarget)}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-500 rounded-ios
                            hover:bg-red-600 transition-colors transform active:scale-[0.97]"
               >
-                삭제
+                {t('common.delete')}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Filter, ChevronDown, Shield, ShieldCheck, Clock, Activity, Users, Building2, X, Trash2, AlertTriangle, UserPlus, RefreshCw, CheckCircle, Download } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
 import { unifiedUsersApi, usersApi, knoxApi } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
@@ -39,16 +40,17 @@ const roleColors: Record<string, string> = {
   USER: 'bg-pastel-100 text-pastel-600 ring-1 ring-pastel-200/80',
 };
 
-const roleLabels: Record<string, string> = {
-  SUPER_ADMIN: '슈퍼관리자',
-  ADMIN: '시스템 관리자',
-  USER: '사용자',
-};
-
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
+  const { t } = useTranslation();
   const isSuperAdmin = adminRole === 'SUPER_ADMIN';
+
+  const roleLabels: Record<string, string> = {
+    SUPER_ADMIN: t('roles.superAdmin'),
+    ADMIN: t('roles.admin'),
+    USER: t('roles.user'),
+  };
   const [users, setUsers] = useState<UnifiedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
@@ -163,7 +165,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       loadUsers();
     } catch (error) {
       console.error('Failed to update permissions:', error);
-      alert('권한 변경에 실패했습니다.');
+      alert(t('unifiedUsers.permissionChangeFailed'));
     } finally {
       setSaving(false);
     }
@@ -189,7 +191,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       loadUsers();
     } catch (error) {
       console.error('Failed to delete user:', error);
-      alert('사용자 삭제에 실패했습니다.');
+      alert(t('unifiedUsers.deleteUserFailed'));
     } finally {
       setDeleting(false);
     }
@@ -268,9 +270,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
   const getRoleFilterOptions = () => {
     return [
-      { value: 'SUPER_ADMIN', label: '슈퍼관리자' },
-      { value: 'ADMIN', label: '시스템 관리자' },
-      { value: 'USER', label: '사용자' },
+      { value: 'SUPER_ADMIN', label: t('unifiedUsers.roleFilterSuperAdmin') },
+      { value: 'ADMIN', label: t('unifiedUsers.roleFilterAdmin') },
+      { value: 'USER', label: t('unifiedUsers.roleFilterUser') },
     ];
   };
 
@@ -286,7 +288,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       setKnoxResult(res.data);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { error?: string } } };
-      setKnoxSearchError(err.response?.data?.error || '검색에 실패했습니다.');
+      setKnoxSearchError(err.response?.data?.error || t('unifiedUsers.knoxSearchFailed'));
     } finally {
       setKnoxSearching(false);
     }
@@ -304,7 +306,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       loadUsers();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { error?: string } } };
-      setKnoxSearchError(err.response?.data?.error || '등록에 실패했습니다.');
+      setKnoxSearchError(err.response?.data?.error || t('unifiedUsers.knoxRegisterFailed'));
     } finally {
       setKnoxRegistering(false);
     }
@@ -337,7 +339,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       const externalCodemate: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = res.data.externalCodemate || {};
 
       if (exportUsers.length === 0 && Object.keys(externalRoo).length === 0 && Object.keys(externalCodemate).length === 0) {
-        alert('내보낼 사용자가 없습니다.');
+        alert(t('unifiedUsers.noExportUsers'));
         return;
       }
 
@@ -401,13 +403,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       exportUsers.forEach(u => {
         no++;
         const row: Record<string, string | number> = {
-          'No': no,
-          '이름': decodeURIComponent(u.username),
+          [t('unifiedUsers.excelColNo')]: no,
+          [t('unifiedUsers.excelColName')]: decodeURIComponent(u.username),
           'ID': u.loginid,
-          '부서': u.deptname,
-          '사업부': u.businessUnit || '',
-          '권한': u.globalRole === 'SUPER_ADMIN' ? '슈퍼관리자' : u.globalRole === 'ADMIN' ? '시스템 관리자' : '사용자',
-          '총 요청수': u.totalRequests,
+          [t('unifiedUsers.excelColDept')]: u.deptname,
+          [t('unifiedUsers.excelColBU')]: u.businessUnit || '',
+          [t('unifiedUsers.excelColRole')]: u.globalRole === 'SUPER_ADMIN' ? t('roles.superAdmin') : u.globalRole === 'ADMIN' ? t('roles.admin') : t('roles.user'),
+          [t('unifiedUsers.excelColTotalRequests')]: u.totalRequests,
         };
         serviceNames.forEach(name => {
           const stat = u.serviceStats.find(s => s.serviceName === name);
@@ -423,20 +425,20 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
         no++;
         const ext = externalTotals.get(uname)!;
         const row: Record<string, string | number> = {
-          'No': no,
-          '이름': uname,
+          [t('unifiedUsers.excelColNo')]: no,
+          [t('unifiedUsers.excelColName')]: uname,
           'ID': uname,
-          '부서': ext.lwrDept || ext.dept || '',
-          '사업부': ext.dept || '',
-          '권한': '-',
-          '총 요청수': 0,
+          [t('unifiedUsers.excelColDept')]: ext.lwrDept || ext.dept || '',
+          [t('unifiedUsers.excelColBU')]: ext.dept || '',
+          [t('unifiedUsers.excelColRole')]: '-',
+          [t('unifiedUsers.excelColTotalRequests')]: 0,
         };
         serviceNames.forEach(name => { row[name] = 0; });
         row['Codemate with Roo'] = ext.roo;
         row['Codemate'] = ext.codemate;
         totalRows.push(row);
       });
-      XLSX.utils.book_append_sheet(wb, createSheet(totalRows), '전체');
+      XLSX.utils.book_append_sheet(wb, createSheet(totalRows), t('unifiedUsers.excelSheetTotal'));
 
       // 2) 월별 시트 (모든 월 통합: 내부 + 외부)
       const allMonthsSet = new Set([
@@ -478,11 +480,11 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
         monthLoginIds.forEach(loginid => {
           const user = loginMap.get(loginid);
           const row: Record<string, string | number> = {
-            'No': 0,
-            '이름': user ? decodeURIComponent(user.username) : loginid,
+            [t('unifiedUsers.excelColNo')]: 0,
+            [t('unifiedUsers.excelColName')]: user ? decodeURIComponent(user.username) : loginid,
             'ID': loginid,
-            '부서': user?.deptname || rooMonth[loginid]?.lwrDept || cmMonth[loginid]?.lwrDept || '',
-            '사업부': user?.businessUnit || rooMonth[loginid]?.dept || cmMonth[loginid]?.dept || '',
+            [t('unifiedUsers.excelColDept')]: user?.deptname || rooMonth[loginid]?.lwrDept || cmMonth[loginid]?.lwrDept || '',
+            [t('unifiedUsers.excelColBU')]: user?.businessUnit || rooMonth[loginid]?.dept || cmMonth[loginid]?.dept || '',
           };
 
           let monthTotal = 0;
@@ -504,22 +506,24 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
           row['Codemate with Roo'] = rooCount;
           row['Codemate'] = cmCount;
           monthTotal += rooCount + cmCount;
-          row['월 합계'] = monthTotal;
+          row[t('unifiedUsers.excelColMonthTotal')] = monthTotal;
           rows.push(row);
         });
 
-        // 월 합계 내림차순 정렬 + No 재부여
-        rows.sort((a, b) => (b['월 합계'] as number) - (a['월 합계'] as number));
-        rows.forEach((r, i) => { r['No'] = i + 1; });
+        // Sort by monthly total descending + reassign No
+        const monthTotalKey = t('unifiedUsers.excelColMonthTotal');
+        const noKey = t('unifiedUsers.excelColNo');
+        rows.sort((a, b) => (b[monthTotalKey] as number) - (a[monthTotalKey] as number));
+        rows.forEach((r, i) => { r[noKey] = i + 1; });
 
         XLSX.utils.book_append_sheet(wb, createSheet(rows), month);
       }
 
       const today = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `사용자_관리_${today}.xlsx`);
+      XLSX.writeFile(wb, t('unifiedUsers.excelFileName', { date: today }));
     } catch (error) {
       console.error('Excel export failed:', error);
-      alert('Excel 내보내기에 실패했습니다.');
+      alert(t('unifiedUsers.excelExportFailed'));
     } finally {
       setExporting(false);
     }
@@ -527,12 +531,12 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
   // Knox 인증 초기화
   const handleResetVerification = async (userId: string) => {
-    if (!confirm('Knox 인증을 초기화하시겠습니까? 다음 접근 시 재인증됩니다.')) return;
+    if (!confirm(t('unifiedUsers.resetKnoxConfirm'))) return;
     try {
       await knoxApi.resetVerification(userId);
       loadUsers();
     } catch {
-      alert('Knox 인증 초기화에 실패했습니다.');
+      alert(t('unifiedUsers.resetKnoxFailed'));
     }
   };
 
@@ -545,9 +549,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             <Users className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">통합 사용자 관리</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('unifiedUsers.title')}</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              전체 서비스의 사용자 권한 및 활동 현황을 관리합니다
+              {t('unifiedUsers.description')}
             </p>
           </div>
         </div>
@@ -558,7 +562,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-sm hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-semibold"
           >
             <Download className="w-4 h-4" />
-            {exporting ? '내보내는 중...' : 'Excel 저장'}
+            {exporting ? t('common.exporting') : t('common.excelExport')}
           </button>
           {isSuperAdmin && (
             <button
@@ -566,7 +570,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
               className="flex items-center gap-2 px-4 py-2 bg-samsung-blue text-white rounded-lg shadow-sm hover:bg-samsung-blue/90 transition-all duration-200 text-sm font-semibold"
             >
               <UserPlus className="w-4 h-4" />
-              관리자 사전 등록
+              {t('unifiedUsers.preRegisterAdmin')}
             </button>
           )}
           <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
@@ -574,7 +578,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
               <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
             </span>
-            <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}명</span>
+            <span className="text-sm font-semibold text-pastel-700">{t('common.totalUsers', { count: pagination.total.toLocaleString() })}</span>
           </div>
         </div>
       </div>
@@ -587,7 +591,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
             <input
               type="text"
-              placeholder="사용자명, 아이디, 부서 검색..."
+              placeholder={t('unifiedUsers.searchPlaceholder')}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
@@ -604,7 +608,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             }`}
           >
             <Filter className="w-4 h-4" />
-            <span>필터</span>
+            <span>{t('common.filter')}</span>
             {hasActiveFilters && (
               <span className="bg-white/25 text-xs font-bold px-2 py-0.5 rounded-full">
                 {[serviceFilter, businessUnitFilter, roleFilter].filter(Boolean).length}
@@ -618,13 +622,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
         {showFilters && (
           <div className="mt-5 pt-5 border-t border-gray-100/80 grid grid-cols-1 sm:grid-cols-3 gap-5 animate-slide-down">
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">서비스</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('unifiedUsers.filterService')}</label>
               <select
                 value={serviceFilter}
                 onChange={e => setServiceFilter(e.target.value)}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 {filterOptions?.services.map(s => (
                   <option key={s.id} value={s.id}>{s.displayName}</option>
                 ))}
@@ -632,13 +636,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">사업부</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('unifiedUsers.filterBusinessUnit')}</label>
               <select
                 value={businessUnitFilter}
                 onChange={e => setBusinessUnitFilter(e.target.value)}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 {filterOptions?.businessUnits.map(bu => (
                   <option key={bu} value={bu}>{bu}</option>
                 ))}
@@ -646,13 +650,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">권한</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('unifiedUsers.filterRole')}</label>
               <select
                 value={roleFilter}
                 onChange={e => setRoleFilter(e.target.value)}
                 className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 {getRoleFilterOptions().map(r => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
@@ -666,7 +670,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="inline-flex items-center gap-1.5 text-sm text-pastel-500 hover:text-red-500 transition-colors duration-200"
                 >
                   <X className="w-3.5 h-3.5" />
-                  필터 초기화
+                  {t('common.filterReset')}
                 </button>
               </div>
             )}
@@ -684,7 +688,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.user }}
                 >
-                  사용자
+                  {t('unifiedUsers.colUser')}
                   <div
                     className="absolute right-0 top-2 bottom-2 w-px bg-pastel-200/60 cursor-col-resize hover:bg-samsung-blue/40 hover:w-0.5 transition-all"
                     onMouseDown={(e) => handleResizeStart(e, 'user')}
@@ -694,7 +698,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.dept }}
                 >
-                  부서/사업부
+                  {t('unifiedUsers.colDeptBU')}
                   <div
                     className="absolute right-0 top-2 bottom-2 w-px bg-pastel-200/60 cursor-col-resize hover:bg-samsung-blue/40 hover:w-0.5 transition-all"
                     onMouseDown={(e) => handleResizeStart(e, 'dept')}
@@ -704,7 +708,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.role }}
                 >
-                  권한
+                  {t('unifiedUsers.colRole')}
                   <div
                     className="absolute right-0 top-2 bottom-2 w-px bg-pastel-200/60 cursor-col-resize hover:bg-samsung-blue/40 hover:w-0.5 transition-all"
                     onMouseDown={(e) => handleResizeStart(e, 'role')}
@@ -714,7 +718,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.activity }}
                 >
-                  활동
+                  {t('unifiedUsers.colActivity')}
                   <div
                     className="absolute right-0 top-2 bottom-2 w-px bg-pastel-200/60 cursor-col-resize hover:bg-samsung-blue/40 hover:w-0.5 transition-all"
                     onMouseDown={(e) => handleResizeStart(e, 'activity')}
@@ -724,7 +728,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider relative select-none"
                   style={{ width: columnWidths.requests }}
                 >
-                  요청수
+                  {t('unifiedUsers.colRequests')}
                   <div
                     className="absolute right-0 top-2 bottom-2 w-px bg-pastel-200/60 cursor-col-resize hover:bg-samsung-blue/40 hover:w-0.5 transition-all"
                     onMouseDown={(e) => handleResizeStart(e, 'requests')}
@@ -734,7 +738,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   className="px-5 py-4 text-right text-xs font-semibold text-pastel-500 uppercase tracking-wider"
                   style={{ width: columnWidths.manage }}
                 >
-                  관리
+                  {t('unifiedUsers.colManage')}
                 </th>
               </tr>
             </thead>
@@ -749,8 +753,8 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                         <Search className="w-8 h-8 text-pastel-300" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-pastel-600">검색 결과가 없습니다</p>
-                        <p className="text-xs text-pastel-400 mt-1">다른 검색어나 필터 조건을 시도해 보세요</p>
+                        <p className="text-sm font-semibold text-pastel-600">{t('common.noSearchResults')}</p>
+                        <p className="text-xs text-pastel-400 mt-1">{t('common.tryDifferentSearch')}</p>
                       </div>
                     </div>
                   </td>
@@ -768,11 +772,11 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                           <div className="flex items-center gap-1 mt-0.5">
                             <p className="text-xs text-pastel-400 truncate">{user.loginid}</p>
                             {user.knoxVerified ? (
-                              <span title="Knox 인증 완료">
+                              <span title={t('unifiedUsers.knoxVerified')}>
                                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
                               </span>
                             ) : (
-                              <span title="Knox 미인증">
+                              <span title={t('unifiedUsers.knoxUnverified')}>
                                 <Shield className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
                               </span>
                             )}
@@ -818,20 +822,20 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                           <div className="p-1 rounded bg-accent-emerald/10 flex-shrink-0">
                             <Clock className="w-3 h-3 text-accent-emerald" />
                           </div>
-                          <span className="truncate">최근: {formatDateTime(user.lastActive)}</span>
+                          <span className="truncate">{t('unifiedUsers.recentActivity', { datetime: formatDateTime(user.lastActive) })}</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-pastel-400">
                           <div className="p-1 rounded bg-pastel-100 flex-shrink-0">
                             <Activity className="w-3 h-3 text-pastel-400" />
                           </div>
-                          <span className="truncate">가입: {formatDate(user.firstSeen)}</span>
+                          <span className="truncate">{t('unifiedUsers.joined', { date: formatDate(user.firstSeen) })}</span>
                         </div>
                         {user.serviceStats.length > 1 && (
                           <button
                             onClick={() => toggleExpanded(user.id)}
                             className="inline-flex items-center gap-1 text-xs font-medium text-samsung-blue hover:text-accent-indigo transition-colors mt-1"
                           >
-                            {expandedRows.has(user.id) ? '접기 ▲' : `서비스별 보기 (${user.serviceStats.length}) ▼`}
+                            {expandedRows.has(user.id) ? t('unifiedUsers.collapse') : t('unifiedUsers.viewByService', { count: user.serviceStats.length })}
                           </button>
                         )}
                         {expandedRows.has(user.id) && (
@@ -841,11 +845,11 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                                 <p className="font-semibold text-pastel-700 mb-1">{ss.serviceName}</p>
                                 <div className="flex items-center gap-1.5 text-pastel-500">
                                   <Clock className="w-3 h-3 text-pastel-400" />
-                                  <span>가입: {formatDate(ss.firstSeen)}</span>
+                                  <span>{t('unifiedUsers.joined', { date: formatDate(ss.firstSeen) })}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-pastel-500 mt-0.5">
                                   <Activity className="w-3 h-3 text-pastel-400" />
-                                  <span>최근: {formatDateTime(ss.lastActive)}</span>
+                                  <span>{t('unifiedUsers.recentActivity', { datetime: formatDateTime(ss.lastActive) })}</span>
                                 </div>
                               </div>
                             ))}
@@ -856,7 +860,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                     <td className="px-5 py-4">
                       <div className="text-sm font-bold text-pastel-800">
                         {user.totalRequests.toLocaleString()}
-                        <span className="text-xs font-normal text-pastel-400 ml-0.5">회</span>
+                        <span className="text-xs font-normal text-pastel-400 ml-0.5">{t('unifiedUsers.requestUnit')}</span>
                       </div>
                       {/* 서비스별 요청 수 항상 표시 */}
                       {user.serviceStats.length > 0 && (
@@ -880,13 +884,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                             onClick={() => openEditModal(user)}
                             className="px-3.5 py-1.5 text-xs font-semibold bg-pastel-50 text-pastel-600 hover:bg-samsung-blue hover:text-white rounded-xl border border-pastel-200/60 hover:border-transparent transition-all duration-200 shadow-sm hover:shadow-depth"
                           >
-                            권한 변경
+                            {t('unifiedUsers.changePermission')}
                           </button>
                           {isSuperAdmin && (
                             <button
                               onClick={() => handleResetVerification(user.id)}
                               className="p-1.5 text-pastel-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg border border-transparent hover:border-amber-200/60 transition-all duration-200"
-                              title="Knox 인증 초기화"
+                              title={t('unifiedUsers.resetKnoxVerification')}
                             >
                               <RefreshCw className="w-4 h-4" />
                             </button>
@@ -894,7 +898,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                           <button
                             onClick={() => openDeleteModal(user)}
                             className="p-1.5 text-pastel-400 hover:text-red-600 hover:bg-red-50 rounded-lg border border-transparent hover:border-red-200/60 transition-all duration-200"
-                            title="사용자 삭제"
+                            title={t('unifiedUsers.deleteUser')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -912,10 +916,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
-              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>개 중{' '}
+              <span className="font-semibold text-pastel-700">{t('unifiedUsers.paginationOf', { total: pagination.total.toLocaleString() })}</span>{' '}
               <span className="font-medium text-pastel-600">
-                {((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-
-                {Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}
+                {t('unifiedUsers.paginationRange', { start: ((pagination.page - 1) * pagination.limit + 1).toLocaleString(), end: Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString() })}
               </span>
             </p>
             <div className="flex items-center gap-2">
@@ -924,7 +927,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                 disabled={pagination.page <= 1}
                 className="px-4 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                이전
+                {t('common.prev')}
               </button>
               <span className="px-4 py-2 text-sm font-semibold text-pastel-700 bg-white rounded-xl border border-gray-200/60 shadow-sm tabular-nums">
                 {pagination.page} / {pagination.totalPages}
@@ -934,7 +937,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                 disabled={pagination.page >= pagination.totalPages}
                 className="px-4 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                다음
+                {t('common.next')}
               </button>
             </div>
           </div>
@@ -951,7 +954,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   <AlertTriangle className="w-5 h-5 text-red-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-pastel-800">사용자 삭제</h2>
+                  <h2 className="text-lg font-bold text-pastel-800">{t('unifiedUsers.deleteUserTitle')}</h2>
                   <p className="text-sm text-pastel-500">{deletingUser.username} ({deletingUser.loginid})</p>
                 </div>
               </div>
@@ -965,16 +968,17 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
             <div className="p-6">
               <div className="p-4 rounded-xl bg-red-50 border border-red-200/60 mb-5">
-                <p className="text-sm text-red-700 font-medium leading-relaxed">
-                  이 사용자의 <span className="font-bold">모든 기록</span>(사용 로그, 통계, 토큰 제한 설정)이
-                  영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
-                </p>
+                <p className="text-sm text-red-700 font-medium leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: t('unifiedUsers.deleteWarning', { interpolation: { escapeValue: false } })
+                    .replace('<1>', '<span class="font-bold">').replace('</1>', '</span>') }}
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-2">
-                  확인을 위해 <span className="text-red-600 font-bold">{deletingUser.loginid}</span>를 입력하세요
-                </label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2"
+                  dangerouslySetInnerHTML={{ __html: t('unifiedUsers.deleteConfirmLabel', { loginid: deletingUser.loginid, interpolation: { escapeValue: false } })
+                    .replace('<1>', '<span class="text-red-600 font-bold">').replace('</1>', '</span>') }}
+                />
                 <input
                   type="text"
                   value={deleteConfirmInput}
@@ -991,14 +995,14 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                 onClick={closeDeleteModal}
                 className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleDeleteUser}
                 disabled={deleting || deleteConfirmInput !== deletingUser.loginid}
                 className="px-6 py-2.5 text-sm font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {deleting ? '삭제 중...' : '삭제'}
+                {deleting ? t('common.deleting') : t('common.delete')}
               </button>
             </div>
           </div>
@@ -1015,8 +1019,8 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   <UserPlus className="w-5 h-5 text-samsung-blue" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-pastel-800">관리자 사전 등록</h2>
-                  <p className="text-sm text-pastel-500">Knox ID로 임직원을 검색하여 관리자로 등록합니다</p>
+                  <h2 className="text-lg font-bold text-pastel-800">{t('unifiedUsers.knoxModalTitle')}</h2>
+                  <p className="text-sm text-pastel-500">{t('unifiedUsers.knoxModalDesc')}</p>
                 </div>
               </div>
               <button onClick={closeKnoxModal} className="p-2 text-pastel-400 hover:text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200">
@@ -1029,7 +1033,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
               <div className="flex gap-3 mb-5">
                 <input
                   type="text"
-                  placeholder="Knox ID 입력 (예: syngha.han)"
+                  placeholder={t('unifiedUsers.knoxIdPlaceholder')}
                   value={knoxSearchId}
                   onChange={e => setKnoxSearchId(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleKnoxSearch()}
@@ -1041,7 +1045,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   disabled={knoxSearching || !knoxSearchId.trim()}
                   className="px-5 py-3 bg-samsung-blue text-white rounded-lg text-sm font-semibold hover:bg-samsung-blue/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {knoxSearching ? '검색 중...' : '검색'}
+                  {knoxSearching ? t('unifiedUsers.knoxSearching') : t('common.search')}
                 </button>
               </div>
 
@@ -1075,23 +1079,23 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                       <span className="ml-auto px-2.5 py-1 text-xs font-semibold bg-accent-emerald/10 text-accent-emerald rounded-full">{knoxResult.employee.employeeStatus}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div><span className="text-pastel-500">부서</span><p className="font-medium text-pastel-800">{knoxResult.employee.departmentName}</p></div>
-                      <div><span className="text-pastel-500">직급</span><p className="font-medium text-pastel-800">{knoxResult.employee.titleName} ({knoxResult.employee.gradeName})</p></div>
-                      <div className="col-span-2"><span className="text-pastel-500">이메일</span><p className="font-medium text-pastel-800">{knoxResult.employee.emailAddress}</p></div>
+                      <div><span className="text-pastel-500">{t('unifiedUsers.knoxDept')}</span><p className="font-medium text-pastel-800">{knoxResult.employee.departmentName}</p></div>
+                      <div><span className="text-pastel-500">{t('unifiedUsers.knoxTitle')}</span><p className="font-medium text-pastel-800">{knoxResult.employee.titleName} ({knoxResult.employee.gradeName})</p></div>
+                      <div className="col-span-2"><span className="text-pastel-500">{t('unifiedUsers.knoxEmail')}</span><p className="font-medium text-pastel-800">{knoxResult.employee.emailAddress}</p></div>
                     </div>
 
                     {knoxResult.existingUser && (
                       <div className="mt-4 pt-4 border-t border-pastel-200/60">
-                        <p className="text-xs font-semibold text-pastel-500 mb-1">기존 등록 정보</p>
+                        <p className="text-xs font-semibold text-pastel-500 mb-1">{t('unifiedUsers.knoxExistingInfo')}</p>
                         <p className="text-sm text-pastel-700">
                           {knoxResult.existingUser.username} · {knoxResult.existingUser.deptname}
-                          {knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-accent-emerald/10 text-accent-emerald rounded">인증완료</span>}
-                          {!knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded">미인증</span>}
+                          {knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-accent-emerald/10 text-accent-emerald rounded">{t('unifiedUsers.knoxVerifiedBadge')}</span>}
+                          {!knoxResult.existingUser.knoxVerified && <span className="ml-2 px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded">{t('unifiedUsers.knoxUnverifiedBadge')}</span>}
                         </p>
                         {knoxResult.existingAdmin && (
                           <p className="text-xs text-pastel-500 mt-1">
-                            현재 역할: <span className="font-semibold">{knoxResult.existingAdmin.role}</span>
-                            {knoxResult.existingAdmin.designatedBy && <span> (지정: {knoxResult.existingAdmin.designatedBy})</span>}
+                            {t('unifiedUsers.knoxCurrentRole', { role: knoxResult.existingAdmin.role }).replace('<1>', '').replace('</1>', '')}
+                            {knoxResult.existingAdmin.designatedBy && <span> {t('unifiedUsers.knoxDesignatedBy', { by: knoxResult.existingAdmin.designatedBy })}</span>}
                           </p>
                         )}
                       </div>
@@ -1105,15 +1109,15 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                       onChange={e => setKnoxRegisterRole(e.target.value as 'ADMIN' | 'SUPER_ADMIN')}
                       className="flex-1 px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
                     >
-                      <option value="ADMIN">시스템 관리자 (ADMIN)</option>
-                      <option value="SUPER_ADMIN">슈퍼 관리자 (SUPER_ADMIN)</option>
+                      <option value="ADMIN">{t('unifiedUsers.knoxRoleAdmin')}</option>
+                      <option value="SUPER_ADMIN">{t('unifiedUsers.knoxRoleSuperAdmin')}</option>
                     </select>
                     <button
                       onClick={handleKnoxRegister}
                       disabled={knoxRegistering}
                       className="px-6 py-2.5 bg-samsung-blue text-white rounded-lg text-sm font-semibold hover:bg-samsung-blue/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                     >
-                      {knoxRegistering ? '등록 중...' : '등록'}
+                      {knoxRegistering ? t('unifiedUsers.knoxRegistering') : t('unifiedUsers.knoxRegister')}
                     </button>
                   </div>
                 </div>
@@ -1133,7 +1137,7 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                   <Shield className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-pastel-800">권한 변경</h2>
+                  <h2 className="text-lg font-bold text-pastel-800">{t('unifiedUsers.editPermissionTitle')}</h2>
                   <p className="text-sm text-pastel-500">{editingUser.username} ({editingUser.loginid})</p>
                 </div>
               </div>
@@ -1147,9 +1151,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
             <div className="p-6 space-y-3">
               {([
-                { value: 'USER' as const, label: '일반 사용자', desc: '자신의 사용 현황만 확인할 수 있습니다.', color: 'bg-gray-100 text-gray-600' },
-                { value: 'ADMIN' as const, label: '시스템 관리자', desc: '통합 대시보드, LLM 모델 관리, 서비스 관리 등에 접근할 수 있습니다.', color: 'bg-blue-50 text-blue-700' },
-                ...(isSuperAdmin ? [{ value: 'SUPER_ADMIN' as const, label: '슈퍼 관리자', desc: '모든 권한 + 사용자 관리, 요청/감사 로그, 휴일 관리 등 전체 시스템 권한을 갖습니다.', color: 'bg-red-50 text-red-700' }] : []),
+                { value: 'USER' as const, label: t('unifiedUsers.roleUser'), desc: t('unifiedUsers.roleUserDesc'), color: 'bg-gray-100 text-gray-600' },
+                { value: 'ADMIN' as const, label: t('unifiedUsers.roleAdmin'), desc: t('unifiedUsers.roleAdminDesc'), color: 'bg-blue-50 text-blue-700' },
+                ...(isSuperAdmin ? [{ value: 'SUPER_ADMIN' as const, label: t('unifiedUsers.roleSuperAdmin'), desc: t('unifiedUsers.roleSuperAdminDesc'), color: 'bg-red-50 text-red-700' }] : []),
               ]).map(({ value, label, desc, color }) => (
                 <label
                   key={value}
@@ -1191,14 +1195,14 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
                 onClick={closeEditModal}
                 className="px-5 py-2.5 text-sm font-medium text-pastel-600 hover:bg-pastel-50 rounded-xl transition-all duration-200"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={savePermissions}
                 disabled={saving}
                 className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? '저장 중...' : '저장'}
+                {saving ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>

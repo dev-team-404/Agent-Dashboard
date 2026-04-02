@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { statsApi, serviceApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
@@ -54,13 +55,7 @@ const USER_COLORS = [
   '#eab308', '#d946ef', '#0ea5e9', '#65a30d', '#e11d48',
 ];
 
-const DATE_RANGE_OPTIONS = [
-  { label: '2주', value: 14 },
-  { label: '1개월', value: 30 },
-  { label: '3개월', value: 90 },
-  { label: '6개월', value: 180 },
-  { label: '1년', value: 365 },
-];
+// DATE_RANGE_OPTIONS moved inside component for i18n
 
 const TOP_N_OPTIONS = [10, 20, 30, 50, 100];
 
@@ -74,6 +69,14 @@ interface AliasGroup {
 }
 
 export default function UsersByModelChart({ serviceId }: UsersByModelChartProps) {
+  const { t } = useTranslation();
+  const DATE_RANGE_OPTIONS = [
+    { label: t('charts.usersByModel.week2'), value: 14 },
+    { label: t('charts.usersByModel.month1'), value: 30 },
+    { label: t('charts.usersByModel.month3'), value: 90 },
+    { label: t('charts.usersByModel.month6'), value: 180 },
+    { label: t('charts.usersByModel.year1'), value: 365 },
+  ];
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [aliasGroups, setAliasGroups] = useState<AliasGroup[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
@@ -204,9 +207,9 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
       <div className="flex flex-col gap-4 mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">모델별 사용자 누적 사용량</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{t('charts.usersByModel.title')}</h2>
             <p className="text-sm text-gray-500 mt-1">
-              {selectedModel ? `${selectedModel.displayName} - Top ${topN} 사용자 누적 토큰` : '모델을 선택하세요'}
+              {selectedModel ? t('charts.usersByModel.subtitle', { model: selectedModel.displayName, topN }) : t('charts.usersByModel.selectModel')}
             </p>
           </div>
         </div>
@@ -215,7 +218,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
         <div className="flex flex-wrap items-center gap-4">
           {/* Model selector */}
           <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-600">모델:</label>
+            <label className="text-sm text-gray-600">{t('charts.usersByModel.modelLabel')}</label>
             {serviceId && aliasGroups.length > 0 ? (
               <select
                 value={selectedAliasName}
@@ -224,7 +227,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
               >
                 {aliasGroups.map((g) => (
                   <option key={g.aliasName} value={g.aliasName}>
-                    {g.aliasName}{g.modelIds.length > 1 ? ` (${g.modelIds.length}개 합산)` : ''}
+                    {g.aliasName}{g.modelIds.length > 1 ? ` (${t('charts.usersByModel.mergedCount', { count: g.modelIds.length })})` : ''}
                   </option>
                 ))}
               </select>
@@ -253,7 +256,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
             >
               {TOP_N_OPTIONS.map((n) => (
                 <option key={n} value={n}>
-                  {n}명
+                  {t('charts.usersByModel.usersUnit', { count: n })}
                 </option>
               ))}
             </select>
@@ -284,7 +287,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
         </div>
       ) : cumulativeChartData.length === 0 || users.length === 0 ? (
         <div className="h-96 flex items-center justify-center text-gray-400">
-          데이터가 없습니다
+          {t('common.noData')}
         </div>
       ) : (
         <>
@@ -319,7 +322,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
                     const user = users.find((u) => u.id === name);
                     return [formatYAxis(value), decodeUsername(user?.username) || user?.loginid || name];
                   }}
-                  labelFormatter={(label) => `날짜: ${label}`}
+                  labelFormatter={(label) => t('charts.usersByModel.dateLabel', { date: label })}
                 />
                 <Legend
                   formatter={(value: string) => {
@@ -346,7 +349,7 @@ export default function UsersByModelChart({ serviceId }: UsersByModelChartProps)
 
           {/* User ranking table */}
           <div className="mt-6 border-t pt-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">사용량 순위 (누적)</h3>
+            <h3 className="text-sm font-medium text-gray-700 mb-3">{t('charts.usersByModel.rankingTitle')}</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
               {users.slice(0, 10).map((user, index) => (
                 <div

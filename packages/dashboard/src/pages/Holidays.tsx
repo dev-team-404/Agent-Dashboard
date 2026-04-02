@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, Sun, Building2, Tag, X, Upload, CalendarDays, AlertCircle } from 'lucide-react';
 import { holidaysApi, Holiday, CreateHolidayData } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -88,16 +89,7 @@ const KOREAN_HOLIDAYS_PRESET: Record<number, CreateHolidayData[]> = {
   ],
 };
 
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const MONTHS = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-
 type HolidayType = 'NATIONAL' | 'COMPANY' | 'CUSTOM';
-
-const TYPE_LABELS: Record<HolidayType, string> = {
-  NATIONAL: '공휴일',
-  COMPANY: '회사 휴일',
-  CUSTOM: '사용자 정의',
-};
 
 const TYPE_COLORS: Record<HolidayType, { bg: string; text: string; border: string }> = {
   NATIONAL: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200' },
@@ -120,6 +112,7 @@ const formatLocalDate = (date: Date): string => {
 };
 
 export default function Holidays() {
+  const { t } = useTranslation();
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
@@ -129,6 +122,22 @@ export default function Holidays() {
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [newHoliday, setNewHoliday] = useState<CreateHolidayData>({ date: '', name: '', type: 'NATIONAL' });
   const [error, setError] = useState<string | null>(null);
+
+  const WEEKDAYS = useMemo(() => [
+    t('holidays.weekdays.sun'), t('holidays.weekdays.mon'), t('holidays.weekdays.tue'),
+    t('holidays.weekdays.wed'), t('holidays.weekdays.thu'), t('holidays.weekdays.fri'),
+    t('holidays.weekdays.sat'),
+  ], [t]);
+
+  const MONTHS = useMemo(() => Array.from({ length: 12 }, (_, i) =>
+    t(`holidays.months.${i + 1}`)
+  ), [t]);
+
+  const TYPE_LABELS: Record<HolidayType, string> = useMemo(() => ({
+    NATIONAL: t('holidays.typeNational'),
+    COMPANY: t('holidays.typeCompany'),
+    CUSTOM: t('holidays.typeCustom'),
+  }), [t]);
 
   useEffect(() => {
     loadHolidays();
@@ -141,7 +150,7 @@ export default function Holidays() {
       setHolidays(res.data.holidays);
     } catch (err) {
       console.error('Failed to load holidays:', err);
-      setError('휴일 목록을 불러오는데 실패했습니다.');
+      setError(t('holidays.loadError'));
     } finally {
       setLoading(false);
     }
@@ -229,7 +238,7 @@ export default function Holidays() {
 
   const handleAddHoliday = async () => {
     if (!newHoliday.date || !newHoliday.name.trim()) {
-      setError('날짜와 이름을 입력해주세요.');
+      setError(t('holidays.dateAndNameRequired'));
       return;
     }
 
@@ -240,26 +249,26 @@ export default function Holidays() {
       loadHolidays();
     } catch (err: unknown) {
       const error = err as { response?: { data?: { error?: string } } };
-      setError(error.response?.data?.error || '휴일 추가에 실패했습니다.');
+      setError(error.response?.data?.error || t('holidays.addFailed'));
     }
   };
 
   const handleDeleteHoliday = async (id: string) => {
-    if (!confirm('이 휴일을 삭제하시겠습니까?')) return;
+    if (!confirm(t('holidays.deleteConfirm'))) return;
 
     try {
       await holidaysApi.delete(id);
       loadHolidays();
     } catch (err) {
       console.error('Failed to delete holiday:', err);
-      setError('휴일 삭제에 실패했습니다.');
+      setError(t('holidays.deleteFailed'));
     }
   };
 
   const handleBulkImport = async (year: number) => {
     const preset = KOREAN_HOLIDAYS_PRESET[year];
     if (!preset) {
-      setError(`${year}년 프리셋이 없습니다.`);
+      setError(t('holidays.presetNotFound', { year }));
       return;
     }
 
@@ -267,10 +276,10 @@ export default function Holidays() {
       const res = await holidaysApi.bulkCreate(preset);
       setShowBulkModal(false);
       loadHolidays();
-      alert(`${res.data.created.length}개 휴일이 추가되었습니다. (${res.data.skipped.length}개 건너뜀)`);
+      alert(t('holidays.bulkResult', { created: res.data.created.length, skipped: res.data.skipped.length }));
     } catch (err) {
       console.error('Failed to bulk import:', err);
-      setError('일괄 추가에 실패했습니다.');
+      setError(t('holidays.bulkFailed'));
     }
   };
 
@@ -293,8 +302,8 @@ export default function Holidays() {
             <CalendarDays className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">휴일 관리</h1>
-            <p className="text-pastel-500 text-sm mt-0.5">주말 및 휴일을 관리하여 일 평균 활성 사용자 통계에 반영합니다.</p>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('holidays.title')}</h1>
+            <p className="text-pastel-500 text-sm mt-0.5">{t('holidays.description')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -303,7 +312,7 @@ export default function Holidays() {
             className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200/80 text-pastel-700 rounded-lg hover:border-gray-300 transition-all duration-200 font-medium text-sm"
           >
             <Upload className="w-4 h-4" />
-            프리셋 가져오기
+            {t('holidays.importPreset')}
           </button>
           <button
             onClick={() => {
@@ -313,7 +322,7 @@ export default function Holidays() {
             className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
           >
             <Plus className="w-4 h-4" />
-            휴일 추가
+            {t('holidays.addHoliday')}
           </button>
         </div>
       </div>
@@ -343,7 +352,7 @@ export default function Holidays() {
           <button
             onClick={handlePrevMonth}
             className="p-2.5 hover:bg-pastel-50 rounded-xl transition-all duration-200 active:scale-95"
-            title="이전 달"
+            title={t('holidays.prevMonth')}
           >
             <ChevronLeft className="w-5 h-5 text-pastel-500" />
           </button>
@@ -355,7 +364,7 @@ export default function Holidays() {
               className="px-4 py-2.5 text-lg font-semibold text-pastel-800 bg-pastel-50/80 border border-pastel-200/60 rounded-xl cursor-pointer hover:bg-pastel-100 hover:border-pastel-300 focus:outline-none focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue transition-all duration-200 appearance-none"
             >
               {Array.from({ length: 10 }, (_, i) => today.getFullYear() - 3 + i).map((year) => (
-                <option key={year} value={year}>{year}년</option>
+                <option key={year} value={year}>{t('holidays.yearSuffix', { year })}</option>
               ))}
             </select>
             {/* Month Dropdown */}
@@ -373,7 +382,7 @@ export default function Holidays() {
             <button
               onClick={handleNextMonth}
               className="p-2.5 hover:bg-pastel-50 rounded-xl transition-all duration-200 active:scale-95"
-              title="다음 달"
+              title={t('holidays.nextMonth')}
             >
               <ChevronRight className="w-5 h-5 text-pastel-500" />
             </button>
@@ -384,7 +393,7 @@ export default function Holidays() {
               }}
               className="px-4 py-2.5 text-sm font-semibold text-samsung-blue bg-samsung-blue/[0.06] border border-samsung-blue/20 rounded-xl hover:bg-samsung-blue/[0.1] hover:border-samsung-blue/30 transition-all duration-200"
             >
-              오늘
+              {t('common.today')}
             </button>
           </div>
         </div>
@@ -442,10 +451,10 @@ export default function Holidays() {
                     </span>
                     <div className="flex items-center gap-1">
                       {todayClass && (
-                        <span className="text-[10px] text-samsung-blue font-semibold tracking-wide">오늘</span>
+                        <span className="text-[10px] text-samsung-blue font-semibold tracking-wide">{t('holidays.todayLabel')}</span>
                       )}
                       {weekend && isCurrentMonth && (
-                        <span className="text-[10px] text-pastel-300 font-medium">주말</span>
+                        <span className="text-[10px] text-pastel-300 font-medium">{t('holidays.weekend')}</span>
                       )}
                     </div>
                   </div>
@@ -485,20 +494,20 @@ export default function Holidays() {
       <div className="flex items-center gap-2 flex-wrap">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-          <span className="font-medium">공휴일</span>
+          <span className="font-medium">{t('holidays.typeNational')}</span>
         </div>
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-blue-400" />
-          <span className="font-medium">회사 휴일</span>
+          <span className="font-medium">{t('holidays.typeCompany')}</span>
         </div>
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-600">
           <div className="w-2.5 h-2.5 rounded-full bg-purple-400" />
-          <span className="font-medium">사용자 정의</span>
+          <span className="font-medium">{t('holidays.typeCustom')}</span>
         </div>
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white border border-gray-100/80 rounded-lg text-sm text-pastel-400 ml-1">
-          <span className="text-red-500 font-semibold">일</span>
-          <span className="text-blue-500 font-semibold">토</span>
-          <span>= 주말 (자동 제외)</span>
+          <span className="text-red-500 font-semibold">{t('holidays.weekdays.sun')}</span>
+          <span className="text-blue-500 font-semibold">{t('holidays.weekdays.sat')}</span>
+          <span>{t('holidays.weekendAutoExclude')}</span>
         </div>
       </div>
 
@@ -510,9 +519,9 @@ export default function Holidays() {
               <div className="w-8 h-8 bg-blue-50 rounded-xl flex items-center justify-center">
                 <Calendar className="w-4 h-4 text-samsung-blue" />
               </div>
-              <h3 className="font-semibold text-pastel-800 text-base">{currentYear}년 휴일 목록</h3>
+              <h3 className="font-semibold text-pastel-800 text-base">{t('holidays.holidayListTitle', { year: currentYear })}</h3>
             </div>
-            <span className="text-sm font-medium text-pastel-400 bg-pastel-50 px-3 py-1 rounded-xl">{holidays.length}개</span>
+            <span className="text-sm font-medium text-pastel-400 bg-pastel-50 px-3 py-1 rounded-xl">{t('holidays.countItems', { count: holidays.length })}</span>
           </div>
         </div>
         <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
@@ -521,7 +530,7 @@ export default function Holidays() {
               <div className="w-12 h-12 bg-pastel-50 rounded-lg flex items-center justify-center mx-auto mb-3">
                 <CalendarDays className="w-6 h-6 text-pastel-300" />
               </div>
-              <p className="text-pastel-400 font-medium">등록된 휴일이 없습니다.</p>
+              <p className="text-pastel-400 font-medium">{t('holidays.noHolidays')}</p>
             </div>
           ) : (
             holidays.map((h) => (
@@ -565,7 +574,7 @@ export default function Holidays() {
                 <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
                   <Plus className="w-4 h-4 text-white" />
                 </div>
-                <h3 className="text-lg font-semibold text-pastel-800">휴일 추가</h3>
+                <h3 className="text-lg font-semibold text-pastel-800">{t('holidays.addHolidayModalTitle')}</h3>
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -576,7 +585,7 @@ export default function Holidays() {
             </div>
             <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-2">날짜</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">{t('holidays.dateLabel')}</label>
                 <input
                   type="date"
                   value={newHoliday.date}
@@ -585,25 +594,25 @@ export default function Holidays() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-2">휴일 이름</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">{t('holidays.holidayName')}</label>
                 <input
                   type="text"
                   value={newHoliday.name}
                   onChange={(e) => setNewHoliday({ ...newHoliday, name: e.target.value })}
-                  placeholder="예: 설날, 추석"
+                  placeholder={t('holidays.holidayNamePlaceholder')}
                   className="w-full px-4 py-3 border border-gray-200/80 rounded-lg bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 placeholder:text-pastel-300"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-pastel-700 mb-2">유형</label>
+                <label className="block text-sm font-semibold text-pastel-700 mb-2">{t('holidays.typeLabel')}</label>
                 <select
                   value={newHoliday.type}
                   onChange={(e) => setNewHoliday({ ...newHoliday, type: e.target.value as HolidayType })}
                   className="w-full px-4 py-3 border border-gray-200/80 rounded-lg bg-pastel-50/30 focus:ring-2 focus:ring-samsung-blue/30 focus:border-samsung-blue focus:bg-white transition-all duration-200 text-pastel-800 appearance-none cursor-pointer"
                 >
-                  <option value="NATIONAL">공휴일</option>
-                  <option value="COMPANY">회사 휴일</option>
-                  <option value="CUSTOM">사용자 정의</option>
+                  <option value="NATIONAL">{t('holidays.typeNational')}</option>
+                  <option value="COMPANY">{t('holidays.typeCompany')}</option>
+                  <option value="CUSTOM">{t('holidays.typeCustom')}</option>
                 </select>
               </div>
             </div>
@@ -612,13 +621,13 @@ export default function Holidays() {
                 onClick={() => setShowAddModal(false)}
                 className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-lg transition-all duration-200"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleAddHoliday}
                 className="px-5 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
               >
-                추가
+                {t('common.add')}
               </button>
             </div>
           </div>
@@ -640,7 +649,7 @@ export default function Holidays() {
                 <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
                   <Upload className="w-4 h-4 text-white" />
                 </div>
-                <h3 className="text-lg font-semibold text-pastel-800">공휴일 프리셋 가져오기</h3>
+                <h3 className="text-lg font-semibold text-pastel-800">{t('holidays.importPresetTitle')}</h3>
               </div>
               <button
                 onClick={() => setShowBulkModal(false)}
@@ -651,7 +660,7 @@ export default function Holidays() {
             </div>
             <div className="p-6">
               <p className="text-pastel-500 text-sm mb-5 leading-relaxed">
-                한국 공휴일 프리셋을 선택하여 일괄 추가합니다. 이미 등록된 날짜는 건너뜁니다.
+                {t('holidays.importPresetDesc')}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {Object.keys(KOREAN_HOLIDAYS_PRESET).map((year) => (
@@ -661,9 +670,9 @@ export default function Holidays() {
                     className="group flex items-center justify-center gap-2.5 px-4 py-4 bg-white border border-gray-200/80 rounded-lg hover:border-samsung-blue hover:shadow-depth hover:bg-samsung-blue/[0.02] transition-all duration-200 active:scale-[0.98]"
                   >
                     <Calendar className="w-4 h-4 text-pastel-400 group-hover:text-samsung-blue transition-colors duration-200" />
-                    <span className="font-semibold text-pastel-700 group-hover:text-samsung-blue transition-colors duration-200">{year}년</span>
+                    <span className="font-semibold text-pastel-700 group-hover:text-samsung-blue transition-colors duration-200">{t('holidays.yearSuffix', { year })}</span>
                     <span className="text-xs text-pastel-400 font-medium bg-pastel-50 px-2 py-0.5 rounded-lg">
-                      ({KOREAN_HOLIDAYS_PRESET[parseInt(year)]?.length}개)
+                      {t('holidays.presetCount', { count: KOREAN_HOLIDAYS_PRESET[parseInt(year)]?.length })}
                     </span>
                   </button>
                 ))}
@@ -674,7 +683,7 @@ export default function Holidays() {
                 onClick={() => setShowBulkModal(false)}
                 className="px-5 py-2.5 text-pastel-600 font-medium hover:bg-pastel-100 rounded-lg transition-all duration-200"
               >
-                닫기
+                {t('common.close')}
               </button>
             </div>
           </div>

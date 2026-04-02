@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Trash2, ChevronDown, Search,
@@ -102,15 +103,15 @@ const EMPTY_FORM: ServiceFormData = {
   deployScopeValue: [],
 };
 
-const SERVICE_CATEGORIES = [
-  '설계 자동화 및 최적화',
-  '코드개발/분석/검증 지원',
-  '디버깅 및 분석 자동화',
-  '문서 및 요구사항 지능형 처리',
-  'Agent플랫폼 및 개발 생태계',
-  '데이터 기반 인사이트 및 대시보드',
-  '인프라/도구/협력 요청',
-];
+const SERVICE_CATEGORY_KEYS = [
+  'categoryDesignAutomation',
+  'categoryCodeDev',
+  'categoryDebugging',
+  'categoryDocuments',
+  'categoryAgentPlatform',
+  'categoryDataInsight',
+  'categoryInfra',
+] as const;
 
 // ── Helpers ──
 
@@ -160,7 +161,9 @@ function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClo
 
 export default function MyServices({ user, adminRole }: MyServicesProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const isSystemAdmin = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
+  const SERVICE_CATEGORIES = SERVICE_CATEGORY_KEYS.map(k => t(`myServices.${k}`));
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -201,7 +204,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       setServices(res.data.services || []);
     } catch (err: unknown) {
       console.error('Failed to load services:', err);
-      setError('서비스 목록을 불러오는데 실패했습니다.');
+      setError(t('myServices.loadError'));
     } finally {
       setLoading(false);
     }
@@ -336,12 +339,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 
   const handleSaveService = async () => {
     if (!formData.name.trim() || !formData.displayName.trim()) {
-      setFormError('서비스 코드와 표시 이름은 필수입니다.');
+      setFormError(t('myServices.codeAndNameRequired'));
       return;
     }
 
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(formData.name) && formData.name.length > 1) {
-      setFormError('서비스 코드는 영문 소문자, 숫자, 하이픈만 사용 가능합니다.');
+      setFormError(t('myServices.codeInvalidChars'));
       return;
     }
 
@@ -363,8 +366,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       await loadServices();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      window.dispatchEvent(new CustomEvent('service-guide-error', { detail: { error: msg || '저장에 실패했습니다.' } }));
-      setFormError(msg || '저장에 실패했습니다.');
+      window.dispatchEvent(new CustomEvent('service-guide-error', { detail: { error: msg || t('myServices.saveFailed') } }));
+      setFormError(msg || t('myServices.saveFailed'));
     } finally {
       setFormSaving(false);
     }
@@ -393,21 +396,21 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     } catch (err: unknown) {
       console.error('Deploy failed:', err);
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '배포에 실패했습니다.');
+      alert(msg || t('myServices.deployFailed'));
     } finally {
       setDeploying(false);
     }
   };
 
   const handleUndeploy = async (serviceId: string) => {
-    if (!confirm('배포를 취소하고 개발 상태로 되돌리시겠습니까?')) return;
+    if (!confirm(t('myServices.undeployConfirm'))) return;
     try {
       await api.post(`/services/${serviceId}/undeploy`);
       await loadServices();
     } catch (err: unknown) {
       console.error('Undeploy failed:', err);
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '배포 취소에 실패했습니다.');
+      alert(msg || t('myServices.undeployFailed'));
     }
   };
 
@@ -416,15 +419,15 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const handleDeleteService = async (service: Service) => {
     const usageCount = service._count?.usageLogs || 0;
     const message = usageCount > 0
-      ? `'${service.displayName}' 서비스를 삭제하시겠습니까?\n\n⚠️ 이 서비스에는 ${usageCount.toLocaleString()}건의 사용 기록이 있습니다. 삭제 시 모든 데이터가 함께 삭제됩니다.\n\n정말 삭제하시겠습니까?`
-      : `'${service.displayName}' 서비스를 삭제하시겠습니까?`;
+      ? t('myServices.deleteConfirmWithUsage', { name: service.displayName, count: usageCount.toLocaleString() })
+      : t('myServices.deleteConfirm', { name: service.displayName });
     if (!confirm(message)) return;
     try {
       await api.delete(`/services/${service.id}${usageCount > 0 ? '?force=true' : ''}`);
       await loadServices();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      alert(msg || '서비스 삭제에 실패했습니다.');
+      alert(msg || t('myServices.deleteFailed'));
     }
   };
 
@@ -455,12 +458,12 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">
-            {isSystemAdmin ? '서비스 관리' : '내 서비스'}
+            {isSystemAdmin ? t('myServices.serviceManagement') : t('myServices.myServices')}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {isSystemAdmin
-              ? '서비스를 관리하고 모니터링합니다.'
-              : '내가 등록한 서비스를 관리하고, 새 서비스를 만들 수 있습니다.'}
+              ? t('myServices.serviceManagementDesc')
+              : t('myServices.myServicesDesc')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -469,7 +472,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
             className="inline-flex items-center gap-1.5 px-3 py-2 text-blue-600 bg-blue-50 border border-blue-200 text-sm font-medium rounded-lg hover:bg-blue-100 transition-colors"
           >
             <BookOpen className="w-4 h-4" />
-            등록 가이드
+            {t('myServices.registrationGuide')}
           </button>
           <button
             onClick={openCreateWizard}
@@ -477,7 +480,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            새 서비스 만들기
+            {t('myServices.createService')}
           </button>
         </div>
       </div>
@@ -486,10 +489,10 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       {isSystemAdmin && (
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 -mt-2">
           {([
-            { key: 'all' as ServiceTab, label: '전체', count: services.length },
-            { key: 'created' as ServiceTab, label: '내가 만든 서비스', count: services.filter(s => s._isCreator).length },
-            { key: 'team' as ServiceTab, label: '내 팀의 서비스', count: services.filter(s => s.registeredByDept === user.deptname).length },
-            { key: 'service-admin' as ServiceTab, label: '내가 관리자인 서비스', count: services.filter(s => s._isServiceAdmin).length },
+            { key: 'all' as ServiceTab, label: t('myServices.tabAll'), count: services.length },
+            { key: 'created' as ServiceTab, label: t('myServices.tabCreated'), count: services.filter(s => s._isCreator).length },
+            { key: 'team' as ServiceTab, label: t('myServices.tabTeam'), count: services.filter(s => s.registeredByDept === user.deptname).length },
+            { key: 'service-admin' as ServiceTab, label: t('myServices.tabServiceAdmin'), count: services.filter(s => s._isServiceAdmin).length },
           ]).map(({ key, label, count }) => (
             <button
               key={key}
@@ -514,8 +517,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
       {/* Help text */}
       {!isSystemAdmin && (
         <p className="text-xs text-gray-400 leading-relaxed -mt-3">
-          나의 서비스를 생성하고 관리합니다. 서비스 ID는 영문 소문자와 하이픈만 사용 가능하며, 생성 후 변경할 수 없습니다.
-          배포 전에 모델 설정과 멤버를 구성하세요. 배포하면 서비스 목록에 공개됩니다.
+          {t('myServices.helpText')}
         </p>
       )}
 
@@ -574,7 +576,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                             ? 'bg-amber-50 text-amber-700'
                             : 'bg-green-50 text-green-700'
                         }`}>
-                          {isDev ? '개발중' : '배포됨'}
+                          {isDev ? t('myServices.developing') : t('myServices.deployed')}
                         </span>
                         {/* Deploy scope badge */}
                         {!isDev && service.deployScope && (
@@ -584,8 +586,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                               : 'bg-purple-50 text-purple-700'
                           }`}>
                             {service.deployScope === 'ALL'
-                              ? '전체 공개'
-                              : `부서 선택 (${(service.deployScopeValue || []).length})`}
+                              ? t('myServices.publicScope')
+                              : t('myServices.deptScopeCount', { count: (service.deployScopeValue || []).length })}
                           </span>
                         )}
                       </div>
@@ -595,17 +597,17 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                         <div className="flex items-center gap-1 mt-0.5">
                           {service._isCreator && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
-                              <Crown className="w-2.5 h-2.5" />소유자
+                              <Crown className="w-2.5 h-2.5" />{t('myServices.owner')}
                             </span>
                           )}
                           {service._isServiceAdmin && !service._isCreator && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-700">
-                              <Shield className="w-2.5 h-2.5" />서비스 관리자
+                              <Shield className="w-2.5 h-2.5" />{t('myServices.serviceAdmin')}
                             </span>
                           )}
                           {!service._isCreator && !service._isServiceAdmin && (
                             <span className="text-[10px] text-gray-400">
-                              등록자: {service.registeredBy} ({service.registeredByDept})
+                              {t('myServices.registeredBy', { id: service.registeredBy, dept: service.registeredByDept })}
                             </span>
                           )}
                           {(() => {
@@ -624,7 +626,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 
                   {/* Description */}
                   <p className="text-sm text-gray-500 leading-relaxed line-clamp-2 mb-2">
-                    {service.description || '설명이 등록되지 않았습니다.'}
+                    {service.description || t('myServices.noDescription')}
                   </p>
 
                   {/* Category */}
@@ -644,13 +646,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     {service._count?.usageLogs !== undefined && (
                       <>
                         <span className="text-gray-300">&middot;</span>
-                        <span>요청 {service._count.usageLogs.toLocaleString()}건</span>
+                        <span>{t('myServices.requestCount', { count: service._count.usageLogs.toLocaleString() })}</span>
                       </>
                     )}
                     {service.serviceModels && service.serviceModels.length > 0 && (
                       <>
                         <span className="text-gray-300">&middot;</span>
-                        <span>모델 {service.serviceModels.length}개</span>
+                        <span>{t('myServices.modelCount', { count: service.serviceModels.length })}</span>
                       </>
                     )}
                   </div>
@@ -662,13 +664,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     {service.serviceUrl && (
                       <a href={service.serviceUrl} target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors">
-                        <ExternalLink className="w-3 h-3" />서비스
+                        <ExternalLink className="w-3 h-3" />{t('myServices.serviceLink')}
                       </a>
                     )}
                     {service.docsUrl && (
                       <a href={service.docsUrl} target="_blank" rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 rounded hover:bg-emerald-100 transition-colors">
-                        <FileText className="w-3 h-3" />문서
+                        <FileText className="w-3 h-3" />{t('myServices.docsLink')}
                       </a>
                     )}
                     {service.jiraTicket && (
@@ -688,7 +690,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-md hover:bg-green-100 transition-colors"
                     >
                       <Rocket className="w-3.5 h-3.5" />
-                      배포하기
+                      {t('myServices.deploy')}
                     </button>
                   ) : (
                     <button
@@ -696,7 +698,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-md hover:bg-amber-100 transition-colors"
                     >
                       <Rocket className="w-3.5 h-3.5" />
-                      배포 취소
+                      {t('myServices.undeploy')}
                     </button>
                   )}
                   <button
@@ -704,7 +706,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       e.stopPropagation();
                       const btn = e.currentTarget;
                       btn.disabled = true;
-                      btn.textContent = '생성중...';
+                      btn.textContent = t('myServices.generating');
                       try {
                         const res = await serviceApi.regenerateLogo(service.id);
                         // 카드의 아이콘 즉시 반영
@@ -717,24 +719,24 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       }
                     }}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-pink-600 bg-pink-50 rounded-md hover:bg-pink-100 transition-colors"
-                    title="로고 재생성"
+                    title={t('myServices.logoRegenTitle')}
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    로고
+                    {t('myServices.logo')}
                   </button>
                   <button
                     onClick={() => openEditModal(service)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors ml-auto"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
-                    수정
+                    {t('common.edit')}
                   </button>
                   <button
                     onClick={() => handleDeleteService(service)}
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    삭제
+                    {t('common.delete')}
                   </button>
                 </div>
               </div>
@@ -745,19 +747,19 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         <div className="text-center py-16 bg-white rounded-lg border border-gray-200">
           <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
           <p className="text-sm font-medium text-gray-900 mb-1">
-            {isSystemAdmin && activeTab !== 'all' ? '해당 조건의 서비스가 없습니다' : '등록된 서비스가 없습니다'}
+            {isSystemAdmin && activeTab !== 'all' ? t('myServices.noServicesFiltered') : t('myServices.noServices')}
           </p>
           <p className="text-sm text-gray-500 mb-4">
             {isSystemAdmin && activeTab !== 'all'
-              ? '다른 탭을 선택하거나 새 서비스를 만들어 보세요.'
-              : '새 서비스를 만들어 AI 모델을 연동해 보세요.'}
+              ? t('myServices.noServicesFilteredDesc')
+              : t('myServices.noServicesDesc')}
           </p>
           <button
             onClick={openCreateWizard}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            새 서비스 만들기
+            {t('myServices.createService')}
           </button>
         </div>
       )}
@@ -769,36 +771,36 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         <ModalBackdrop onClose={closeServiceModal}>
           <div className="p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-semibold text-gray-900">서비스 수정</h3>
+              <h3 className="text-base font-semibold text-gray-900">{t('myServices.editService')}</h3>
               <button onClick={closeServiceModal} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             {/* DEPLOYED 상태 안내 */}
             {editingService.status === 'DEPLOYED' && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-blue-700">배포 중 — 서비스 코드, 표시 이름, 타입은 변경할 수 없습니다. 배포 취소 후 변경 가능합니다.</p>
+                <p className="text-xs text-blue-700">{t('myServices.deployedNotice')}</p>
               </div>
             )}
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">서비스 코드</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('myServices.serviceCode')}</label>
                 <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })} disabled={editingService.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono ${editingService.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} />
-                <p className="mt-1 text-xs text-gray-400">영문 소문자, 숫자, 하이픈만 사용 가능</p>
+                <p className="mt-1 text-xs text-gray-400">{t('myServices.serviceCodeHint')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">표시 이름 <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('myServices.displayName')} <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })} disabled={editingService.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${editingService.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} />
               </div>
               {/* 소유자 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Crown className="w-3.5 h-3.5" /> 소유자</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Crown className="w-3.5 h-3.5" /> {t('myServices.ownerLabel')}</span></label>
                 <div className="flex items-center gap-2">
                   <div className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
-                    {formData.registeredBy || '(없음)'}
+                    {formData.registeredBy || t('myServices.noOwner')}
                     {formData.registeredByDept && <span className="text-gray-400 ml-1">— {formData.registeredByDept}</span>}
                   </div>
                   <button type="button" onClick={() => { setShowOwnerSearch(true); setOwnerQuery(''); setOwnerResults([]); setSelectedOwner(null); }}
                     className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap">
-                    <Search className="w-3.5 h-3.5" /> 변경
+                    <Search className="w-3.5 h-3.5" /> {t('myServices.change')}
                   </button>
                 </div>
                 {/* 소유자 검색 패널 */}
@@ -810,13 +812,13 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                         value={ownerQuery}
                         onChange={(e) => setOwnerQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleOwnerSearch()}
-                        placeholder="사번 또는 이름 입력"
+                        placeholder={t('myServices.ownerSearchPlaceholder')}
                         className="flex-1 px-3 py-1.5 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         autoFocus
                       />
                       <button type="button" onClick={handleOwnerSearch} disabled={ownerSearching || ownerQuery.length < 2}
                         className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap">
-                        {ownerSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} 검색
+                        {ownerSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} {t('common.search')}
                       </button>
                     </div>
                     {ownerResults.length > 0 && (
@@ -837,34 +839,34 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       </div>
                     )}
                     {ownerResults.length === 0 && !ownerSearching && ownerQuery.length >= 2 && (
-                      <p className="text-xs text-gray-400 text-center py-2">검색 결과가 없습니다</p>
+                      <p className="text-xs text-gray-400 text-center py-2">{t('myServices.noSearchResults')}</p>
                     )}
                     <div className="flex justify-end gap-2">
                       <button type="button" onClick={() => { setShowOwnerSearch(false); setSelectedOwner(null); }}
-                        className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+                        className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">{t('common.cancel')}</button>
                       <button type="button" onClick={confirmOwnerChange} disabled={!selectedOwner}
-                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">확인</button>
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">{t('common.confirm')}</button>
                     </div>
                   </div>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">설명</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('myServices.description')}</label>
                 <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={2} className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">서비스 타입</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('myServices.serviceType')}</label>
                   <div className="relative">
                     <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as 'STANDARD' | 'BACKGROUND' })} disabled={editingService?.status === 'DEPLOYED'} className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-lg appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${editingService?.status === 'DEPLOYED' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}>
-                      <option value="STANDARD">표준 — UI 있음 (ex. Chatbot)</option>
-                      <option value="BACKGROUND">백그라운드 — 자동 실행 (ex. Auto Code Review)</option>
+                      <option value="STANDARD">{t('myServices.typeStandard')}</option>
+                      <option value="BACKGROUND">{t('myServices.typeBackground')}</option>
                     </select>
                     <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">카테고리 (복수 선택)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('myServices.categoryMultiple')}</label>
                   <div className="flex flex-wrap gap-1.5">
                     {SERVICE_CATEGORIES.map(cat => {
                       const selected = formData.serviceCategory.includes(cat);
@@ -883,7 +885,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               {/* 공개범위 — DEPLOYED 서비스에서만 편집 모달에 표시 */}
               {editingService?.status === 'DEPLOYED' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">공개 범위</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('myServices.deployScope')}</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -891,7 +893,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
                         ${formData.deployScope === 'ALL' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                     >
-                      전체 공개
+                      {t('myServices.deployScopeAll')}
                     </button>
                     <button
                       type="button"
@@ -899,7 +901,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                       className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
                         ${formData.deployScope === 'TEAM' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                     >
-                      부서 선택
+                      {t('myServices.deployScopeDept')}
                     </button>
                   </div>
                   {formData.deployScope === 'TEAM' && (
@@ -915,8 +917,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               {/* API Only 토글 */}
               <div className="flex items-center justify-between p-3 bg-amber-50/60 border border-amber-200/80 rounded-lg">
                 <div>
-                  <p className="text-sm font-medium text-gray-700">API Only</p>
-                  <p className="text-xs text-gray-400 mt-0.5">프록시를 통하지 않고 자체 API로 사용 기록을 전송</p>
+                  <p className="text-sm font-medium text-gray-700">{t('myServices.apiOnlyLabel')}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{t('myServices.apiOnlyDesc')}</p>
                 </div>
                 <button type="button" onClick={() => setFormData({ ...formData, apiOnly: !formData.apiOnly })}
                   className={`relative w-11 h-6 rounded-full transition-colors ${formData.apiOnly ? 'bg-amber-500' : 'bg-gray-300'}`}>
@@ -924,29 +926,29 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 </button>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> {t('myServices.logoUrl')}</span></label>
                 <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
               </div>
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> 서비스 URL</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Link className="w-3.5 h-3.5" /> {t('myServices.serviceUrl')}</span></label>
                   <input type="url" value={formData.serviceUrl} onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })} placeholder="https://my-service.example.com" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> API 문서 URL</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {t('myServices.apiDocsUrl')}</span></label>
                   <input type="url" value={formData.docsUrl} onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })} placeholder="https://docs.example.com/api" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> Jira 티켓</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> {t('myServices.jiraTicket')}</span></label>
                   <input type="url" value={formData.jiraTicket} onChange={(e) => setFormData({ ...formData, jiraTicket: e.target.value })} placeholder="https://jira.example.com/browse/PROJ-123" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
                 </div>
               </div>
             </div>
             {formError && <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
             <div className="flex justify-end gap-2 mt-6">
-              <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">취소</button>
+              <button onClick={closeServiceModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">{t('common.cancel')}</button>
               <button onClick={handleSaveService} disabled={formSaving} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}저장
+                {formSaving && <Loader2 className="w-4 h-4 animate-spin" />}{t('common.save')}
               </button>
             </div>
           </div>
@@ -979,10 +981,9 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 <Rocket className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">서비스 배포</h3>
+                <h3 className="text-sm font-semibold text-gray-900">{t('myServices.deployTitle')}</h3>
                 <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                  <strong className="text-gray-700">{deployTarget.displayName}</strong> 서비스를 배포하시겠습니까?
-                  배포하면 서비스 목록에 공개됩니다.
+                  <strong className="text-gray-700">{deployTarget.displayName}</strong> — {t('myServices.deployConfirmMsg')}
                 </p>
               </div>
             </div>
@@ -990,7 +991,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
             {/* Deploy scope selection */}
             <div className="space-y-3 mb-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">공개 범위</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">{t('myServices.deployScope')}</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -998,7 +999,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
                       ${deployScope === 'ALL' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                   >
-                    전체 공개
+                    {t('myServices.deployScopeAll')}
                   </button>
                   <button
                     type="button"
@@ -1006,7 +1007,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                     className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all
                       ${deployScope === 'TEAM' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
                   >
-                    부서 선택
+                    {t('myServices.deployScopeDept')}
                   </button>
                 </div>
               </div>
@@ -1020,7 +1021,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               )}
 
               <p className="text-xs text-gray-400 leading-relaxed">
-                전체 공개: 모든 사용자에게 노출 | 부서 선택: 조직도에서 선택한 부서의 사용자에게만 노출
+                {t('myServices.deployScopeHelp')}
               </p>
             </div>
 
@@ -1030,7 +1031,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 disabled={deploying}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleDeploy}
@@ -1038,7 +1039,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {deploying && <Loader2 className="w-4 h-4 animate-spin" />}
-                배포하기
+                {t('myServices.deploy')}
               </button>
             </div>
           </div>
@@ -1062,13 +1063,6 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 // Service Creation Wizard Component
 // ══════════════════════════════════════════════════
 
-const WIZARD_STEPS = [
-  { title: '기본 정보', desc: '서비스 코드와 이름을 설정합니다' },
-  { title: '서비스 분류', desc: '타입과 카테고리를 선택합니다' },
-  { title: '링크 설정', desc: '관련 URL을 등록합니다 (선택)' },
-  { title: '확인', desc: '입력한 정보를 확인하고 등록합니다' },
-];
-
 function ServiceCreationWizard({
   formData, setFormData, wizardStep, setWizardStep,
   formError, setFormError, formSaving, onSave, onClose,
@@ -1083,6 +1077,16 @@ function ServiceCreationWizard({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
+
+  const WIZARD_STEPS = [
+    { title: t('myServices.wizardStep0Title'), desc: t('myServices.wizardStep0Desc') },
+    { title: t('myServices.wizardStep1Title'), desc: t('myServices.wizardStep1Desc') },
+    { title: t('myServices.wizardStep2Title'), desc: t('myServices.wizardStep2Desc') },
+    { title: t('myServices.wizardStep3Title'), desc: t('myServices.wizardStep3Desc') },
+  ];
+
+  const SERVICE_CATEGORIES = SERVICE_CATEGORY_KEYS.map(k => t(`myServices.${k}`));
   const canNext = (): boolean => {
     switch (wizardStep) {
       case 0: return !!(formData.name.trim() && formData.displayName.trim());
@@ -1095,16 +1099,16 @@ function ServiceCreationWizard({
     setFormError(null);
     if (wizardStep === 0) {
       if (!formData.name.trim() || !formData.displayName.trim()) {
-        setFormError('서비스 코드와 표시 이름은 필수입니다.');
+        setFormError(t('myServices.codeAndNameRequired'));
         return;
       }
       if (formData.name.length > 1 && !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(formData.name)) {
-        setFormError('서비스 코드는 영문 소문자로 시작/끝, 하이픈 사용 가능');
+        setFormError(t('myServices.codeStartEndInvalid'));
         return;
       }
     }
     if (wizardStep === 1 && formData.serviceCategory.length === 0) {
-      setFormError('서비스 카테고리를 1개 이상 선택해주세요.');
+      setFormError(t('myServices.categoryMinOne'));
       return;
     }
     setWizardStep(wizardStep + 1);
@@ -1118,7 +1122,7 @@ function ServiceCreationWizard({
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-900">새 서비스 등록</h2>
+            <h2 className="text-lg font-bold text-gray-900">{t('myServices.wizardTitle')}</h2>
             <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"><X className="w-5 h-5" /></button>
           </div>
           {/* Step indicator */}
@@ -1157,21 +1161,21 @@ function ServiceCreationWizard({
           {wizardStep === 0 && (
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 코드 <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('myServices.serviceCodeRequired')} <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
                   placeholder="my-ai-service" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">API 호출 시 사용되는 고유 식별자입니다. 영문 소문자, 숫자, 하이픈만 사용 가능하며 생성 후 변경할 수 없습니다.</p>
+                <p className="mt-1.5 text-xs text-gray-400">{t('myServices.serviceCodeHelp')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">표시 이름 <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('myServices.displayNameRequired')} <span className="text-red-500">*</span></label>
                 <input type="text" value={formData.displayName} onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-                  placeholder="내 AI 서비스" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">대시보드와 서비스 목록에 표시되는 이름입니다. 한글/영문 자유롭게 입력하세요.</p>
+                  placeholder={t('myServices.displayNamePlaceholder')} className={inputClass} />
+                <p className="mt-1.5 text-xs text-gray-400">{t('myServices.displayNameHelp')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">설명 <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('myServices.descriptionRequired')} <span className="text-red-500">*</span></label>
                 <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="서비스에 대한 간단한 설명 (예: 사내 문서 검색 AI 챗봇)" rows={3} className={`${inputClass} resize-none`} />
+                  placeholder={t('myServices.descriptionPlaceholder')} rows={3} className={`${inputClass} resize-none`} />
               </div>
             </div>
           )}
@@ -1180,10 +1184,10 @@ function ServiceCreationWizard({
           {wizardStep === 1 && (
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 타입 <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('myServices.serviceTypeRequired')} <span className="text-red-500">*</span></label>
                 <div className="grid grid-cols-2 gap-3">
-                  {([['STANDARD', '표준 (Standard)', 'UI가 있어 사용자가 직접 조작·소통하는 서비스 (ex. Chatbot)', Cpu],
-                     ['BACKGROUND', '백그라운드 (Background)', 'UI 없이 일정 조건에 의해 자동으로 돌아가는 서비스 (ex. Auto Code Review)', Server]] as const).map(([val, label, desc, Icon]) => (
+                  {([['STANDARD', t('myServices.typeStandardLabel'), t('myServices.typeStandardDesc'), Cpu],
+                     ['BACKGROUND', t('myServices.typeBackgroundLabel'), t('myServices.typeBackgroundDesc'), Server]] as [string, string, string, typeof Cpu][]).map(([val, label, desc, Icon]) => (
                     <button key={val} onClick={() => setFormData({ ...formData, type: val as 'STANDARD' | 'BACKGROUND' })}
                       className={`p-4 rounded-lg border-2 text-left transition-all ${formData.type === val ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       <div className="flex items-center gap-2 mb-1.5">
@@ -1198,8 +1202,8 @@ function ServiceCreationWizard({
               {/* API Only 토글 */}
               <div className="flex items-center justify-between p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-lg">
                 <div>
-                  <p className="text-sm font-semibold text-gray-700">API Only</p>
-                  <p className="text-xs text-gray-500 mt-0.5">프록시를 통하지 않고 자체 API로 사용 기록을 전송하는 서비스</p>
+                  <p className="text-sm font-semibold text-gray-700">{t('myServices.apiOnlyLabel')}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{t('myServices.apiOnlyWizardDesc')}</p>
                 </div>
                 <button type="button" onClick={() => setFormData({ ...formData, apiOnly: !formData.apiOnly })}
                   className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${formData.apiOnly ? 'bg-amber-500' : 'bg-gray-300'}`}>
@@ -1207,8 +1211,8 @@ function ServiceCreationWizard({
                 </button>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">서비스 카테고리 <span className="text-red-500">*</span> <span className="text-xs text-gray-400 font-normal">(복수 선택 가능)</span></label>
-                <p className="text-xs text-gray-400 mb-3">서비스의 주요 목적에 맞는 카테고리를 모두 선택해주세요.</p>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">{t('myServices.categoryRequired')} <span className="text-red-500">*</span> <span className="text-xs text-gray-400 font-normal">{t('myServices.categoryMultipleHint')}</span></label>
+                <p className="text-xs text-gray-400 mb-3">{t('myServices.categoryHelp')}</p>
                 <div className="grid grid-cols-1 gap-2">
                   {SERVICE_CATEGORIES.map((cat) => {
                     const selected = formData.serviceCategory.includes(cat);
@@ -1229,32 +1233,32 @@ function ServiceCreationWizard({
           {wizardStep === 2 && (
             <div className="space-y-5">
               <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 mb-2">
-                <p className="text-xs text-gray-500">아래 항목은 모두 선택사항입니다. 나중에 수정할 수 있습니다.</p>
+                <p className="text-xs text-gray-500">{t('myServices.linkOptionalNotice')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> 로고 URL</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> {t('myServices.logoUrl')}</span></label>
                 <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
                   placeholder="https://example.com/logo.png" className={inputClass} />
                 {formData.iconUrl.trim() && (
                   <div className="mt-2 flex items-center gap-2">
                     <img src={formData.iconUrl.trim()} alt="" className="w-8 h-8 rounded-lg border border-gray-200 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    <span className="text-xs text-gray-400">미리보기</span>
+                    <span className="text-xs text-gray-400">{t('myServices.preview')}</span>
                   </div>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> 서비스 URL</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> {t('myServices.serviceUrl')}</span></label>
                 <input type="url" value={formData.serviceUrl} onChange={(e) => setFormData({ ...formData, serviceUrl: e.target.value })}
                   placeholder="https://my-service.example.com" className={inputClass} />
-                <p className="mt-1.5 text-xs text-gray-400">서비스 목록과 카드에 바로가기 버튼으로 연결됩니다</p>
+                <p className="mt-1.5 text-xs text-gray-400">{t('myServices.serviceUrlHelp')}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> API 문서 URL</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {t('myServices.apiDocsUrl')}</span></label>
                 <input type="url" value={formData.docsUrl} onChange={(e) => setFormData({ ...formData, docsUrl: e.target.value })}
                   placeholder="https://docs.example.com/api" className={inputClass} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> Jira 티켓</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Ticket className="w-3.5 h-3.5" /> {t('myServices.jiraTicket')}</span></label>
                 <input type="url" value={formData.jiraTicket} onChange={(e) => setFormData({ ...formData, jiraTicket: e.target.value })}
                   placeholder="https://jira.example.com/browse/PROJ-123" className={inputClass} />
               </div>
@@ -1266,15 +1270,15 @@ function ServiceCreationWizard({
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200">
                 {([
-                  ['서비스 코드', formData.name],
-                  ['표시 이름', formData.displayName],
-                  ['설명', formData.description || '-'],
-                  ['서비스 타입', `${formData.type === 'STANDARD' ? '표준 (Standard)' : '백그라운드 (Background)'}${formData.apiOnly ? ' — API Only' : ''}`],
-                  ['카테고리', formData.serviceCategory.length > 0 ? formData.serviceCategory.join(', ') : '-'],
-                  ['로고 URL', formData.iconUrl || '-'],
-                  ['서비스 URL', formData.serviceUrl || '-'],
-                  ['API 문서 URL', formData.docsUrl || '-'],
-                  ['Jira 티켓', formData.jiraTicket || '-'],
+                  [t('myServices.confirmSummaryCode'), formData.name],
+                  [t('myServices.confirmSummaryDisplayName'), formData.displayName],
+                  [t('myServices.confirmSummaryDescription'), formData.description || '-'],
+                  [t('myServices.confirmSummaryType'), `${formData.type === 'STANDARD' ? t('myServices.typeStandardSummary') : t('myServices.typeBackgroundSummary')}${formData.apiOnly ? ' — API Only' : ''}`],
+                  [t('myServices.confirmSummaryCategory'), formData.serviceCategory.length > 0 ? formData.serviceCategory.join(', ') : '-'],
+                  [t('myServices.confirmSummaryLogoUrl'), formData.iconUrl || '-'],
+                  [t('myServices.confirmSummaryServiceUrl'), formData.serviceUrl || '-'],
+                  [t('myServices.confirmSummaryApiDocsUrl'), formData.docsUrl || '-'],
+                  [t('myServices.confirmSummaryJiraTicket'), formData.jiraTicket || '-'],
                 ] as [string, string][]).map(([label, value]) => (
                   <div key={label} className="flex items-start px-4 py-3">
                     <span className="text-xs font-medium text-gray-500 w-28 flex-shrink-0 pt-0.5">{label}</span>
@@ -1283,7 +1287,7 @@ function ServiceCreationWizard({
                 ))}
               </div>
               <div className="bg-green-50 rounded-lg p-4 border border-green-100">
-                <p className="text-sm text-green-700">위 정보로 서비스를 등록합니다. 등록 후 모델 연동, 멤버 추가 등 추가 설정을 진행할 수 있습니다.</p>
+                <p className="text-sm text-green-700">{t('myServices.confirmNotice')}</p>
               </div>
             </div>
           )}
@@ -1299,18 +1303,18 @@ function ServiceCreationWizard({
             data-tour="wizard-prev-btn"
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             <ArrowLeft className="w-4 h-4" />
-            {wizardStep === 0 ? '취소' : '이전'}
+            {wizardStep === 0 ? t('common.cancel') : t('common.prev')}
           </button>
           {wizardStep < WIZARD_STEPS.length - 1 ? (
             <button onClick={handleNext} disabled={!canNext()} data-tour="wizard-next-btn"
               className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-              다음 <ArrowRight className="w-4 h-4" />
+              {t('common.next')} <ArrowRight className="w-4 h-4" />
             </button>
           ) : (
             <button onClick={onSave} disabled={formSaving} data-tour="wizard-save-btn"
               className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
               {formSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              서비스 등록
+              {t('myServices.registerService')}
             </button>
           )}
         </div>

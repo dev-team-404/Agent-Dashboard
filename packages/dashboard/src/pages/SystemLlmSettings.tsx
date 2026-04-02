@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Cpu, Check, Loader2, Play, Sparkles, AlertCircle, Image, Palette, AlertTriangle, MessageCircle } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -21,6 +22,7 @@ interface CurrentSetting {
 }
 
 export default function SystemLlmSettings() {
+  const { t } = useTranslation();
   const [current, setCurrent] = useState<CurrentSetting>({ modelId: null, model: null });
   const [models, setModels] = useState<Model[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
@@ -114,36 +116,36 @@ export default function SystemLlmSettings() {
 
   useEffect(() => {
     if (success) {
-      const t = setTimeout(() => setSuccess(false), 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setSuccess(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [success]);
 
   useEffect(() => {
     if (errorLlmSuccess) {
-      const t = setTimeout(() => setErrorLlmSuccess(false), 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setErrorLlmSuccess(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [errorLlmSuccess]);
 
   useEffect(() => {
     if (logoSuccess) {
-      const t = setTimeout(() => setLogoSuccess(false), 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setLogoSuccess(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [logoSuccess]);
 
   useEffect(() => {
     if (gpuLlmSuccess) {
-      const t = setTimeout(() => setGpuLlmSuccess(false), 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setGpuLlmSuccess(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [gpuLlmSuccess]);
 
   useEffect(() => {
     if (chatbotSuccess) {
-      const t = setTimeout(() => setChatbotSuccess(false), 3000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setChatbotSuccess(false), 3000);
+      return () => clearTimeout(timer);
     }
   }, [chatbotSuccess]);
 
@@ -157,7 +159,7 @@ export default function SystemLlmSettings() {
       setSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
+      setError(msg || t('common.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -173,7 +175,7 @@ export default function SystemLlmSettings() {
       setErrorLlmSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
+      setError(msg || t('common.saveFailed'));
     } finally {
       setErrorSaving(false);
     }
@@ -189,7 +191,7 @@ export default function SystemLlmSettings() {
       setGpuLlmSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
+      setError(msg || t('common.saveFailed'));
     } finally {
       setGpuSaving(false);
     }
@@ -204,7 +206,7 @@ export default function SystemLlmSettings() {
       setRunResult(res.data);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || 'AI 추정 실행에 실패했습니다.');
+      setError(msg || t('systemLlmSettings.aiEstimateRunFailed'));
     } finally {
       setRunning(false);
     }
@@ -220,7 +222,7 @@ export default function SystemLlmSettings() {
       setChatbotSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
+      setError(msg || t('common.saveFailed'));
     } finally {
       setChatbotSaving(false);
     }
@@ -236,7 +238,7 @@ export default function SystemLlmSettings() {
       setLogoSuccess(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setLogoError(msg || '저장에 실패했습니다.');
+      setLogoError(msg || t('common.saveFailed'));
     } finally {
       setLogoSaving(false);
     }
@@ -251,7 +253,7 @@ export default function SystemLlmSettings() {
       setBatchDone(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setLogoError(msg || '로고 일괄 생성에 실패했습니다.');
+      setLogoError(msg || t('systemLlmSettings.batchGenerateFailed'));
     } finally {
       setBatchRunning(false);
     }
@@ -267,9 +269,9 @@ export default function SystemLlmSettings() {
           <Sparkles className="w-6 h-6 text-violet-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">레지스트리 LLM 관리</h1>
+          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('systemLlmSettings.title')}</h1>
           <p className="text-sm text-pastel-500 mt-0.5">
-            AI 서비스 목표 추정 및 로고 자동 생성에 사용할 모델을 선택합니다
+            {t('systemLlmSettings.description')}
           </p>
         </div>
       </div>
@@ -278,14 +280,14 @@ export default function SystemLlmSettings() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Sparkles className="w-4 h-4 text-violet-500" />
-          <h2 className="text-sm font-semibold text-pastel-700">M/M 추적용 LLM</h2>
+          <h2 className="text-sm font-semibold text-pastel-700">{t('systemLlmSettings.mmTrackingLLM')}</h2>
         </div>
 
         {current.modelId && !current.model && (
           <div className="mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
             <div className="flex items-center gap-2 text-sm text-amber-800">
               <AlertCircle className="w-4 h-4" />
-              <span className="font-medium">설정된 모델이 삭제되었거나 비활성화되었습니다. 새 모델을 선택해주세요.</span>
+              <span className="font-medium">{t('systemLlmSettings.modelDeletedOrDisabled')}</span>
             </div>
           </div>
         )}
@@ -293,14 +295,14 @@ export default function SystemLlmSettings() {
           <div className="mb-4 p-3 bg-violet-50 rounded-lg border border-violet-100">
             <div className="flex items-center gap-2 text-sm">
               <Cpu className="w-4 h-4 text-violet-600" />
-              <span className="font-medium text-violet-800">현재 설정:</span>
+              <span className="font-medium text-violet-800">{t('systemLlmSettings.currentSetting')}</span>
               <span className="text-violet-700">{current.model.displayName}</span>
               <span className="text-violet-400 font-mono text-xs">({current.model.name})</span>
-              {!current.model.enabled && <span className="text-xs text-amber-600 font-medium">(비활성)</span>}
+              {!current.model.enabled && <span className="text-xs text-amber-600 font-medium">{t('systemLlmSettings.inactive')}</span>}
             </div>
             {current.updatedBy && (
               <p className="text-xs text-violet-400 mt-1 ml-6">
-                {current.updatedBy}이(가) 설정
+                {t('systemLlmSettings.configuredBy', { name: current.updatedBy })}
               </p>
             )}
           </div>
@@ -308,13 +310,13 @@ export default function SystemLlmSettings() {
 
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">{t('systemLlmSettings.selectChatModel')}</label>
             <select
               value={selectedId}
               onChange={e => setSelectedId(e.target.value)}
               className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-violet-500/15 focus:border-violet-500/30"
             >
-              <option value="">모델을 선택하세요</option>
+              <option value="">{t('systemLlmSettings.selectModel')}</option>
               {models.map(m => (
                 <option key={m.id} value={m.id}>
                   {m.displayName} ({m.name})
@@ -328,24 +330,23 @@ export default function SystemLlmSettings() {
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            저장
+            {t('common.save')}
           </button>
         </div>
 
         {success && (
           <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2">
-            <Check className="w-4 h-4" /> M/M 추적 LLM이 변경되었습니다.
+            <Check className="w-4 h-4" /> {t('systemLlmSettings.mmTrackingChanged')}
           </div>
         )}
 
-        {/* AI 추정 수동 실행 — M/M 추적 카드 안 */}
         {current.modelId && (
           <div className="mt-4 pt-4 border-t border-gray-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-pastel-600">AI 추정 수동 실행</p>
+                <p className="text-xs font-medium text-pastel-600">{t('systemLlmSettings.aiEstimateManualRun')}</p>
                 <p className="text-xs text-pastel-400 mt-0.5">
-                  매일 자정(KST) 자동 실행. 전일 사용량 기반 서비스별 M/M 추정
+                  {t('systemLlmSettings.aiEstimateAutoDesc')}
                 </p>
               </div>
               <button
@@ -354,12 +355,12 @@ export default function SystemLlmSettings() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                {running ? '실행 중...' : '지금 실행'}
+                {running ? t('systemLlmSettings.running') : t('systemLlmSettings.runNow')}
               </button>
             </div>
             {runResult && (
               <div className="mt-3 p-2.5 bg-blue-50 rounded-lg border border-blue-100 text-xs text-blue-700">
-                처리: {runResult.processed}건 | 오류: {runResult.errors}건
+                {t('systemLlmSettings.processedCount', { count: runResult.processed })} | {t('systemLlmSettings.errorCount', { count: runResult.errors })}
               </div>
             )}
           </div>
@@ -370,35 +371,35 @@ export default function SystemLlmSettings() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex items-center gap-2 mb-4">
           <AlertTriangle className="w-4 h-4 text-red-500" />
-          <h2 className="text-sm font-semibold text-pastel-700">에러 초도분석용 LLM</h2>
+          <h2 className="text-sm font-semibold text-pastel-700">{t('systemLlmSettings.errorAnalysisLLM')}</h2>
         </div>
         <p className="text-xs text-pastel-400 mb-4">
-          에러 관리 페이지에서 미분류 에러의 AI 원인 분석에 사용할 CHAT 모델을 선택합니다.
+          {t('systemLlmSettings.errorAnalysisDesc')}
         </p>
 
         {errorLlm.model && (
           <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-100">
             <div className="flex items-center gap-2 text-sm">
               <Cpu className="w-4 h-4 text-red-600" />
-              <span className="font-medium text-red-800">현재 설정:</span>
+              <span className="font-medium text-red-800">{t('systemLlmSettings.currentSetting')}</span>
               <span className="text-red-700">{errorLlm.model.displayName}</span>
               <span className="text-red-400 font-mono text-xs">({errorLlm.model.name})</span>
             </div>
             {errorLlm.updatedBy && (
-              <p className="text-xs text-red-400 mt-1 ml-6">{errorLlm.updatedBy} 설정</p>
+              <p className="text-xs text-red-400 mt-1 ml-6">{t('systemLlmSettings.configuredBySimple', { name: errorLlm.updatedBy })}</p>
             )}
           </div>
         )}
 
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">{t('systemLlmSettings.selectChatModel')}</label>
             <select
               value={errorSelectedId}
               onChange={e => setErrorSelectedId(e.target.value)}
               className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-red-500/15 focus:border-red-500/30"
             >
-              <option value="">모델을 선택하세요</option>
+              <option value="">{t('systemLlmSettings.selectModel')}</option>
               {models.map(m => (
                 <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>
               ))}
@@ -410,12 +411,12 @@ export default function SystemLlmSettings() {
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {errorSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            저장
+            {t('common.save')}
           </button>
         </div>
         {errorLlmSuccess && (
           <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2">
-            <Check className="w-4 h-4" /> 에러 분석 LLM이 변경되었습니다.
+            <Check className="w-4 h-4" /> {t('systemLlmSettings.errorAnalysisChanged')}
           </div>
         )}
       </div>
@@ -424,45 +425,44 @@ export default function SystemLlmSettings() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="w-4 h-4 text-indigo-500" />
-          <h2 className="text-sm font-semibold text-pastel-700">GPU 수요 예측용 LLM</h2>
+          <h2 className="text-sm font-semibold text-pastel-700">{t('systemLlmSettings.gpuPredictionLLM')}</h2>
         </div>
         <p className="text-xs text-pastel-400 mb-4">
-          리소스 모니터링에서 GPU 수요 예측 분석 리포트를 생성할 CHAT 모델을 선택합니다. 미설정 시 M/M 추적 LLM을 사용합니다.
+          {t('systemLlmSettings.gpuPredictionDesc')}
         </p>
         {gpuLlm.model && (
           <div className="mb-4 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
             <div className="flex items-center gap-2 text-sm">
               <Cpu className="w-4 h-4 text-indigo-600" />
-              <span className="font-medium text-indigo-800">현재 설정:</span>
+              <span className="font-medium text-indigo-800">{t('systemLlmSettings.currentSetting')}</span>
               <span className="text-indigo-700">{gpuLlm.model.displayName}</span>
               <span className="text-indigo-400 font-mono text-xs">({gpuLlm.model.name})</span>
             </div>
-            {gpuLlm.updatedBy && <p className="text-xs text-indigo-400 mt-1 ml-6">{gpuLlm.updatedBy} 설정</p>}
+            {gpuLlm.updatedBy && <p className="text-xs text-indigo-400 mt-1 ml-6">{t('systemLlmSettings.configuredBySimple', { name: gpuLlm.updatedBy })}</p>}
           </div>
         )}
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">{t('systemLlmSettings.selectChatModel')}</label>
             <select value={gpuSelectedId} onChange={e => setGpuSelectedId(e.target.value)}
               className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500/30">
-              <option value="">모델을 선택하세요 (미설정 시 M/M 추적 LLM 사용)</option>
+              <option value="">{t('systemLlmSettings.selectModelGpuFallback')}</option>
               {models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
             </select>
           </div>
           <button onClick={handleGpuLlmSave} disabled={gpuSaving || !gpuSelectedId || gpuSelectedId === gpuLlm.modelId}
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            {gpuSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} 저장
+            {gpuSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} {t('common.save')}
           </button>
         </div>
-        {gpuLlmSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> GPU 예측 LLM이 변경되었습니다.</div>}
+        {gpuLlmSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> {t('systemLlmSettings.gpuPredictionChanged')}</div>}
 
-        {/* 실행 버튼 */}
         <div className="mt-4 pt-4 border-t border-gray-100 flex gap-3">
-          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-capacity/run'); alert('GPU 수요 예측이 완료되었습니다. 리소스 모니터링에서 확인하세요.'); } catch (err: unknown) { setError((err as any)?.response?.data?.error || '실행 실패'); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-            <Play className="w-4 h-4" /> GPU 수요 예측 실행
+          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-capacity/run'); alert(t('systemLlmSettings.gpuPredictionComplete')); } catch (err: unknown) { setError((err as any)?.response?.data?.error || t('systemLlmSettings.executionFailed')); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+            <Play className="w-4 h-4" /> {t('systemLlmSettings.gpuPredictionRun')}
           </button>
-          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-servers/coaching', {}); alert('AI 코칭이 전체 서버에 대해 시작되었습니다. 리소스 모니터링 서버 카드에서 확인하세요.'); } catch (err: unknown) { setError((err as any)?.response?.data?.error || '실행 실패'); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
-            <Sparkles className="w-4 h-4" /> AI 코칭 실행
+          <button onClick={async () => { setError(null); try { await api.post('/admin/gpu-servers/coaching', {}); alert(t('systemLlmSettings.aiCoachingStarted')); } catch (err: unknown) { setError((err as any)?.response?.data?.error || t('systemLlmSettings.executionFailed')); } }} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
+            <Sparkles className="w-4 h-4" /> {t('systemLlmSettings.aiCoachingRun')}
           </button>
         </div>
       </div>
@@ -471,55 +471,54 @@ export default function SystemLlmSettings() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex items-center gap-2 mb-4">
           <MessageCircle className="w-4 h-4 text-cyan-500" />
-          <h2 className="text-sm font-semibold text-pastel-700">AI 도우미 챗봇 LLM</h2>
+          <h2 className="text-sm font-semibold text-pastel-700">{t('systemLlmSettings.chatbotLLM')}</h2>
         </div>
         <p className="text-xs text-pastel-400 mb-4">
-          플랫폼 사용법/기능 안내 AI 챗봇이 사용할 CHAT 모델을 선택합니다. 우하단 도우미 아이콘에서 접근할 수 있습니다.
+          {t('systemLlmSettings.chatbotDesc')}
         </p>
         {chatbotLlm.model && (
           <div className="mb-4 p-3 bg-cyan-50 rounded-lg border border-cyan-100">
             <div className="flex items-center gap-2 text-sm">
               <Cpu className="w-4 h-4 text-cyan-600" />
-              <span className="font-medium text-cyan-800">현재 설정:</span>
+              <span className="font-medium text-cyan-800">{t('systemLlmSettings.currentSetting')}</span>
               <span className="text-cyan-700">{chatbotLlm.model.displayName}</span>
               <span className="text-cyan-400 font-mono text-xs">({chatbotLlm.model.name})</span>
             </div>
-            {chatbotLlm.updatedBy && <p className="text-xs text-cyan-400 mt-1 ml-6">{chatbotLlm.updatedBy} 설정</p>}
+            {chatbotLlm.updatedBy && <p className="text-xs text-cyan-400 mt-1 ml-6">{t('systemLlmSettings.configuredBySimple', { name: chatbotLlm.updatedBy })}</p>}
           </div>
         )}
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-pastel-500 mb-1.5">CHAT 모델 선택</label>
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">{t('systemLlmSettings.selectChatModel')}</label>
             <select value={chatbotSelectedId} onChange={e => setChatbotSelectedId(e.target.value)}
               className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/15 focus:border-cyan-500/30">
-              <option value="">모델을 선택하세요</option>
+              <option value="">{t('systemLlmSettings.selectModel')}</option>
               {models.map(m => <option key={m.id} value={m.id}>{m.displayName} ({m.name})</option>)}
             </select>
           </div>
           <button onClick={handleChatbotLlmSave} disabled={chatbotSaving || !chatbotSelectedId || chatbotSelectedId === chatbotLlm.modelId}
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-            {chatbotSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} 저장
+            {chatbotSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} {t('common.save')}
           </button>
         </div>
-        {chatbotSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> AI 도우미 챗봇 LLM이 변경되었습니다.</div>}
+        {chatbotSuccess && <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2"><Check className="w-4 h-4" /> {t('systemLlmSettings.chatbotChanged')}</div>}
       </div>
 
       {/* Logo Generation Model Setting */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Palette className="w-4 h-4 text-pink-500" />
-          <h2 className="text-sm font-semibold text-pastel-700">로고 자동 생성 모델</h2>
+          <h2 className="text-sm font-semibold text-pastel-700">{t('systemLlmSettings.logoModel')}</h2>
         </div>
         <p className="text-xs text-pastel-400 mb-4">
-          서비스 등록 시 로고 URL이 없으면 선택된 IMAGE 모델로 2D 로고를 자동 생성합니다.
-          서비스의 설명(description)을 기반으로 간단한 화이트 배경 아이콘을 만듭니다.
+          {t('systemLlmSettings.logoDesc')}
         </p>
 
         {logoModel.modelId && !logoModel.model && (
           <div className="mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
             <div className="flex items-center gap-2 text-sm text-amber-800">
               <AlertCircle className="w-4 h-4" />
-              <span className="font-medium">설정된 모델이 삭제되었거나 비활성화되었습니다. 새 모델을 선택해주세요.</span>
+              <span className="font-medium">{t('systemLlmSettings.modelDeletedOrDisabled')}</span>
             </div>
           </div>
         )}
@@ -527,7 +526,7 @@ export default function SystemLlmSettings() {
           <div className="mb-4 p-3 bg-pink-50 rounded-lg border border-pink-100">
             <div className="flex items-center gap-2 text-sm">
               <Image className="w-4 h-4 text-pink-600" />
-              <span className="font-medium text-pink-800">현재 설정:</span>
+              <span className="font-medium text-pink-800">{t('systemLlmSettings.currentSetting')}</span>
               <span className="text-pink-700">{logoModel.model.displayName}</span>
               <span className="text-pink-400 font-mono text-xs">({logoModel.model.name})</span>
               {logoModel.model.imageProvider && (
@@ -535,11 +534,11 @@ export default function SystemLlmSettings() {
                   {logoModel.model.imageProvider}
                 </span>
               )}
-              {!logoModel.model.enabled && <span className="text-xs text-amber-600 font-medium">(비활성)</span>}
+              {!logoModel.model.enabled && <span className="text-xs text-amber-600 font-medium">{t('systemLlmSettings.inactive')}</span>}
             </div>
             {logoModel.updatedBy && (
               <p className="text-xs text-pink-400 mt-1 ml-6">
-                {logoModel.updatedBy}이(가) 설정
+                {t('systemLlmSettings.configuredBy', { name: logoModel.updatedBy })}
               </p>
             )}
           </div>
@@ -547,13 +546,13 @@ export default function SystemLlmSettings() {
 
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-pastel-500 mb-1.5">IMAGE 모델 선택</label>
+            <label className="block text-xs font-medium text-pastel-500 mb-1.5">{t('systemLlmSettings.selectImageModel')}</label>
             <select
               value={logoSelectedId}
               onChange={e => setLogoSelectedId(e.target.value)}
               className="w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-pink-500/15 focus:border-pink-500/30"
             >
-              <option value="">모델을 선택하세요</option>
+              <option value="">{t('systemLlmSettings.selectModel')}</option>
               {imageModels.map(m => (
                 <option key={m.id} value={m.id}>
                   {m.displayName} ({m.name}) {m.imageProvider ? `[${m.imageProvider}]` : ''}
@@ -567,30 +566,29 @@ export default function SystemLlmSettings() {
             className="inline-flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-white bg-pink-600 rounded-lg hover:bg-pink-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {logoSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            저장
+            {t('common.save')}
           </button>
         </div>
 
         {logoSuccess && (
           <div className="mt-3 p-2.5 bg-emerald-50 rounded-lg border border-emerald-100 text-sm text-emerald-700 flex items-center gap-2">
-            <Check className="w-4 h-4" /> 로고 생성 모델이 변경되었습니다.
+            <Check className="w-4 h-4" /> {t('systemLlmSettings.logoChanged')}
           </div>
         )}
 
         {imageModels.length === 0 && (
           <div className="mt-3 p-2.5 bg-gray-50 rounded-lg border border-gray-100 text-sm text-pastel-400">
-            등록된 IMAGE 타입 모델이 없습니다. 먼저 LLM 관리에서 IMAGE 타입 모델을 추가해주세요.
+            {t('systemLlmSettings.noImageModels')}
           </div>
         )}
 
-        {/* Batch Generate */}
         {logoModel.modelId && (
           <div className="mt-4 pt-4 border-t border-gray-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-pastel-600">기존 서비스 로고 일괄 생성</p>
+                <p className="text-xs font-medium text-pastel-600">{t('systemLlmSettings.batchGenerateTitle')}</p>
                 <p className="text-xs text-pastel-400 mt-0.5">
-                  로고가 없는 기존 서비스들에 대해 로고를 일괄로 자동 생성합니다
+                  {t('systemLlmSettings.batchGenerateDesc')}
                 </p>
               </div>
               <button
@@ -599,12 +597,12 @@ export default function SystemLlmSettings() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-pink-500 rounded-lg hover:bg-pink-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {batchRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                {batchRunning ? '생성 중...' : '일괄 생성 실행'}
+                {batchRunning ? t('systemLlmSettings.batchGenerating') : t('systemLlmSettings.batchGenerateRun')}
               </button>
             </div>
             {batchDone && (
               <div className="mt-3 p-2.5 bg-blue-50 rounded-lg border border-blue-100 text-sm text-blue-700 flex items-center gap-2">
-                <Check className="w-4 h-4" /> 로고 일괄 생성이 백그라운드에서 시작되었습니다. 완료까지 시간이 걸릴 수 있습니다.
+                <Check className="w-4 h-4" /> {t('systemLlmSettings.batchGenerateStarted')}
               </div>
             )}
           </div>

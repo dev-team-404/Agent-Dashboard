@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { statsApi } from '../../services/api';
 import { useHolidayDates } from '../../hooks/useHolidayDates';
 import { filterBusinessDays } from '../../utils/businessDayFilter';
@@ -39,19 +40,21 @@ const MODEL_COLORS = [
   '#6366f1', // indigo
 ];
 
-const DATE_RANGE_OPTIONS = [
-  { label: '2주', value: 14 },
-  { label: '1개월', value: 30 },
-  { label: '3개월', value: 90 },
-  { label: '6개월', value: 180 },
-  { label: '1년', value: 365 },
-];
+// DATE_RANGE_OPTIONS moved inside component for i18n
 
 interface ModelUsageChartProps {
   serviceId?: string;
 }
 
 export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
+  const { t } = useTranslation();
+  const DATE_RANGE_OPTIONS = [
+    { label: t('charts.modelUsage.week2'), value: 14 },
+    { label: t('charts.modelUsage.month1'), value: 30 },
+    { label: t('charts.modelUsage.month3'), value: 90 },
+    { label: t('charts.modelUsage.month6'), value: 180 },
+    { label: t('charts.modelUsage.year1'), value: 365 },
+  ];
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [chartData, setChartData] = useState<ChartDataItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,8 +135,8 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
     <div className="bg-white rounded-2xl shadow-card p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">모델별 누적 사용량</h2>
-          <p className="text-sm text-gray-500 mt-1">전체 사용자의 모델별 누적 토큰 사용량</p>
+          <h2 className="text-lg font-semibold text-gray-900">{t('charts.modelUsage.title')}</h2>
+          <p className="text-sm text-gray-500 mt-1">{t('charts.modelUsage.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {DATE_RANGE_OPTIONS.map((option) => (
@@ -154,7 +157,7 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
 
       {cumulativeChartData.length === 0 || models.length === 0 ? (
         <div className="h-80 flex items-center justify-center text-gray-400">
-          데이터가 없습니다
+          {t('common.noData')}
         </div>
       ) : (
         <div className="h-80">
@@ -186,7 +189,7 @@ export default function ModelUsageChart({ serviceId }: ModelUsageChartProps) {
                   const model = models.find((m) => m.id === name);
                   return [formatYAxis(value), model?.displayName || name];
                 }}
-                labelFormatter={(label) => `날짜: ${label}`}
+                labelFormatter={(label) => t('charts.modelUsage.dateLabel', { date: label })}
               />
               <Legend
                 formatter={(value: string) => {

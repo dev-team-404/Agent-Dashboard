@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { User, Search, ChevronLeft, ChevronRight, Shield, ShieldCheck, Gauge, X, Infinity } from 'lucide-react';
 import { usersApi, serviceApi, rateLimitApi, serviceRateLimitApi } from '../services/api';
 
@@ -59,6 +60,7 @@ interface UsersProps {
 }
 
 export default function Users({ serviceId }: UsersProps) {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<UserData[]>([]);
   const [adminStatuses, setAdminStatuses] = useState<Record<string, AdminStatus>>({});
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
@@ -162,7 +164,7 @@ export default function Users({ serviceId }: UsersProps) {
     if (!status) {
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-gray-100/80 text-gray-500 rounded-full ring-1 ring-gray-200/60">
-          사용자
+          {t('roles.user')}
         </span>
       );
     }
@@ -171,7 +173,7 @@ export default function Users({ serviceId }: UsersProps) {
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-red-50 text-red-600 rounded-full ring-1 ring-red-200/60">
           <ShieldCheck className="w-3.5 h-3.5" />
-          슈퍼관리자
+          {t('roles.superAdmin')}
         </span>
       );
     }
@@ -180,14 +182,14 @@ export default function Users({ serviceId }: UsersProps) {
       return (
         <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-samsung-blue/8 text-samsung-blue rounded-full ring-1 ring-samsung-blue/20">
           <Shield className="w-3.5 h-3.5" />
-          시스템 관리자
+          {t('roles.admin')}
         </span>
       );
     }
 
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-gray-100/80 text-gray-500 rounded-full ring-1 ring-gray-200/60">
-        사용자
+        {t('roles.user')}
       </span>
     );
   };
@@ -219,7 +221,7 @@ export default function Users({ serviceId }: UsersProps) {
       setRateLimitTarget(null);
       loadData(pagination.page);
     } catch {
-      alert('Rate limit 설정에 실패했습니다.');
+      alert(t('users.rateLimitFailed'));
     } finally {
       setSavingRateLimit(false);
     }
@@ -233,7 +235,7 @@ export default function Users({ serviceId }: UsersProps) {
       setRateLimitTarget(null);
       loadData(pagination.page);
     } catch {
-      alert('Rate limit 삭제에 실패했습니다.');
+      alert(t('users.rateLimitDeleteFailed'));
     } finally {
       setSavingRateLimit(false);
     }
@@ -253,7 +255,7 @@ export default function Users({ serviceId }: UsersProps) {
       setShowServiceRateLimitModal(false);
       loadData(pagination.page);
     } catch {
-      alert('서비스 공통 Rate Limit 설정에 실패했습니다.');
+      alert(t('users.serviceRateLimitFailed'));
     } finally {
       setSavingServiceRateLimit(false);
     }
@@ -268,7 +270,7 @@ export default function Users({ serviceId }: UsersProps) {
       setServiceRateLimit(null);
       loadData(pagination.page);
     } catch {
-      alert('서비스 공통 Rate Limit 삭제에 실패했습니다.');
+      alert(t('users.serviceRateLimitDeleteFailed'));
     } finally {
       setSavingServiceRateLimit(false);
     }
@@ -287,7 +289,7 @@ export default function Users({ serviceId }: UsersProps) {
           <div className="w-12 h-12 rounded-full border-[3px] border-gray-200 border-t-samsung-blue animate-spin" />
           <div className="absolute inset-0 w-12 h-12 rounded-full border-[3px] border-transparent border-t-samsung-blue/30 animate-ping" />
         </div>
-        <p className="text-sm font-medium text-gray-400">사용자 목록을 불러오는 중...</p>
+        <p className="text-sm font-medium text-gray-400">{t('users.loadingUsers')}</p>
       </div>
     );
   }
@@ -299,8 +301,8 @@ export default function Users({ serviceId }: UsersProps) {
         <div className="bg-white border border-gray-200 rounded-lg mb-8">
           <div className="px-8 py-7 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{serviceInfo.displayName} - 사용자 관리</h1>
-              <p className="text-gray-500 text-sm mt-1.5 font-medium">서비스 ID: {serviceInfo.name}</p>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{t('users.serviceUsersTitle', { name: serviceInfo.displayName })}</h1>
+              <p className="text-gray-500 text-sm mt-1.5 font-medium">{t('users.serviceIdLabel', { name: serviceInfo.name })}</p>
             </div>
             <button
               onClick={() => {
@@ -318,9 +320,9 @@ export default function Users({ serviceId }: UsersProps) {
               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
             >
               <Gauge className="w-4 h-4" />
-              공통 제한: {serviceRateLimit && serviceRateLimit.enabled
+              {t('users.commonLimit', { limit: serviceRateLimit && serviceRateLimit.enabled
                 ? `${formatTokens(serviceRateLimit.maxTokens)} / ${serviceRateLimit.window === 'FIVE_HOURS' ? '5h' : 'day'}`
-                : '무제한'}
+                : t('users.unlimited') })}
             </button>
           </div>
         </div>
@@ -333,9 +335,9 @@ export default function Users({ serviceId }: UsersProps) {
             <User className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">사용자 관리</h1>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{t('users.title')}</h1>
             <p className="text-gray-500 text-sm mt-0.5">
-              {serviceInfo ? `${serviceInfo.displayName} 서비스의 사용자 목록` : '등록된 사용자 목록 및 권한 관리'}
+              {serviceInfo ? t('users.serviceDescription', { name: serviceInfo.displayName }) : t('users.description')}
             </p>
           </div>
         </div>
@@ -349,7 +351,7 @@ export default function Users({ serviceId }: UsersProps) {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="이름, ID, 부서로 검색..."
+            placeholder={t('users.searchPlaceholder')}
             className="w-full pl-10 pr-6 py-3.5 bg-white border border-gray-100/80 rounded-lg text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300"
           />
         </div>
@@ -362,19 +364,19 @@ export default function Users({ serviceId }: UsersProps) {
             <thead>
               <tr className="bg-gray-50">
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  사용자
+                  {t('users.colUser')}
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  부서
+                  {t('users.colDepartment')}
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  권한
+                  {t('users.colRole')}
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  마지막 활동
+                  {t('users.colLastActive')}
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  요청 수
+                  {t('users.colRequestCount')}
                 </th>
                 {serviceId && (
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -428,7 +430,7 @@ export default function Users({ serviceId }: UsersProps) {
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gray-50 text-gray-400 ring-1 ring-gray-200 hover:bg-gray-100 hover:text-gray-500 hover:shadow-sm transition-all duration-300"
                           >
                             <Infinity className="w-3.5 h-3.5" />
-                            무제한
+                            {t('users.unlimited')}
                           </button>
                         )}
                       </td>
@@ -444,7 +446,7 @@ export default function Users({ serviceId }: UsersProps) {
                         <Search className="w-5 h-5 text-gray-300" />
                       </div>
                       <p className="text-sm font-medium text-gray-400">
-                        {searchQuery ? '검색 결과가 없습니다.' : '사용자가 없습니다.'}
+                        {searchQuery ? t('users.noSearchResults') : t('users.noUsers')}
                       </p>
                     </div>
                   </td>
@@ -458,8 +460,7 @@ export default function Users({ serviceId }: UsersProps) {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50/30">
             <p className="text-sm text-gray-400 font-medium tabular-nums">
-              {(pagination.page - 1) * pagination.limit + 1} -{' '}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} / 총 {pagination.total}명
+              {t('users.paginationInfo', { start: (pagination.page - 1) * pagination.limit + 1, end: Math.min(pagination.page * pagination.limit, pagination.total), total: pagination.total })}
             </p>
             <div className="flex items-center gap-1.5">
               <button
@@ -513,7 +514,7 @@ export default function Users({ serviceId }: UsersProps) {
             <div className="p-6 space-y-6">
               {/* Window selection */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">윈도우</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">{t('users.window')}</label>
                 <div className="grid grid-cols-2 gap-3">
                   {(['FIVE_HOURS', 'DAY'] as const).map((w) => (
                     <button
@@ -525,7 +526,7 @@ export default function Users({ serviceId }: UsersProps) {
                           : 'border-gray-100 text-gray-500 hover:border-gray-200 hover:bg-gray-50'
                       }`}
                     >
-                      {w === 'FIVE_HOURS' ? '5시간' : '24시간 (1일)'}
+                      {w === 'FIVE_HOURS' ? t('users.fiveHours') : t('users.twentyFourHours')}
                     </button>
                   ))}
                 </div>
@@ -534,7 +535,7 @@ export default function Users({ serviceId }: UsersProps) {
               {/* Max tokens */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  최대 토큰 수
+                  {t('users.maxTokens')}
                 </label>
                 <input
                   type="number"
@@ -542,7 +543,7 @@ export default function Users({ serviceId }: UsersProps) {
                   onChange={(e) => setRateLimitForm(f => ({ ...f, maxTokens: parseInt(e.target.value) || 0 }))}
                   min={1}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-100/80 rounded-lg text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all duration-300"
-                  placeholder="예: 1000000"
+                  placeholder={t('users.tokenPlaceholder')}
                 />
                 <div className="flex gap-2 mt-3">
                   {[100000, 500000, 1000000, 5000000].map((v) => (
@@ -559,7 +560,7 @@ export default function Users({ serviceId }: UsersProps) {
 
               {/* Enabled toggle */}
               <div className="flex items-center justify-between py-1">
-                <span className="text-sm font-semibold text-gray-700">활성화</span>
+                <span className="text-sm font-semibold text-gray-700">{t('users.enabled')}</span>
                 <button
                   onClick={() => setRateLimitForm(f => ({ ...f, enabled: !f.enabled }))}
                   className={`relative w-12 h-7 rounded-full transition-all duration-300 ${
@@ -581,7 +582,7 @@ export default function Users({ serviceId }: UsersProps) {
                   disabled={savingRateLimit}
                   className="px-4 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-lg transition-all duration-300 disabled:opacity-40"
                 >
-                  제한 해제
+                  {t('users.removeLimit')}
                 </button>
               )}
               <div className="flex-1" />
@@ -589,14 +590,14 @@ export default function Users({ serviceId }: UsersProps) {
                 onClick={() => setRateLimitTarget(null)}
                 className="px-5 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 rounded-lg transition-all duration-300"
               >
-                취소
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleSaveRateLimit}
                 disabled={savingRateLimit || rateLimitForm.maxTokens < 1}
                 className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 disabled:opacity-40"
               >
-                {savingRateLimit ? '저장 중...' : '저장'}
+                {savingRateLimit ? t('common.saving') : t('common.save')}
               </button>
             </div>
           </div>
@@ -613,8 +614,8 @@ export default function Users({ serviceId }: UsersProps) {
                   <Gauge className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">서비스 공통 Rate Limit</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">개별 설정이 없는 모든 사용자에게 적용</p>
+                  <h3 className="text-lg font-bold text-gray-900">{t('users.serviceCommonRateLimit')}</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{t('users.serviceCommonRateLimitDesc')}</p>
                 </div>
               </div>
               <button onClick={() => setShowServiceRateLimitModal(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg">
@@ -625,7 +626,7 @@ export default function Users({ serviceId }: UsersProps) {
             <div className="px-6 py-5 space-y-5">
               {/* Window */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">시간 윈도우</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('users.timeWindow')}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {(['FIVE_HOURS', 'DAY'] as const).map((w) => (
                     <button
@@ -637,7 +638,7 @@ export default function Users({ serviceId }: UsersProps) {
                           : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                       }`}
                     >
-                      {w === 'FIVE_HOURS' ? '5시간' : '24시간'}
+                      {w === 'FIVE_HOURS' ? t('users.fiveHours') : t('users.twentyFourHoursShort')}
                     </button>
                   ))}
                 </div>
@@ -645,7 +646,7 @@ export default function Users({ serviceId }: UsersProps) {
 
               {/* Max Tokens */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">인당 최대 토큰</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('users.maxTokensPerUser')}</label>
                 <input
                   type="number"
                   value={serviceRateLimitForm.maxTokens}
@@ -667,7 +668,7 @@ export default function Users({ serviceId }: UsersProps) {
 
               {/* Enabled */}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">활성화</span>
+                <span className="text-sm font-medium text-gray-700">{t('users.enabled')}</span>
                 <button
                   onClick={() => setServiceRateLimitForm(f => ({ ...f, enabled: !f.enabled }))}
                   className={`w-10 h-6 rounded-full transition-colors ${serviceRateLimitForm.enabled ? 'bg-blue-600' : 'bg-gray-300'}`}
@@ -685,7 +686,7 @@ export default function Users({ serviceId }: UsersProps) {
                     disabled={savingServiceRateLimit}
                     className="text-sm font-medium text-red-500 hover:text-red-600"
                   >
-                    제한 해제
+                    {t('users.removeLimit')}
                   </button>
                 )}
               </div>
@@ -694,14 +695,14 @@ export default function Users({ serviceId }: UsersProps) {
                   onClick={() => setShowServiceRateLimitModal(false)}
                   className="px-5 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-100 rounded-lg"
                 >
-                  취소
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSaveServiceRateLimit}
                   disabled={savingServiceRateLimit || serviceRateLimitForm.maxTokens < 1}
                   className="px-6 py-2.5 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
                 >
-                  {savingServiceRateLimit ? '저장 중...' : '저장'}
+                  {savingServiceRateLimit ? t('common.saving') : t('common.save')}
                 </button>
               </div>
             </div>

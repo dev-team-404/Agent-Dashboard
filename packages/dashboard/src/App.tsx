@@ -7,6 +7,7 @@ import TourTriggerButton from './components/Tour/TourTriggerButton';
 import HelpChatbot from './components/HelpChatbot/HelpChatbot';
 import { authApi } from './services/api';
 import LoadingSpinner from './components/LoadingSpinner';
+import { useTranslation } from 'react-i18next';
 
 // 배포 후 구버전 chunk 404 방지: 실패 시 페이지 자동 새로고침
 function lazyWithRetry(importFn: () => Promise<{ default: React.ComponentType<any> }>) {
@@ -64,7 +65,8 @@ interface User {
 type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | null;
 
 function PageLoader() {
-  return <LoadingSpinner message="로딩 중..." />;
+  const { t } = useTranslation();
+  return <LoadingSpinner message={t('common.loading')} />;
 }
 
 function ServiceDashboardWrapper({ adminRole }: { adminRole: AdminRole }) {

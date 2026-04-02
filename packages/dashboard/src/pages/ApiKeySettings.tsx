@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Key, Check, Loader2, Copy, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
 import { api } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ApiKeySettings() {
+  const { t } = useTranslation();
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [updatedBy, setUpdatedBy] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function ApiKeySettings() {
       load();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || 'API 비밀번호 저장에 실패했습니다.');
+      setError(msg || t('apiKeySettings.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -80,16 +82,16 @@ export default function ApiKeySettings() {
           <Key className="w-6 h-6 text-amber-600" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">통계 API 비밀번호</h1>
+          <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('apiKeySettings.title')}</h1>
           <p className="text-sm text-pastel-500 mt-0.5">
-            공개 통계 API (GET) 접근 시 필요한 비밀번호를 관리합니다
+            {t('apiKeySettings.description')}
           </p>
         </div>
       </div>
 
       {/* 현재 상태 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
-        <h2 className="text-sm font-semibold text-pastel-700 mb-3">현재 설정</h2>
+        <h2 className="text-sm font-semibold text-pastel-700 mb-3">{t('apiKeySettings.currentSettings')}</h2>
 
         {apiKey ? (
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
@@ -99,37 +101,37 @@ export default function ApiKeySettings() {
                 onClick={handleCopy}
                 className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs rounded-md bg-white border border-gray-200 text-pastel-600 hover:bg-gray-50 transition-colors"
               >
-                {copied ? <><Check className="w-3.5 h-3.5 text-green-500" /> 복사됨</> : <><Copy className="w-3.5 h-3.5" /> 복사</>}
+                {copied ? <><Check className="w-3.5 h-3.5 text-green-500" /> {t('apiKeySettings.copied')}</> : <><Copy className="w-3.5 h-3.5" /> {t('apiKeySettings.copy')}</>}
               </button>
             </div>
             <div className="mt-3 flex items-center gap-4 text-[11px] text-pastel-400">
-              {updatedBy && <span>설정자: {updatedBy}</span>}
-              {updatedAt && <span>변경일: {new Date(updatedAt).toLocaleString('ko-KR')}</span>}
+              {updatedBy && <span>{t('apiKeySettings.updatedBy', { name: updatedBy })}</span>}
+              {updatedAt && <span>{t('apiKeySettings.updatedAt', { date: new Date(updatedAt).toLocaleString('ko-KR') })}</span>}
             </div>
           </div>
         ) : (
           <div className="p-4 bg-amber-50 rounded-lg border border-amber-100 text-sm text-amber-700">
             <AlertCircle className="w-4 h-4 inline mr-1.5" />
-            비밀번호가 설정되지 않았습니다. 누구나 통계 API를 조회할 수 있습니다.
+            {t('apiKeySettings.noApiKeyWarning')}
           </div>
         )}
       </div>
 
       {/* 비밀번호 변경 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
-        <h2 className="text-sm font-semibold text-pastel-700 mb-3">비밀번호 변경</h2>
+        <h2 className="text-sm font-semibold text-pastel-700 mb-3">{t('apiKeySettings.changePassword')}</h2>
 
         <div className="flex items-center gap-2">
           <input
             type="text"
             value={apiKeyInput}
             onChange={e => setApiKeyInput(e.target.value)}
-            placeholder="새 비밀번호 입력 (최소 4자)"
+            placeholder={t('apiKeySettings.newPasswordPlaceholder')}
             className="flex-1 px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-amber-200 focus:border-amber-300 outline-none font-mono"
           />
           <button
             onClick={generateRandomKey}
-            title="랜덤 비밀번호 생성 (32자)"
+            title={t('apiKeySettings.generateRandom')}
             className="flex-shrink-0 p-2.5 rounded-lg border border-gray-200 text-pastel-500 hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
@@ -140,13 +142,13 @@ export default function ApiKeySettings() {
             className="flex-shrink-0 flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
-            저장
+            {t('apiKeySettings.save')}
           </button>
         </div>
 
         {success && (
           <div className="mt-3 p-2.5 bg-green-50 rounded-lg border border-green-100 text-sm text-green-700 flex items-center gap-2">
-            <Check className="w-4 h-4" /> API 비밀번호가 변경되었습니다.
+            <Check className="w-4 h-4" /> {t('apiKeySettings.saveSuccess')}
           </div>
         )}
         {error && (
@@ -158,15 +160,14 @@ export default function ApiKeySettings() {
 
       {/* 사용법 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-6">
-        <h2 className="text-sm font-semibold text-pastel-700 mb-3">사용법</h2>
+        <h2 className="text-sm font-semibold text-pastel-700 mb-3">{t('apiKeySettings.usage')}</h2>
         <div className="space-y-3 text-sm text-pastel-600">
-          <p>통계 API (GET) 호출 시 쿼리 파라미터로 비밀번호를 전달합니다:</p>
+          <p>{t('apiKeySettings.usageDescription')}</p>
           <code className="block p-3 bg-gray-50 rounded-lg border border-gray-100 text-xs font-mono text-pastel-700 break-all">
             GET /api/public/stats/services?apiKey={apiKey || 'your-api-key'}
           </code>
           <p className="text-xs text-pastel-400 mt-2">
-            POST 요청 (사용량 기록)은 비밀번호가 필요하지 않습니다.
-            대시보드에서는 로그인 토큰으로 자동 인증됩니다.
+            {t('apiKeySettings.usageNote')}
           </p>
         </div>
         <div className="mt-4">
@@ -176,7 +177,7 @@ export default function ApiKeySettings() {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700"
           >
-            <ExternalLink className="w-3.5 h-3.5" /> Swagger API 문서에서 테스트
+            <ExternalLink className="w-3.5 h-3.5" /> {t('apiKeySettings.swaggerTest')}
           </a>
         </div>
       </div>

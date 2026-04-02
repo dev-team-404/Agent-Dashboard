@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Loader2, AlertCircle, ChevronDown, ChevronRight, Users, Building2, Search, FolderTree } from 'lucide-react';
 import { orgTreeApi } from '../services/api';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -270,6 +271,7 @@ function ListNode({
 
 // ── 메인 컴포넌트 ──
 export default function OrgTree() {
+  const { t } = useTranslation();
   const [tree, setTree] = useState<OrgTreeNode[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -315,13 +317,13 @@ export default function OrgTree() {
       const res = await orgTreeApi.sync();
       const { total, discovered, alreadyExist, errors } = res.data;
       setSyncResult(
-        `동기화 완료: 미등록 ${total}개 부서 중 ${discovered}개 신규 발견 (기존 ${alreadyExist}개)${
-          errors?.length ? ` / 오류 ${errors.length}건` : ''
-        }`
+        errors?.length
+          ? t('orgTree.syncCompleteWithErrors', { total, discovered, alreadyExist, errorCount: errors.length })
+          : t('orgTree.syncComplete', { total, discovered, alreadyExist })
       );
       await loadTree();
     } catch (err: any) {
-      setSyncResult(`동기화 실패: ${err.response?.data?.error || err.message}`);
+      setSyncResult(t('orgTree.syncFailed', { error: err.response?.data?.error || err.message }));
     } finally {
       setSyncing(false);
     }
@@ -375,7 +377,7 @@ export default function OrgTree() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, tree]);
 
-  if (loading) return <LoadingSpinner message="조직도 로딩 중..." />;
+  if (loading) return <LoadingSpinner message={t('orgTree.loadingMessage')} />;
 
   return (
     <div className="space-y-4">
@@ -384,10 +386,10 @@ export default function OrgTree() {
         <div>
           <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
             <FolderTree className="w-5 h-5 text-indigo-600" />
-            조직도
+            {t('orgTree.title')}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Knox Organization API 기반 자동 구축 조직도
+            {t('orgTree.subtitle')}
           </p>
         </div>
 
@@ -398,9 +400,9 @@ export default function OrgTree() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
             {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            {syncing ? '동기화 중...' : '사용자 기반 동기화'}
+            {syncing ? t('orgTree.syncInProgress') : t('orgTree.syncButton')}
           </button>
-          <button onClick={loadTree} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors" title="새로고침">
+          <button onClick={loadTree} className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors" title={t('orgTree.refresh')}>
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
@@ -415,10 +417,10 @@ export default function OrgTree() {
       )}
       {syncResult && (
         <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
-          syncResult.includes('실패') ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
+          syncResult.includes(t('orgTree.syncFailed', { error: '' }).split(':')[0]) ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'
         }`}>
           {syncResult}
-          <button onClick={() => setSyncResult(null)} className="ml-auto text-xs hover:underline">닫기</button>
+          <button onClick={() => setSyncResult(null)} className="ml-auto text-xs hover:underline">{t('orgTree.close')}</button>
         </div>
       )}
 
@@ -426,15 +428,15 @@ export default function OrgTree() {
       {stats && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="text-[11px] text-gray-500 font-medium">전체 부서</div>
+            <div className="text-[11px] text-gray-500 font-medium">{t('orgTree.totalDepts')}</div>
             <div className="text-xl font-bold text-gray-900 mt-0.5">{stats.totalNodes}</div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="text-[11px] text-gray-500 font-medium">최상위 조직</div>
+            <div className="text-[11px] text-gray-500 font-medium">{t('orgTree.topOrgs')}</div>
             <div className="text-xl font-bold text-gray-900 mt-0.5">{stats.rootNodes}</div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-3">
-            <div className="text-[11px] text-gray-500 font-medium">사용자 있는 부서</div>
+            <div className="text-[11px] text-gray-500 font-medium">{t('orgTree.deptsWithUsers')}</div>
             <div className="text-xl font-bold text-blue-600 mt-0.5">{stats.nodesWithUsers}</div>
           </div>
         </div>
@@ -448,7 +450,7 @@ export default function OrgTree() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="부서명, 영문명, 부서코드 검색..."
+            placeholder={t('orgTree.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
         </div>
@@ -459,7 +461,7 @@ export default function OrgTree() {
               viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            리스트
+            {t('orgTree.listView')}
           </button>
           <button
             onClick={() => setViewMode('tree')}
@@ -467,14 +469,14 @@ export default function OrgTree() {
               viewMode === 'tree' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            트리
+            {t('orgTree.treeView')}
           </button>
         </div>
         <button onClick={expandAll} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors">
-          전체 펼치기
+          {t('orgTree.expandAll')}
         </button>
         <button onClick={collapseAll} className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors">
-          전체 접기
+          {t('orgTree.collapseAll')}
         </button>
       </div>
 
@@ -482,14 +484,14 @@ export default function OrgTree() {
       {tree.length === 0 && !loading && (
         <div className="flex flex-col items-center justify-center py-16 text-gray-400">
           <Building2 className="w-12 h-12 mb-3" />
-          <p className="text-sm font-medium text-gray-500">아직 조직도 데이터가 없습니다</p>
-          <p className="text-xs text-gray-400 mt-1">"사용자 기반 동기화" 버튼을 눌러 구축을 시작하세요</p>
+          <p className="text-sm font-medium text-gray-500">{t('orgTree.emptyTitle')}</p>
+          <p className="text-xs text-gray-400 mt-1">{t('orgTree.emptyHint')}</p>
         </div>
       )}
 
       {filteredTree.length === 0 && tree.length > 0 && search && (
         <div className="text-center py-8 text-sm text-gray-400">
-          "{search}"에 대한 검색 결과가 없습니다
+          {t('orgTree.noSearchResults', { query: search })}
         </div>
       )}
 
@@ -530,7 +532,7 @@ export default function OrgTree() {
       {/* 범례 */}
       {tree.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400 px-1">
-          <span className="font-medium text-gray-500">레벨 색상:</span>
+          <span className="font-medium text-gray-500">{t('orgTree.levelColors')}</span>
           {LEVEL_COLORS.slice(0, 6).map((c, i) => (
             <span key={i} className="flex items-center gap-1">
               <span className={`inline-block w-3 h-3 rounded ${c.bg} border ${c.border}`} />

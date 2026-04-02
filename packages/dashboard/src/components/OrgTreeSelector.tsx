@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Search, Loader2, FolderTree } from 'lucide-react';
 import { scopeApi } from '../services/api';
 
@@ -197,6 +198,7 @@ function CheckNode({
 
 // ── 메인 컴포넌트 ──
 export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h-64' }: OrgTreeSelectorProps) {
+  const { t } = useTranslation();
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -276,7 +278,7 @@ export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h
     return (
       <div className="flex items-center gap-2 py-4 justify-center text-gray-400 text-sm">
         <Loader2 className="w-4 h-4 animate-spin" />
-        조직도 로딩 중...
+        {t('orgTreeSelector.loading')}
       </div>
     );
   }
@@ -285,8 +287,8 @@ export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h
     return (
       <div className="flex flex-col items-center gap-1 py-4 text-gray-400 text-sm">
         <FolderTree className="w-5 h-5" />
-        <span>조직도 데이터가 없습니다</span>
-        <span className="text-[11px]">슈퍼관리자 &gt; 조직도 &gt; 사용자 기반 동기화를 먼저 실행하세요</span>
+        <span>{t('orgTreeSelector.noData')}</span>
+        <span className="text-[11px]">{t('orgTreeSelector.noDataGuide')}</span>
       </div>
     );
   }
@@ -300,12 +302,12 @@ export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="부서 검색..."
+          placeholder={t('orgTreeSelector.searchPlaceholder')}
           className="flex-1 text-sm bg-transparent outline-none placeholder-gray-400"
         />
         {selected.length > 0 && (
           <span className="text-[11px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full flex-shrink-0">
-            {selected.length}개 선택
+            {t('orgTreeSelector.selectedCount', { count: selected.length })}
           </span>
         )}
       </div>
@@ -313,7 +315,7 @@ export default function OrgTreeSelector({ selected, onChange, maxHeight = 'max-h
       {/* 트리 */}
       <div className={`${maxHeight} overflow-y-auto py-1 px-1`}>
         {filteredTree.length === 0 ? (
-          <div className="text-center py-3 text-sm text-gray-400">검색 결과 없음</div>
+          <div className="text-center py-3 text-sm text-gray-400">{t('orgTreeSelector.noSearchResults')}</div>
         ) : (
           filteredTree.map(root => (
             <CheckNode

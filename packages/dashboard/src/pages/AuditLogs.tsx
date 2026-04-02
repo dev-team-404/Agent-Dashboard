@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Filter, ChevronDown, ChevronRight, X, Shield, Clock, Globe } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
 
@@ -36,57 +37,53 @@ function formatKST(dateStr: string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-// ── 작업 한글 라벨 ──
-const ACTION_LABELS: Record<string, string> = {
-  CREATE_SERVICE: '서비스 생성',
-  UPDATE_SERVICE: '서비스 수정',
-  DELETE_SERVICE: '서비스 삭제',
-  DEPLOY_SERVICE: '서비스 배포',
-  UNDEPLOY_SERVICE: '서비스 배포 해제',
-  COPY_SERVICE_MODELS: '모델 복사',
-  UPDATE_SERVICE_TARGET: '서비스 목표 수정',
-  RUN_AI_ESTIMATION: 'AI 추정 실행',
-  CREATE_MODEL: '모델 생성',
-  ADD_MODEL: '모델 추가',
-  UPDATE_MODEL: '모델 수정',
-  REMOVE_MODEL: '모델 제거',
-  DELETE_MODEL: '모델 삭제',
-  TOGGLE_MODEL: '모델 토글',
-  REORDER_MODELS: '모델 순서 변경',
-  ADD_SUB_MODEL: '서브 모델 추가',
-  UPDATE_SUB_MODEL: '서브 모델 수정',
-  REMOVE_SUB_MODEL: '서브 모델 제거',
-  PROMOTE_USER: '관리자 승급',
-  DEMOTE_USER: '관리자 강등',
-  DEMOTE_TO_USER: '일반 사용자로 강등',
-  DELETE_USER: '사용자 삭제',
-  KNOX_REGISTER_ADMIN: 'Knox 관리자 등록',
-  RESET_KNOX_VERIFICATION: 'Knox 인증 초기화',
-  APPROVE_ADMIN_REQUEST: '관리자 요청 승인',
-  REJECT_ADMIN_REQUEST: '관리자 요청 거절',
-  SET_RATE_LIMIT: 'Rate Limit 설정',
-  DELETE_RATE_LIMIT: 'Rate Limit 삭제',
-  SET_SERVICE_RATE_LIMIT: '서비스 Rate Limit 설정',
-  DELETE_SERVICE_RATE_LIMIT: '서비스 Rate Limit 삭제',
-  SUBMIT_EXTERNAL_USAGE: '외부 사용량 제출',
-  SUBMIT_EXTERNAL_USAGE_BY_USER: '사용자별 외부 사용량 제출',
-  SUBMIT_GPU_POWER: 'GPU 전력 사용률 등록',
-  SUBMIT_RATING: '모델 평점 제출',
-  CREATE_HOLIDAY: '휴일 추가',
-  BULK_CREATE_HOLIDAYS: '휴일 일괄 추가',
-  UPDATE_HOLIDAY: '휴일 수정',
-  DELETE_HOLIDAY: '휴일 삭제',
-  CLEANUP_REQUEST_LOGS: '요청 로그 정리',
-  UPDATE_SYSTEM_SETTING: '시스템 설정 변경',
-  UPDATE_API_KEY: 'API 키 변경',
-  GENERATE_MISSING_LOGOS: '누락 로고 생성',
-  SET_ROLE_ADMIN: '관리자 역할 설정',
-  SET_ROLE_SUPER_ADMIN: '슈퍼관리자 역할 설정',
+// Action key → i18n key mapping
+const ACTION_I18N_KEYS: Record<string, string> = {
+  CREATE_SERVICE: 'auditLogs.actionCreateService',
+  UPDATE_SERVICE: 'auditLogs.actionUpdateService',
+  DELETE_SERVICE: 'auditLogs.actionDeleteService',
+  DEPLOY_SERVICE: 'auditLogs.actionDeployService',
+  UNDEPLOY_SERVICE: 'auditLogs.actionUndeployService',
+  COPY_SERVICE_MODELS: 'auditLogs.actionCopyServiceModels',
+  UPDATE_SERVICE_TARGET: 'auditLogs.actionUpdateServiceTarget',
+  RUN_AI_ESTIMATION: 'auditLogs.actionRunAiEstimation',
+  CREATE_MODEL: 'auditLogs.actionCreateModel',
+  ADD_MODEL: 'auditLogs.actionAddModel',
+  UPDATE_MODEL: 'auditLogs.actionUpdateModel',
+  REMOVE_MODEL: 'auditLogs.actionRemoveModel',
+  DELETE_MODEL: 'auditLogs.actionDeleteModel',
+  TOGGLE_MODEL: 'auditLogs.actionToggleModel',
+  REORDER_MODELS: 'auditLogs.actionReorderModels',
+  ADD_SUB_MODEL: 'auditLogs.actionAddSubModel',
+  UPDATE_SUB_MODEL: 'auditLogs.actionUpdateSubModel',
+  REMOVE_SUB_MODEL: 'auditLogs.actionRemoveSubModel',
+  PROMOTE_USER: 'auditLogs.actionPromoteUser',
+  DEMOTE_USER: 'auditLogs.actionDemoteUser',
+  DEMOTE_TO_USER: 'auditLogs.actionDemoteToUser',
+  DELETE_USER: 'auditLogs.actionDeleteUser',
+  KNOX_REGISTER_ADMIN: 'auditLogs.actionKnoxRegisterAdmin',
+  RESET_KNOX_VERIFICATION: 'auditLogs.actionResetKnoxVerification',
+  APPROVE_ADMIN_REQUEST: 'auditLogs.actionApproveAdminRequest',
+  REJECT_ADMIN_REQUEST: 'auditLogs.actionRejectAdminRequest',
+  SET_RATE_LIMIT: 'auditLogs.actionSetRateLimit',
+  DELETE_RATE_LIMIT: 'auditLogs.actionDeleteRateLimit',
+  SET_SERVICE_RATE_LIMIT: 'auditLogs.actionSetServiceRateLimit',
+  DELETE_SERVICE_RATE_LIMIT: 'auditLogs.actionDeleteServiceRateLimit',
+  SUBMIT_EXTERNAL_USAGE: 'auditLogs.actionSubmitExternalUsage',
+  SUBMIT_EXTERNAL_USAGE_BY_USER: 'auditLogs.actionSubmitExternalUsageByUser',
+  SUBMIT_GPU_POWER: 'auditLogs.actionSubmitGpuPower',
+  SUBMIT_RATING: 'auditLogs.actionSubmitRating',
+  CREATE_HOLIDAY: 'auditLogs.actionCreateHoliday',
+  BULK_CREATE_HOLIDAYS: 'auditLogs.actionBulkCreateHolidays',
+  UPDATE_HOLIDAY: 'auditLogs.actionUpdateHoliday',
+  DELETE_HOLIDAY: 'auditLogs.actionDeleteHoliday',
+  CLEANUP_REQUEST_LOGS: 'auditLogs.actionCleanupRequestLogs',
+  UPDATE_SYSTEM_SETTING: 'auditLogs.actionUpdateSystemSetting',
+  UPDATE_API_KEY: 'auditLogs.actionUpdateApiKey',
+  GENERATE_MISSING_LOGOS: 'auditLogs.actionGenerateMissingLogos',
+  SET_ROLE_ADMIN: 'auditLogs.actionSetRoleAdmin',
+  SET_ROLE_SUPER_ADMIN: 'auditLogs.actionSetRoleSuperAdmin',
 };
-
-function getActionLabel(action: string): string {
-  return ACTION_LABELS[action] || action;
-}
 
 const ACTION_OPTIONS = [
   'CREATE_SERVICE', 'UPDATE_SERVICE', 'DELETE_SERVICE', 'DEPLOY_SERVICE', 'UNDEPLOY_SERVICE', 'COPY_SERVICE_MODELS',
@@ -103,17 +100,17 @@ const ACTION_OPTIONS = [
 
 const TARGET_TYPE_OPTIONS = ['Service', 'ServiceTarget', 'Model', 'SubModel', 'User', 'RateLimit', 'ServiceRateLimit', 'RequestLog', 'ExternalUsage', 'SystemSetting', 'GpuPowerUsage', 'Holiday', 'RatingFeedback', 'UsageLog'];
 
-// 활동 카테고리별 탭 정의
+// Category tabs - labels use i18n keys resolved at render time
 const CATEGORY_TABS = [
-  { key: 'all', label: '전체', actions: '' },
-  { key: 'service', label: '서비스 관리', actions: 'CREATE_SERVICE,UPDATE_SERVICE,DELETE_SERVICE,DEPLOY_SERVICE,UNDEPLOY_SERVICE,COPY_SERVICE_MODELS' },
-  { key: 'targets', label: '서비스 목표', actions: 'UPDATE_SERVICE_TARGET,RUN_AI_ESTIMATION' },
-  { key: 'model', label: '모델 관리', actions: 'CREATE_MODEL,ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,DELETE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
-  { key: 'user', label: '사용자/권한', actions: 'PROMOTE_USER,DEMOTE_USER,DEMOTE_TO_USER,DELETE_USER,KNOX_REGISTER_ADMIN,RESET_KNOX_VERIFICATION,APPROVE_ADMIN_REQUEST,REJECT_ADMIN_REQUEST' },
-  { key: 'ratelimit', label: 'Rate Limit', actions: 'SET_RATE_LIMIT,DELETE_RATE_LIMIT,SET_SERVICE_RATE_LIMIT,DELETE_SERVICE_RATE_LIMIT' },
-  { key: 'external', label: '외부 API', actions: 'SUBMIT_EXTERNAL_USAGE,SUBMIT_EXTERNAL_USAGE_BY_USER,SUBMIT_GPU_POWER,SUBMIT_RATING' },
-  { key: 'holiday', label: '휴일 관리', actions: 'CREATE_HOLIDAY,BULK_CREATE_HOLIDAYS,UPDATE_HOLIDAY,DELETE_HOLIDAY' },
-  { key: 'system', label: '시스템', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING,UPDATE_API_KEY,GENERATE_MISSING_LOGOS' },
+  { key: 'all', i18nKey: 'auditLogs.tabAll', actions: '' },
+  { key: 'service', i18nKey: 'auditLogs.tabService', actions: 'CREATE_SERVICE,UPDATE_SERVICE,DELETE_SERVICE,DEPLOY_SERVICE,UNDEPLOY_SERVICE,COPY_SERVICE_MODELS' },
+  { key: 'targets', i18nKey: 'auditLogs.tabTargets', actions: 'UPDATE_SERVICE_TARGET,RUN_AI_ESTIMATION' },
+  { key: 'model', i18nKey: 'auditLogs.tabModel', actions: 'CREATE_MODEL,ADD_MODEL,UPDATE_MODEL,REMOVE_MODEL,DELETE_MODEL,TOGGLE_MODEL,REORDER_MODELS,ADD_SUB_MODEL,UPDATE_SUB_MODEL,REMOVE_SUB_MODEL' },
+  { key: 'user', i18nKey: 'auditLogs.tabUser', actions: 'PROMOTE_USER,DEMOTE_USER,DEMOTE_TO_USER,DELETE_USER,KNOX_REGISTER_ADMIN,RESET_KNOX_VERIFICATION,APPROVE_ADMIN_REQUEST,REJECT_ADMIN_REQUEST' },
+  { key: 'ratelimit', i18nKey: 'auditLogs.tabRateLimit', actions: 'SET_RATE_LIMIT,DELETE_RATE_LIMIT,SET_SERVICE_RATE_LIMIT,DELETE_SERVICE_RATE_LIMIT' },
+  { key: 'external', i18nKey: 'auditLogs.tabExternal', actions: 'SUBMIT_EXTERNAL_USAGE,SUBMIT_EXTERNAL_USAGE_BY_USER,SUBMIT_GPU_POWER,SUBMIT_RATING' },
+  { key: 'holiday', i18nKey: 'auditLogs.tabHoliday', actions: 'CREATE_HOLIDAY,BULK_CREATE_HOLIDAYS,UPDATE_HOLIDAY,DELETE_HOLIDAY' },
+  { key: 'system', i18nKey: 'auditLogs.tabSystem', actions: 'CLEANUP_REQUEST_LOGS,UPDATE_SYSTEM_SETTING,UPDATE_API_KEY,GENERATE_MISSING_LOGOS' },
 ] as const;
 
 type CategoryTab = typeof CATEGORY_TABS[number]['key'];
@@ -150,6 +147,13 @@ function getActionColor(action: string): string {
 }
 
 export default function AuditLogs() {
+  const { t } = useTranslation();
+
+  const getActionLabel = (action: string): string => {
+    const key = ACTION_I18N_KEYS[action];
+    return key ? t(key) : action;
+  };
+
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
@@ -290,9 +294,9 @@ export default function AuditLogs() {
             <Shield className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">감사 로그</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('auditLogs.title')}</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              관리자의 모든 설정 변경 이력을 추적합니다
+              {t('auditLogs.description')}
             </p>
           </div>
         </div>
@@ -301,13 +305,13 @@ export default function AuditLogs() {
             <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-accent-emerald opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-emerald"></span>
           </span>
-          <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}건</span>
+          <span className="text-sm font-semibold text-pastel-700">{t('common.totalItems', { count: pagination.total.toLocaleString() })}</span>
         </div>
       </div>
 
       {/* Category Tabs */}
       <div className="flex items-center gap-1 bg-white rounded-lg shadow-sm border border-gray-100/80 p-1 overflow-x-auto">
-        {CATEGORY_TABS.map(({ key, label }) => (
+        {CATEGORY_TABS.map(({ key, i18nKey }) => (
           <button
             key={key}
             onClick={() => {
@@ -324,7 +328,7 @@ export default function AuditLogs() {
                 : 'text-pastel-600 hover:bg-pastel-50 hover:text-pastel-800'
             }`}
           >
-            {label}
+            {t(i18nKey)}
           </button>
         ))}
       </div>
@@ -337,7 +341,7 @@ export default function AuditLogs() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
             <input
               type="text"
-              placeholder="관리자 아이디 검색..."
+              placeholder={t('auditLogs.searchPlaceholder')}
               value={loginid}
               onChange={e => setLoginid(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200"
@@ -354,7 +358,7 @@ export default function AuditLogs() {
             }`}
           >
             <Filter className="w-4 h-4" />
-            <span>필터</span>
+            <span>{t('common.filter')}</span>
             {hasActiveFilters && (
               <span className="bg-white/25 text-xs font-bold px-2 py-0.5 rounded-full">
                 {[action, targetType, startDate, endDate].filter(Boolean).length}
@@ -368,14 +372,14 @@ export default function AuditLogs() {
         {showFilters && (
           <div className="mt-5 pt-5 border-t border-gray-100/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 animate-slide-down">
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">작업</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('auditLogs.filterAction')}</label>
               <select
                 value={categoryTab !== 'all' ? '' : action}
                 onChange={e => { setAction(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 disabled={categoryTab !== 'all'}
                 className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <option value="">전체</option>
+                <option value="">{t('common.all')}</option>
                 {ACTION_OPTIONS.map(a => (
                   <option key={a} value={a}>{getActionLabel(a)}</option>
                 ))}
@@ -383,22 +387,22 @@ export default function AuditLogs() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">대상 유형</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('auditLogs.filterTargetType')}</label>
               <select
                 value={categoryTab !== 'all' ? '' : targetType}
                 onChange={e => { setTargetType(e.target.value); setPagination(prev => ({ ...prev, page: 1 })); }}
                 disabled={categoryTab !== 'all'}
                 className={`w-full px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700 focus:outline-none focus:ring-2 focus:ring-samsung-blue/15 focus:border-samsung-blue/30 transition-all duration-200 ${categoryTab !== 'all' ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                <option value="">전체</option>
-                {TARGET_TYPE_OPTIONS.map(t => (
-                  <option key={t} value={t}>{t}</option>
+                <option value="">{t('common.all')}</option>
+                {TARGET_TYPE_OPTIONS.map(tt => (
+                  <option key={tt} value={tt}>{tt}</option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">시작일</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('common.startDate')}</label>
               <input
                 type="date"
                 value={startDate}
@@ -408,7 +412,7 @@ export default function AuditLogs() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">종료일</label>
+              <label className="block text-xs font-semibold text-pastel-500 uppercase tracking-wider mb-2">{t('common.endDate')}</label>
               <input
                 type="date"
                 value={endDate}
@@ -424,7 +428,7 @@ export default function AuditLogs() {
                   className="inline-flex items-center gap-1.5 text-sm text-pastel-500 hover:text-red-500 transition-colors duration-200"
                 >
                   <X className="w-3.5 h-3.5" />
-                  필터 초기화
+                  {t('common.filterReset')}
                 </button>
               </div>
             )}
@@ -439,12 +443,12 @@ export default function AuditLogs() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[30px]"></th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">시각</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">관리자</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">작업</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">대상</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">유형</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[200px]">상세</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[170px]">{t('auditLogs.colTime')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">{t('auditLogs.colAdmin')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[160px]">{t('auditLogs.colAction')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('auditLogs.colTarget')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">{t('auditLogs.colType')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[200px]">{t('auditLogs.colDetails')}</th>
                 <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[120px]">IP</th>
               </tr>
             </thead>
@@ -459,8 +463,8 @@ export default function AuditLogs() {
                         <Search className="w-8 h-8 text-pastel-300" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-pastel-600">검색 결과가 없습니다</p>
-                        <p className="text-xs text-pastel-400 mt-1">다른 검색어나 필터 조건을 시도해 보세요</p>
+                        <p className="text-sm font-semibold text-pastel-600">{t('common.noSearchResults')}</p>
+                        <p className="text-xs text-pastel-400 mt-1">{t('common.tryDifferentSearch')}</p>
                       </div>
                     </div>
                   </td>
@@ -561,7 +565,7 @@ export default function AuditLogs() {
                       <tr key={`detail-${log.id}`}>
                         <td colSpan={8} className="px-6 py-4 bg-gray-50/50 border-b border-gray-100/60 animate-slide-down">
                           <div className="flex items-center gap-2 mb-3">
-                            <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">상세 정보</span>
+                            <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">{t('auditLogs.detailInfo')}</span>
                             <button
                               onClick={() => toggleExpanded(log.id)}
                               className="ml-auto p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
@@ -587,10 +591,9 @@ export default function AuditLogs() {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
-              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>건 중{' '}
+              <span className="font-semibold text-pastel-700">{t('auditLogs.paginationOf', { total: pagination.total.toLocaleString() })}</span>{' '}
               <span className="font-medium text-pastel-600">
-                {((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-
-                {Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}
+                {t('auditLogs.paginationRange', { start: ((pagination.page - 1) * pagination.limit + 1).toLocaleString(), end: Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString() })}
               </span>
             </p>
             <div className="flex items-center gap-1.5">
@@ -599,7 +602,7 @@ export default function AuditLogs() {
                 disabled={pagination.page <= 1}
                 className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                이전
+                {t('common.prev')}
               </button>
               {getPageNumbers().map((p, idx) =>
                 typeof p === 'string' ? (
@@ -623,7 +626,7 @@ export default function AuditLogs() {
                 disabled={pagination.page >= pagination.totalPages}
                 className="px-3.5 py-2 text-sm font-medium bg-white text-pastel-600 rounded-xl border border-gray-200/60 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pastel-50 hover:border-pastel-300 transition-all duration-200 shadow-sm"
               >
-                다음
+                {t('common.next')}
               </button>
             </div>
           </div>

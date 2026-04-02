@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Filter, ChevronDown, ChevronRight, X, Clock, Sparkles, Loader2, Tag, User, Zap, Wifi, WifiOff, Server, Timer } from 'lucide-react';
 import { api } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
@@ -93,6 +94,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 export default function ErrorManagement() {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<ErrorLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, totalPages: 0 });
@@ -174,7 +176,7 @@ export default function ErrorManagement() {
       const res = await api.post(`/admin/error-logs/${logId}/analyze`, { modelId: selectedModel });
       setAnalyses(prev => new Map(prev).set(logId, res.data.analysis));
     } catch (err: any) {
-      const msg = err.response?.data?.error || err.response?.data?.detail || 'AI 분석에 실패했습니다';
+      const msg = err.response?.data?.error || err.response?.data?.detail || t('errorManagement.aiAnalysisFallbackError');
       setAnalyzeErrors(prev => new Map(prev).set(logId, msg));
     } finally {
       setAnalyzingId(null);
@@ -192,9 +194,9 @@ export default function ErrorManagement() {
             <AlertTriangle className="w-6 h-6 text-red-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">에러 관리</h1>
+            <h1 className="text-2xl font-bold text-pastel-800 tracking-tight">{t('errorManagement.title')}</h1>
             <p className="text-sm text-pastel-500 mt-0.5">
-              API 프록시 에러를 추적하고 원인을 분석합니다
+              {t('errorManagement.description')}
             </p>
           </div>
         </div>
@@ -204,14 +206,14 @@ export default function ErrorManagement() {
             value={selectedModel}
             onChange={e => setSelectedModel(e.target.value)}
             className="px-3 py-2 text-xs bg-white border border-gray-200 rounded-lg text-pastel-700 focus:outline-none focus:ring-2 focus:ring-violet-500/20 max-w-[200px]"
-            title="AI 분석에 사용할 LLM 선택"
+            title={t('errorManagement.llmSelectTitle')}
           >
             {models.map(m => (
               <option key={m.id} value={m.id}>{m.displayName}</option>
             ))}
           </select>
           <div className="flex items-center gap-2.5 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
-            <span className="text-sm font-semibold text-pastel-700">총 {pagination.total.toLocaleString()}건</span>
+            <span className="text-sm font-semibold text-pastel-700">{t('errorManagement.totalCount', { count: pagination.total.toLocaleString() })}</span>
           </div>
         </div>
       </div>
@@ -223,7 +225,7 @@ export default function ErrorManagement() {
             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pastel-400" />
             <input
               type="text"
-              placeholder="사용자 ID 검색..."
+              placeholder={t('errorManagement.searchUserId')}
               value={userId}
               onChange={e => setUserId(e.target.value)}
               className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-red-500/15 focus:border-red-500/30"
@@ -234,7 +236,7 @@ export default function ErrorManagement() {
             onChange={e => { setStatusCode(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
             className="px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700"
           >
-            <option value="">전체 상태코드</option>
+            <option value="">{t('errorManagement.allStatusCodes')}</option>
             <option value="400">400 Bad Request</option>
             <option value="401">401 Unauthorized</option>
             <option value="403">403 Forbidden</option>
@@ -247,33 +249,33 @@ export default function ErrorManagement() {
             onChange={e => { setCategory(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
             className="px-4 py-2.5 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-700"
           >
-            <option value="">전체 카테고리</option>
+            <option value="">{t('errorManagement.allCategories')}</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200/60 text-sm text-pastel-600 hover:bg-pastel-50"
           >
-            <Filter className="w-4 h-4" />날짜
+            <Filter className="w-4 h-4" />{t('errorManagement.dateFilter')}
             <ChevronDown className={`w-3 h-3 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
         </div>
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-gray-100 flex gap-4 items-end">
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-pastel-500 mb-1">시작일</label>
+              <label className="block text-xs font-semibold text-pastel-500 mb-1">{t('errorManagement.startDate')}</label>
               <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
                 className="w-full px-3 py-2 bg-white border border-gray-200/60 rounded-lg text-sm" />
             </div>
             <div className="flex-1">
-              <label className="block text-xs font-semibold text-pastel-500 mb-1">종료일</label>
+              <label className="block text-xs font-semibold text-pastel-500 mb-1">{t('errorManagement.endDate')}</label>
               <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
                 className="w-full px-3 py-2 bg-white border border-gray-200/60 rounded-lg text-sm" />
             </div>
             {hasFilters && (
               <button onClick={() => { setStatusCode(''); setCategory(''); setUserId(''); setStartDate(''); setEndDate(''); }}
                 className="flex items-center gap-1 text-sm text-pastel-500 hover:text-red-500 pb-2">
-                <X className="w-3.5 h-3.5" />초기화
+                <X className="w-3.5 h-3.5" />{t('errorManagement.resetFilters')}
               </button>
             )}
           </div>
@@ -287,23 +289,23 @@ export default function ErrorManagement() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
                 <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[30px]"></th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[155px]">시각</th>
-                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[60px]">코드</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">사용자</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[130px]">서비스</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">모델</th>
-                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase">원인</th>
-                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[80px]">분석</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[155px]">{t('errorManagement.colTime')}</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[60px]">{t('errorManagement.colCode')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">{t('errorManagement.colUser')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[130px]">{t('errorManagement.colService')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase w-[120px]">{t('errorManagement.colModel')}</th>
+                <th className="px-3 py-3 text-left text-xs font-semibold text-pastel-500 uppercase">{t('errorManagement.colCause')}</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-pastel-500 uppercase w-[80px]">{t('errorManagement.colAnalysis')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
               {loading ? (
-                <TableLoadingRow colSpan={8} message="에러 로그 불러오는 중..." />
+                <TableLoadingRow colSpan={8} message={t('errorManagement.loadingErrors')} />
               ) : logs.length === 0 ? (
                 <tr><td colSpan={8} className="px-5 py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <AlertTriangle className="w-8 h-8 text-pastel-300" />
-                    <p className="text-sm text-pastel-600">에러 로그가 없습니다</p>
+                    <p className="text-sm text-pastel-600">{t('errorManagement.noErrors')}</p>
                   </div>
                 </td></tr>
               ) : logs.map(log => {
@@ -373,7 +375,7 @@ export default function ErrorManagement() {
                           </div>
                         ) : (
                           <span className="text-xs text-pastel-400 italic">
-                            {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : '원인 미상'}
+                            {log.errorMessage ? log.errorMessage.substring(0, 80) + (log.errorMessage.length > 80 ? '...' : '') : t('errorManagement.unknownCause')}
                           </span>
                         )}
                       </td>
@@ -397,13 +399,13 @@ export default function ErrorManagement() {
                         <td colSpan={8} className="p-0">
                           <div className="px-5 py-4 bg-gray-50/80 border-b border-gray-200 animate-slide-down">
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3 text-xs">
-                              <div><span className="text-pastel-400 block">사용자</span><span className="text-pastel-700 font-medium">{log.userId || '-'}</span></div>
-                              <div><span className="text-pastel-400 block">부서</span><span className="text-pastel-700">{log.deptname || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">{t('errorManagement.detailUser')}</span><span className="text-pastel-700 font-medium">{log.userId || '-'}</span></div>
+                              <div><span className="text-pastel-400 block">{t('errorManagement.detailDept')}</span><span className="text-pastel-700">{log.deptname || '-'}</span></div>
                               <div><span className="text-pastel-400 block">IP</span><span className="text-pastel-700 font-mono">{log.ipAddress || '-'}</span></div>
                               <div><span className="text-pastel-400 block">Latency</span><span className="text-pastel-700">{log.latencyMs != null ? `${log.latencyMs}ms` : '-'}</span></div>
-                              <div><span className="text-pastel-400 block">서비스</span><span className="text-pastel-700">{log.service?.displayName || '-'} ({log.service?.name || '-'})</span></div>
-                              <div><span className="text-pastel-400 block">모델</span><span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span></div>
-                              <div><span className="text-pastel-400 block">요청</span><span className="text-pastel-700 font-mono">{log.method} {log.path}</span></div>
+                              <div><span className="text-pastel-400 block">{t('errorManagement.detailService')}</span><span className="text-pastel-700">{log.service?.displayName || '-'} ({log.service?.name || '-'})</span></div>
+                              <div><span className="text-pastel-400 block">{t('errorManagement.detailModel')}</span><span className="text-pastel-700">{log.modelName}{log.resolvedModel && log.resolvedModel !== log.modelName ? ` -> ${log.resolvedModel}` : ''}</span></div>
+                              <div><span className="text-pastel-400 block">{t('errorManagement.detailRequest')}</span><span className="text-pastel-700 font-mono">{log.method} {log.path}</span></div>
                               <div><span className="text-pastel-400 block">User-Agent</span><span className="text-pastel-700 truncate block max-w-[200px]" title={log.userAgent || ''}>{log.userAgent || '-'}</span></div>
                             </div>
                             {log.errorMessage && (
@@ -416,9 +418,9 @@ export default function ErrorManagement() {
                               <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2.5">
                                   <Zap className="w-3.5 h-3.5 text-slate-600" />
-                                  <span className="text-xs font-semibold text-slate-700">엔드포인트 시도 이력</span>
+                                  <span className="text-xs font-semibold text-slate-700">{t('errorManagement.endpointAttemptHistory')}</span>
                                   <span className="text-[10px] text-slate-400 ml-auto">
-                                    총 {log.errorDetails.totalAttempts}회 시도 | Timeout 설정: {(log.errorDetails.timeoutMs / 1000).toFixed(0)}초
+                                    {t('errorManagement.totalAttempts', { count: log.errorDetails.totalAttempts, timeout: (log.errorDetails.timeoutMs / 1000).toFixed(0) })}
                                   </span>
                                 </div>
                                 <div className="space-y-2">
@@ -456,7 +458,7 @@ export default function ErrorManagement() {
                               <div className="p-3 bg-violet-50 border border-violet-200 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
                                   <Sparkles className="w-3.5 h-3.5 text-violet-600" />
-                                  <span className="text-xs font-semibold text-violet-800">AI 원인 분석</span>
+                                  <span className="text-xs font-semibold text-violet-800">{t('errorManagement.aiCauseAnalysis')}</span>
                                   <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${SEVERITY_COLORS[analysis.severity] || ''}`}>{analysis.severity}</span>
                                   {analysis.errorPattern && (
                                     <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
@@ -464,28 +466,28 @@ export default function ErrorManagement() {
                                       analysis.errorPattern === 'recurring' ? 'bg-amber-100 text-amber-700' :
                                       'bg-gray-100 text-gray-600'
                                     }`}>
-                                      {analysis.errorPattern === 'outage' ? '서비스 장애' : analysis.errorPattern === 'recurring' ? '반복 발생' : '일회성'}
+                                      {analysis.errorPattern === 'outage' ? t('errorManagement.serviceOutage') : analysis.errorPattern === 'recurring' ? t('errorManagement.recurring') : t('errorManagement.oneTime')}
                                     </span>
                                   )}
                                   <span className="text-[10px] text-violet-500 ml-auto">{analysis.category}</span>
                                 </div>
                                 <div className="space-y-1.5 text-xs text-pastel-700">
-                                  <div><span className="font-semibold text-violet-700">원인:</span> {analysis.cause}</div>
-                                  <div><span className="font-semibold text-violet-700">상세:</span> {analysis.detail}</div>
-                                  <div><span className="font-semibold text-violet-700">해결:</span> {analysis.suggestion}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('errorManagement.cause')}</span> {analysis.cause}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('errorManagement.detail')}</span> {analysis.detail}</div>
+                                  <div><span className="font-semibold text-violet-700">{t('errorManagement.resolution')}</span> {analysis.suggestion}</div>
                                 </div>
                               </div>
                             ) : isAnalyzing ? (
                               <div className="flex items-center gap-2 p-3 bg-violet-50 border border-violet-100 rounded-lg">
                                 <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />
-                                <span className="text-xs text-violet-600">AI 원인 분석 중...</span>
+                                <span className="text-xs text-violet-600">{t('errorManagement.aiAnalyzing')}</span>
                               </div>
                             ) : errMsg ? (
                               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-lg">
                                 <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
                                 <span className="text-xs text-red-600">{errMsg}</span>
                                 <button onClick={(e) => { e.stopPropagation(); analyzeError(log.id); }}
-                                  className="ml-auto text-xs text-violet-600 hover:underline">재시도</button>
+                                  className="ml-auto text-xs text-violet-600 hover:underline">{t('common.retry')}</button>
                               </div>
                             ) : null}
                           </div>
@@ -503,15 +505,15 @@ export default function ErrorManagement() {
         {pagination.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-100/80 flex items-center justify-between bg-gray-50">
             <p className="text-sm text-pastel-500">
-              <span className="font-semibold text-pastel-700">{pagination.total.toLocaleString()}</span>건 중{' '}
-              <span className="font-medium">{((pagination.page - 1) * pagination.limit + 1).toLocaleString()}-{Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()}</span>
+              <span className="font-semibold text-pastel-700">{t('errorManagement.paginationOf', { total: pagination.total.toLocaleString() })}</span>{' '}
+              <span className="font-medium">{t('errorManagement.paginationRange', { start: ((pagination.page - 1) * pagination.limit + 1).toLocaleString(), end: Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString() })}</span>
             </p>
             <div className="flex items-center gap-1.5">
               <button onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))} disabled={pagination.page <= 1}
-                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">이전</button>
+                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">{t('common.prev')}</button>
               <span className="px-3 py-2 text-sm text-pastel-600">{pagination.page} / {pagination.totalPages}</span>
               <button onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))} disabled={pagination.page >= pagination.totalPages}
-                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">다음</button>
+                className="px-3 py-2 text-sm font-medium bg-white text-pastel-600 rounded-lg border border-gray-200/60 disabled:opacity-40 hover:bg-pastel-50 transition-all shadow-sm">{t('common.next')}</button>
             </div>
           </div>
         )}

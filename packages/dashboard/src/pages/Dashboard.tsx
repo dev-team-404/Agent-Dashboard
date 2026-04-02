@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Users, Activity, Zap, RotateCcw, X, TrendingUp,
   Server, Hash,
@@ -85,16 +86,17 @@ function TokenDonutChart({
   outputTokens: number;
   formatNumber: (n: number) => string;
 }) {
+  const { t } = useTranslation();
   const total = inputTokens + outputTokens;
   const data = [
-    { name: '입력 토큰', value: inputTokens, color: TOKEN_COLORS[0] },
-    { name: '출력 토큰', value: outputTokens, color: TOKEN_COLORS[1] },
+    { name: t('dashboard.inputTokens'), value: inputTokens, color: TOKEN_COLORS[0] },
+    { name: t('dashboard.outputTokens'), value: outputTokens, color: TOKEN_COLORS[1] },
   ];
 
   if (total === 0) {
     return (
       <div className="flex items-center justify-center h-full text-pastel-400 text-sm font-medium">
-        토큰 데이터가 없습니다
+        {t('dashboard.noTokenData')}
       </div>
     );
   }
@@ -126,7 +128,7 @@ function TokenDonutChart({
         </ResponsiveContainer>
         {/* Center label */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-xs text-gray-400">총 토큰</span>
+          <span className="text-xs text-gray-400">{t('dashboard.totalTokens')}</span>
           <span className="text-lg font-bold text-gray-900">{formatNumber(total)}</span>
         </div>
       </div>
@@ -147,7 +149,7 @@ function TokenDonutChart({
           </div>
         ))}
         <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700">합계</span>
+          <span className="text-sm font-medium text-gray-700">{t('common.total')}</span>
           <span className="text-sm font-bold text-gray-900">{formatNumber(total)}</span>
         </div>
       </div>
@@ -255,6 +257,7 @@ function DashboardSkeleton() {
 }
 
 export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
+  const { t } = useTranslation();
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
   const [serviceStats, setServiceStats] = useState<ServiceStats | null>(null);
@@ -304,12 +307,12 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       const res = await serviceApi.resetData(serviceId);
       const d = res.data.deleted;
       setResetResult(
-        `삭제 완료: 사용 기록 ${d.usageLogs}건, 일일 통계 ${d.dailyStats}건, 평가 ${d.ratings}건, 사용자 연결 ${d.userServices}건`
+        t('dashboard.resetResult', { usageLogs: d.usageLogs, dailyStats: d.dailyStats, ratings: d.ratings, userServices: d.userServices })
       );
       loadData();
       window.dispatchEvent(new CustomEvent('services-updated'));
     } catch {
-      setResetResult('데이터 초기화에 실패했습니다.');
+      setResetResult(t('dashboard.resetFailed'));
     } finally {
       setResetting(false);
     }
@@ -359,7 +362,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                 className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm rounded-lg transition-all hover:bg-gray-50 font-medium"
               >
                 <RotateCcw className="w-4 h-4" />
-                기록 초기화
+                {t('dashboard.resetData')}
               </button>
             )}
           </div>
@@ -375,7 +378,7 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                 <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center ring-1 ring-red-100/50">
                   <RotateCcw className="w-5 h-5 text-red-500" />
                 </div>
-                <h3 className="text-lg font-bold text-pastel-800">기록 초기화</h3>
+                <h3 className="text-lg font-bold text-pastel-800">{t('dashboard.resetDataTitle')}</h3>
               </div>
               <button
                 onClick={() => { if (!resetting) setShowResetModal(false); }}
@@ -386,16 +389,16 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
             </div>
             <div className="p-6 space-y-4">
               <p className="text-sm text-pastel-600 leading-relaxed">
-                <span className="font-semibold text-pastel-800">{serviceInfo?.displayName}</span>의 모든 사용 기록을 초기화하시겠습니까?
+                <span className="font-semibold text-pastel-800">{serviceInfo?.displayName}</span>{t('dashboard.resetConfirmMessage')}
               </p>
               <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-lg">
                 <p className="text-sm text-amber-700 leading-relaxed">
-                  사용 기록, 일일 통계, 평가, 사용자 연결이 모두 삭제됩니다. 모델 설정은 유지됩니다.
+                  {t('dashboard.resetWarning')}
                 </p>
               </div>
               {resetResult && (
-                <div className={`p-4 rounded-lg border ${resetResult.startsWith('삭제 완료') ? 'bg-emerald-50 border-emerald-200/60' : 'bg-rose-50 border-rose-200/60'}`}>
-                  <p className={`text-sm ${resetResult.startsWith('삭제 완료') ? 'text-emerald-600' : 'text-rose-600'}`}>
+                <div className={`p-4 rounded-lg border ${resetResult.startsWith(t('dashboard.deleteComplete')) ? 'bg-emerald-50 border-emerald-200/60' : 'bg-rose-50 border-rose-200/60'}`}>
+                  <p className={`text-sm ${resetResult.startsWith(t('dashboard.deleteComplete')) ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {resetResult}
                   </p>
                 </div>
@@ -407,16 +410,16 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
                   disabled={resetting}
                   className="px-5 py-2.5 text-pastel-600 bg-pastel-50 rounded-lg hover:bg-pastel-100 transition-colors disabled:opacity-50 font-semibold text-sm"
                 >
-                  {resetResult?.startsWith('삭제 완료') ? '닫기' : '취소'}
+                  {resetResult?.startsWith(t('dashboard.deleteComplete')) ? t('common.close') : t('common.cancel')}
                 </button>
-                {!resetResult?.startsWith('삭제 완료') && (
+                {!resetResult?.startsWith(t('dashboard.deleteComplete')) && (
                   <button
                     type="button"
                     onClick={handleResetData}
                     disabled={resetting}
                     className="px-5 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 font-semibold text-sm"
                   >
-                    {resetting ? '초기화 중...' : '초기화'}
+                    {resetting ? t('dashboard.resetting') : t('common.reset')}
                   </button>
                 )}
               </div>
@@ -433,49 +436,49 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
       {/* ════════ Metric Cards ════════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-5">
         <MetricCard
-          label="활성 사용자"
+          label={t('dashboard.activeUsers')}
           value={overview?.activeUsers || 0}
           icon={Activity}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
-          description="최근 30분"
+          description={t('dashboard.last30min')}
           delay={0}
         />
         <MetricCard
-          label="전체 사용자"
+          label={t('dashboard.totalUsers')}
           value={overview?.totalUsers || 0}
           icon={Users}
           iconBg="bg-blue-50"
           iconColor="text-blue-600"
-          description="등록된 사용자"
+          description={t('dashboard.registeredUsers')}
           delay={80}
         />
         <MetricCard
-          label="일평균 활성(영업일)"
+          label={t('dashboard.dailyAvgBusinessDay')}
           value={serviceStats?.avgDailyActiveUsersExcluding || 0}
           icon={TrendingUp}
           iconBg="bg-orange-50"
           iconColor="text-orange-600"
-          description="최근 한달, 주말/휴일 제외"
+          description={t('dashboard.last1MonthExclWeekend')}
           highlight
           delay={160}
         />
         <MetricCard
-          label="오늘 요청"
+          label={t('dashboard.todayRequests')}
           value={overview?.todayUsage?.requests || 0}
           icon={Zap}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
-          description="API 호출 수"
+          description={t('dashboard.apiCallCount')}
           delay={240}
         />
         <MetricCard
-          label="오늘 토큰"
+          label={t('dashboard.todayTokens')}
           value={todayTokens}
           icon={Hash}
           iconBg="bg-violet-50"
           iconColor="text-violet-600"
-          description="입력 + 출력 토큰"
+          description={t('dashboard.inputPlusOutput')}
           delay={320}
         />
       </div>
@@ -488,9 +491,9 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
             <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
           </span>
           <span className="text-sm font-medium text-emerald-700">
-            최근 30분간 <span className="font-bold text-emerald-800">{overview?.activeUsers}명</span>이 활동 중입니다
+            {t('dashboard.activeUsersMessage', { count: overview?.activeUsers })}
           </span>
-          <span className="text-xs text-emerald-500 ml-auto">실시간</span>
+          <span className="text-xs text-emerald-500 ml-auto">{t('dashboard.realtime')}</span>
         </div>
       )}
 
@@ -501,8 +504,8 @@ export default function Dashboard({ serviceId, adminRole }: DashboardProps) {
             <Hash className="w-4 h-4 text-violet-600" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-pastel-800">오늘의 토큰 사용량</h2>
-            <p className="text-xs text-pastel-400 font-medium">입력/출력 토큰 비율</p>
+            <h2 className="text-lg font-bold text-pastel-800">{t('dashboard.todayTokenUsage')}</h2>
+            <p className="text-xs text-pastel-400 font-medium">{t('dashboard.tokenRatio')}</p>
           </div>
         </div>
         <div className="p-6">

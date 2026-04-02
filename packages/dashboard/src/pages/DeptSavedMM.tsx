@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import { Search, Save, Loader2, AlertCircle, Check, Sparkles, ChevronDown, ChevronUp, Users } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { api } from '../services/api';
@@ -38,6 +39,7 @@ interface EditState {
 type SortKey = 'savedMM' | 'mau' | 'deptUserCount';
 
 export default function DeptSavedMM() {
+  const { t } = useTranslation();
   const [data, setData] = useState<DeptSavedMMData | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -155,7 +157,7 @@ export default function DeptSavedMM() {
       const newSavedMM = editState.savedMM.trim() ? parseFloat(editState.savedMM) : null;
 
       if (newSavedMM !== null && isNaN(newSavedMM)) {
-        setError('Saved M/M에 올바른 숫자를 입력해주세요.');
+        setError(t('deptSavedMM.savedMMError'));
         setSaving(false);
         return;
       }
@@ -169,7 +171,7 @@ export default function DeptSavedMM() {
       setSaveSuccess(serviceId);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      setError(msg || '저장에 실패했습니다.');
+      setError(msg || t('common.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -192,9 +194,9 @@ export default function DeptSavedMM() {
         <div className="p-4 rounded-lg bg-red-50">
           <AlertCircle className="w-8 h-8 text-red-400" />
         </div>
-        <p className="text-sm font-semibold text-pastel-600 mt-3">데이터를 불러올 수 없습니다</p>
+        <p className="text-sm font-semibold text-pastel-600 mt-3">{t('deptSavedMM.loadError')}</p>
         <button onClick={() => loadData()} className="mt-3 px-4 py-2 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-          다시 시도
+          {t('common.tryAgain')}
         </button>
       </div>
     );
@@ -209,13 +211,13 @@ export default function DeptSavedMM() {
             <Users className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-pastel-800">우리팀 Saved M/M 관리</h2>
+            <h2 className="text-lg font-bold text-pastel-800">{t('deptSavedMM.title')}</h2>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80">
                 {data.deptname}
               </span>
               <span className="text-xs text-pastel-400">
-                {data.currentMonth} ({data.currentMonthBizDays.elapsed}/{data.currentMonthBizDays.total}영업일)
+                {data.currentMonth} ({t('deptSavedMM.bizDaysLabel', { current: data.currentMonthBizDays.elapsed, total: data.currentMonthBizDays.total })})
               </span>
             </div>
           </div>
@@ -225,25 +227,25 @@ export default function DeptSavedMM() {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">사용 서비스 수</p>
+          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">{t('deptSavedMM.serviceCount')}</p>
           <p className="text-2xl font-bold text-pastel-800 mt-1">{totalServiceCount}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">총 부서원 활용</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{totalDeptUserCount || totalDeptUsers}명</p>
+          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">{t('deptSavedMM.totalDeptUsers')}</p>
+          <p className="text-2xl font-bold text-blue-600 mt-1">{t('deptSavedMM.usersCount', { count: totalDeptUserCount || totalDeptUsers })}</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
           <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">
-            총 Saved M/M
-            {hasAnyAiFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal normal-case">(AI 포함)</span>}
+            {t('deptSavedMM.totalSavedMM')}
+            {hasAnyAiFallback && <span className="ml-1 text-[9px] text-amber-600 font-normal normal-case">{t('deptSavedMM.aiIncluded')}</span>}
           </p>
           <p className={`text-2xl font-bold mt-1 ${hasAnyAiFallback ? 'text-amber-600' : 'text-emerald-600'}`}>{totalEffectiveMM.toFixed(1)}</p>
           {hasAnyAiFallback && totalManualMM > 0 && (
-            <p className="text-[10px] text-pastel-400 mt-0.5">수기 {totalManualMM.toFixed(1)}</p>
+            <p className="text-[10px] text-pastel-400 mt-0.5">{t('deptSavedMM.manualValue', { value: totalManualMM.toFixed(1) })}</p>
           )}
         </div>
         <div className="bg-white rounded-lg shadow-sm border border-gray-100/80 p-4">
-          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">총 AI 추정</p>
+          <p className="text-xs font-medium text-pastel-500 uppercase tracking-wider">{t('deptSavedMM.totalAiEstimate')}</p>
           <p className="text-2xl font-bold text-violet-600 mt-1">{totalAiEstimated.toFixed(1)}</p>
         </div>
       </div>
@@ -253,8 +255,7 @@ export default function DeptSavedMM() {
         <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200/60 rounded-lg">
           <Sparkles className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-amber-700 leading-relaxed">
-            사용자가 입력한 Saved M/M 값이 없는 서비스에는 <span className="font-semibold">AI 추정치가 자동 적용</span>되어 있습니다.
-            수정 버튼을 눌러 직접 입력하면 AI 추정치 대신 입력값이 반영됩니다.
+            <Trans i18nKey="deptSavedMM.aiFallbackBanner" components={{ 1: <span className="font-semibold" /> }} />
           </p>
         </div>
       )}
@@ -265,7 +266,7 @@ export default function DeptSavedMM() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pastel-400" />
           <input
             type="text"
-            placeholder="서비스명으로 검색..."
+            placeholder={t('deptSavedMM.searchPlaceholder')}
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200/60 rounded-lg text-sm text-pastel-800 placeholder:text-pastel-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/15 focus:border-indigo-500/30 transition-all duration-200"
@@ -279,25 +280,25 @@ export default function DeptSavedMM() {
           <table className="w-full" style={{ minWidth: '1200px' }}>
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100/80">
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">서비스</th>
-                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">타입</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[180px]">{t('deptSavedMM.colService')}</th>
+                <th className="px-4 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px]">{t('deptSavedMM.colType')}</th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('deptUserCount')}>
-                  <span className="inline-flex items-center gap-0.5">부서 사용자<SortIcon columnKey="deptUserCount" /></span>
+                  <span className="inline-flex items-center gap-0.5">{t('deptSavedMM.colDeptUsers')}<SortIcon columnKey="deptUserCount" /></span>
                 </th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">지난달 DAU</th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">이번달 DAU</th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">{t('deptSavedMM.colLastMonthDAU')}</th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px] whitespace-nowrap">{t('deptSavedMM.colCurrentMonthDAU')}</th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('mau')}>
-                  <span className="inline-flex items-center gap-0.5">지난달 MAU<SortIcon columnKey="mau" /></span>
+                  <span className="inline-flex items-center gap-0.5">{t('deptSavedMM.colLastMonthMAU')}<SortIcon columnKey="mau" /></span>
                 </th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[80px] whitespace-nowrap">
-                  이번달 MAU
+                  {t('deptSavedMM.colCurrentMonthMAU')}
                 </th>
                 <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px] cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort('savedMM')}>
-                  <span className="inline-flex items-center gap-0.5">Saved M/M<SortIcon columnKey="savedMM" /></span>
+                  <span className="inline-flex items-center gap-0.5">{t('deptSavedMM.colSavedMM')}<SortIcon columnKey="savedMM" /></span>
                 </th>
-                <th className="px-3 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[150px]">사유</th>
-                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px]">AI 추정</th>
-                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">작업</th>
+                <th className="px-3 py-4 text-left text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[150px]">{t('deptSavedMM.colReason')}</th>
+                <th className="px-3 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[110px]">{t('deptSavedMM.colAiEstimate')}</th>
+                <th className="px-4 py-4 text-center text-xs font-semibold text-pastel-500 uppercase tracking-wider w-[100px]">{t('deptSavedMM.colActions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100/60">
@@ -309,7 +310,7 @@ export default function DeptSavedMM() {
                         <Search className="w-8 h-8 text-pastel-300" />
                       </div>
                       <p className="text-sm font-semibold text-pastel-600">
-                        {search ? '검색 결과가 없습니다' : '사용 중인 서비스가 없습니다'}
+                        {search ? t('deptSavedMM.noResultsSearch') : t('deptSavedMM.noServices')}
                       </p>
                     </div>
                   </td>
@@ -331,19 +332,19 @@ export default function DeptSavedMM() {
                         <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
                           s.type === 'STANDARD' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200/80' : 'bg-purple-50 text-purple-700 ring-1 ring-purple-200/80'
                         }`}>
-                          {s.type === 'STANDARD' ? '표준' : '백그라운드'}
+                          {s.type === 'STANDARD' ? t('common.standard') : t('common.background')}
                         </span>
                       </td>
                       <td className="px-3 py-3 text-center">
-                        <span className="text-sm font-medium text-pastel-700">{s.deptUserCount}명</span>
+                        <span className="text-sm font-medium text-pastel-700">{t('deptSavedMM.usersCount', { count: s.deptUserCount })}</span>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className="text-sm text-pastel-700">{s.lastMonth.avgDau.toFixed(1)}</span>
-                        <span className="block text-[10px] text-pastel-400">{data.lastMonthBizDays.total}영업일 평균</span>
+                        <span className="block text-[10px] text-pastel-400">{t('deptSavedMM.bizDayAvg', { count: data.lastMonthBizDays.total })}</span>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className="text-sm text-pastel-700">{s.currentMonth.avgDau.toFixed(1)}</span>
-                        <span className="block text-[10px] text-pastel-400">{data.currentMonthBizDays.elapsed}/{data.currentMonthBizDays.total}영업일</span>
+                        <span className="block text-[10px] text-pastel-400">{t('deptSavedMM.bizDayProgress', { elapsed: data.currentMonthBizDays.elapsed, total: data.currentMonthBizDays.total })}</span>
                       </td>
                       <td className="px-3 py-3 text-center">
                         <span className="text-sm font-medium text-pastel-700">{s.lastMonth.mau}</span>
@@ -367,9 +368,9 @@ export default function DeptSavedMM() {
                           <div className="flex flex-col items-center gap-0.5">
                             <span className="text-sm font-medium text-amber-600 tabular-nums">
                               {s.aiEstimatedMM!.toFixed(1)}
-                              <span className="ml-1 text-[10px] text-amber-500 font-normal">AI</span>
+                              <span className="ml-1 text-[10px] text-amber-500 font-normal">{t('deptSavedMM.aiLabel')}</span>
                             </span>
-                            <span className="text-[9px] text-amber-500/80 leading-tight">추정치 적용 중</span>
+                            <span className="text-[9px] text-amber-500/80 leading-tight">{t('deptSavedMM.aiApplied')}</span>
                           </div>
                         ) : (
                           <span className={`text-sm font-medium ${s.savedMM != null ? 'text-emerald-700' : 'text-pastel-300'}`}>
@@ -385,7 +386,7 @@ export default function DeptSavedMM() {
                             value={editState.reason}
                             onChange={e => setEditState({ ...editState, reason: e.target.value })}
                             className="w-full px-2 py-1.5 text-xs bg-white border border-indigo-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                            placeholder="사유 입력"
+                            placeholder={t('deptSavedMM.reasonPlaceholder')}
                           />
                         ) : (
                           <span className="text-xs text-pastel-500 truncate block max-w-[140px]" title={s.reason || ''}>
@@ -415,7 +416,7 @@ export default function DeptSavedMM() {
                                 <div className="absolute z-20 right-0 top-full mt-1 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 text-left animate-fade-in">
                                   <div className="flex items-center gap-1.5 mb-2">
                                     <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-                                    <span className="text-xs font-semibold text-violet-700">AI 추정 {s.aiEstimatedMM.toFixed(1)} M/M</span>
+                                    <span className="text-xs font-semibold text-violet-700">{t('deptSavedMM.aiEstimatePopoverTitle', { value: s.aiEstimatedMM.toFixed(1) })}</span>
                                   </div>
                                   <p className="text-xs text-pastel-600 leading-relaxed">{s.aiReasoning}</p>
                                 </div>
@@ -434,19 +435,19 @@ export default function DeptSavedMM() {
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                             >
                               {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                              저장
+                              {t('common.save')}
                             </button>
                             <button
                               onClick={cancelEdit}
                               disabled={saving}
                               className="px-2.5 py-1.5 text-xs font-medium text-pastel-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                             >
-                              취소
+                              {t('common.cancel')}
                             </button>
                           </div>
                         ) : justSaved ? (
                           <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
-                            <Check className="w-3.5 h-3.5" /> 저장됨
+                            <Check className="w-3.5 h-3.5" /> {t('deptSavedMM.saved')}
                           </span>
                         ) : (
                           <button
@@ -454,7 +455,7 @@ export default function DeptSavedMM() {
                             disabled={saving}
                             className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                           >
-                            수정
+                            {t('common.edit')}
                           </button>
                         )}
                       </td>
