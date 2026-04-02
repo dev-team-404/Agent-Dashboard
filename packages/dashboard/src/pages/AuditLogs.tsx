@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Filter, ChevronDown, ChevronRight, X, Shield, Clock, Globe } from 'lucide-react';
 import { api } from '../services/api';
 import { TableLoadingRow } from '../components/LoadingSpinner';
@@ -472,7 +472,8 @@ export default function AuditLogs() {
                   const userInfo = userMap[log.loginid];
 
                   return (
-                    <tr key={log.id} className="group">
+                    <React.Fragment key={log.id}>
+                    <tr className="group">
                       {/* Main row */}
                       <td className="px-4 py-3">
                         {hasDetails ? (
@@ -556,36 +557,31 @@ export default function AuditLogs() {
                         )}
                       </td>
                     </tr>
+                    {isExpanded && !!hasDetails && (
+                      <tr key={`detail-${log.id}`}>
+                        <td colSpan={8} className="px-6 py-4 bg-gray-50/50 border-b border-gray-100/60 animate-slide-down">
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">상세 정보</span>
+                            <button
+                              onClick={() => toggleExpanded(log.id)}
+                              className="ml-auto p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
+                            >
+                              <X className="w-3.5 h-3.5 text-pastel-400" />
+                            </button>
+                          </div>
+                          <pre className="p-4 bg-gray-900 text-gray-100 rounded-xl text-xs font-mono overflow-auto max-h-[300px] leading-relaxed">
+                            {formatDetails(log.details)}
+                          </pre>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                   );
                 })
               )}
             </tbody>
           </table>
         </div>
-
-        {/* Expanded detail rows - rendered outside table for proper layout */}
-        {logs.some(log => expandedRows.has(log.id)) && (
-          <div className="border-t border-gray-100/80">
-            {logs.filter(log => expandedRows.has(log.id)).map(log => (
-              <div key={`detail-${log.id}`} className="px-6 py-4 bg-gray-50/50 border-b border-gray-100/60 animate-slide-down">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-semibold text-pastel-500 uppercase tracking-wider">상세 정보</span>
-                  <span className="text-xs text-pastel-400">-</span>
-                  <span className="text-xs text-pastel-400 font-mono">{getActionLabel(log.action)} / {userMap[log.loginid]?.username || log.loginid}</span>
-                  <button
-                    onClick={() => toggleExpanded(log.id)}
-                    className="ml-auto p-1 hover:bg-pastel-100 rounded-lg transition-colors duration-200"
-                  >
-                    <X className="w-3.5 h-3.5 text-pastel-400" />
-                  </button>
-                </div>
-                <pre className="p-4 bg-gray-900 text-gray-100 rounded-xl text-xs font-mono overflow-auto max-h-[300px] leading-relaxed">
-                  {formatDetails(log.details)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Pagination */}
         {pagination.totalPages > 1 && (
