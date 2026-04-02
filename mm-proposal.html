@@ -293,22 +293,22 @@
     </div>
 
     <p class="subtitle">
-      현재 LLM 블랙박스 추정을 대체할 <strong>2가지 독립적 M/M 산출 방식</strong>을 제안합니다.
-      두 Track은 상호 보완적으로 동작하며, 교차 검증을 통해 수치의 신뢰도를 높입니다.
+      현재 LLM 블랙박스 추정을 대체할 <strong>2가지 M/M 산출 방안</strong>을 제안합니다.
+      조직 상황에 맞는 <strong>하나를 선택</strong>하여 적용합니다.
     </p>
 
     <!-- Two-Track Side by Side -->
     <div class="two-col" style="gap:20px">
 
-      <!-- Track 1 -->
+      <!-- 안 1 -->
       <div style="border:2px solid #2563eb;border-radius:16px;overflow:hidden">
         <div style="background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;padding:16px 24px">
-          <div style="font-size:12px;opacity:0.8;margin-bottom:4px">TRACK 1 — 완전 자동화</div>
+          <div style="font-size:12px;opacity:0.8;margin-bottom:4px">안 1 — 완전 자동화</div>
           <div style="font-size:18px;font-weight:700">글로벌 벤치마크 자동매핑</div>
         </div>
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
           <div style="font-size:13px;color:#475569;line-height:1.7">
-            서비스 설명(Description)을 AI가 분석하여 <strong>DX, Google, MIT 등 공인 벤치마크</strong>에 자동 매핑.
+            서비스 설명을 AI가 분석하여 <strong>DX, Google, MIT 등 공인 벤치마크</strong>에 자동 매핑.
             매일 <strong>벤치마크 가중평균 &times; DAU</strong>로 M/M을 산출합니다.
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -329,33 +329,29 @@
               <td style="padding:8px 4px;color:#64748b">근거 출처</td>
               <td style="padding:8px 4px;font-weight:600;color:#1e293b">9개 글로벌 논문/보고서</td>
             </tr>
-            <tr style="border-bottom:1px solid #f1f5f9">
+            <tr>
               <td style="padding:8px 4px;color:#64748b">LLM 호출</td>
               <td style="padding:8px 4px;font-weight:600;color:#1e293b">Description 변경 시 1회</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 4px;color:#64748b">역할</td>
-              <td style="padding:8px 4px;font-weight:700;color:#2563eb">Primary (공식 수치)</td>
             </tr>
           </table>
         </div>
       </div>
 
-      <!-- Track 2 -->
+      <!-- 안 2 -->
       <div style="border:2px solid #7c3aed;border-radius:16px;overflow:hidden">
         <div style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;padding:16px 24px">
-          <div style="font-size:12px;opacity:0.8;margin-bottom:4px">TRACK 2 — 관리자 조율형</div>
+          <div style="font-size:12px;opacity:0.8;margin-bottom:4px">안 2 — 관리자 조율형</div>
           <div style="font-size:18px;font-weight:700">호출량 기반 + 관리자 보정</div>
         </div>
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
           <div style="font-size:13px;color:#475569;line-height:1.7">
             AI가 <strong>"N건 호출 = 1 M/M"</strong>을 초기 추정하고, 서비스 관리자가 현장 경험으로 조율.
-            <strong>관리자 값은 무조건 우선.</strong> 괴리 20%+ 시 AX Agent에 자동 메일 경고.
+            <strong>관리자 값은 무조건 우선.</strong> 이상치 감지 시 AX Agent에 자동 메일 경고.
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <span class="tag manual">디폴트 자동 + 수동 조율</span>
             <span class="tag manual">현장 전문성</span>
-            <span class="tag" style="background:#fee2e2;color:#991b1b">괴리 시 자동 메일</span>
+            <span class="tag" style="background:#fee2e2;color:#991b1b">이상치 자동 메일</span>
           </div>
           <table style="font-size:12px;border-collapse:collapse;width:100%">
             <tr style="border-bottom:1px solid #f1f5f9">
@@ -370,13 +366,9 @@
               <td style="padding:8px 4px;color:#64748b">근거 출처</td>
               <td style="padding:8px 4px;font-weight:600;color:#1e293b">AI 추정 + 관리자 확인</td>
             </tr>
-            <tr style="border-bottom:1px solid #f1f5f9">
+            <tr>
               <td style="padding:8px 4px;color:#64748b">LLM 호출</td>
               <td style="padding:8px 4px;font-weight:600;color:#1e293b">Description 변경 시 1회</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 4px;color:#64748b">역할</td>
-              <td style="padding:8px 4px;font-weight:700;color:#7c3aed">Secondary (교차검증)</td>
             </tr>
           </table>
         </div>
@@ -388,9 +380,9 @@
       <table class="bench-table" style="font-size:13px">
         <thead>
           <tr>
-            <th style="width:180px">비교 항목</th>
-            <th style="text-align:center"><span style="color:#2563eb">&#9632;</span> Track 1 (벤치마크)</th>
-            <th style="text-align:center"><span style="color:#7c3aed">&#9632;</span> Track 2 (호출량)</th>
+            <th style="width:180px">선택 기준</th>
+            <th style="text-align:center"><span style="color:#2563eb">&#9632;</span> 안 1 (벤치마크)</th>
+            <th style="text-align:center"><span style="color:#7c3aed">&#9632;</span> 안 2 (호출량)</th>
           </tr>
         </thead>
         <tbody>
@@ -407,36 +399,34 @@
           <tr>
             <td style="font-weight:600">과대 추정 방지</td>
             <td style="text-align:center;color:#059669">&#9679; 벤치마크 상한 고정</td>
-            <td style="text-align:center;color:#059669">&#9679; Track 1과 괴리 시 자동 메일 경고</td>
+            <td style="text-align:center;color:#059669">&#9679; 이상치 감지 시 AX Agent 자동 메일</td>
           </tr>
           <tr>
             <td style="font-weight:600">특수 서비스 대응</td>
             <td style="text-align:center;color:#dc2626">&#9650; 매핑할 벤치마크 없을 수 있음</td>
             <td style="text-align:center;color:#059669">&#9679; 관리자가 직접 환산계수 설정</td>
           </tr>
+          <tr>
+            <td style="font-weight:600">운영 부담</td>
+            <td style="text-align:center;color:#059669">&#9679; 제로 — 완전 자동</td>
+            <td style="text-align:center;color:#eab308">&#9650; 낮음 — 관리자 조율 선택적</td>
+          </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- Bottom: Combined value -->
+    <!-- Bottom: Selection Guide -->
     <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:20px 28px;display:flex;align-items:center;gap:24px;color:#fff">
-      <div style="font-size:32px">&#128737;</div>
+      <div style="font-size:32px">&#128204;</div>
       <div style="flex:1">
-        <div style="font-size:15px;font-weight:700;margin-bottom:4px">두 Track을 함께 운영하는 이유</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px">선택 가이드</div>
         <div style="font-size:13px;color:#94a3b8;line-height:1.7">
-          Track 1은 <strong style="color:#60a5fa">객관적 벤치마크</strong>로 기준선을 제공하고,
-          Track 2는 <strong style="color:#c4b5fd">현장 전문성</strong>으로 서비스별 특수성을 반영합니다.
-          두 수치가 &plusmn;20% 내 수렴하면 높은 신뢰도, 괴리 시 AX Agent에게 자동 메일로 검토를 요청합니다.
-        </div>
-      </div>
-      <div style="display:flex;gap:16px;flex-shrink:0">
-        <div style="text-align:center">
-          <div style="font-size:11px;color:#94a3b8">수렴 시</div>
-          <div style="font-size:22px;font-weight:900;color:#4ade80">신뢰</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:11px;color:#94a3b8">괴리 시</div>
-          <div style="font-size:22px;font-weight:900;color:#f87171">자동 메일</div>
+          <strong style="color:#60a5fa">안 1</strong>이 적합한 경우 &mdash;
+          경영진에게 <strong style="color:#60a5fa">외부 공인 근거 기반의 객관적 수치</strong>를 보고하는 것이 중요할 때.
+          운영 부담 없이 자동 산출을 원할 때.<br>
+          <strong style="color:#c4b5fd">안 2</strong>가 적합한 경우 &mdash;
+          서비스 관리자의 <strong style="color:#c4b5fd">현장 판단을 공식 수치에 반영</strong>하고 싶을 때.
+          호출 빈도가 서비스마다 크게 달라 DAU만으로 부족할 때.
         </div>
       </div>
     </div>
@@ -727,8 +717,8 @@
     <p class="subtitle">
       AI가 서비스 설명 기반으로 <strong>"LLM 호출 몇 건 = 1 M/M"</strong>을 초기 추정하고,
       서비스 관리자가 현장 경험에 기반하여 이 값을 <strong>직접 조율</strong>할 수 있습니다.
-      기본값은 자동이므로 손 안 대도 동작하고, 조율하면 정확도가 올라갑니다.
-      Track 1과 <strong>20% 이상 괴리 발생 시</strong> AX Agent 관리자에게 <strong>검토 요청 메일이 자동 발송</strong>됩니다.
+      기본값은 자동이므로 손 안 대도 동작하며, 관리자 조율 값과 AI 디폴트 간
+      <strong>20% 이상 괴리 시</strong> AX Agent에게 <strong>검토 요청 메일이 자동 발송</strong>됩니다.
     </p>
 
     <!-- Flow Diagram -->
@@ -765,7 +755,7 @@
       <div class="flow-arrow">&#10145;</div>
       <div class="flow-step">
         <div class="flow-icon" style="background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff">&#9993;</div>
-        <span class="flow-label">괴리 20%+ 시</span>
+        <span class="flow-label">이상치 감지 시</span>
         <span class="flow-sub">AX Agent 자동 메일</span>
       </div>
     </div>
@@ -780,16 +770,16 @@
       </div>
       <div class="card">
         <h3><span style="font-size:20px">&#9993;</span> 자동 알림 체계</h3>
-        <p>Track 1과 <strong>20% 이상 괴리</strong> 발생 시,
-           지정된 AX Agent 관리자에게 검토 요청 메일을 자동 발송합니다.
+        <p>관리자 조율값이 AI 디폴트 대비 <strong>20% 이상 차이</strong>나거나
+           전월 대비 M/M이 급변하면, AX Agent에게 검토 요청 메일을 자동 발송합니다.
            경고만 하고, 값은 건드리지 않습니다.</p>
-        <div class="num" style="color:#dc2626">괴리 시 자동 메일</div>
+        <div class="num" style="color:#dc2626">이상치 자동 메일</div>
       </div>
       <div class="card">
-        <h3><span style="font-size:20px">&#128737;</span> 이중 검증</h3>
-        <p>Track 1(벤치마크)과 Track 2(호출량)의 결과를 교차 비교하여
-           수치의 신뢰도를 자동으로 판정합니다.</p>
-        <div class="num green">자동 교차검증</div>
+        <h3><span style="font-size:20px">&#9203;</span> 제로 부담</h3>
+        <p>AI가 서비스 설명 기반으로 디폴트 값을 자동 설정합니다.
+           관리자가 아무것도 안 해도 합리적 수치가 산출됩니다.</p>
+        <div class="num purple">디폴트 자동 설정</div>
       </div>
     </div>
 
@@ -842,7 +832,7 @@
       <span class="track-badge track2-badge">TRACK 2</span>
       <span class="slide-num" style="margin-left:12px">상세</span>
     </div>
-    <h1>조율 메커니즘 + 이중 검증 시스템</h1>
+    <h1>조율 메커니즘 + 이상치 자동 알림</h1>
     <span class="slide-num">5 / 5</span>
   </div>
 
@@ -898,7 +888,7 @@
 
       <!-- Right Column -->
       <div style="display:flex;flex-direction:column;gap:20px">
-        <h3 class="section-head" style="border-color:#dc2626">괴리 감지 &rarr; AX Agent 자동 메일 알림</h3>
+        <h3 class="section-head" style="border-color:#dc2626">이상치 감지 &rarr; AX Agent 자동 메일 알림</h3>
 
         <!-- Alert Flow -->
         <div style="background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-radius:12px;padding:20px 24px">
@@ -906,18 +896,18 @@
             <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#9993;</div>
             <div>
               <div style="font-size:14px;font-weight:700;color:#991b1b">자동 알림 발동 조건</div>
-              <div style="font-size:12px;color:#b91c1c">Track 1(벤치마크) vs Track 2(호출량) 괴리율 &ge; 20%</div>
+              <div style="font-size:12px;color:#b91c1c">관리자 설정값 vs AI 디폴트 괴리 &ge; 20% 또는 전월 대비 M/M 급변</div>
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
-              <div style="color:#991b1b;font-weight:700">괴리 감지</div>
+              <div style="color:#991b1b;font-weight:700">이상치 감지</div>
               <div style="color:#b91c1c;font-size:10px">매일 자정 산출 후</div>
             </div>
             <div style="color:#fca5a5;font-size:18px">&#10145;</div>
             <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
               <div style="color:#991b1b;font-weight:700">AX Agent 메일 발송</div>
-              <div style="color:#b91c1c;font-size:10px">서비스명 + 괴리 상세</div>
+              <div style="color:#b91c1c;font-size:10px">서비스명 + 이상치 상세</div>
             </div>
             <div style="color:#fca5a5;font-size:18px">&#10145;</div>
             <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
@@ -939,13 +929,13 @@
             <span>수신: AX Agent 관리자</span>
           </div>
           <div style="padding:16px;font-size:12px;line-height:1.8;color:#334155">
-            <div style="font-weight:700;color:#1e293b;font-size:13px;margin-bottom:8px">[AI M/M 추정] 괴리 감지 - "데이터 분석 봇" 검토 요청</div>
+            <div style="font-weight:700;color:#1e293b;font-size:13px;margin-bottom:8px">[AI M/M 추정] 이상치 감지 - "데이터 분석 봇" 검토 요청</div>
             <table style="font-size:12px;border-collapse:collapse;width:100%">
-              <tr><td style="padding:4px 8px;color:#64748b;width:120px">서비스</td><td style="padding:4px 8px;font-weight:600">데이터 분석 봇</td></tr>
-              <tr><td style="padding:4px 8px;color:#64748b">Track 1 (벤치마크)</td><td style="padding:4px 8px;font-weight:600;color:#2563eb">0.45 M/M</td></tr>
-              <tr><td style="padding:4px 8px;color:#64748b">Track 2 (호출량)</td><td style="padding:4px 8px;font-weight:600;color:#7c3aed">0.80 M/M</td></tr>
-              <tr><td style="padding:4px 8px;color:#64748b">괴리율</td><td style="padding:4px 8px;font-weight:700;color:#dc2626">44% (임계치 20% 초과)</td></tr>
-              <tr><td style="padding:4px 8px;color:#64748b">현재 calls/M/M</td><td style="padding:4px 8px">관리자 설정: 800건 (AI 디폴트: 1,500건)</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b;width:140px">서비스</td><td style="padding:4px 8px;font-weight:600">데이터 분석 봇</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">관리자 설정 calls/M/M</td><td style="padding:4px 8px;font-weight:600;color:#7c3aed">800건</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">AI 디폴트 추정</td><td style="padding:4px 8px;font-weight:600;color:#64748b">1,500건</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">괴리율</td><td style="padding:4px 8px;font-weight:700;color:#dc2626">47% (임계치 20% 초과)</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">이번 달 산출 M/M</td><td style="padding:4px 8px;font-weight:600">3.2 M/M (전월 대비 +40%)</td></tr>
             </table>
             <div style="margin-top:10px;padding:8px 12px;background:#fefce8;border-radius:6px;font-size:11px;color:#854d0e">
               &#9888; 이 메일은 <strong>경고(Advisory)</strong>입니다. 관리자님이 설정한 값은 변경되지 않았습니다.<br>
@@ -968,19 +958,15 @@
 
         <!-- Summary Stats -->
         <div style="background:#0f172a;border-radius:12px;padding:16px 20px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-          <div style="flex:1;min-width:100px">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Track 수렴 서비스</div>
-            <div style="font-size:28px;font-weight:900;color:#4ade80">87%</div>
-          </div>
-          <div style="flex:1;min-width:100px">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">평균 괴리율</div>
-            <div style="font-size:28px;font-weight:900;color:#38bdf8">14.2%</div>
-          </div>
-          <div style="flex:1;min-width:100px">
+          <div style="flex:1;min-width:120px">
             <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">관리자 조율 완료</div>
             <div style="font-size:28px;font-weight:900;color:#c084fc">62%</div>
           </div>
-          <div style="flex:1;min-width:100px">
+          <div style="flex:1;min-width:120px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">디폴트 대비 평균 조정폭</div>
+            <div style="font-size:28px;font-weight:900;color:#38bdf8">&plusmn;18%</div>
+          </div>
+          <div style="flex:1;min-width:120px">
             <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">월 발송 알림</div>
             <div style="font-size:28px;font-weight:900;color:#f87171">~3건</div>
           </div>
