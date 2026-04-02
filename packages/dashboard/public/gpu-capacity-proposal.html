@@ -259,116 +259,15 @@
 <div class="deck">
 
 <!-- ================================================================ -->
-<!-- SLIDE 0: 배경 — 왜 새로운 접근이 필요한가                          -->
+<!-- SLIDE 0: 3가지 안 Overview (경영진용)                              -->
 <!-- ================================================================ -->
 <div class="slide active" id="s0">
-  <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
-    <div>
-      <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">CONTEXT</span>
-    </div>
-    <h1>GPU 용량 추정 — 왜 새로운 접근이 필요한가</h1>
-    <span class="slide-num">1 / 7</span>
-  </div>
-
-  <div class="content">
-    <div class="callout danger">
-      <span class="callout-icon">&#9888;</span>
-      <div>
-        <strong>현재 문제:</strong>
-        GPU 서버의 vLLM 메트릭(처리량, KV Cache, 동시요청)이 <strong>오류로 수집 불가</strong>한 상태입니다.
-        기존 벤치마크 기반 용량 추정이 작동하지 않아 <strong>대안 측정 방법</strong>이 필요합니다.
-      </div>
-    </div>
-
-    <div class="two-col">
-      <!-- 기존 방식 -->
-      <div style="border:2px solid #dc2626;border-radius:16px;overflow:hidden">
-        <div style="background:linear-gradient(135deg,#991b1b,#dc2626);color:#fff;padding:14px 24px">
-          <div style="font-size:12px;opacity:0.8;margin-bottom:2px">현재 (작동 불가)</div>
-          <div style="font-size:17px;font-weight:700">vLLM 메트릭 기반 벤치마크</div>
-        </div>
-        <div style="padding:18px 24px;display:flex;flex-direction:column;gap:12px">
-          <div style="font-size:13px;color:#475569;line-height:1.7">
-            vLLM이 노출하는 <strong>TPS, KV Cache %, 동시요청 수</strong>를 직접 수집하여 GPU 포화도 산출.
-            현재 상당수 GPU에서 <strong>메트릭 수집 오류</strong>로 데이터 없음.
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <span class="tag red">vLLM /metrics 오류</span>
-            <span class="tag red">벤치마크 산출 불가</span>
-            <span class="tag red">용량 추정 중단</span>
-          </div>
-          <div style="font-size:12px;color:#991b1b;padding:10px;background:#fef2f2;border-radius:8px;line-height:1.6">
-            &#10060; GPU 내부 메트릭에 의존 &#8594; 메트릭 장애 = 블라인드 상태
-          </div>
-        </div>
-      </div>
-
-      <!-- 새 접근 -->
-      <div style="border:2px solid #059669;border-radius:16px;overflow:hidden">
-        <div style="background:linear-gradient(135deg,#047857,#059669);color:#fff;padding:14px 24px">
-          <div style="font-size:12px;opacity:0.8;margin-bottom:2px">제안 (GPU 메트릭 불필요)</div>
-          <div style="font-size:17px;font-weight:700">Proxy 요청 로그 기반 추정</div>
-        </div>
-        <div style="padding:18px 24px;display:flex;flex-direction:column;gap:12px">
-          <div style="font-size:13px;color:#475569;line-height:1.7">
-            이미 수집 중인 <strong>request_logs</strong>(응답시간, 상태코드, 토큰 수)만으로
-            GPU 포화도와 부족분을 추정. <strong>GPU 내부 상태와 무관하게</strong> 항상 작동.
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <span class="tag green">request_logs 활용</span>
-            <span class="tag green">GPU 장애에 독립적</span>
-            <span class="tag green">학술 검증 완료</span>
-          </div>
-          <div style="font-size:12px;color:#166534;padding:10px;background:#f0fdf4;border-radius:8px;line-height:1.6">
-            &#10003; 사용자 체감 품질(레이턴시, 오류율)이 곧 측정 지표
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <h3 class="section-head" style="border-color:#475569">request_logs에서 이미 수집 중인 데이터</h3>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <span class="metric-pill" style="background:#dbeafe;color:#1d4ed8">&#9201; latencyMs (응답 시간)</span>
-      <span class="metric-pill" style="background:#fee2e2;color:#991b1b">&#9888; statusCode (504/408/5xx)</span>
-      <span class="metric-pill" style="background:#dcfce7;color:#166534">&#128200; inputTokens / outputTokens</span>
-      <span class="metric-pill" style="background:#ede9fe;color:#6d28d9">&#128101; userId / serviceId</span>
-      <span class="metric-pill" style="background:#fef3c7;color:#92400e">&#128336; timestamp (시계열)</span>
-      <span class="metric-pill" style="background:#f1f5f9;color:#475569">&#128640; modelName / stream</span>
-    </div>
-
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:18px 28px;display:flex;align-items:center;gap:24px;color:#fff">
-      <div style="font-size:32px">&#128161;</div>
-      <div style="flex:1">
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">핵심 원리</div>
-        <div style="font-size:13px;color:#94a3b8;line-height:1.7">
-          GPU가 포화되면 <strong style="color:#fbbf24">응답 시간이 지수적으로 증가</strong>하고, 처리 불가 시 <strong style="color:#f87171">타임아웃이 발생</strong>합니다.
-          이것은 대기행렬 이론(Queueing Theory)의 핵심 원리이며, GPU 내부를 들여다보지 않아도
-          <strong style="color:#60a5fa">"밖에서 보이는 증상"</strong>만으로 내부 상태를 정확히 역추정할 수 있습니다.
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="refs">
-    <a href="https://arxiv.org/abs/2603.16054" target="_blank">inference-fleet-sim (arXiv 2603, 2026)</a>
-    <a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank">InferLine (UC Berkeley, ACM SoCC)</a>
-    <a href="https://arxiv.org/abs/2407.05347" target="_blank">Queueing Theory for LLM Inference</a>
-    <a href="https://arxiv.org/pdf/2501.08090" target="_blank">Chiron: Hierarchical Autoscaling</a>
-  </div>
-
-  <div class="nav-bar" id="nav0"></div>
-</div>
-
-<!-- ================================================================ -->
-<!-- SLIDE 1: 3가지 안 Overview (경영진용)                              -->
-<!-- ================================================================ -->
-<div class="slide" id="s1">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">OVERVIEW</span>
     </div>
     <h1>3가지 측정 방안 비교</h1>
-    <span class="slide-num">2 / 7</span>
+    <span class="slide-num">1 / 6</span>
   </div>
 
   <div class="content">
@@ -530,20 +429,20 @@
     </div>
   </div>
 
-  <div class="nav-bar" id="nav1"></div>
+  <div class="nav-bar" id="nav0"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 2: 안 1 — 경영진 쉬운 설명                                   -->
+<!-- SLIDE 1: 안 1 — 경영진 쉬운 설명                                   -->
 <!-- ================================================================ -->
-<div class="slide" id="s2">
+<div class="slide" id="s1">
   <div class="topbar">
     <div>
       <span class="track-badge t1-badge">&#9632; 안 1</span>
       <span class="slide-num" style="margin-left:12px">경영진 + 기술 상세</span>
     </div>
     <h1>응답 속도 변화로 GPU 여유 측정</h1>
-    <span class="slide-num">3 / 7</span>
+    <span class="slide-num">2 / 6</span>
   </div>
 
   <div class="content">
@@ -640,20 +539,20 @@
     <a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank">Red Hat: SLI 기반 vLLM Autoscaling 사례</a>
   </div>
 
-  <div class="nav-bar" id="nav2"></div>
+  <div class="nav-bar" id="nav1"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 3: 안 2 — 경영진 쉬운 설명                                   -->
+<!-- SLIDE 2: 안 2 — 경영진 쉬운 설명                                   -->
 <!-- ================================================================ -->
-<div class="slide" id="s3">
+<div class="slide" id="s2">
   <div class="topbar" style="background:linear-gradient(135deg,#4c1d95,#1e1b4b)">
     <div>
       <span class="track-badge t2-badge">&#9632; 안 2</span>
       <span class="slide-num" style="margin-left:12px">경영진 + 기술 상세</span>
     </div>
     <h1>대기행렬 수학 모델 (Little's Law)</h1>
-    <span class="slide-num">4 / 7</span>
+    <span class="slide-num">3 / 6</span>
   </div>
 
   <div class="content">
@@ -758,20 +657,20 @@
     <a href="https://arxiv.org/abs/2304.10892" target="_blank">InfAdapter: SLO-Aware Resource Allocation</a>
   </div>
 
-  <div class="nav-bar" id="nav3"></div>
+  <div class="nav-bar" id="nav2"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 4: 안 3 — 경영진 쉬운 설명                                   -->
+<!-- SLIDE 3: 안 3 — 경영진 쉬운 설명                                   -->
 <!-- ================================================================ -->
-<div class="slide" id="s4">
+<div class="slide" id="s3">
   <div class="topbar" style="background:linear-gradient(135deg,#78350f,#92400e)">
     <div>
       <span class="track-badge t3-badge">&#9632; 안 3</span>
       <span class="slide-num" style="margin-left:12px">경영진 + 기술 상세</span>
     </div>
     <h1>타임아웃 / 에러율 직접 집계</h1>
-    <span class="slide-num">5 / 7</span>
+    <span class="slide-num">4 / 6</span>
   </div>
 
   <div class="content">
@@ -879,19 +778,19 @@
     <a href="https://arxiv.org/html/2508.20274" target="_blank">Predictable LLM Serving on GPU Clusters</a>
   </div>
 
-  <div class="nav-bar" id="nav4"></div>
+  <div class="nav-bar" id="nav3"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 5: 장단점 비교 매트릭스                                      -->
+<!-- SLIDE 4: 장단점 비교 매트릭스                                      -->
 <!-- ================================================================ -->
-<div class="slide" id="s5">
+<div class="slide" id="s4">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">COMPARISON</span>
     </div>
     <h1>3가지 안 상세 비교</h1>
-    <span class="slide-num">6 / 7</span>
+    <span class="slide-num">5 / 6</span>
   </div>
 
   <div class="content">
@@ -998,19 +897,19 @@
     </div>
   </div>
 
-  <div class="nav-bar" id="nav5"></div>
+  <div class="nav-bar" id="nav4"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 6: 선택 가이드 + 구현 로드맵                                 -->
+<!-- SLIDE 5: 선택 가이드 + 구현 로드맵                                 -->
 <!-- ================================================================ -->
-<div class="slide" id="s6">
+<div class="slide" id="s5">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">DECISION</span>
     </div>
     <h1>선택 가이드 + 구현 로드맵</h1>
-    <span class="slide-num">7 / 7</span>
+    <span class="slide-num">6 / 6</span>
   </div>
 
   <div class="content">
@@ -1134,7 +1033,7 @@
     <a href="https://arxiv.org/abs/2304.10892" target="_blank">InfAdapter (SLO-Aware)</a>
   </div>
 
-  <div class="nav-bar" id="nav6"></div>
+  <div class="nav-bar" id="nav5"></div>
 </div>
 
 </div><!-- /deck -->
@@ -1184,8 +1083,8 @@
       dots.forEach((d, i) => {
         d.className = 'nav-dot';
         if (i === cur) {
-          if (cur === 3) d.classList.add('purple-active');
-          else if (cur === 4) d.classList.add('orange-active');
+          if (cur === 2) d.classList.add('purple-active');
+          else if (cur === 3) d.classList.add('orange-active');
           else d.classList.add('active');
         }
       });
