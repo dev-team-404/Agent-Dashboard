@@ -160,10 +160,10 @@ const timeline = [
     tags: ['KPI 3분류', '3차원 분석', '히트맵 드롭다운', '모델 합산'],
   },
   {
-    date: '2026.04.01',
-    title: 'GPU 실시간 선계산 아키텍처 & 대규모 성능 최적화',
-    desc: 'GPU Realtime 선계산(15초 주기) — 벤치마크·피크TPS 계산을 백그라운드 워커로 이관하여 API 응답 수백ms→<5ms. Analytics 선계산(5분 주기) — 1회 전체 쿼리 후 프론트 드롭다운 전 조합을 메모리 슬라이싱으로 Redis 일괄 캐시(DB 추가 쿼리 0회, 어떤 서버/모델 선택해도 즉시 응답). 서버 CRUD 시 캐시 즉시 무효화. Page Visibility API로 탭 비활성 시 폴링 완전 중단. updatedAt 비교로 GPU 데이터 미변경 시 차트 리렌더 방지. interval 누수 방지 처리.',
-    tags: ['선계산 Precompute', 'Page Visibility', '리렌더 최적화', '메모리 슬라이싱'],
+    date: '2026.04.02',
+    title: '전면 선계산 아키텍처 — GPU·Analytics·LLM 히트맵 통합 성능 최적화',
+    desc: 'GPU Realtime 선계산(15초 주기) — 벤치마크·피크TPS 계산을 백그라운드 워커로 이관하여 API 응답 수백ms→<5ms. GPU Analytics 선계산(5분 주기) — 1회 전체 쿼리 후 프론트 드롭다운 전 조합을 메모리 슬라이싱으로 Redis 일괄 캐시(DB 추가 쿼리 0회). LLM 히트맵 선계산(5분 주기) — 6개 쿼리(usage_logs/request_logs/health_check_logs × 시간별/일별) 1회 실행 후 전 모델 메모리 슬라이싱 → Redis pipeline 일괄 캐시. Batch 엔드포인트(GET /model-heatmap/all) — Redis pipeline으로 전 모델 캐시 일괄 읽기, 프론트 N개 API 호출 → 1회로 통합. 서버 CRUD 시 캐시 즉시 무효화. Page Visibility API로 탭 비활성 시 폴링 완전 중단. updatedAt 비교로 GPU 데이터 미변경 시 차트 리렌더 방지. 분석·히트맵 프론트 프리페치로 탭/모델 전환 시 로딩 0ms.',
+    tags: ['선계산 Precompute', 'Batch API', 'Page Visibility', '메모리 슬라이싱', '6쿼리→1회'],
   },
   {
     date: '2026.04.01',
@@ -218,6 +218,7 @@ const featureGroups = [
       'KPI 3분류 (SSH/DT전용/DT공유) + 3차원 분해 (처리량%/KV메모리%/동시처리%)',
       'GPU Realtime 선계산 (15초 주기 백그라운드 워커, API 응답 <5ms)',
       'Analytics 1회 쿼리 → N조합 메모리 슬라이싱 → 전 드롭다운 즉시 응답',
+      'LLM 히트맵 선계산 (6쿼리 1회 → 전 모델 슬라이싱) + Batch API (N호출→1회)',
       'Page Visibility 폴링 중단 + updatedAt 비교 리렌더 방지',
       '동일 모델 자동 합산 (endpoint+name 기준, CTE SQL) + 서비스별 aliasName 그룹 차트',
       'GPU 모니터링 가이드북 (인터랙티브 슬라이드)',
@@ -303,7 +304,7 @@ export default function PlatformStory() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5" />
-            720+ commits · 60,000+ lines of code
+            730+ commits · 61,000+ lines of code
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-3">
             Agent Registry & Dashboard
