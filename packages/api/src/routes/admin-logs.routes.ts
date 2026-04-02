@@ -14,8 +14,9 @@ import { authenticateToken, requireSuperAdmin, AuthenticatedRequest } from '../m
 export const adminLogsRoutes = Router();
 
 // Super Admin only — 요청 로그, 감사 로그는 슈퍼 관리자 전용
+// 주의: router.use()로 requireSuperAdmin을 걸면 같은 /admin 마운트의
+// 후속 라우터(deptSavedMM, serviceTargets 등)도 차단되므로 개별 라우트에 적용
 adminLogsRoutes.use(authenticateToken);
-adminLogsRoutes.use(requireSuperAdmin as RequestHandler);
 
 // ==================== Helper ====================
 
@@ -36,7 +37,7 @@ function clampLimit(value: unknown, defaultVal: number, max: number): number {
  * GET /admin/logs
  * Search request logs (excludes requestBody & responseBody)
  */
-adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
+adminLogsRoutes.get('/logs', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
     const {
       userId,
@@ -150,7 +151,7 @@ adminLogsRoutes.get('/logs', (async (req: AuthenticatedRequest, res) => {
  * DELETE /admin/logs/cleanup
  * Cleanup old request logs (SUPER_ADMIN only)
  */
-adminLogsRoutes.delete('/logs/cleanup', (async (req: AuthenticatedRequest, res) => {
+adminLogsRoutes.delete('/logs/cleanup', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
     // SUPER_ADMIN check
     if (req.adminRole !== 'SUPER_ADMIN') {
@@ -201,7 +202,7 @@ adminLogsRoutes.delete('/logs/cleanup', (async (req: AuthenticatedRequest, res) 
  * GET /admin/audit
  * Search audit logs
  */
-adminLogsRoutes.get('/audit', (async (req: AuthenticatedRequest, res) => {
+adminLogsRoutes.get('/audit', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
     const {
       loginid,

@@ -12,7 +12,8 @@ import { logInternalLlmUsage } from '../services/internalUsageLogger.js';
 
 export const errorLogsRoutes = Router();
 errorLogsRoutes.use(authenticateToken);
-errorLogsRoutes.use(requireSuperAdmin as RequestHandler);
+// 주의: router.use()로 requireSuperAdmin을 걸면 같은 /admin 마운트의
+// 후속 라우터도 차단되므로 개별 라우트에 적용
 
 // ============================================
 // 룰 기반 에러 원인 매핑
@@ -84,7 +85,7 @@ function getCategoryDbFilter(cat: string): Record<string, unknown> | null {
 // ============================================
 // GET /admin/error-logs
 // ============================================
-errorLogsRoutes.get('/error-logs', (async (req: AuthenticatedRequest, res) => {
+errorLogsRoutes.get('/error-logs', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
     const page = Math.max(1, parseInt(req.query['page'] as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query['limit'] as string) || 50));
@@ -185,7 +186,7 @@ errorLogsRoutes.get('/error-logs', (async (req: AuthenticatedRequest, res) => {
 // POST /admin/error-logs/:id/analyze
 // 선택한 LLM에 에러 컨텍스트 전송 → 원인 분석 JSON 응답
 // ============================================
-errorLogsRoutes.post('/error-logs/:id/analyze', (async (req: AuthenticatedRequest, res) => {
+errorLogsRoutes.post('/error-logs/:id/analyze', requireSuperAdmin as RequestHandler, (async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { modelId } = req.body;
