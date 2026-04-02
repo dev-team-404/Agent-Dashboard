@@ -21,4 +21,7 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=docs-builder /app/dist /var/www/html/docs
 
+# 프레젠테이션 등 정적 파일 (링크 전용 접속)
+COPY mm-proposal.html /var/www/html/mm-proposal.html
+
 EXPOSE 8090
