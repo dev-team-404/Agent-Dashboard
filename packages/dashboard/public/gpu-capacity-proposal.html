@@ -676,14 +676,15 @@
         </div>
 
         <div class="formula-box">
-          <span class="formula-label">대기 비율 + 부족분</span>
-          <span class="comment">// 새벽(02~06시) latency = 순수 GPU 처리 시간 (대기=0)</span><br>
-          W<sub>0</sub> = AVG(latencyMs) WHERE hour BETWEEN 2 AND 6<br><br>
-          <span class="comment">// 현재 latency - 순수 처리시간 = 줄 선 시간</span><br>
-          W<sub>queue</sub> = W - W<sub>0</sub><br><br>
-          <span class="comment">// 줄 선 비율이 곧 GPU 부족 비율</span><br>
+          <span class="formula-label">사용률 + 부족분</span>
+          <span class="comment">// W<sub>0</sub> = 한산할 때 latency (RPS 하위 5% 시간대)</span><br>
+          <span class="comment">// W = 현재 평균 latency</span><br><br>
+          <span class="result">사용률(%) = (1 - W<sub>0</sub> &#247; W) &times; 100</span><br>
+          <span class="comment">// 예: W<sub>0</sub>=2s, W=3s &rarr; (1 - 2/3) &times; 100 = 33%</span><br><br>
+          W<sub>queue</sub> = W - W<sub>0</sub><br>
           <span class="result">부족 GPU = 보유GPU &times; W<sub>queue</sub> &#247; W<sub>0</sub></span><br>
-          <span class="comment">// 예: 8장, W=3s, W<sub>0</sub>=2s &rarr; 8 &times; 1/2 = 4장 부족</span>
+          <span class="comment">// 예: 8장, W=3s, W<sub>0</sub>=2s &rarr; 8 &times; 1/2 = 4장 부족</span><br><br>
+          <span class="comment">// &#10003; KV cache 계산 불필요 — latency 비율만으로 산출</span>
         </div>
 
         <div class="formula-box">
@@ -697,15 +698,15 @@
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="tag purple">장점: 이론적으로 가장 정확</span>
           <span class="tag purple">장점: GPU 정수로 산출</span>
-          <span class="tag red">단점: KV cache 캘리브레이션 1회 필요</span>
+          <span class="tag purple">장점: KV cache 계산 불필요</span>
         </div>
 
         <div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1px solid #c4b5fd;border-radius:10px;padding:14px 18px;margin-top:4px">
           <div style="font-size:13px;font-weight:700;color:#5b21b6;margin-bottom:8px">&#128268; "GPU 정보 부분 필요"란?</div>
           <div style="font-size:12px;color:#4c1d95;line-height:1.8">
-            <strong>필요한 것:</strong> GPU 총 수량 + 장당 VRAM (예: A100 8장 &times; 80GB)<br>
-            <strong>불필요한 것:</strong> vLLM 메트릭 (TPS, KV Cache %, 동시요청)<br>
-            <strong>이미 있는 곳:</strong> <code>gpu_metric_snapshots</code> (nvidia-smi SSH 수집 — vLLM과 무관, 독립 동작 중)
+            <strong>필요한 것:</strong> GPU 총 수량 (예: 8장) — 부족분 역산에 사용<br>
+            <strong>불필요한 것:</strong> VRAM, KV cache, vLLM 메트릭 전부 불필요<br>
+            <strong>이미 있는 곳:</strong> <code>gpu_metric_snapshots</code> (nvidia-smi SSH 수집 — vLLM과 무관)
           </div>
         </div>
 
@@ -715,9 +716,7 @@
             <strong>1. Baseline 산출 방식 변경</strong> (안 1과 동일)<br>
             &nbsp;&nbsp;"최근 30일 RPS 하위 5% 시간대의 평균 latency"를 W<sub>0</sub>로 사용<br>
             <strong>2. 스트리밍 요청 분리</strong> (안 1과 동일)<br>
-            &nbsp;&nbsp;<code>WHERE stream = false</code>로 비스트리밍만 집계<br>
-            <strong>3. KV cache/req 초기 추정</strong><br>
-            &nbsp;&nbsp;성공 요청의 (inputTokens + outputTokens) 평균으로 요청당 메모리 근사
+            &nbsp;&nbsp;<code>WHERE stream = false</code>로 비스트리밍만 집계
           </div>
         </div>
       </div>
@@ -960,13 +959,13 @@
         <tr>
           <td style="font-weight:600">GPU 메트릭 필요?</td>
           <td style="text-align:center;color:#059669">&#10060; 불필요</td>
-          <td style="text-align:center;color:#eab308">&#9650; VRAM 1회만</td>
+          <td style="text-align:center;color:#eab308">&#9650; GPU 수량만</td>
           <td style="text-align:center;color:#059669">&#10060; 불필요</td>
         </tr>
         <tr>
           <td style="font-weight:600">초기 캘리브레이션</td>
           <td style="text-align:center">baseline P95 수집 (자동)</td>
-          <td style="text-align:center">KV cache/req 추정 (1회)</td>
+          <td style="text-align:center;color:#059669">없음 (latency 비율 사용)</td>
           <td style="text-align:center;color:#059669">없음</td>
         </tr>
         <tr>
@@ -991,7 +990,7 @@
         <h3 style="color:#7c3aed">&#9632; 안 2의 핵심</h3>
         <p style="font-size:13px;line-height:1.7">
           <strong style="color:#059669">&#10003; 최대 강점:</strong> "GPU 정확히 3대 부족" — <strong>숫자의 신뢰도</strong><br>
-          <strong style="color:#dc2626">&#10060; 최대 약점:</strong> KV cache per request 캘리브레이션 필요 (초기 1회)
+          <strong style="color:#dc2626">&#10060; 최대 약점:</strong> GPU 수량 정보 필요 (nvidia-smi에서 이미 수집 중)
         </p>
       </div>
       <div class="card" style="border-color:#d97706;border-width:2px">
