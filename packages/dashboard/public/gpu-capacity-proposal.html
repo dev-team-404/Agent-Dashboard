@@ -597,15 +597,43 @@
           </div>
         </div>
 
+        <!-- 대시보드 표시 예시 -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:14px">대시보드 표시 예시 (경영진이 보는 화면)</div>
+
+          <!-- 창구 점유 시각화 -->
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+            <span style="font-size:12px;color:#64748b;min-width:80px">GPU 창구</span>
+            <div style="display:flex;gap:6px">
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">1</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">2</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">3</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">4</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">5</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#7c3aed;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">6</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-weight:700">7</div>
+              <div style="width:32px;height:32px;border-radius:6px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;font-weight:700">8</div>
+            </div>
+            <span style="font-size:16px;font-weight:900;color:#7c3aed">6/8 사용 중</span>
+          </div>
+
+          <!-- 응답시간 분해 바 -->
+          <div style="font-size:12px;color:#64748b;margin-bottom:6px">평균 응답시간 구성</div>
+          <div style="display:flex;height:28px;border-radius:6px;overflow:hidden;margin-bottom:6px">
+            <div style="width:60%;background:linear-gradient(90deg,#7c3aed,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">GPU 처리 2.0초 (60%)</div>
+            <div style="width:40%;background:linear-gradient(90deg,#dc2626,#f87171);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700">줄서기 1.3초 (40%)</div>
+          </div>
+          <div style="font-size:11px;color:#991b1b;font-weight:600">&#8594; 응답시간의 40%가 줄서기 = GPU 여유 부족</div>
+        </div>
+
         <div class="example-box purple">
           <h4>&#128200; 경영진 보고 예시</h4>
           <p>
-            "현재 GPU 창구 <strong>8개</strong> 운영 중,<br>
-            동시 대기 중인 요청이 평균 <strong>6.2건</strong> (창구 77% 점유).<br>
-            대기시간의 <strong>30%가 순수 줄서기</strong>입니다 &#8594; <strong>GPU 2~3대 부족</strong>.<br>
-            직원 1,000명 추가 시 창구 <strong>5대 추가</strong> 필요합니다."
+            "현재 GPU 창구 8개 중 <strong>6개 사용 중</strong> (75%).<br>
+            응답시간 3.3초 중 <strong>1.3초(40%)가 순수 대기</strong>입니다.<br>
+            &#8594; GPU <strong>3대 추가</strong>하면 대기시간 0으로 감소."
           </p>
-          <div class="big-result" style="color:#7c3aed">창구 3대 부족 (수학적 산출)</div>
+          <div class="big-result" style="color:#7c3aed">포화도 75% | 3대 부족</div>
         </div>
       </div>
 
@@ -733,15 +761,54 @@
           </div>
         </div>
 
+        <!-- 대시보드 표시 예시 -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:14px">대시보드 표시 예시 (경영진이 보는 화면)</div>
+
+          <!-- 신호등 스타일 -->
+          <div style="display:flex;gap:16px;margin-bottom:16px">
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#f0fdf4;border:2px solid #22c55e">
+              <div style="font-size:11px;color:#166534;font-weight:600">Timeout 0%</div>
+              <div style="font-size:22px;font-weight:900;color:#22c55e;margin:4px 0">&#128994;</div>
+              <div style="font-size:10px;color:#166534">여유 있음</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fefce8;border:2px solid #eab308">
+              <div style="font-size:11px;color:#854d0e;font-weight:600">Timeout 1~5%</div>
+              <div style="font-size:22px;font-weight:900;color:#eab308;margin:4px 0">&#128992;</div>
+              <div style="font-size:10px;color:#854d0e">증설 검토</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626">
+              <div style="font-size:11px;color:#991b1b;font-weight:600">Timeout 5%+</div>
+              <div style="font-size:22px;font-weight:900;color:#dc2626;margin:4px 0">&#128308;</div>
+              <div style="font-size:10px;color:#991b1b">즉시 증설</div>
+            </div>
+          </div>
+
+          <!-- 현재 상태 표시 -->
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fefce8;border:1px solid #fcd34d;border-radius:8px">
+            <span style="font-size:24px">&#128992;</span>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#92400e">현재: Timeout 3.2%</div>
+              <div style="font-size:11px;color:#a16207">오늘 1,240건 중 40건 실패 | GPU 0.3대 부족 추정</div>
+            </div>
+          </div>
+        </div>
+
         <div class="example-box orange">
           <h4>&#128200; 경영진 보고 예시</h4>
           <p>
-            "현재 AI 요청 중 <strong>3%가 시간 초과</strong>로 실패합니다.<br>
-            이는 GPU <strong>약 0.3대분</strong>이 부족하다는 의미입니다.<br>
-            직원이 2배로 늘면 실패율이 <strong>15% 이상</strong>으로 급등하며,<br>
-            사용자 <strong>6~7명 중 1명</strong>이 AI를 못 쓰는 상황이 됩니다."
+            "현재 AI 요청 중 <strong>3.2%가 시간 초과</strong>로 실패 (&#128992; 주의).<br>
+            GPU <strong>0.3대분</strong> 부족. 직원 2배 시 <strong>&#128308; 즉시 증설</strong> 단계 진입."
           </p>
-          <div class="big-result">Timeout 3% = GPU 0.3대 부족</div>
+          <div class="big-result">&#128992; 주의 | 0.3대 부족</div>
+        </div>
+
+        <div class="callout warn" style="font-size:12px;padding:10px 14px">
+          <span class="callout-icon">&#9888;</span>
+          <div>
+            <strong>안 3의 한계:</strong> &#128994; 녹색(Timeout 0%)일 때는 "여유가 얼마나 있는지" 알 수 없습니다.
+            포화 <strong>전</strong>의 정확한 % 측정은 안 1 또는 안 2가 필요합니다.
+          </div>
         </div>
       </div>
 
