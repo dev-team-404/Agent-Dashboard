@@ -543,6 +543,7 @@
       AI가 서비스 설명 기반으로 <strong>"LLM 호출 몇 건 = 1 M/M"</strong>을 초기 추정하고,
       서비스 관리자가 현장 경험에 기반하여 이 값을 <strong>직접 조율</strong>할 수 있습니다.
       기본값은 자동이므로 손 안 대도 동작하고, 조율하면 정확도가 올라갑니다.
+      Track 1과 <strong>20% 이상 괴리 발생 시</strong> AX Agent 관리자에게 <strong>검토 요청 메일이 자동 발송</strong>됩니다.
     </p>
 
     <!-- Flow Diagram -->
@@ -576,21 +577,28 @@
         <span class="flow-label">M/M 자동 산출</span>
         <span class="flow-sub">호출수 &divide; 환산계수</span>
       </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon" style="background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff">&#9993;</div>
+        <span class="flow-label">괴리 20%+ 시</span>
+        <span class="flow-sub">AX Agent 자동 메일</span>
+      </div>
     </div>
 
     <!-- 3 Core Benefits -->
     <div class="cards">
       <div class="card">
-        <h3><span style="font-size:20px">&#128100;</span> 현장 전문성</h3>
-        <p>서비스를 가장 잘 아는 관리자가 환산 계수를 보정합니다.
-           "우리 서비스는 호출 1건이 더 큰 작업을 대체한다" — 이런 현장 지식을 반영.</p>
-        <div class="num purple">관리자 서명 효과</div>
+        <h3><span style="font-size:20px">&#128100;</span> 현장 전문성 + 절대 우선</h3>
+        <p>서비스 관리자가 설정한 값을 <strong>무조건 우선 반영</strong>합니다.
+           시스템은 절대 자동 조정하지 않으며, 관리자의 현장 판단을 존중합니다.</p>
+        <div class="num purple">관리자 값 = 최종값</div>
       </div>
       <div class="card">
-        <h3><span style="font-size:20px">&#9203;</span> 제로 부담</h3>
-        <p>AI가 서비스 설명 기반으로 디폴트 값을 자동 설정합니다.
-           관리자가 아무것도 안 해도 합리적 수치가 산출됩니다.</p>
-        <div class="num purple">디폴트 자동 설정</div>
+        <h3><span style="font-size:20px">&#9993;</span> 자동 알림 체계</h3>
+        <p>Track 1과 <strong>20% 이상 괴리</strong> 발생 시,
+           지정된 AX Agent 관리자에게 검토 요청 메일을 자동 발송합니다.
+           경고만 하고, 값은 건드리지 않습니다.</p>
+        <div class="num" style="color:#dc2626">괴리 시 자동 메일</div>
       </div>
       <div class="card">
         <h3><span style="font-size:20px">&#128737;</span> 이중 검증</h3>
@@ -603,10 +611,10 @@
     <div class="callout success">
       <span class="callout-icon">&#10003;</span>
       <div>
-        <strong>Track 1 + Track 2 이중 검증 효과:</strong>
-        두 독립적 방법이 <strong>&plusmn;20% 내로 수렴</strong>하면 "높은 신뢰도"로 표시.
-        괴리가 크면 자동 플래그 &rarr; 관리자 재검토 유도.
-        과대/과소 추정을 <strong>구조적으로 방지</strong>합니다.
+        <strong>핵심 원칙: 관리자 입력값 무조건 우선</strong><br>
+        시스템은 괴리가 아무리 커도 <strong>관리자가 설정한 calls/M/M 값을 절대 변경하지 않습니다.</strong>
+        자동 메일은 "검토해 주세요"라는 <strong>경고(Advisory)</strong>일 뿐이며,
+        관리자가 검토 후 기존 값을 유지하기로 결정하면 그것이 최종값입니다.
       </div>
     </div>
 
@@ -704,90 +712,91 @@
 
       <!-- Right Column -->
       <div style="display:flex;flex-direction:column;gap:20px">
-        <h3 class="section-head" style="border-color:#059669">Track 1 &times; Track 2 이중 검증</h3>
+        <h3 class="section-head" style="border-color:#dc2626">괴리 감지 &rarr; AX Agent 자동 메일 알림</h3>
 
-        <div class="cross-box">
-          <h4>교차 검증 자동 판정</h4>
-          <p style="font-size:13px;color:#166534;margin-bottom:12px">
-            두 Track의 M/M 산출 결과를 자동 비교하여 신뢰도를 판정합니다.
-          </p>
-          <div class="convergence">
-            <div class="conv-item conv-ok">
-              <div style="font-size:18px;margin-bottom:4px">&#10003;</div>
-              괴리 &lt; 20%<br><strong>수렴 (신뢰)</strong>
+        <!-- Alert Flow -->
+        <div style="background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-radius:12px;padding:20px 24px">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+            <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#9993;</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#991b1b">자동 알림 발동 조건</div>
+              <div style="font-size:12px;color:#b91c1c">Track 1(벤치마크) vs Track 2(호출량) 괴리율 &ge; 20%</div>
             </div>
-            <div class="conv-item conv-warn">
-              <div style="font-size:18px;margin-bottom:4px">&#9888;</div>
-              괴리 20~50%<br><strong>주의 (검토)</strong>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">괴리 감지</div>
+              <div style="color:#b91c1c;font-size:10px">매일 자정 산출 후</div>
             </div>
-            <div class="conv-item conv-alert">
-              <div style="font-size:18px;margin-bottom:4px">&#10060;</div>
-              괴리 &gt; 50%<br><strong>경고 (재조율)</strong>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">AX Agent 메일 발송</div>
+              <div style="color:#b91c1c;font-size:10px">서비스명 + 괴리 상세</div>
+            </div>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">관리자 검토</div>
+              <div style="color:#b91c1c;font-size:10px">값 유지 or 조정 결정</div>
+            </div>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#166534;font-weight:700">관리자 값 = 최종값</div>
+              <div style="color:#15803d;font-size:10px">시스템은 절대 변경 안 함</div>
             </div>
           </div>
         </div>
 
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
-          <h4 style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:16px">&#128202; 종합 보고 예시</h4>
-          <table class="bench-table" style="font-size:12px">
-            <thead>
-              <tr><th>서비스</th><th>Track 1<br><span style="font-weight:400;font-size:10px">벤치마크</span></th><th>Track 2<br><span style="font-weight:400;font-size:10px">호출량</span></th><th>괴리</th><th>신뢰도</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>AI 코드 리뷰</td>
-                <td><strong>1.15</strong> M/M</td>
-                <td><strong>1.30</strong> M/M</td>
-                <td>12%</td>
-                <td><span style="color:#059669;font-weight:700">&#9679; 수렴</span></td>
-              </tr>
-              <tr>
-                <td>문서 자동 요약</td>
-                <td><strong>0.62</strong> M/M</td>
-                <td><strong>0.58</strong> M/M</td>
-                <td>7%</td>
-                <td><span style="color:#059669;font-weight:700">&#9679; 수렴</span></td>
-              </tr>
-              <tr>
-                <td>데이터 분석 봇</td>
-                <td><strong>0.45</strong> M/M</td>
-                <td><strong>0.80</strong> M/M</td>
-                <td>44%</td>
-                <td><span style="color:#eab308;font-weight:700">&#9679; 주의</span></td>
-              </tr>
-              <tr>
-                <td style="font-size:11px;color:#64748b" colspan="5">
-                  &#8594; 데이터 분석 봇: Track 2가 높음 &rarr; 관리자가 calls_per_mm을 낮게 설정했거나, 실제로 호출 1건의 가치가 높은 서비스
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Email Template Concept -->
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:0;overflow:hidden">
+          <div style="background:#f1f5f9;padding:10px 16px;font-size:11px;color:#64748b;display:flex;justify-content:space-between">
+            <span>&#128231; 자동 발송 메일 예시</span>
+            <span>수신: AX Agent 관리자</span>
+          </div>
+          <div style="padding:16px;font-size:12px;line-height:1.8;color:#334155">
+            <div style="font-weight:700;color:#1e293b;font-size:13px;margin-bottom:8px">[AI M/M 추정] 괴리 감지 - "데이터 분석 봇" 검토 요청</div>
+            <table style="font-size:12px;border-collapse:collapse;width:100%">
+              <tr><td style="padding:4px 8px;color:#64748b;width:120px">서비스</td><td style="padding:4px 8px;font-weight:600">데이터 분석 봇</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">Track 1 (벤치마크)</td><td style="padding:4px 8px;font-weight:600;color:#2563eb">0.45 M/M</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">Track 2 (호출량)</td><td style="padding:4px 8px;font-weight:600;color:#7c3aed">0.80 M/M</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">괴리율</td><td style="padding:4px 8px;font-weight:700;color:#dc2626">44% (임계치 20% 초과)</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">현재 calls/M/M</td><td style="padding:4px 8px">관리자 설정: 800건 (AI 디폴트: 1,500건)</td></tr>
+            </table>
+            <div style="margin-top:10px;padding:8px 12px;background:#fefce8;border-radius:6px;font-size:11px;color:#854d0e">
+              &#9888; 이 메일은 <strong>경고(Advisory)</strong>입니다. 관리자님이 설정한 값은 변경되지 않았습니다.<br>
+              검토 후 현재 값이 적절하다고 판단되면 별도 조치는 필요 없습니다.
+            </div>
+          </div>
         </div>
 
-        <div class="callout info">
-          <span class="callout-icon">&#128161;</span>
+        <!-- Key Principle -->
+        <div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:2px solid #c4b5fd;border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:16px">
+          <div style="font-size:36px">&#128272;</div>
           <div>
-            <strong>경영진 보고 방식:</strong><br>
-            "M/M 산출에 <strong>이중 독립 검증</strong> 체계를 적용합니다.<br>
-            &#10102; 글로벌 벤치마크 기반 객관적 추정<br>
-            &#10103; 현장 관리자 확인 기반 호출량 추정<br>
-            두 수치가 수렴할수록 신뢰도가 높으며,<br>
-            괴리 발생 시 자동으로 재검토가 트리거됩니다."
+            <div style="font-size:14px;font-weight:700;color:#5b21b6">핵심 원칙: 관리자 입력값 절대 우선</div>
+            <div style="font-size:12px;color:#6d28d9;line-height:1.6;margin-top:4px">
+              시스템은 괴리가 아무리 커도 관리자 설정값을 <strong>절대 자동 변경하지 않습니다.</strong><br>
+              메일은 "확인해 주세요"라는 알림일 뿐이며, 조치 여부는 전적으로 관리자가 결정합니다.
+            </div>
           </div>
         </div>
 
-        <div style="background:#0f172a;border-radius:12px;padding:16px 20px;display:flex;gap:24px;align-items:center">
-          <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Track 1 + Track 2 수렴 서비스</div>
+        <!-- Summary Stats -->
+        <div style="background:#0f172a;border-radius:12px;padding:16px 20px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Track 수렴 서비스</div>
             <div style="font-size:28px;font-weight:900;color:#4ade80">87%</div>
           </div>
-          <div style="flex:1">
+          <div style="flex:1;min-width:100px">
             <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">평균 괴리율</div>
             <div style="font-size:28px;font-weight:900;color:#38bdf8">14.2%</div>
           </div>
-          <div style="flex:1">
+          <div style="flex:1;min-width:100px">
             <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">관리자 조율 완료</div>
             <div style="font-size:28px;font-weight:900;color:#c084fc">62%</div>
+          </div>
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">월 발송 알림</div>
+            <div style="font-size:28px;font-weight:900;color:#f87171">~3건</div>
           </div>
         </div>
       </div>
