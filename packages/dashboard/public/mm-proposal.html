@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI M/M 추정 고도화 제안</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0f172a;
+    overflow: hidden;
+    height: 100vh;
+    color: #1e293b;
+  }
+
+  /* ── Slide Container ── */
+  .deck { position: relative; width: 100vw; height: 100vh; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.5s ease;
+    background: #ffffff;
+    overflow-y: auto;
+  }
+  .slide.active { opacity: 1; pointer-events: auto; }
+
+  /* ── Top Bar ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 48px;
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .topbar .track-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 16px; border-radius: 20px;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .track1-badge { background: rgba(37,99,235,0.3); border: 1px solid rgba(37,99,235,0.6); }
+  .track2-badge { background: rgba(124,58,237,0.3); border: 1px solid rgba(124,58,237,0.6); }
+  .topbar .slide-num { font-size: 13px; opacity: 0.6; }
+  .topbar h1 { font-size: 22px; font-weight: 700; }
+
+  /* ── Content ── */
+  .content {
+    flex: 1; padding: 36px 48px 24px;
+    display: flex; flex-direction: column; gap: 28px;
+  }
+
+  .subtitle {
+    font-size: 15px; color: #64748b; line-height: 1.6;
+    max-width: 800px;
+  }
+
+  /* ── Flow Diagram ── */
+  .flow {
+    display: flex; align-items: center; gap: 0;
+    flex-wrap: wrap; justify-content: center;
+    padding: 20px 0;
+  }
+  .flow-step {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; min-width: 140px;
+  }
+  .flow-icon {
+    width: 64px; height: 64px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  .flow-icon.blue { background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; }
+  .flow-icon.purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; }
+  .flow-icon.green { background: linear-gradient(135deg, #059669, #10b981); color: #fff; }
+  .flow-icon.orange { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; }
+  .flow-icon.slate { background: linear-gradient(135deg, #475569, #64748b); color: #fff; }
+  .flow-label { font-size: 13px; font-weight: 600; color: #334155; text-align: center; }
+  .flow-sub { font-size: 11px; color: #94a3b8; text-align: center; }
+  .flow-arrow {
+    font-size: 24px; color: #cbd5e1; margin: 0 8px;
+    align-self: center; margin-top: -20px;
+  }
+
+  /* ── Cards Grid ── */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card {
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 24px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .card h3 { font-size: 15px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
+  .card p { font-size: 13px; color: #64748b; line-height: 1.6; }
+  .card .num { font-size: 28px; font-weight: 900; }
+  .num.blue { color: #2563eb; }
+  .num.purple { color: #7c3aed; }
+  .num.green { color: #059669; }
+
+  /* ── Benchmark Table ── */
+  .bench-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  .bench-table th {
+    background: #f1f5f9; padding: 10px 14px; text-align: left;
+    font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+  }
+  .bench-table td {
+    padding: 10px 14px; border-bottom: 1px solid #f1f5f9;
+    color: #334155; vertical-align: middle;
+  }
+  .bench-table tr:hover td { background: #f8fafc; }
+  .bench-table a {
+    color: #2563eb; text-decoration: none; font-size: 11px;
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .bench-table a:hover { text-decoration: underline; }
+  .hours-cell { font-weight: 700; font-size: 16px; color: #059669; }
+
+  /* ── Formula Box ── */
+  .formula-box {
+    background: #0f172a; color: #e2e8f0; border-radius: 12px;
+    padding: 24px 28px; font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 14px; line-height: 2; position: relative;
+    overflow-x: auto;
+  }
+  .formula-box .highlight { color: #38bdf8; font-weight: 700; }
+  .formula-box .result { color: #4ade80; font-weight: 700; }
+  .formula-box .comment { color: #64748b; }
+  .formula-label {
+    position: absolute; top: 12px; right: 16px;
+    font-size: 10px; color: #475569; text-transform: uppercase;
+    letter-spacing: 1px; font-family: 'Noto Sans KR', sans-serif;
+  }
+
+  /* ── Example Box ── */
+  .example-box {
+    background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+    border: 1px solid #bfdbfe; border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .example-box h4 { font-size: 13px; color: #1d4ed8; margin-bottom: 10px; font-weight: 700; }
+  .example-box p { font-size: 13px; line-height: 1.8; color: #1e40af; }
+  .example-box .big-result {
+    font-size: 32px; font-weight: 900; color: #1d4ed8;
+    margin-top: 8px;
+  }
+
+  .example-box.purple {
+    background: linear-gradient(135deg, #f5f3ff, #faf5ff);
+    border-color: #c4b5fd;
+  }
+  .example-box.purple h4 { color: #6d28d9; }
+  .example-box.purple p { color: #5b21b6; }
+  .example-box.purple .big-result { color: #6d28d9; }
+
+  /* ── Two Column ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .two-col.wide-left { grid-template-columns: 1.2fr 0.8fr; }
+
+  /* ── Cross Validation ── */
+  .cross-box {
+    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    border: 1px solid #86efac; border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .cross-box h4 { font-size: 14px; font-weight: 700; color: #166534; margin-bottom: 12px; }
+  .convergence { display: flex; gap: 12px; margin-top: 8px; }
+  .conv-item {
+    flex: 1; padding: 12px; border-radius: 8px; text-align: center;
+    font-size: 12px; font-weight: 600;
+  }
+  .conv-ok { background: #dcfce7; color: #166534; }
+  .conv-warn { background: #fef9c3; color: #854d0e; }
+  .conv-alert { background: #fee2e2; color: #991b1b; }
+
+  /* ── Ref Links ── */
+  .refs {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 0 48px 16px; flex-shrink: 0;
+  }
+  .refs a {
+    font-size: 10px; color: #94a3b8; text-decoration: none;
+    padding: 3px 8px; background: #f1f5f9; border-radius: 4px;
+    transition: all 0.2s;
+  }
+  .refs a:hover { background: #e2e8f0; color: #475569; }
+
+  /* ── Navigation ── */
+  .nav-bar {
+    display: flex; align-items: center; justify-content: center;
+    gap: 12px; padding: 16px; flex-shrink: 0;
+    background: #f8fafc; border-top: 1px solid #e2e8f0;
+  }
+  .nav-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #cbd5e1; cursor: pointer; transition: all 0.3s;
+    border: none;
+  }
+  .nav-dot.active { background: #2563eb; transform: scale(1.3); }
+  .nav-dot.purple-active { background: #7c3aed; transform: scale(1.3); }
+  .nav-btn {
+    padding: 8px 20px; border-radius: 8px; border: 1px solid #e2e8f0;
+    background: #fff; color: #475569; font-size: 13px; cursor: pointer;
+    font-family: inherit; font-weight: 500; transition: all 0.2s;
+  }
+  .nav-btn:hover { background: #f1f5f9; }
+  .nav-hint { font-size: 11px; color: #94a3b8; position: fixed; bottom: 52px; right: 24px; }
+
+  /* ── Section Headers ── */
+  .section-head {
+    font-size: 16px; font-weight: 700; color: #1e293b;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .section-head.blue { border-color: #2563eb; }
+  .section-head.purple { border-color: #7c3aed; }
+
+  /* ── Callout ── */
+  .callout {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 16px 20px; border-radius: 10px; font-size: 13px; line-height: 1.6;
+  }
+  .callout.info { background: #eff6ff; border-left: 4px solid #2563eb; color: #1e40af; }
+  .callout.warn { background: #fefce8; border-left: 4px solid #eab308; color: #854d0e; }
+  .callout.success { background: #f0fdf4; border-left: 4px solid #22c55e; color: #166534; }
+  .callout-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ── Tag ── */
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+  }
+  .tag.auto { background: #dbeafe; color: #1d4ed8; }
+  .tag.manual { background: #ede9fe; color: #6d28d9; }
+
+  /* ── Manager Adjust ── */
+  .adjust-demo {
+    background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .adjust-row {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 0; border-bottom: 1px solid #f3e8ff;
+  }
+  .adjust-row:last-child { border-bottom: none; }
+  .adjust-label { font-size: 13px; color: #6b21a8; font-weight: 500; min-width: 120px; }
+  .adjust-bar {
+    flex: 1; height: 8px; background: #e9d5ff; border-radius: 4px; position: relative;
+  }
+  .adjust-fill {
+    height: 100%; border-radius: 4px; background: linear-gradient(90deg, #7c3aed, #a78bfa);
+  }
+  .adjust-val { font-size: 14px; font-weight: 700; color: #6d28d9; min-width: 80px; text-align: right; }
+
+  /* responsive */
+  @media (max-width: 900px) {
+    .cards { grid-template-columns: 1fr; }
+    .two-col, .two-col.wide-left { grid-template-columns: 1fr; }
+    .content { padding: 20px 24px 16px; gap: 16px; }
+    .topbar { padding: 16px 24px; }
+    .refs { padding: 0 24px 12px; }
+    .flow { gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- ================================================================ -->
+<!-- SLIDE 1: 안 1 종합 — 글로벌 벤치마크 자동매핑                       -->
+<!-- ================================================================ -->
+<div class="slide active" id="s1">
+  <div class="topbar">
+    <div>
+      <span class="track-badge track1-badge">TRACK 1</span>
+      <span class="slide-num" style="margin-left:12px">완전 자동화</span>
+    </div>
+    <h1>글로벌 벤치마크 기반 AI M/M 자동 추정</h1>
+    <span class="slide-num">1 / 4</span>
+  </div>
+
+  <div class="content">
+    <p class="subtitle">
+      세계 유수 기관(Google, MIT, DX, LSE 등)의 <strong>검증된 생산성 연구 데이터</strong>를 기반으로,
+      서비스 설명만으로 M/M 절감 효과를 <strong>매일 자동 산출</strong>합니다.
+      관리자 개입 없이 동작하며, 모든 수치에 논문/보고서 출처가 첨부됩니다.
+    </p>
+
+    <!-- Flow Diagram -->
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-icon blue">&#9997;</div>
+        <span class="flow-label">서비스 설명 입력</span>
+        <span class="flow-sub">개발자가 1회 작성</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon slate">&#129302;</div>
+        <span class="flow-label">AI 벤치마크 매핑</span>
+        <span class="flow-sub">설명 변경 시에만 실행</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon green">&#128202;</div>
+        <span class="flow-label">벤치마크 가중 적용</span>
+        <span class="flow-sub">예: 코딩 60% + 문서 40%</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon orange">&#128101;</div>
+        <span class="flow-label">DAU 곱셈</span>
+        <span class="flow-sub">일 사용자 수 (자동 집계)</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon blue" style="font-size:18px;font-weight:900">M/M</div>
+        <span class="flow-label">M/M 자동 산출</span>
+        <span class="flow-sub">매일 갱신, 출처 첨부</span>
+      </div>
+    </div>
+
+    <!-- 3 Core Benefits -->
+    <div class="cards">
+      <div class="card">
+        <h3><span style="font-size:20px">&#9889;</span> 완전 자동화</h3>
+        <p>서비스 등록 시 설명(Description)만 입력하면 끝.
+           관리자가 매달 수치를 입력하거나 검토할 필요가 없습니다.</p>
+        <div class="num blue">Zero Touch</div>
+      </div>
+      <div class="card">
+        <h3><span style="font-size:20px">&#128218;</span> 외부 검증 근거</h3>
+        <p>DX(135,000명 개발자), Google(내부 RCT), MIT(고객서비스 연구) 등
+           세계적 기관의 공인 연구에 기반한 수치입니다.</p>
+        <div class="num green">9개 벤치마크</div>
+      </div>
+      <div class="card">
+        <h3><span style="font-size:20px">&#128270;</span> 투명한 산출</h3>
+        <p>"이 서비스는 DX 벤치마크 60% + 문서 벤치마크 40% 적용, DAU 15명"
+           — 모든 단계가 추적 가능합니다.</p>
+        <div class="num blue">100% 감사가능</div>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <span class="callout-icon">&#128161;</span>
+      <div>
+        <strong>현재 방식 대비 개선점:</strong>
+        현재는 LLM이 매일 서비스별로 "감"으로 M/M을 추정(블랙박스).
+        개선안은 <strong>공인 벤치마크 수치를 고정 계수로 사용</strong>하여
+        동일 조건 = 동일 결과를 보장하고, 경영진에게 근거를 명확히 제시할 수 있습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="refs">
+    <a href="https://getdx.com/blog/ai-assisted-engineering-q4-impact-report-2025/" target="_blank">DX 135K 개발자 리서치</a>
+    <a href="https://research.google/blog/ai-in-software-engineering-at-google-progress-and-the-path-ahead/" target="_blank">Google AI 엔지니어링 RCT</a>
+    <a href="https://tei.forrester.com/go/microsoft/M365Copilot/" target="_blank">Microsoft 365 Copilot TEI</a>
+    <a href="https://www.lse.ac.uk/news/ai-boosts-productivity-by-the-equivalent-of-one-workday-per-week-new-report-finds" target="_blank">LSE-Protiviti 글로벌 조사</a>
+    <a href="https://www.nber.org/papers/w31161" target="_blank">Stanford-MIT 고객서비스 연구</a>
+    <a href="https://www.anthropic.com/research/estimating-productivity-gains" target="_blank">Anthropic 생산성 연구</a>
+  </div>
+
+  <div class="nav-bar">
+    <button class="nav-btn" onclick="go(-1)">&#8592; 이전</button>
+    <button class="nav-dot active" onclick="goTo(0)"></button>
+    <button class="nav-dot" onclick="goTo(1)"></button>
+    <button class="nav-dot" onclick="goTo(2)"></button>
+    <button class="nav-dot" onclick="goTo(3)"></button>
+    <button class="nav-btn" onclick="go(1)">다음 &#8594;</button>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- SLIDE 2: 안 1 상세 — 벤치마크 테이블 + 산출 공식                    -->
+<!-- ================================================================ -->
+<div class="slide" id="s2">
+  <div class="topbar">
+    <div>
+      <span class="track-badge track1-badge">TRACK 1</span>
+      <span class="slide-num" style="margin-left:12px">상세</span>
+    </div>
+    <h1>벤치마크 풀 + 산출 로직</h1>
+    <span class="slide-num">2 / 4</span>
+  </div>
+
+  <div class="content">
+    <div class="two-col wide-left">
+      <!-- Left: Benchmark Table -->
+      <div>
+        <h3 class="section-head blue">글로벌 벤치마크 풀 (AI가 서비스 설명 기반 자동 매핑)</h3>
+        <table class="bench-table" style="margin-top:12px">
+          <thead>
+            <tr>
+              <th>벤치마크 카테고리</th>
+              <th>인당 절약</th>
+              <th>연구 기관</th>
+              <th>대상 규모</th>
+              <th>출처</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>코드 생성/어시스턴트</td>
+              <td class="hours-cell">3.6h/주</td>
+              <td>DX Research</td>
+              <td>135,000명 개발자</td>
+              <td><a href="https://getdx.com/blog/ai-assisted-engineering-q4-impact-report-2025/" target="_blank">보고서 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>코드 리뷰 자동화</td>
+              <td class="hours-cell">2.0h/주</td>
+              <td>Google Research</td>
+              <td>내부 RCT (21% 속도향상)</td>
+              <td><a href="https://research.google/blog/ai-in-software-engineering-at-google-progress-and-the-path-ahead/" target="_blank">논문 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>문서 생성/이메일</td>
+              <td class="hours-cell">2.4h/주</td>
+              <td>Forrester (Microsoft)</td>
+              <td>12개 조직 + 367명 설문</td>
+              <td><a href="https://tei.forrester.com/go/microsoft/M365Copilot/" target="_blank">TEI 보고서 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>문서 요약/검색</td>
+              <td class="hours-cell">1.5h/주</td>
+              <td>St. Louis Fed</td>
+              <td>미국 노동통계</td>
+              <td><a href="https://www.stlouisfed.org/on-the-economy/2025/jan/ai-use-workers-increased-sharply-2024" target="_blank">보고서 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>데이터 분석</td>
+              <td class="hours-cell">2.5h/주</td>
+              <td>LSE &amp; Protiviti</td>
+              <td>3,000명 + 240명 임원</td>
+              <td><a href="https://www.lse.ac.uk/news/ai-boosts-productivity-by-the-equivalent-of-one-workday-per-week-new-report-finds" target="_blank">보고서 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>고객 서비스/QA</td>
+              <td class="hours-cell">1.1h/주</td>
+              <td>Stanford &amp; MIT</td>
+              <td>Fortune 500 기업 실측</td>
+              <td><a href="https://www.nber.org/papers/w31161" target="_blank">NBER 논문 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>이미지/크리에이티브</td>
+              <td class="hours-cell">1.0h/주</td>
+              <td>Accenture</td>
+              <td>3,000+ 기업 분석</td>
+              <td><a href="https://newsroom.accenture.com/news/2024/new-accenture-research-finds-that-companies-with-ai-led-processes-outperform-peers" target="_blank">보고서 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>배치/자동화 처리</td>
+              <td class="hours-cell">별도 로직</td>
+              <td>Amazon (Q Developer)</td>
+              <td>57% 태스크 속도 향상</td>
+              <td><a href="https://aws.amazon.com/blogs/devops/introducing-amazon-codewhisperer-dashboard-and-cloudwatch-metrics/" target="_blank">AWS 블로그 &#8599;</a></td>
+            </tr>
+            <tr>
+              <td>기타/범용</td>
+              <td class="hours-cell">1.0h/주</td>
+              <td>Goldman Sachs</td>
+              <td>Enterprise 분석</td>
+              <td><a href="https://www.goldmansachs.com/insights/articles/generative-ai-could-raise-global-gdp-by-7-percent" target="_blank">보고서 &#8599;</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Right: Formula + Example -->
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="formula-box">
+          <span class="formula-label">산출 공식</span>
+          <span class="comment">// AI가 서비스 설명에서 매핑한 결과 예시:</span><br>
+          <span class="comment">// "코드 생성" 60% + "문서 생성" 40%</span><br><br>
+          가중평균 = <span class="highlight">3.6</span>h &times; 0.6 + <span class="highlight">2.4</span>h &times; 0.4<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= <span class="highlight">3.12</span>h/주/인<br><br>
+          월간 M/M = <span class="highlight">DAU</span> &times; 3.12h &times; 4.33주<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&#247; <span class="highlight">176</span>h (1 M/M)<br>
+        </div>
+
+        <div class="example-box">
+          <h4>&#128204; 실제 계산 예시</h4>
+          <p>
+            서비스: AI 코드 리뷰 어시스턴트<br>
+            AI 매핑: 코드 생성 60% + 문서 생성 40%<br>
+            가중 벤치마크: <strong>3.12시간/주/인</strong><br>
+            현재 평균 DAU: <strong>15명</strong><br><br>
+            15명 &times; 3.12h &times; 4.33주 &divide; 176h
+          </p>
+          <div class="big-result">= 1.15 M/M</div>
+        </div>
+
+        <div class="callout warn">
+          <span class="callout-icon">&#9888;</span>
+          <div>
+            <strong>보수적 안전장치:</strong>
+            METR 연구(<a href="https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/" target="_blank" style="color:#854d0e">링크</a>)에서
+            체감 vs 실제 간 39% 괴리 확인.
+            이를 반영하여 벤치마크 적용 시 <strong>보수적 할인 30%</strong>를 적용합니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="refs">
+    <a href="https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/" target="_blank">METR RCT: 39% 인식-실제 격차</a>
+    <a href="https://www.hbs.edu/faculty/Pages/item.aspx?num=64700" target="_blank">Harvard-BCG: Jagged Frontier 연구</a>
+    <a href="https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/" target="_blank">GitHub Copilot 생산성 연구</a>
+    <a href="https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier" target="_blank">McKinsey: GenAI 경제적 잠재력</a>
+  </div>
+
+  <div class="nav-bar">
+    <button class="nav-btn" onclick="go(-1)">&#8592; 이전</button>
+    <button class="nav-dot" onclick="goTo(0)"></button>
+    <button class="nav-dot active" onclick="goTo(1)"></button>
+    <button class="nav-dot" onclick="goTo(2)"></button>
+    <button class="nav-dot" onclick="goTo(3)"></button>
+    <button class="nav-btn" onclick="go(1)">다음 &#8594;</button>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- SLIDE 3: 안 2 종합 — 서비스 관리자 조율형                          -->
+<!-- ================================================================ -->
+<div class="slide" id="s3">
+  <div class="topbar" style="background:linear-gradient(135deg,#4c1d95,#1e1b4b)">
+    <div>
+      <span class="track-badge track2-badge">TRACK 2</span>
+      <span class="slide-num" style="margin-left:12px">관리자 조율형</span>
+    </div>
+    <h1>서비스 관리자 확인형 M/M 추정</h1>
+    <span class="slide-num">3 / 4</span>
+  </div>
+
+  <div class="content">
+    <p class="subtitle">
+      AI가 서비스 설명 기반으로 <strong>"LLM 호출 몇 건 = 1 M/M"</strong>을 초기 추정하고,
+      서비스 관리자가 현장 경험에 기반하여 이 값을 <strong>직접 조율</strong>할 수 있습니다.
+      기본값은 자동이므로 손 안 대도 동작하고, 조율하면 정확도가 올라갑니다.
+      Track 1과 <strong>20% 이상 괴리 발생 시</strong> AX Agent 관리자에게 <strong>검토 요청 메일이 자동 발송</strong>됩니다.
+    </p>
+
+    <!-- Flow Diagram -->
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-icon purple">&#9997;</div>
+        <span class="flow-label">서비스 설명 입력</span>
+        <span class="flow-sub">개발자가 1회 작성</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon slate">&#129302;</div>
+        <span class="flow-label">AI 초기 추정</span>
+        <span class="flow-sub">"2,000건 = 1 M/M"</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon purple">&#128100;</div>
+        <span class="flow-label">관리자 조율 (선택)</span>
+        <span class="flow-sub">"1,500건으로 수정"</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon orange">&#128200;</div>
+        <span class="flow-label">실제 호출수 집계</span>
+        <span class="flow-sub">매일 자동 (기존 시스템)</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon purple" style="font-size:18px;font-weight:900">M/M</div>
+        <span class="flow-label">M/M 자동 산출</span>
+        <span class="flow-sub">호출수 &divide; 환산계수</span>
+      </div>
+      <div class="flow-arrow">&#10145;</div>
+      <div class="flow-step">
+        <div class="flow-icon" style="background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff">&#9993;</div>
+        <span class="flow-label">괴리 20%+ 시</span>
+        <span class="flow-sub">AX Agent 자동 메일</span>
+      </div>
+    </div>
+
+    <!-- 3 Core Benefits -->
+    <div class="cards">
+      <div class="card">
+        <h3><span style="font-size:20px">&#128100;</span> 현장 전문성 + 절대 우선</h3>
+        <p>서비스 관리자가 설정한 값을 <strong>무조건 우선 반영</strong>합니다.
+           시스템은 절대 자동 조정하지 않으며, 관리자의 현장 판단을 존중합니다.</p>
+        <div class="num purple">관리자 값 = 최종값</div>
+      </div>
+      <div class="card">
+        <h3><span style="font-size:20px">&#9993;</span> 자동 알림 체계</h3>
+        <p>Track 1과 <strong>20% 이상 괴리</strong> 발생 시,
+           지정된 AX Agent 관리자에게 검토 요청 메일을 자동 발송합니다.
+           경고만 하고, 값은 건드리지 않습니다.</p>
+        <div class="num" style="color:#dc2626">괴리 시 자동 메일</div>
+      </div>
+      <div class="card">
+        <h3><span style="font-size:20px">&#128737;</span> 이중 검증</h3>
+        <p>Track 1(벤치마크)과 Track 2(호출량)의 결과를 교차 비교하여
+           수치의 신뢰도를 자동으로 판정합니다.</p>
+        <div class="num green">자동 교차검증</div>
+      </div>
+    </div>
+
+    <div class="callout success">
+      <span class="callout-icon">&#10003;</span>
+      <div>
+        <strong>핵심 원칙: 관리자 입력값 무조건 우선</strong><br>
+        시스템은 괴리가 아무리 커도 <strong>관리자가 설정한 calls/M/M 값을 절대 변경하지 않습니다.</strong>
+        자동 메일은 "검토해 주세요"라는 <strong>경고(Advisory)</strong>일 뿐이며,
+        관리자가 검토 후 기존 값을 유지하기로 결정하면 그것이 최종값입니다.
+      </div>
+    </div>
+
+    <div class="callout info">
+      <span class="callout-icon">&#128161;</span>
+      <div>
+        <strong>왜 "호출 수" 기반인가:</strong>
+        LLM 호출 건수는 시스템이 <strong>오차 0%로 정확히 집계</strong>하는 데이터입니다.
+        DAU는 정의에 따라 흔들릴 수 있지만, 호출 수는 확정적.
+        <a href="https://www.anthropic.com/research/estimating-productivity-gains" target="_blank" style="color:#1d4ed8">
+        Anthropic 연구</a>에서도 태스크(호출) 단위 분석이 가장 정밀했습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="refs">
+    <a href="https://www.anthropic.com/research/estimating-productivity-gains" target="_blank">Anthropic: 태스크 단위 생산성 분석</a>
+    <a href="https://www.cnbc.com/2025/05/14/klarna-ceo-says-ai-helped-company-shrink-workforce-by-40percent.html" target="_blank">Klarna: 700 FTE 대체 사례 &amp; 교훈</a>
+    <a href="https://www.bcg.com/publications/2025/closing-the-ai-impact-gap" target="_blank">BCG: AI Impact Gap (60% 실패)</a>
+    <a href="https://www.deloitte.com/global/en/issues/generative-ai/ai-roi-the-paradox-of-rising-investment-and-elusive-returns.html" target="_blank">Deloitte: AI ROI 역설</a>
+  </div>
+
+  <div class="nav-bar">
+    <button class="nav-btn" onclick="go(-1)">&#8592; 이전</button>
+    <button class="nav-dot" onclick="goTo(0)"></button>
+    <button class="nav-dot" onclick="goTo(1)"></button>
+    <button class="nav-dot purple-active" onclick="goTo(2)"></button>
+    <button class="nav-dot" onclick="goTo(3)"></button>
+    <button class="nav-btn" onclick="go(1)">다음 &#8594;</button>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- SLIDE 4: 안 2 상세 — 조율 메커니즘 + 이중 검증                      -->
+<!-- ================================================================ -->
+<div class="slide" id="s4">
+  <div class="topbar" style="background:linear-gradient(135deg,#4c1d95,#1e1b4b)">
+    <div>
+      <span class="track-badge track2-badge">TRACK 2</span>
+      <span class="slide-num" style="margin-left:12px">상세</span>
+    </div>
+    <h1>조율 메커니즘 + 이중 검증 시스템</h1>
+    <span class="slide-num">4 / 4</span>
+  </div>
+
+  <div class="content">
+    <div class="two-col">
+      <!-- Left Column -->
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <h3 class="section-head purple">관리자 조율 개념</h3>
+
+        <div class="adjust-demo">
+          <div class="adjust-row">
+            <span class="adjust-label">AI 코드 리뷰</span>
+            <div class="adjust-bar"><div class="adjust-fill" style="width:75%"></div></div>
+            <span class="adjust-val">1,500건/M/M</span>
+          </div>
+          <div class="adjust-row">
+            <span class="adjust-label" style="font-size:11px;color:#a78bfa">AI 디폴트</span>
+            <div class="adjust-bar"><div class="adjust-fill" style="width:60%;opacity:0.4"></div></div>
+            <span class="adjust-val" style="color:#a78bfa;font-weight:400">2,000건/M/M</span>
+          </div>
+          <div style="padding:8px 0 0;font-size:12px;color:#7c3aed">
+            &#8593; 관리자가 "리뷰 1건이 더 깊은 분석을 대체" 판단 &rarr; 1,500으로 하향 조정<br>
+            <span style="color:#a78bfa">&nbsp;&nbsp;&nbsp;(호출 1건의 가치가 더 높으므로, 더 적은 호출로 1 M/M 달성)</span>
+          </div>
+        </div>
+
+        <div class="formula-box">
+          <span class="formula-label">산출 공식</span>
+          <span class="comment">// 관리자 설정: 1,500건 = 1 M/M</span><br>
+          <span class="comment">// 이번 달 실제 LLM 호출: 4,200건</span><br><br>
+          M/M = <span class="highlight">4,200</span>건 &divide; <span class="highlight">1,500</span>건<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;= <span class="result">2.80 M/M</span><br><br>
+          <span class="comment">// 영업일 비례 (15/22일 경과 시)</span><br>
+          월말 예측 = 2.80 &times; 22/15 = <span class="result">4.11 M/M</span>
+        </div>
+
+        <div class="example-box purple">
+          <h4>&#128204; 디폴트 추정 로직</h4>
+          <p>
+            AI가 서비스 설명을 분석하여 초기값을 설정합니다:<br><br>
+            <strong>"AI 코드 리뷰 어시스턴트"</strong><br>
+            &rarr; "코드 리뷰 1건은 사람이 약 25분 소요<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;AI로 50% 절약 시 건당 12.5분 절약<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;1 M/M = 10,560분 &divide; 12.5분<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;= <strong>약 845건</strong>... 보수적 적용 &rarr; <strong>2,000건</strong>"<br><br>
+            <span style="font-size:12px;color:#7c3aed">
+              * 근거: <a href="https://www.anthropic.com/research/estimating-productivity-gains" target="_blank" style="color:#6d28d9">Anthropic 연구</a> — 태스크당 평균 1.4시간, AI 80% 단축<br>
+              * 근거: <a href="https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/" target="_blank" style="color:#6d28d9">GitHub Copilot 연구</a> — 55% 속도 향상
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Right Column -->
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <h3 class="section-head" style="border-color:#dc2626">괴리 감지 &rarr; AX Agent 자동 메일 알림</h3>
+
+        <!-- Alert Flow -->
+        <div style="background:linear-gradient(135deg,#fef2f2,#fff1f2);border:1px solid #fecaca;border-radius:12px;padding:20px 24px">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+            <div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">&#9993;</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#991b1b">자동 알림 발동 조건</div>
+              <div style="font-size:12px;color:#b91c1c">Track 1(벤치마크) vs Track 2(호출량) 괴리율 &ge; 20%</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">괴리 감지</div>
+              <div style="color:#b91c1c;font-size:10px">매일 자정 산출 후</div>
+            </div>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">AX Agent 메일 발송</div>
+              <div style="color:#b91c1c;font-size:10px">서비스명 + 괴리 상세</div>
+            </div>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#fff;border:1px solid #fecaca;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#991b1b;font-weight:700">관리자 검토</div>
+              <div style="color:#b91c1c;font-size:10px">값 유지 or 조정 결정</div>
+            </div>
+            <div style="color:#fca5a5;font-size:18px">&#10145;</div>
+            <div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px 14px;font-size:12px;text-align:center">
+              <div style="color:#166534;font-weight:700">관리자 값 = 최종값</div>
+              <div style="color:#15803d;font-size:10px">시스템은 절대 변경 안 함</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email Template Concept -->
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:0;overflow:hidden">
+          <div style="background:#f1f5f9;padding:10px 16px;font-size:11px;color:#64748b;display:flex;justify-content:space-between">
+            <span>&#128231; 자동 발송 메일 예시</span>
+            <span>수신: AX Agent 관리자</span>
+          </div>
+          <div style="padding:16px;font-size:12px;line-height:1.8;color:#334155">
+            <div style="font-weight:700;color:#1e293b;font-size:13px;margin-bottom:8px">[AI M/M 추정] 괴리 감지 - "데이터 분석 봇" 검토 요청</div>
+            <table style="font-size:12px;border-collapse:collapse;width:100%">
+              <tr><td style="padding:4px 8px;color:#64748b;width:120px">서비스</td><td style="padding:4px 8px;font-weight:600">데이터 분석 봇</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">Track 1 (벤치마크)</td><td style="padding:4px 8px;font-weight:600;color:#2563eb">0.45 M/M</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">Track 2 (호출량)</td><td style="padding:4px 8px;font-weight:600;color:#7c3aed">0.80 M/M</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">괴리율</td><td style="padding:4px 8px;font-weight:700;color:#dc2626">44% (임계치 20% 초과)</td></tr>
+              <tr><td style="padding:4px 8px;color:#64748b">현재 calls/M/M</td><td style="padding:4px 8px">관리자 설정: 800건 (AI 디폴트: 1,500건)</td></tr>
+            </table>
+            <div style="margin-top:10px;padding:8px 12px;background:#fefce8;border-radius:6px;font-size:11px;color:#854d0e">
+              &#9888; 이 메일은 <strong>경고(Advisory)</strong>입니다. 관리자님이 설정한 값은 변경되지 않았습니다.<br>
+              검토 후 현재 값이 적절하다고 판단되면 별도 조치는 필요 없습니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- Key Principle -->
+        <div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:2px solid #c4b5fd;border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:16px">
+          <div style="font-size:36px">&#128272;</div>
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#5b21b6">핵심 원칙: 관리자 입력값 절대 우선</div>
+            <div style="font-size:12px;color:#6d28d9;line-height:1.6;margin-top:4px">
+              시스템은 괴리가 아무리 커도 관리자 설정값을 <strong>절대 자동 변경하지 않습니다.</strong><br>
+              메일은 "확인해 주세요"라는 알림일 뿐이며, 조치 여부는 전적으로 관리자가 결정합니다.
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div style="background:#0f172a;border-radius:12px;padding:16px 20px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Track 수렴 서비스</div>
+            <div style="font-size:28px;font-weight:900;color:#4ade80">87%</div>
+          </div>
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">평균 괴리율</div>
+            <div style="font-size:28px;font-weight:900;color:#38bdf8">14.2%</div>
+          </div>
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">관리자 조율 완료</div>
+            <div style="font-size:28px;font-weight:900;color:#c084fc">62%</div>
+          </div>
+          <div style="flex:1;min-width:100px">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">월 발송 알림</div>
+            <div style="font-size:28px;font-weight:900;color:#f87171">~3건</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="refs">
+    <a href="https://www.anthropic.com/research/estimating-productivity-gains" target="_blank">Anthropic: 태스크 단위 시간 절약 분석</a>
+    <a href="https://github.blog/news-insights/research/research-quantifying-github-copilots-impact-on-developer-productivity-and-happiness/" target="_blank">GitHub Copilot: 55% 속도 향상 RCT</a>
+    <a href="https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/" target="_blank">METR: 체감 vs 실제 39% 격차</a>
+    <a href="https://www.mckinsey.com/capabilities/mckinsey-digital/our-insights/the-economic-potential-of-generative-ai-the-next-productivity-frontier" target="_blank">McKinsey: $2.6~4.4T 경제 가치</a>
+    <a href="https://www.deloitte.com/global/en/issues/generative-ai/ai-roi-the-paradox-of-rising-investment-and-elusive-returns.html" target="_blank">Deloitte: AI ROI 측정 프레임워크</a>
+  </div>
+
+  <div class="nav-bar">
+    <button class="nav-btn" onclick="go(-1)">&#8592; 이전</button>
+    <button class="nav-dot" onclick="goTo(0)"></button>
+    <button class="nav-dot" onclick="goTo(1)"></button>
+    <button class="nav-dot" onclick="goTo(2)"></button>
+    <button class="nav-dot purple-active" onclick="goTo(3)"></button>
+    <button class="nav-btn" onclick="go(1)">다음 &#8594;</button>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<div class="nav-hint">&#8592; &#8594; 키보드 방향키로 이동</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let cur = 0;
+
+  function goTo(i) {
+    if (i < 0 || i >= slides.length) return;
+    slides[cur].classList.remove('active');
+    cur = i;
+    slides[cur].classList.add('active');
+    updateDots();
+  }
+
+  function go(delta) { goTo(cur + delta); }
+
+  function updateDots() {
+    document.querySelectorAll('.nav-bar').forEach((bar, si) => {
+      bar.querySelectorAll('.nav-dot').forEach((dot, di) => {
+        dot.className = 'nav-dot';
+        if (si === cur && di === cur) {
+          dot.classList.add(cur >= 2 ? 'purple-active' : 'active');
+        }
+      });
+    });
+    // Update all nav bars to reflect current
+    document.querySelectorAll('.nav-bar').forEach(bar => {
+      const dots = bar.querySelectorAll('.nav-dot');
+      dots.forEach((d, i) => {
+        d.className = 'nav-dot';
+        if (i === cur) d.classList.add(cur >= 2 ? 'purple-active' : 'active');
+      });
+    });
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); go(1); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); go(-1); }
+  });
+
+  // Touch swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', e => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) go(diff > 0 ? 1 : -1);
+  });
+</script>
+</body>
+</html>
