@@ -613,24 +613,37 @@
       <div style="display:flex;flex-direction:column;gap:14px">
         <h3 class="section-head purple">기술 상세</h3>
 
-        <div class="formula-box">
-          <span class="formula-label">Little's Law</span>
-          <span class="comment">// 시스템 내 동시 요청 수</span><br><br>
-          <span class="highlight">L</span> = <span class="highlight">&lambda;</span> &times; <span class="highlight">W</span><br><br>
-          <span class="comment">&lambda; = 도착률 (req/sec) &larr; request_logs</span><br>
-          <span class="comment">W = 평균 체류시간 (sec) &larr; latencyMs</span><br>
-          <span class="result">L = 시스템 내 동시 요청 수</span>
+        <div class="callout info" style="font-size:12px;padding:12px 16px;margin-bottom:2px">
+          <span class="callout-icon">&#10067;</span>
+          <div>
+            <strong>vLLM 메트릭 없이 동시요청·대기비율을 어떻게 아는가?</strong><br>
+            <strong>&lambda;</strong>(도착률) = request_logs에서 <code>COUNT(*) / 시간</code> &larr; 초당 몇 건 들어오는지<br>
+            <strong>W</strong>(체류시간) = request_logs의 <code>latencyMs</code> 평균 &larr; 한 건이 시스템에 머문 시간<br>
+            <strong>L</strong>(동시요청) = &lambda; &times; W &larr; <strong>GPU 내부를 안 봐도 수학적으로 도출</strong> (Little's Law)<br><br>
+            <strong>W<sub>0</sub></strong>(순수 처리시간) = 새벽 한산한 시간의 latencyMs &larr; 대기줄 = 0이므로 순수 GPU 연산 시간<br>
+            <strong>W<sub>queue</sub></strong>(대기시간) = 현재 W - W<sub>0</sub> &larr; <strong>"전체 응답시간에서 순수 처리시간을 빼면 = 줄 선 시간"</strong>
+          </div>
         </div>
 
         <div class="formula-box">
-          <span class="formula-label">사용률 + 부족분</span>
-          <span class="comment">// GPU 슬롯 수 (1회 캘리브레이션)</span><br>
-          slots = &Sigma;(GPU_VRAM - Model_VRAM) &#247; KV_per_req<br><br>
-          <span class="highlight">사용률</span> = L &#247; slots &times; 100<br><br>
-          <span class="comment">// 대기 비율 = 줄서기 시간 / 전체 시간</span><br>
-          W<sub>0</sub> = baseline 레이턴시 (큐=0)<br>
+          <span class="formula-label">Little's Law</span>
+          <span class="comment">// 동시 요청 수 = 도착률 &times; 체류시간</span><br>
+          <span class="comment">// 둘 다 request_logs에서 바로 산출</span><br><br>
+          <span class="highlight">&lambda;</span> = COUNT(*) &#247; seconds &nbsp; <span class="comment">&larr; request_logs.timestamp</span><br>
+          <span class="highlight">W</span> = AVG(latencyMs) &#247; 1000 &nbsp; <span class="comment">&larr; request_logs.latencyMs</span><br><br>
+          <span class="result">L = &lambda; &times; W = 동시 요청 수</span><br>
+          <span class="comment">// 예: 초당 5건 &times; 평균 2초 = 항상 10건이 동시 처리 중</span>
+        </div>
+
+        <div class="formula-box">
+          <span class="formula-label">대기 비율 + 부족분</span>
+          <span class="comment">// 새벽(02~06시) latency = 순수 GPU 처리 시간 (대기=0)</span><br>
+          W<sub>0</sub> = AVG(latencyMs) WHERE hour BETWEEN 2 AND 6<br><br>
+          <span class="comment">// 현재 latency - 순수 처리시간 = 줄 선 시간</span><br>
           W<sub>queue</sub> = W - W<sub>0</sub><br><br>
-          <span class="result">부족 GPU = 보유GPU &times; W<sub>queue</sub> &#247; W<sub>0</sub></span>
+          <span class="comment">// 줄 선 비율이 곧 GPU 부족 비율</span><br>
+          <span class="result">부족 GPU = 보유GPU &times; W<sub>queue</sub> &#247; W<sub>0</sub></span><br>
+          <span class="comment">// 예: 8장, W=3s, W<sub>0</sub>=2s &rarr; 8 &times; 1/2 = 4장 부족</span>
         </div>
 
         <div class="formula-box">
