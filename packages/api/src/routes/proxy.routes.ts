@@ -21,6 +21,16 @@ import { extractBusinessUnit } from '../middleware/auth.js';
 import { generateImages } from '../services/imageProviders.service.js';
 import { saveImage, buildImageUrl, IMAGE_STORAGE_PATH, ensureStorageDir } from '../services/imageStorage.service.js';
 import { verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
+import {
+  convertAnthropicMessages,
+  convertAnthropicTools,
+  convertAnthropicToolChoice,
+  convertOpenAIResponseToAnthropic,
+  convertOpenAIChunkToAnthropic,
+  finalizeAnthropicStream,
+  createStreamState,
+  anthropicError,
+} from '../services/anthropicFormat.service.js';
 
 // ASR multipart 업로드 설정
 const asrUpload = multer({
@@ -2057,6 +2067,334 @@ proxyRoutes.post('/images/generations', async (req: Request, res: Response) => {
     }
   }
 });
+
+// ============================================
+// POST /v1/messages (Anthropic Messages API 호환)
+// Claude Code CLI 연동용 — 기존 x-service-id + x-user-id 인증 사용
+//
+// 사용법:
+//   export ANTHROPIC_BASE_URL=http://<proxy>:8090
+//   export ANTHROPIC_API_KEY=dummy
+//   claude --header "x-service-id: <service>" --header "x-user-id: <loginid>"
+// ============================================
+
+proxyRoutes.post('/messages', async (req: Request, res: Response) => {
+  const proxyReq = req as ProxyAuthRequest;
+  const reqStartTime = Date.now();
+  const userAgent = req.headers['user-agent'] || null;
+  const ipAddress = req.ip || (req.headers['x-forwarded-for'] as string) || null;
+
+  try {
+    // ── 1. 요청 파싱 ──
+    const {
+      model: modelName, messages: anthropicMsgs, system, stream,
+      max_tokens, tools, tool_choice, stop_sequences,
+      temperature, top_p,
+    } = req.body;
+
+    if (!modelName || !anthropicMsgs) {
+      res.status(400).json(anthropicError(400, 'invalid_request_error',
+        'model and messages are required').body);
+      return;
+    }
+
+    // ── 2. 모델 조회 (서비스 alias 기반) ──
+    const resolved = await resolveModelWithServiceRR(proxyReq.serviceId, modelName);
+    if (!resolved.found || !resolved.model) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, method: 'POST', path: '/v1/messages', statusCode: 404, latencyMs: Date.now() - reqStartTime, errorMessage: `Model '${modelName}' not found`, userAgent, ipAddress }).catch(() => {});
+      res.status(404).json(anthropicError(404, 'not_found_error',
+        `Model '${modelName}' not found. Use a registered alias from GET /v1/models`).body);
+      return;
+    }
+    const model = resolved.model;
+
+    // ── 3. 사용자 인증 + Rate limit ──
+    const { user, error: knoxError } = await getOrCreateUser(proxyReq, '/v1/messages');
+    if (knoxError) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: knoxError.status, latencyMs: Date.now() - reqStartTime, errorMessage: (knoxError.body as Record<string, string>).message, userAgent, ipAddress, stream: stream || false }).catch(() => {});
+      res.status(knoxError.status).json(anthropicError(knoxError.status, 'authentication_error',
+        (knoxError.body as Record<string, string>).message).body);
+      return;
+    }
+
+    const rateLimitResult = await checkRateLimit(user, proxyReq.serviceId);
+    if (rateLimitResult) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: 429, latencyMs: Date.now() - reqStartTime, errorMessage: 'Rate limit exceeded', userAgent, ipAddress, stream: stream || false }).catch(() => {});
+      res.status(429).json(anthropicError(429, 'rate_limit_error',
+        (rateLimitResult.body as Record<string, string>).message).body);
+      return;
+    }
+
+    // ── 4. Anthropic → OpenAI 포맷 변환 ──
+    const openAIMessages = convertAnthropicMessages(system, anthropicMsgs);
+    const openAIBody: Record<string, unknown> = {
+      model: modelName,
+      messages: openAIMessages,
+      stream: stream || false,
+    };
+
+    if (max_tokens) openAIBody.max_tokens = max_tokens;
+    if (temperature != null) openAIBody.temperature = temperature;
+    if (top_p != null) openAIBody.top_p = top_p;
+    if (stop_sequences) openAIBody.stop = stop_sequences;
+    if (tools) openAIBody.tools = convertAnthropicTools(tools);
+    if (tool_choice) openAIBody.tool_choice = convertAnthropicToolChoice(tool_choice);
+
+    // ── 5. 라운드로빈 + Failover ──
+    const endpoints = await getModelEndpoints(model.id, {
+      endpointUrl: model.endpointUrl, apiKey: model.apiKey, modelName: model.name,
+      extraHeaders: model.extraHeaders as Record<string, string> | null,
+      extraBody: model.extraBody as Record<string, any> | null,
+    });
+    const startIdx = await getRoundRobinIndex(model.id, endpoints.length);
+
+    const isSingleEndpoint = endpoints.length === 1;
+    const cfgRetries = resolved.maxRetries || 0;
+    const maxAttempts = isSingleEndpoint ? (1 + cfgRetries) : endpoints.length;
+    const failoverAttempts: { endpoint: string; attempt: number; statusCode: number | null; errorType: string; errorMessage: string; latencyMs: number; modelName: string }[] = [];
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const idx = isSingleEndpoint ? 0 : (startIdx + attempt) % endpoints.length;
+      const endpoint = endpoints[idx]!;
+
+      if (attempt > 0) {
+        if (isSingleEndpoint) {
+          console.log(`[Messages/Retry] Model "${model.name}" retry ${attempt}/${cfgRetries}`);
+          await sleep(SINGLE_ENDPOINT_RETRY_DELAY_MS * attempt);
+        } else {
+          console.log(`[Messages/Failover] Model "${model.name}" trying endpoint ${attempt + 1}/${endpoints.length}`);
+        }
+      }
+
+      const llmRequestBody: Record<string, unknown> = {
+        ...(endpoint.extraBody || {}), ...openAIBody, model: endpoint.modelName,
+      };
+      if (!llmRequestBody.max_tokens && !llmRequestBody.max_completion_tokens && model.maxTokens) {
+        llmRequestBody.max_tokens = Math.min(Math.floor(model.maxTokens * 0.7), 32768);
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (endpoint.apiKey) headers['Authorization'] = `Bearer ${endpoint.apiKey}`;
+      if (endpoint.extraHeaders) {
+        for (const [key, value] of Object.entries(endpoint.extraHeaders)) {
+          const lk = key.toLowerCase();
+          if (lk !== 'content-type' && lk !== 'authorization') headers[key] = value;
+        }
+      }
+
+      let result: true | typeof failoverAttempts[number];
+      if (stream) {
+        result = await handleAnthropicStreamingRequest(
+          res, { ...model, endpointUrl: endpoint.endpointUrl, apiKey: endpoint.apiKey },
+          llmRequestBody, headers, user, proxyReq, modelName,
+        );
+      } else {
+        result = await handleAnthropicNonStreamingRequest(
+          res, { ...model, endpointUrl: endpoint.endpointUrl, apiKey: endpoint.apiKey },
+          llmRequestBody, headers, user, proxyReq, modelName,
+        );
+      }
+
+      if (result === true) return;
+      result.attempt = attempt + 1;
+      failoverAttempts.push(result);
+    }
+
+    // ── Fallback 모델 ──
+    if (resolved.fallbackModelId && resolved.fallbackModelId !== model.id) {
+      const fbModel = await resolveFallbackModel(resolved.fallbackModelId);
+      if (fbModel) {
+        console.log(`[Messages/Fallback] Trying fallback model "${fbModel.displayName}"`);
+        const fbEndpoints = await getModelEndpoints(fbModel.id, {
+          endpointUrl: fbModel.endpointUrl, apiKey: fbModel.apiKey, modelName: fbModel.name,
+          extraHeaders: fbModel.extraHeaders as Record<string, string> | null,
+          extraBody: fbModel.extraBody as Record<string, any> | null,
+        });
+        const fbStartIdx = await getRoundRobinIndex(fbModel.id, fbEndpoints.length);
+        for (let i = 0; i < fbEndpoints.length; i++) {
+          const ep = fbEndpoints[(fbStartIdx + i) % fbEndpoints.length]!;
+          const fbBody: Record<string, unknown> = { ...(ep.extraBody || {}), ...openAIBody, model: ep.modelName };
+          if (!fbBody.max_tokens && !fbBody.max_completion_tokens && fbModel.maxTokens) {
+            fbBody.max_tokens = Math.min(Math.floor(fbModel.maxTokens * 0.7), 32768);
+          }
+          const fbHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...(ep.extraHeaders || {}) };
+          if (ep.apiKey) fbHeaders['Authorization'] = `Bearer ${ep.apiKey}`;
+
+          let result: true | typeof failoverAttempts[number];
+          if (stream) {
+            result = await handleAnthropicStreamingRequest(res, { ...fbModel, endpointUrl: ep.endpointUrl, apiKey: ep.apiKey }, fbBody, fbHeaders, user, proxyReq, modelName);
+          } else {
+            result = await handleAnthropicNonStreamingRequest(res, { ...fbModel, endpointUrl: ep.endpointUrl, apiKey: ep.apiKey }, fbBody, fbHeaders, user, proxyReq, modelName);
+          }
+          if (result === true) return;
+          result.attempt = maxAttempts + i + 1;
+          failoverAttempts.push(result);
+        }
+      }
+    }
+
+    const label = isSingleEndpoint ? `after ${cfgRetries} retries` : `all ${endpoints.length} endpoints`;
+    const primaryError = failoverAttempts[0];
+    recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: 503, latencyMs: Date.now() - reqStartTime, errorMessage: primaryError?.errorMessage?.substring(0, 2000) || 'All endpoints failed', userAgent, ipAddress, stream: stream || false }).catch(() => {});
+    res.status(503).json(anthropicError(503, 'api_error', `Failed ${label}. Please try again later.`).body);
+
+  } catch (error) {
+    console.error('Messages proxy error:', error);
+    recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: req.body?.model || 'unknown', method: 'POST', path: '/v1/messages', statusCode: 500, latencyMs: Date.now() - reqStartTime, errorMessage: error instanceof Error ? error.message : 'Unknown error', userAgent, ipAddress: req.ip || null, stream: req.body?.stream || false }).catch(() => {});
+    if (!res.headersSent) {
+      res.status(500).json(anthropicError(500, 'api_error', 'Internal server error').body);
+    }
+  }
+});
+
+// ── Messages 엔드포인트용 요청 핸들러 ──
+
+async function handleAnthropicNonStreamingRequest(
+  res: Response,
+  model: { id: string; name: string; endpointUrl: string; apiKey: string | null },
+  requestBody: any, headers: Record<string, string>,
+  user: { id: string; loginid: string } | null,
+  proxyReq: ProxyAuthRequest, requestModel: string,
+): Promise<true | { endpoint: string; attempt: number; statusCode: number | null; errorType: string; errorMessage: string; latencyMs: number; modelName: string }> {
+  const url = buildChatCompletionsUrl(model.endpointUrl);
+  const loginid = user?.loginid || proxyReq.serviceName;
+  console.log(`[Messages] user=${loginid} model=${model.name} endpoint=${url} (non-streaming)`);
+  const attemptStart = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(requestBody), signal: controller.signal });
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - attemptStart;
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Messages] LLM error: ${url} status=${response.status} error=${errorText.substring(0, 500)}`);
+        if (response.status >= 400 && response.status < 500) {
+          recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: response.status, latencyMs, errorMessage: errorText.substring(0, 1900), stream: false }).catch(() => {});
+          res.status(response.status).json(anthropicError(response.status, 'invalid_request_error', errorText.substring(0, 1000)).body);
+          return true;
+        }
+        return { endpoint: url, attempt: 0, statusCode: response.status, errorType: response.status >= 500 ? 'http_5xx' : 'http_4xx', errorMessage: errorText.substring(0, 1000), latencyMs, modelName: model.name };
+      }
+
+      const data = await response.json() as any;
+      if (data.usage) {
+        recordUsage(user?.id || null, user?.loginid || null, model.id, data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestModel, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: 200, inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens, latencyMs, stream: false }).catch(() => {});
+      }
+      res.json(convertOpenAIResponseToAnthropic(data, requestModel));
+      return true;
+    } catch (fetchError) { clearTimeout(timeoutId); throw fetchError; }
+  } catch (error) {
+    const latencyMs = Date.now() - attemptStart;
+    const isTimeout = error instanceof Error && error.name === 'AbortError';
+    const errMsg = error instanceof Error ? error.message : 'Connection failed';
+    console.error(`[Messages] Endpoint ${url} failed:`, errMsg);
+    return { endpoint: url, attempt: 0, statusCode: null, errorType: isTimeout ? 'timeout' : 'connection', errorMessage: isTimeout ? `Timeout after ${REQUEST_TIMEOUT_MS}ms` : errMsg, latencyMs, modelName: model.name };
+  }
+}
+
+async function handleAnthropicStreamingRequest(
+  res: Response,
+  model: { id: string; name: string; endpointUrl: string; apiKey: string | null },
+  requestBody: any, headers: Record<string, string>,
+  user: { id: string; loginid: string } | null,
+  proxyReq: ProxyAuthRequest, requestModel: string,
+): Promise<true | { endpoint: string; attempt: number; statusCode: number | null; errorType: string; errorMessage: string; latencyMs: number; modelName: string }> {
+  const url = buildChatCompletionsUrl(model.endpointUrl);
+  const loginid = user?.loginid || proxyReq.serviceName;
+  console.log(`[Messages] user=${loginid} model=${model.name} endpoint=${url} (streaming)`);
+  const attemptStart = Date.now();
+  let sseStarted = false;
+
+  try {
+    const requestWithUsage = { ...requestBody, stream: true, stream_options: { include_usage: true } };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(requestWithUsage), signal: controller.signal });
+      clearTimeout(timeoutId);
+    } catch (fetchError) { clearTimeout(timeoutId); throw fetchError; }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[Messages] LLM streaming error: ${url} status=${response.status} error=${errorText.substring(0, 500)}`);
+      if (response.status >= 400 && response.status < 500) {
+        recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestBody.model, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: response.status, latencyMs: Date.now() - attemptStart, errorMessage: errorText.substring(0, 1900), stream: true }).catch(() => {});
+        res.status(response.status).json(anthropicError(response.status, 'invalid_request_error', errorText.substring(0, 1000)).body);
+        return true;
+      }
+      return { endpoint: url, attempt: 0, statusCode: response.status, errorType: response.status >= 500 ? 'http_5xx' : 'http_4xx', errorMessage: errorText.substring(0, 1000), latencyMs: Date.now() - attemptStart, modelName: model.name };
+    }
+
+    // ── SSE 스트리밍: OpenAI → Anthropic 변환 ──
+    sseStarted = true;
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const reader = response.body?.getReader();
+    if (!reader) { res.status(500).json(anthropicError(500, 'api_error', 'Failed to get response stream').body); return true; }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const streamState = createStreamState(requestModel);
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.slice(6);
+          if (dataStr === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            for (const event of convertOpenAIChunkToAnthropic(parsed, streamState)) res.write(event);
+          } catch {}
+        }
+      }
+      if (buffer.trim()) {
+        for (const line of buffer.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.slice(6);
+          if (dataStr === '[DONE]') continue;
+          try { for (const e of convertOpenAIChunkToAnthropic(JSON.parse(dataStr), streamState)) res.write(e); } catch {}
+        }
+      }
+
+      // Empty response fallback
+      if (!streamState.messageStartSent) {
+        res.write(`event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { id: streamState.messageId, type: 'message', role: 'assistant', content: [], model: requestModel, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } })}\n\n`);
+        streamState.messageStartSent = true;
+      }
+      for (const event of finalizeAnthropicStream(streamState)) res.write(event);
+    } finally { reader.releaseLock(); }
+
+    const latencyMs = Date.now() - attemptStart;
+    if (streamState.inputTokens || streamState.outputTokens) {
+      recordUsage(user?.id || null, user?.loginid || null, model.id, streamState.inputTokens, streamState.outputTokens, proxyReq.serviceId, proxyReq.deptName, latencyMs, model.name, proxyReq.serviceName).catch(console.error);
+    }
+    recordRequestLog({ serviceId: proxyReq.serviceId, userId: user?.loginid, deptname: proxyReq.deptName, modelName: requestModel, resolvedModel: model.name, method: 'POST', path: '/v1/messages', statusCode: 200, inputTokens: streamState.inputTokens, outputTokens: streamState.outputTokens, latencyMs, stream: true }).catch(() => {});
+    res.end();
+    return true;
+
+  } catch (error) {
+    if (sseStarted) { console.error('[Messages] Streaming error after SSE started:', error instanceof Error ? error.message : error); try { res.end(); } catch {} return true; }
+    const latencyMs = Date.now() - attemptStart;
+    const isTimeout = error instanceof Error && error.name === 'AbortError';
+    const errMsg = error instanceof Error ? error.message : 'Connection failed';
+    console.error(`[Messages] Endpoint ${url} failed:`, errMsg);
+    return { endpoint: url, attempt: 0, statusCode: null, errorType: isTimeout ? 'timeout' : 'connection', errorMessage: isTimeout ? `Timeout after ${REQUEST_TIMEOUT_MS}ms` : errMsg, latencyMs, modelName: model.name };
+  }
+}
 
 // Legacy completions
 proxyRoutes.post('/completions', async (_req: Request, res: Response) => {
