@@ -78,7 +78,7 @@ export const tourSteps: TourStep[] = [
     roles: ['SUPER_ADMIN', 'ADMIN'],
   },
 
-  // ─── Admin: 사용자 관리 ───
+  // ─── Super Admin: 사용자 관리 ───
   {
     id: 'nav-users',
     selector: '[data-tour="nav-/users"]',
@@ -88,7 +88,7 @@ export const tourSteps: TourStep[] = [
       description: '전체 사용자 목록을 확인하고, 관리자 권한을 부여하거나 서비스 접근 권한을 관리합니다.',
       side: 'right',
     },
-    roles: ['SUPER_ADMIN', 'ADMIN'],
+    roles: ['SUPER_ADMIN'],
   },
 
   // ─── Super Admin: 레지스트리 LLM 설정 ───

@@ -207,7 +207,6 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
               <div className="space-y-0.5">
                 <NavLink path="/" label="통합 대시보드" icon={Home} />
                 <NavLink path="/models" label="LLM 모델 관리" icon={Cpu} />
-                <NavLink path="/users" label="사용자 관리" icon={Users} />
                 <NavLink path="/service-targets" label="Saved M/M 관리" icon={Target} />
                 <NavLink path="/insight-usage-rate" label="AI 사용률 인사이트" icon={BarChart3} />
                 <NavLink path="/insight-service-usage" label="서비스 사용량 인사이트" icon={Cpu} />
@@ -223,6 +222,7 @@ export default function Layout({ children, user, isAdmin, adminRole, onLogout }:
                 <p className="px-3 mb-1.5 text-[11px] font-medium text-gray-500 uppercase tracking-wider">슈퍼 관리자</p>
               )}
               <div className="space-y-0.5">
+                <NavLink path="/users" label="사용자 관리" icon={Users} />
                 <NavLink path="/system-llm" label="레지스트리 LLM 관리" icon={Sparkles} />
                 <NavLink path="/api-key" label="API 비밀번호" icon={Key} />
                 <NavLink path="/request-logs" label="요청 로그" icon={FileText} />

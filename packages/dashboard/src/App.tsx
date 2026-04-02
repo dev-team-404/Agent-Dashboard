@@ -151,7 +151,6 @@ function App() {
             <>
               <Route path="/" element={<MainDashboard adminRole={adminRole} isAdmin={isAdmin} />} />
               <Route path="/models" element={<Models adminRole={adminRole} isAdmin={isAdmin} user={user} />} />
-              <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/service-targets" element={<ServiceTargets />} />
               <Route path="/admin-requests-manage" element={<AdminRequestsManage />} />
               <Route path="/insight-usage-rate" element={<InsightUsageRate />} />
@@ -164,6 +163,7 @@ function App() {
           {/* Super Admin only */}
           {adminRole === 'SUPER_ADMIN' && (
             <>
+              <Route path="/users" element={<UnifiedUsers adminRole={adminRole} />} />
               <Route path="/system-llm" element={<SystemLlmSettings />} />
               <Route path="/api-key" element={<ApiKeySettings />} />
               <Route path="/holidays" element={<Holidays />} />

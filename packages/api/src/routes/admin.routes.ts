@@ -2492,12 +2492,10 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin as RequestHandler, asy
 
 /**
  * GET /admin/unified-users
- * 사용자 관리 (SYSTEM ADMIN 이상)
- * - SUPER_ADMIN: 전체 사용자
- * - ADMIN: 본인 팀(dept) 사용자만
+ * 사용자 관리 (SUPER_ADMIN 전용)
  * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
  */
-adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
+adminRoutes.get('/unified-users', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const page = parseInt(req.query['page'] as string) || 1;
     const limit = Math.min(100, parseInt(req.query['limit'] as string) || 50);
@@ -2630,10 +2628,10 @@ adminRoutes.get('/unified-users', async (req: AuthenticatedRequest, res) => {
 
 /**
  * GET /admin/unified-users/export
- * 전체 사용자 목록 내보내기 (페이지네이션 없음)
+ * 전체 사용자 목록 내보내기 (SUPER_ADMIN 전용)
  * Query: ?search=, ?serviceId=, ?businessUnit=, ?role=
  */
-adminRoutes.get('/unified-users/export', async (req: AuthenticatedRequest, res) => {
+adminRoutes.get('/unified-users/export', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const search = req.query['search'] as string | undefined;
     const serviceId = req.query['serviceId'] as string | undefined;
@@ -2828,12 +2826,10 @@ adminRoutes.get('/unified-users/export', async (req: AuthenticatedRequest, res) 
 
 /**
  * PUT /admin/unified-users/:id/permissions
- * 사용자 권한 변경
- * - SUPER_ADMIN: 모든 역할 변경 가능 (ADMIN, SUPER_ADMIN, USER)
- * - ADMIN: ADMIN 역할만 지정/해제 가능 (본인 팀 사용자만)
+ * 사용자 권한 변경 (SUPER_ADMIN 전용)
  * Body: { globalRole?: 'ADMIN' | 'SUPER_ADMIN' }
  */
-adminRoutes.put('/unified-users/:id/permissions', async (req: AuthenticatedRequest, res) => {
+adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin as RequestHandler, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
     const { globalRole } = req.body;
