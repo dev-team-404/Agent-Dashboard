@@ -529,6 +529,18 @@
           <span class="tag red">단점: baseline 설정 주관적</span>
           <span class="tag red">단점: 모델별 곡선 다름</span>
         </div>
+
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-top:4px">
+          <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">&#128295; 구현 시 선행 수정</div>
+          <div style="font-size:12px;color:#7f1d1d;line-height:1.8">
+            <strong>1. Baseline 산출 방식 변경</strong><br>
+            &nbsp;&nbsp;현재 문제: 사내 서비스라 새벽(02~06시) 트래픽 = 0 &#8594; baseline 산출 불가<br>
+            &nbsp;&nbsp;해결: <strong>"최근 30일 중 RPS 하위 5% 시간대의 P95"</strong>를 baseline으로 사용<br>
+            <strong>2. 스트리밍 요청 분리</strong><br>
+            &nbsp;&nbsp;현재 문제: stream=true 요청은 latencyMs에 전체 스트림 시간 포함 (10배+ 부풀림)<br>
+            &nbsp;&nbsp;해결: <code>WHERE stream = false</code> 조건으로 <strong>비스트리밍만 집계</strong>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -687,6 +699,27 @@
           <span class="tag purple">장점: GPU 정수로 산출</span>
           <span class="tag red">단점: KV cache 캘리브레이션 1회 필요</span>
         </div>
+
+        <div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1px solid #c4b5fd;border-radius:10px;padding:14px 18px;margin-top:4px">
+          <div style="font-size:13px;font-weight:700;color:#5b21b6;margin-bottom:8px">&#128268; "GPU 정보 부분 필요"란?</div>
+          <div style="font-size:12px;color:#4c1d95;line-height:1.8">
+            <strong>필요한 것:</strong> GPU 총 수량 + 장당 VRAM (예: A100 8장 &times; 80GB)<br>
+            <strong>불필요한 것:</strong> vLLM 메트릭 (TPS, KV Cache %, 동시요청)<br>
+            <strong>이미 있는 곳:</strong> <code>gpu_metric_snapshots</code> (nvidia-smi SSH 수집 — vLLM과 무관, 독립 동작 중)
+          </div>
+        </div>
+
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px">
+          <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">&#128295; 구현 시 선행 수정</div>
+          <div style="font-size:12px;color:#7f1d1d;line-height:1.8">
+            <strong>1. Baseline 산출 방식 변경</strong> (안 1과 동일)<br>
+            &nbsp;&nbsp;"최근 30일 RPS 하위 5% 시간대의 평균 latency"를 W<sub>0</sub>로 사용<br>
+            <strong>2. 스트리밍 요청 분리</strong> (안 1과 동일)<br>
+            &nbsp;&nbsp;<code>WHERE stream = false</code>로 비스트리밍만 집계<br>
+            <strong>3. KV cache/req 초기 추정</strong><br>
+            &nbsp;&nbsp;성공 요청의 (inputTokens + outputTokens) 평균으로 요청당 메모리 근사
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -818,9 +851,11 @@
 
         <div class="formula-box">
           <span class="formula-label">Timeout Rate 산출</span>
-          <span class="comment">// request_logs 에서 직접 집계</span><br><br>
+          <span class="comment">// request_logs 에서 직접 집계</span><br>
+          <span class="comment">// &#9888; 현재 timeout은 503으로 기록됨 (선행 수정 후 504)</span><br><br>
           timeout_count = COUNT(<br>
-          &nbsp;&nbsp;status IN (<span class="highlight">504, 408, 429</span>)<br>
+          &nbsp;&nbsp;status = <span class="highlight">504</span><br>
+          &nbsp;&nbsp;<span class="comment">// 429(rate limit)는 제외 — 정책 제한이지 GPU 포화 아님</span><br>
           )<br>
           total_count = COUNT(*)<br><br>
           <span class="result">timeout_rate = timeout_count &#247; total_count</span>
@@ -834,20 +869,22 @@
           = 10 &times; 0.1 &#247; 0.9 = <span class="result">1.1장 부족</span>
         </div>
 
-        <div class="formula-box">
-          <span class="formula-label">사용률 (포화 시에만)</span>
-          <span class="comment">// 성공 토큰 vs 실패 추정 토큰</span><br><br>
-          success_tok = &Sigma;(성공 요청 토큰)<br>
-          failed_tok = &Sigma;(실패 요청의 input + 예상 output)<br><br>
-          <span class="result">사용률 = success &#247; (success + failed) &times; 100</span><br><br>
-          <span class="warn-text">&#9888; timeout 0% 시 &rarr; 사용률 &lt; 100%지만 정확한 값 모름</span>
-        </div>
-
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="tag orange">장점: 10분이면 구현</span>
           <span class="tag orange">장점: 거짓말 없음</span>
           <span class="tag red">단점: 여유분 측정 불가</span>
           <span class="tag red">단점: 포화 전 조기 경보 없음</span>
+        </div>
+
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-top:4px">
+          <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">&#128295; 구현 시 선행 수정</div>
+          <div style="font-size:12px;color:#7f1d1d;line-height:1.8">
+            <strong>1. Timeout status code 분리 (코드 1줄)</strong><br>
+            &nbsp;&nbsp;현재: timeout도 <code>statusCode: 503</code>으로 기록 &#8594; 진짜 서버 다운과 구분 불가<br>
+            &nbsp;&nbsp;수정: timeout 시 <code>statusCode: 504</code>로 변경<br>
+            <strong>2. Rate Limit(429) 제외</strong><br>
+            &nbsp;&nbsp;429는 정책적 제한이지 GPU 부족이 아님 &#8594; timeout 집계에서 반드시 제외
+          </div>
         </div>
       </div>
     </div>
@@ -888,7 +925,7 @@
           <td style="font-weight:600">핵심 시그널</td>
           <td style="text-align:center">P95 레이턴시 변화율</td>
           <td style="text-align:center">L = &lambda; &times; W (동시 체류량)</td>
-          <td style="text-align:center">504/408/429 비율</td>
+          <td style="text-align:center">504 (timeout) 비율</td>
         </tr>
         <tr>
           <td style="font-weight:600">사용률 측정</td>
@@ -981,136 +1018,113 @@
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 5: 선택 가이드 + 구현 로드맵                                 -->
+<!-- SLIDE 5: References                                              -->
 <!-- ================================================================ -->
 <div class="slide" id="s5">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
-      <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">DECISION</span>
+      <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">REFERENCES</span>
     </div>
-    <h1>선택 가이드 + 구현 로드맵</h1>
+    <h1>참고 논문 및 기사</h1>
     <span class="slide-num">6 / 6</span>
   </div>
 
-  <div class="content">
-    <!-- 상황별 추천 -->
-    <h3 class="section-head" style="border-color:#475569">우리 상황에 맞는 안 선택</h3>
-
-    <div class="cards">
-      <div style="background:linear-gradient(135deg,#eff6ff,#f0f9ff);border:2px solid #2563eb;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:14px;font-weight:700;color:#1d4ed8">&#128640; "선제 대응이 우선"이라면</div>
-        <div style="font-size:30px;font-weight:900;color:#2563eb">안 1 추천</div>
-        <ul style="font-size:12px;color:#1e40af;line-height:1.8;padding-left:16px">
-          <li>포화되기 전에 "곧 위험" 알림</li>
-          <li>"지금 N% 사용 중" 실시간 확인</li>
-          <li>대시보드에 실시간 게이지 표시</li>
-          <li>구현: <strong>~2일</strong></li>
-        </ul>
-      </div>
-
-      <div style="background:linear-gradient(135deg,#f5f3ff,#faf5ff);border:2px solid #7c3aed;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:14px;font-weight:700;color:#6d28d9">&#128202; "투자 근거가 필요"하다면</div>
-        <div style="font-size:30px;font-weight:900;color:#7c3aed">안 2 추천</div>
-        <ul style="font-size:12px;color:#5b21b6;line-height:1.8;padding-left:16px">
-          <li>"정확히 GPU 3대 부족" 수학적 근거</li>
-          <li>N명 증가 시 필요 GPU 정확 산출</li>
-          <li>예산 보고서에 바로 사용 가능</li>
-          <li>구현: <strong>~5일</strong></li>
-        </ul>
-      </div>
-
-      <div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:2px solid #d97706;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:14px;font-weight:700;color:#b45309">&#9889; "지금 당장 적용"이라면</div>
-        <div style="font-size:30px;font-weight:900;color:#d97706">안 3 추천</div>
-        <ul style="font-size:12px;color:#92400e;line-height:1.8;padding-left:16px">
-          <li>SQL 한 줄로 오늘 바로 산출</li>
-          <li>"요청 N% 실패 중" 팩트 기반</li>
-          <li>장애 대응 회의에 즉시 활용</li>
-          <li>구현: <strong>~0.5일</strong></li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- 구현 로드맵 -->
-    <h3 class="section-head" style="border-color:#475569">구현 로드맵 (선택한 안 기준)</h3>
-
+  <div class="content" style="gap:20px">
     <div class="two-col">
+      <!-- 논문 -->
       <div>
-        <table class="bench-table" style="font-size:12px">
-          <thead>
-            <tr><th>단계</th><th>작업 내용</th><th>기간</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style="font-weight:700;color:#059669">Phase 1</td>
-              <td>request_logs 기반 포화도 산출 API 구현</td>
-              <td style="font-weight:700">1~2일</td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:#059669">Phase 2</td>
-              <td>대시보드 시각화 (게이지, 트렌드 차트)</td>
-              <td style="font-weight:700">1~2일</td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:#2563eb">Phase 3</td>
-              <td>자동 알림 (포화도 임계치 초과 시)</td>
-              <td style="font-weight:700">0.5일</td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:#7c3aed">Phase 4</td>
-              <td>미래 예측 모델 + 월별 GPU 소요 계획</td>
-              <td style="font-weight:700">2~3일</td>
-            </tr>
-            <tr>
-              <td style="font-weight:700;color:#475569">Phase 5</td>
-              <td>기존 GPU Capacity Prediction과 통합</td>
-              <td style="font-weight:700">1일</td>
-            </tr>
-          </tbody>
+        <h3 class="section-head" style="border-color:#2563eb">학술 논문 / 기술 보고서</h3>
+        <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:55%">inference-fleet-sim: A Queueing-Theory-Grounded Fleet Capacity Planner for LLM Inference</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2603.16054 (2026)</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2603.16054" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">InferLine: Latency-Aware Provisioning and Scaling for Prediction Serving Pipelines</td>
+            <td style="padding:8px 6px;color:#64748b">UC Berkeley, ACM SoCC 2020</td>
+            <td style="padding:8px 6px"><a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">A Queueing Theoretic Perspective on Low-Latency LLM Inference with Variable Token Length</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2407.05347 (2024)</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2407.05347" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Chiron: Hierarchical Autoscaling for LLM Inference Serving</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2501.08090 (2025)</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/pdf/2501.08090" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">InfAdapter: Reconciling High Accuracy, Cost-Efficiency, and Low Latency of Inference Serving</td>
+            <td style="padding:8px 6px;color:#64748b">EuroMLSys 2023</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2304.10892" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Predictable LLM Serving on GPU Clusters</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2508.20274 (2025)</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/html/2508.20274" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Queueing, Predictions, and Large Language Models: Challenges and Open Problems</td>
+            <td style="padding:8px 6px;color:#64748b">Stochastic Systems (2025)</td>
+            <td style="padding:8px 6px"><a href="https://pubsonline.informs.org/doi/10.1287/stsy.2025.0106" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+          </tr>
+          <tr>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Benchmarking: Fundamental Concepts</td>
+            <td style="padding:8px 6px;color:#64748b">NVIDIA Technical Blog</td>
+            <td style="padding:8px 6px"><a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">블로그 &#8599;</a></td>
+          </tr>
         </table>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="callout success">
-          <span class="callout-icon">&#10003;</span>
-          <div>
-            <strong>기존 시스템과 공존:</strong>
-            vLLM 메트릭이 복구되면 기존 벤치마크 기반과 <strong>이중 검증</strong>으로 활용.
-            두 방식의 결과가 일치하면 신뢰도 상승, 괴리가 크면 원인 조사 트리거.
-          </div>
-        </div>
-
-        <div class="callout info">
-          <span class="callout-icon">&#128200;</span>
-          <div>
-            <strong>최종 아웃풋:</strong><br>
-            &#9312; 실시간 GPU 사용률 게이지 (0~100%)<br>
-            &#9313; "GPU N대 부족" 정량 보고서<br>
-            &#9314; "사용자 M명 시 GPU K대 필요" 예측<br>
-            &#9315; 포화 임계치 자동 알림 (Slack/이메일)
-          </div>
-        </div>
-
-        <!-- 비유 요약 -->
-        <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:16px 20px;color:#fff">
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px">&#128161; 한 줄 요약</div>
-          <div style="font-size:12px;color:#94a3b8;line-height:1.8">
-            <strong style="color:#60a5fa">안 1</strong> = 네비게이션 교통 색상 (녹/황/적)<br>
-            <strong style="color:#c4b5fd">안 2</strong> = 도로교통공단 정체 분석 보고서<br>
-            <strong style="color:#fbbf24">안 3</strong> = "오늘 사고 N건" 뉴스 속보
-          </div>
-        </div>
+      <!-- 기사 / 사례 -->
+      <div>
+        <h3 class="section-head" style="border-color:#d97706">산업 기사 / 프로덕션 사례</h3>
+        <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:55%">Autoscaling vLLM with OpenShift AI: KEDA + SLI 기반 GPU Autoscaling 실사례</td>
+            <td style="padding:8px 6px;color:#64748b">Red Hat (2025)</td>
+            <td style="padding:8px 6px"><a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Sizing and Performance Guidance</td>
+            <td style="padding:8px 6px;color:#64748b">VMware (2024)</td>
+            <td style="padding:8px 6px"><a href="https://blogs.vmware.com/cloud-foundation/2024/09/25/llm-inference-sizing-and-performance-guidance/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Performance Engineering: Best Practices</td>
+            <td style="padding:8px 6px;color:#64748b">Databricks (2025)</td>
+            <td style="padding:8px 6px"><a href="https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Key Metrics for LLM Inference</td>
+            <td style="padding:8px 6px;color:#64748b">BentoML Inference Handbook</td>
+            <td style="padding:8px 6px"><a href="https://bentoml.com/llm/inference-optimization/llm-inference-metrics" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Observability for LLM Inference: Monitoring Latency, Tokens/sec, and Cost</td>
+            <td style="padding:8px 6px;color:#64748b">dasroot.net (2026)</td>
+            <td style="padding:8px 6px"><a href="https://dasroot.net/posts/2026/03/llm-inference-observability-latency-tokens-cost/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">GPU Shortages: How the AI Compute Crunch Is Reshaping Infrastructure</td>
+            <td style="padding:8px 6px;color:#64748b">Clarifai (2026)</td>
+            <td style="padding:8px 6px"><a href="https://www.clarifai.com/blog/gpu-shortages-2026" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+          <tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Lenovo LLM Sizing Guide: GPU Capacity Planning Framework</td>
+            <td style="padding:8px 6px;color:#64748b">Lenovo Press (2024)</td>
+            <td style="padding:8px 6px"><a href="https://lenovopress.lenovo.com/lp2130.pdf" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">PDF &#8599;</a></td>
+          </tr>
+          <tr>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Predicted-Latency Based Scheduling for LLMs</td>
+            <td style="padding:8px 6px;color:#64748b">llm-d.ai (2025)</td>
+            <td style="padding:8px 6px"><a href="https://llm-d.ai/blog/predicted-latency-based-scheduling-for-llms" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+          </tr>
+        </table>
       </div>
     </div>
-  </div>
-
-  <div class="refs">
-    <a href="https://arxiv.org/abs/2603.16054" target="_blank">inference-fleet-sim (M/G/c Fleet Planner)</a>
-    <a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank">InferLine (Latency-Aware Provisioning)</a>
-    <a href="https://arxiv.org/abs/2407.05347" target="_blank">Queueing Theory for LLM</a>
-    <a href="https://arxiv.org/pdf/2501.08090" target="_blank">Chiron (Hierarchical Autoscaling)</a>
-    <a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank">Red Hat KEDA+vLLM</a>
-    <a href="https://arxiv.org/abs/2304.10892" target="_blank">InfAdapter (SLO-Aware)</a>
   </div>
 
   <div class="nav-bar" id="nav5"></div>
