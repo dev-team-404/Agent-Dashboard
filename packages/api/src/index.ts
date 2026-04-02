@@ -96,6 +96,8 @@ app.use(cors({
 }));
 // ASR audio_url 방식: base64 오디오가 JSON body에 포함 (최대 500MB)
 app.use('/v1/chat/completions', express.json({ limit: '500mb' }));
+// Anthropic Messages API: Claude Code CLI가 이미지 등 대용량 콘텐츠 전송 가능
+app.use('/v1/messages', express.json({ limit: '500mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
 // morgan은 requestLogger와 이중 로깅 → 프로덕션에서 제거 (요청당 50-100ms 절감)
