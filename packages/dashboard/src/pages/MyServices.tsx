@@ -989,6 +989,8 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
         formSaving={formSaving}
         onSave={handleSaveService}
         onClose={closeWizard}
+        uploadingLogo={uploadingLogo}
+        onLogoUpload={handleLogoUpload}
       />}
 
       {/* ══════════════════════════════════════════════════
@@ -1087,6 +1089,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
 function ServiceCreationWizard({
   formData, setFormData, wizardStep, setWizardStep,
   formError, setFormError, formSaving, onSave, onClose,
+  uploadingLogo, onLogoUpload,
 }: {
   formData: ServiceFormData;
   setFormData: (d: ServiceFormData) => void;
@@ -1097,6 +1100,8 @@ function ServiceCreationWizard({
   formSaving: boolean;
   onSave: () => void;
   onClose: () => void;
+  uploadingLogo: boolean;
+  onLogoUpload: (file: File) => void;
 }) {
   const { t } = useTranslation();
 
@@ -1261,7 +1266,7 @@ function ServiceCreationWizard({
                 <div className="flex gap-2">
                   <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
                     placeholder="https://example.com/logo.png" className={`${inputClass} flex-1`} />
-                  <input type="file" accept="image/*" className="hidden" id="wizard-logo-upload" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); e.target.value = ''; }} />
+                  <input type="file" accept="image/*" className="hidden" id="wizard-logo-upload" onChange={(e) => { const f = e.target.files?.[0]; if (f) onLogoUpload(f); e.target.value = ''; }} />
                   <button type="button" onClick={() => document.getElementById('wizard-logo-upload')?.click()} disabled={uploadingLogo}
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
                     {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
