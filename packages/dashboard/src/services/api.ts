@@ -70,6 +70,11 @@ export const serviceApi = {
   undeploy: (id: string) => api.post(`/services/${id}/undeploy`),
   resetData: (id: string) => api.post(`/services/${id}/reset-data`),
   regenerateLogo: (id: string) => api.post(`/services/${id}/regenerate-logo`),
+  uploadLogo: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/services/upload-logo', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
   stats: (id: string) => api.get(`/services/${id}/stats`),
   checkName: (name: string) => api.get(`/services/check-name/${name}`),
   // Service Models

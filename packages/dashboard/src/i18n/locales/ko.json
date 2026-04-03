@@ -578,6 +578,8 @@
     "apiOnlyLabel": "API Only",
     "apiOnlyDesc": "프록시를 통하지 않고 자체 API로 사용 기록을 전송",
     "logoUrl": "로고 URL",
+    "uploadLogo": "파일 업로드",
+    "uploadingLogo": "업로드 중...",
     "serviceUrl": "서비스 URL",
     "apiDocsUrl": "API 문서 URL",
     "jiraTicket": "Jira 티켓",

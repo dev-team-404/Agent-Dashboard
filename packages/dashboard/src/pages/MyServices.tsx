@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Plus, Edit2, Rocket, Server, Cpu, X, Loader2,
   Layers, Trash2, ChevronDown, Search,
-  Crown, Shield, Link, Image, RefreshCw,
+  Crown, Shield, Link, Image, RefreshCw, Upload,
   ArrowLeft, ArrowRight, Check, ExternalLink, FileText, Ticket
 } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
@@ -175,6 +175,7 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
   const [formData, setFormData] = useState<ServiceFormData>(EMPTY_FORM);
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // Wizard states (creation only)
   const [showWizard, setShowWizard] = useState(false);
@@ -270,6 +271,18 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
     setFormData(EMPTY_FORM);
     setFormError(null);
     setWizardStep(0);
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const res = await serviceApi.uploadLogo(file);
+      setFormData(prev => ({ ...prev, iconUrl: res.data.iconUrl }));
+    } catch (err) {
+      console.error('Logo upload failed:', err);
+    } finally {
+      setUploadingLogo(false);
+    }
   };
 
   const openEditModal = (service: Service) => {
@@ -927,7 +940,15 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> {t('myServices.logoUrl')}</span></label>
-                <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                <div className="flex gap-2">
+                  <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })} placeholder="https://example.com/logo.png" className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+                  <input type="file" accept="image/*" className="hidden" id="edit-logo-upload" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); e.target.value = ''; }} />
+                  <button type="button" onClick={() => document.getElementById('edit-logo-upload')?.click()} disabled={uploadingLogo}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+                    {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {uploadingLogo ? t('myServices.uploadingLogo') : t('myServices.uploadLogo')}
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 gap-3">
                 <div>
@@ -1237,8 +1258,16 @@ function ServiceCreationWizard({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5"><span className="inline-flex items-center gap-1"><Image className="w-3.5 h-3.5" /> {t('myServices.logoUrl')}</span></label>
-                <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
-                  placeholder="https://example.com/logo.png" className={inputClass} />
+                <div className="flex gap-2">
+                  <input type="url" value={formData.iconUrl} onChange={(e) => setFormData({ ...formData, iconUrl: e.target.value })}
+                    placeholder="https://example.com/logo.png" className={`${inputClass} flex-1`} />
+                  <input type="file" accept="image/*" className="hidden" id="wizard-logo-upload" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); e.target.value = ''; }} />
+                  <button type="button" onClick={() => document.getElementById('wizard-logo-upload')?.click()} disabled={uploadingLogo}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap">
+                    {uploadingLogo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    {uploadingLogo ? t('myServices.uploadingLogo') : t('myServices.uploadLogo')}
+                  </button>
+                </div>
                 {formData.iconUrl.trim() && (
                   <div className="mt-2 flex items-center gap-2">
                     <img src={formData.iconUrl.trim()} alt="" className="w-8 h-8 rounded-lg border border-gray-200 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />

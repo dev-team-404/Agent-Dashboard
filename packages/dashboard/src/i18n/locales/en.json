@@ -578,6 +578,8 @@
     "apiOnlyLabel": "API Only",
     "apiOnlyDesc": "Sends usage records via its own API without going through the proxy",
     "logoUrl": "Logo URL",
+    "uploadLogo": "Upload File",
+    "uploadingLogo": "Uploading...",
     "serviceUrl": "Service URL",
     "apiDocsUrl": "API Docs URL",
     "jiraTicket": "Jira Ticket",

@@ -13,12 +13,19 @@
  */
 
 import { Router, RequestHandler } from 'express';
+import multer from 'multer';
 import { isUnderAnyScope } from '../services/orgAncestorCache.js';
 import { prisma } from '../index.js';
 import { authenticateToken, requireAdmin, AuthenticatedRequest, isModelVisibleTo, extractBusinessUnit, isSuperAdminByEnv } from '../middleware/auth.js';
 import { lookupEmployee, isTopLevelDivision } from '../services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from '../services/orgTree.service.js';
 import { generateLogoForService } from '../services/logoGenerator.service.js';
+import { saveImage, buildImageUrl } from '../services/imageStorage.service.js';
+
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
 
 /**
  * API 응답 시 최상위 사업부를 "none"으로 변환
@@ -759,6 +766,30 @@ serviceRoutes.post('/', authenticateToken, async (req: AuthenticatedRequest, res
   } catch (error) {
     console.error('Create service error:', error);
     res.status(500).json({ error: 'Failed to create service' });
+  }
+});
+
+// ============================================
+// POST /services/upload-logo
+// 로고 이미지 파일 업로드 → URL 반환
+// ============================================
+serviceRoutes.post('/upload-logo', authenticateToken, logoUpload.single('file'), async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+
+    const saved = await saveImage(req.file.buffer, {
+      permanent: true,
+      mimeType: req.file.mimetype,
+    });
+
+    const iconUrl = buildImageUrl(saved.fileName, req.get('host'), req.protocol);
+    res.json({ iconUrl });
+  } catch (error) {
+    console.error('Upload logo error:', error);
+    res.status(500).json({ error: 'Failed to upload logo' });
   }
 });
 
