@@ -182,7 +182,7 @@ app.get('/public/promoted-models', async (_req, res) => {
 
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
-app.use('/external-usage', externalUsageRoutes);
+app.use('/external-usage', express.json({ limit: '100mb' }), externalUsageRoutes);
 
 // Swagger UI 정적 에셋 (사내망 CDN 차단 대응 — 로컬 서빙)
 const __filename = fileURLToPath(import.meta.url);
