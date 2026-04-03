@@ -37,8 +37,7 @@ const byUserItemSchema = z.object({
 const byUserSchema = z.object({
   serviceId: z.string().min(1, 'serviceId (service name) is required'),
   data: z.array(byUserItemSchema)
-    .min(1, 'data array must have at least 1 item')
-    .max(50000, 'data array must have at most 50000 items'),
+    .min(1, 'data array must have at least 1 item'),
 });
 
 // ─── POST /external-usage/by-user ───────────────────────────
