@@ -17,6 +17,7 @@ import { prisma } from '../index.js';
 import { extractBusinessUnit } from '../middleware/auth.js';
 import { lookupEmployeesBatch } from '../services/knoxEmployee.service.js';
 import { z } from 'zod';
+import { logErrorToRequestLog } from '../services/requestLog.js';
 
 export const externalUsageRoutes = Router();
 
@@ -59,6 +60,8 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     // 1. Validate
     const validation = byUserSchema.safeParse(req.body);
     if (!validation.success) {
+      const errorMsg = `Invalid request body: ${validation.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ')}`;
+      logErrorToRequestLog({ req, statusCode: 400, errorMessage: errorMsg, path: '/external-usage/by-user' }).catch(() => {});
       res.status(400).json({
         error: 'Invalid request body',
         details: validation.error.errors.map(e => ({
@@ -78,23 +81,23 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     });
 
     if (!service) {
-      res.status(404).json({
-        error: `Service "${serviceName}" not found. 등록되지 않은 서비스입니다.`,
-      });
+      const errorMsg = `Service "${serviceName}" not found. 등록되지 않은 서비스입니다.`;
+      logErrorToRequestLog({ req, statusCode: 404, errorMessage: errorMsg, path: '/external-usage/by-user', modelName: serviceName }).catch(() => {});
+      res.status(404).json({ error: errorMsg });
       return;
     }
 
     if (!service.apiOnly) {
-      res.status(403).json({
-        error: `Service "${serviceName}" is not an API Only service. apiOnly 서비스로 등록되어야 합니다.`,
-      });
+      const errorMsg = `Service "${serviceName}" is not an API Only service. apiOnly 서비스로 등록되어야 합니다.`;
+      logErrorToRequestLog({ req, statusCode: 403, errorMessage: errorMsg, serviceId: service.id, path: '/external-usage/by-user' }).catch(() => {});
+      res.status(403).json({ error: errorMsg });
       return;
     }
 
     if (!service.enabled) {
-      res.status(403).json({
-        error: `Service "${serviceName}" is disabled. 비활성화된 서비스입니다.`,
-      });
+      const errorMsg = `Service "${serviceName}" is disabled. 비활성화된 서비스입니다.`;
+      logErrorToRequestLog({ req, statusCode: 403, errorMessage: errorMsg, serviceId: service.id, path: '/external-usage/by-user' }).catch(() => {});
+      res.status(403).json({ error: errorMsg });
       return;
     }
 
@@ -104,9 +107,9 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     if (!isBackground) {
       const missingUserItems = data.filter(d => !d.userId);
       if (missingUserItems.length > 0) {
-        res.status(400).json({
-          error: 'STANDARD 서비스는 userId(Knox login ID)가 필수입니다.',
-        });
+        const errorMsg = `STANDARD 서비스는 userId(Knox login ID)가 필수입니다. (${missingUserItems.length}건 누락)`;
+        logErrorToRequestLog({ req, statusCode: 400, errorMessage: errorMsg, serviceId: service.id, path: '/external-usage/by-user' }).catch(() => {});
+        res.status(400).json({ error: errorMsg });
         return;
       }
     }
@@ -115,9 +118,9 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
     if (isBackground) {
       const missingDept = data.filter(d => !d.userId && !d.deptName);
       if (missingDept.length > 0) {
-        res.status(400).json({
-          error: 'BACKGROUND 서비스에서 userId가 없는 항목은 deptName이 필수입니다.',
-        });
+        const errorMsg = `BACKGROUND 서비스에서 userId가 없는 항목은 deptName이 필수입니다. (${missingDept.length}건 누락)`;
+        logErrorToRequestLog({ req, statusCode: 400, errorMessage: errorMsg, serviceId: service.id, path: '/external-usage/by-user' }).catch(() => {});
+        res.status(400).json({ error: errorMsg });
         return;
       }
     }
@@ -536,7 +539,9 @@ externalUsageRoutes.post('/by-user', async (req: Request, res: Response) => {
       ...(recordErrors.length > 0 ? { errorDetails: recordErrors } : {}),
     });
   } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
     console.error('External usage by-user POST error:', err);
+    logErrorToRequestLog({ req, statusCode: 500, errorMessage: `Internal error: ${errorMsg}`, path: '/external-usage/by-user' }).catch(() => {});
     res.status(500).json({ error: '사용자별 사용 기록 저장에 실패했습니다.' });
   }
 });
