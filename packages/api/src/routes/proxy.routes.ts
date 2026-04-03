@@ -2093,6 +2093,7 @@ proxyRoutes.post('/messages', async (req: Request, res: Response) => {
     } = req.body;
 
     if (!modelName || !anthropicMsgs) {
+      recordRequestLog({ serviceId: proxyReq.serviceId, deptname: proxyReq.deptName, modelName: modelName || 'unknown', method: 'POST', path: '/v1/messages', statusCode: 400, latencyMs: Date.now() - reqStartTime, errorMessage: 'model and messages are required', userAgent, ipAddress }).catch(() => {});
       res.status(400).json(anthropicError(400, 'invalid_request_error',
         'model and messages are required').body);
       return;
