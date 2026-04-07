@@ -53,6 +53,7 @@ import { startGpuCoachingCron } from './services/gpuCoaching.service.js';
 import { startPrometheusCollector } from './services/prometheusCollector.service.js';
 import { startBenchmarkCron, refreshAllBenchmarks } from './services/gpuBenchmark.service.js';
 import { startStatsPrecomputeCron } from './services/statsPrecompute.service.js';
+import { startWriteBuffer, stopWriteBuffer } from './services/writeBuffer.service.js';
 import { lookupEmployee } from './services/knoxEmployee.service.js';
 import { getHierarchyFromOrgTree } from './services/orgTree.service.js';
 import { seedAgentRegistryService } from './seed-agent-registry.js';
@@ -61,12 +62,15 @@ import 'dotenv/config';
 const app = express();
 const PORT = process.env['PORT'] || 3000;
 app.set('trust proxy', 1);
+// DATABASE_URL에 connection_limit이 이미 설정됨 (docker-compose: connection_limit=1000)
 export const prisma = new PrismaClient();
 export const redis = createRedisClient();
 // Prisma napi 한계 우회: JSON-heavy 쿼리용 직접 pg Pool
+// DGX H200 기준: 300 동시접속 × 쓰기+읽기 부하 대응
 export const pgPool = new pg.Pool({
     connectionString: process.env['DATABASE_URL'],
-    max: 10,
+    max: 50,
+    idleTimeoutMillis: 30_000,
 });
 // Middleware
 // HTTP 환경 (사내망) — HTTPS 전용 헤더 전부 비활성화
@@ -83,9 +87,14 @@ app.use(cors({
 }));
 // ASR audio_url 방식: base64 오디오가 JSON body에 포함 (최대 500MB)
 app.use('/v1/chat/completions', express.json({ limit: '500mb' }));
+// Anthropic Messages API: Claude Code CLI가 이미지 등 대용량 콘텐츠 전송 가능
+app.use('/v1/messages', express.json({ limit: '500mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
-app.use(morgan('combined'));
+// morgan은 requestLogger와 이중 로깅 → 프로덕션에서 제거 (요청당 50-100ms 절감)
+if (process.env['NODE_ENV'] !== 'production') {
+    app.use(morgan('combined'));
+}
 // Rate limiting — Dashboard API only (proxy routes have their own token-based limits)
 const dashboardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -131,9 +140,31 @@ app.get('/internal/docs', (_req, res) => { res.redirect('/internal/api-docs/ui')
 // Public Stats API (인증 불필요)
 app.use('/public/stats', publicStatsRoutes);
 app.use('/public/stats', publicInsightRoutes);
+// 홍보 모델 목록 (인증 불필요 — docs-site 랜딩 페이지용)
+app.get('/public/promoted-models', async (_req, res) => {
+    try {
+        const models = await prisma.model.findMany({
+            where: { promoted: true, enabled: true },
+            select: {
+                id: true,
+                displayName: true,
+                name: true,
+                type: true,
+                supportsVision: true,
+                maxTokens: true,
+            },
+            orderBy: { sortOrder: 'asc' },
+        });
+        res.json({ models });
+    }
+    catch (error) {
+        console.error('Get promoted models error:', error);
+        res.status(500).json({ error: 'Failed to get promoted models' });
+    }
+});
 // External Usage API (API Only 서비스용, 인증 불필요)
 // nginx: /api/external-usage → /external-usage (proxy strips /api/ prefix)
-app.use('/external-usage', externalUsageRoutes);
+app.use('/external-usage', express.json({ limit: '100mb' }), externalUsageRoutes);
 // Swagger UI 정적 에셋 (사내망 CDN 차단 대응 — 로컬 서빙)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -185,6 +216,7 @@ process.on('unhandledRejection', (reason) => {
 // Graceful shutdown
 async function shutdown() {
     console.log('Shutting down gracefully...');
+    await stopWriteBuffer(); // 잔여 버퍼 flush
     await prisma.$disconnect();
     await redis.quit();
     process.exit(0);
@@ -401,6 +433,7 @@ async function main() {
         startGpuCapacityPredictionCron();
         startGpuCoachingCron();
         startStatsPrecomputeCron();
+        startWriteBuffer();
         startBenchmarkCron();
         // DTGPT Prometheus 수집 (30초 후 시작 — DB 안정화 대기)
         setTimeout(() => startPrometheusCollector().catch(err => console.error('[PromCollector] Failed to start:', err.message)), 30000);

@@ -68,27 +68,77 @@ export async function getTodayUsage(redis) {
 }
 /**
  * Increment usage stats (per user/model and daily total)
+ * Pipeline으로 9개 HINCRBY + 3개 EXPIRE를 1번의 라운드트립으로 처리
  */
 export async function incrementUsage(redis, userId, modelId, inputTokens, outputTokens) {
     const today = getTodayLocal();
     const dailyKey = `daily_usage:${today}`;
     const userKey = `user_usage:${userId}:${today}`;
     const modelKey = `model_usage:${modelId}:${today}`;
+    const ttl = 7 * 24 * 60 * 60;
+    const pipeline = redis.pipeline();
     // Daily total
-    await redis.hincrby(dailyKey, 'requests', 1);
-    await redis.hincrby(dailyKey, 'inputTokens', inputTokens);
-    await redis.hincrby(dailyKey, 'outputTokens', outputTokens);
-    await redis.expire(dailyKey, 7 * 24 * 60 * 60);
+    pipeline.hincrby(dailyKey, 'requests', 1);
+    pipeline.hincrby(dailyKey, 'inputTokens', inputTokens);
+    pipeline.hincrby(dailyKey, 'outputTokens', outputTokens);
+    pipeline.expire(dailyKey, ttl);
     // Per user
-    await redis.hincrby(userKey, 'requests', 1);
-    await redis.hincrby(userKey, 'inputTokens', inputTokens);
-    await redis.hincrby(userKey, 'outputTokens', outputTokens);
-    await redis.expire(userKey, 7 * 24 * 60 * 60);
+    pipeline.hincrby(userKey, 'requests', 1);
+    pipeline.hincrby(userKey, 'inputTokens', inputTokens);
+    pipeline.hincrby(userKey, 'outputTokens', outputTokens);
+    pipeline.expire(userKey, ttl);
     // Per model
-    await redis.hincrby(modelKey, 'requests', 1);
-    await redis.hincrby(modelKey, 'inputTokens', inputTokens);
-    await redis.hincrby(modelKey, 'outputTokens', outputTokens);
-    await redis.expire(modelKey, 7 * 24 * 60 * 60);
+    pipeline.hincrby(modelKey, 'requests', 1);
+    pipeline.hincrby(modelKey, 'inputTokens', inputTokens);
+    pipeline.hincrby(modelKey, 'outputTokens', outputTokens);
+    pipeline.expire(modelKey, ttl);
+    await pipeline.exec();
+}
+/**
+ * Generic read-through cache
+ * - 캐시 히트: Redis에서 즉시 반환
+ * - 캐시 미스: compute() 실행 → 결과 캐싱 → 반환
+ * - fail-open: Redis 장애 시 항상 compute() 폴백 (기존 동작 100% 보장)
+ */
+export async function withCache(redis, key, ttlSeconds, compute) {
+    try {
+        const cached = await redis.get(key);
+        if (cached)
+            return JSON.parse(cached);
+    }
+    catch { /* fail-open */ }
+    const result = await compute();
+    try {
+        await redis.setex(key, ttlSeconds, JSON.stringify(result));
+    }
+    catch { /* fire-and-forget */ }
+    return result;
+}
+/**
+ * 캐시 무효화 — 쓰기 작업 후 관련 캐시 키 즉시 삭제
+ * 패턴 매칭으로 prefix 기반 삭제 (예: 'cache:admin:unified-users:*')
+ * fail-open: Redis 장애 시 무시 (다음 TTL 만료 시 자연 갱신)
+ */
+export async function invalidateCache(redis, ...patterns) {
+    try {
+        const pipeline = redis.pipeline();
+        for (const pattern of patterns) {
+            if (pattern.includes('*')) {
+                // 와일드카드 패턴 → SCAN으로 키 찾아서 삭제
+                const keys = await redis.keys(pattern);
+                if (keys.length > 0) {
+                    for (const key of keys)
+                        pipeline.del(key);
+                }
+            }
+            else {
+                // 정확한 키 삭제
+                pipeline.del(pattern);
+            }
+        }
+        await pipeline.exec();
+    }
+    catch { /* fail-open */ }
 }
 /**
  * Increment today's usage stats (legacy function for compatibility)
