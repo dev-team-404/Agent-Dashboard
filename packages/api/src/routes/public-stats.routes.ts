@@ -348,192 +348,7 @@ publicStatsRoutes.get('/team-usage-all', async (req: Request, res: Response) => 
 
 // ─── 4. GET /top-users ──────────────────────────────────────
 
-/**
- * 특정 서비스의 Top K 사용자 (토큰 + API 호출 수)
- * 모든 서비스 → usage_logs
- */
-publicStatsRoutes.get('/top-users', async (req: Request, res: Response) => {
-  try {
-    const { startDate, endDate, error } = parseDateRange(req.query);
-    if (error) {
-      res.status(400).json({ error });
-      return;
-    }
-
-    const serviceName = req.query['serviceName'] as string | undefined;
-    if (!serviceName) {
-      res.status(400).json({ error: 'serviceName은 필수 파라미터입니다. (서비스 코드, 예: nexus-coder)' });
-      return;
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { name: serviceName },
-      select: { id: true, apiOnly: true },
-    });
-    if (!service) {
-      res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
-      return;
-    }
-    const serviceId = service.id;
-    const topK = Math.min(Math.max(parseInt(req.query['topK'] as string) || 10, 1), 100);
-
-    const userStats = await prisma.$queryRaw<Array<{ user_id: string; total_input: bigint; total_output: bigint; request_count: bigint }>>`
-      SELECT user_id,
-             COALESCE(SUM("inputTokens"), 0) as total_input,
-             COALESCE(SUM("outputTokens"), 0) as total_output,
-             COALESCE(SUM(request_count), 0) as request_count
-      FROM usage_logs
-      WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-        AND service_id = ${serviceId}
-        AND user_id IS NOT NULL
-      GROUP BY user_id
-    `;
-
-    // Sort by totalTokens desc, take topK
-    const sorted = userStats
-      .map(s => ({
-        userId: s.user_id,
-        totalInputTokens: Number(s.total_input),
-        totalOutputTokens: Number(s.total_output),
-        totalTokens: Number(s.total_input) + Number(s.total_output),
-        requestCount: Number(s.request_count),
-      }))
-      .sort((a, b) => b.totalTokens - a.totalTokens)
-      .slice(0, topK);
-
-    // Fetch user info
-    const userIds = sorted.map(s => s.userId);
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, loginid: true, username: true, deptname: true },
-    });
-    const userMap = new Map(users.map(u => [u.id, u]));
-
-    const data = sorted.map((s, i) => {
-      const user = userMap.get(s.userId);
-      return {
-        rank: i + 1,
-        loginId: user?.loginid || 'unknown',
-        username: user?.username || 'Unknown',
-        deptname: user?.deptname || '',
-        businessUnit: extractBusinessUnit(user?.deptname || ''),
-        totalInputTokens: s.totalInputTokens,
-        totalOutputTokens: s.totalOutputTokens,
-        totalTokens: s.totalTokens,
-        requestCount: s.requestCount,
-      };
-    });
-
-    res.json({
-      topK,
-      totalUsers: userStats.length,
-      returnedCount: data.length,
-      data,
-    });
-  } catch (err) {
-    console.error('Public stats top-users error:', err);
-    res.status(500).json({ error: 'Top 사용자 조회에 실패했습니다.' });
-  }
-});
-
-// ─── 5. GET /top-users-by-dept ──────────────────────────────
-
-/**
- * 특정 서비스 + 부서의 Top K 사용자 (토큰 + API 호출 수)
- * 모든 서비스 → usage_logs
- */
-publicStatsRoutes.get('/top-users-by-dept', async (req: Request, res: Response) => {
-  try {
-    const { startDate, endDate, error } = parseDateRange(req.query);
-    if (error) {
-      res.status(400).json({ error });
-      return;
-    }
-
-    const serviceName = req.query['serviceName'] as string | undefined;
-    if (!serviceName) {
-      res.status(400).json({ error: 'serviceName은 필수 파라미터입니다. (서비스 코드, 예: nexus-coder)' });
-      return;
-    }
-
-    const service = await prisma.service.findUnique({
-      where: { name: serviceName },
-      select: { id: true, apiOnly: true },
-    });
-    if (!service) {
-      res.status(404).json({ error: `서비스 '${serviceName}'을 찾을 수 없습니다.` });
-      return;
-    }
-    const serviceId = service.id;
-
-    const deptname = req.query['deptname'] as string | undefined;
-    if (!deptname) {
-      res.status(400).json({ error: 'deptname은 필수 파라미터입니다. (형식: 팀명(사업부), 예: S/W혁신팀(S.LSI))' });
-      return;
-    }
-
-    const topK = Math.min(Math.max(parseInt(req.query['topK'] as string) || 10, 1), 100);
-
-    const userStats = await prisma.$queryRaw<Array<{ user_id: string; total_input: bigint; total_output: bigint; request_count: bigint }>>`
-      SELECT user_id,
-             COALESCE(SUM("inputTokens"), 0) as total_input,
-             COALESCE(SUM("outputTokens"), 0) as total_output,
-             COALESCE(SUM(request_count), 0) as request_count
-      FROM usage_logs
-      WHERE timestamp >= ${startDate} AND timestamp <= ${endDate}
-        AND service_id = ${serviceId}
-        AND deptname = ${deptname}
-        AND user_id IS NOT NULL
-      GROUP BY user_id
-    `;
-
-    const sorted = userStats
-      .map(s => ({
-        userId: s.user_id,
-        totalInputTokens: Number(s.total_input),
-        totalOutputTokens: Number(s.total_output),
-        totalTokens: Number(s.total_input) + Number(s.total_output),
-        requestCount: Number(s.request_count),
-      }))
-      .sort((a, b) => b.totalTokens - a.totalTokens)
-      .slice(0, topK);
-
-    const userIds = sorted.map(s => s.userId);
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, loginid: true, username: true, deptname: true },
-    });
-    const userMap = new Map(users.map(u => [u.id, u]));
-
-    const data = sorted.map((s, i) => {
-      const user = userMap.get(s.userId);
-      return {
-        rank: i + 1,
-        loginId: user?.loginid || 'unknown',
-        username: user?.username || 'Unknown',
-        deptname: user?.deptname || '',
-        businessUnit: extractBusinessUnit(user?.deptname || ''),
-        totalInputTokens: s.totalInputTokens,
-        totalOutputTokens: s.totalOutputTokens,
-        totalTokens: s.totalTokens,
-        requestCount: s.requestCount,
-      };
-    });
-
-    res.json({
-      topK,
-      deptname,
-      totalUsersInDept: userStats.length,
-      returnedCount: data.length,
-      data,
-    });
-  } catch (err) {
-    console.error('Public stats top-users-by-dept error:', err);
-    res.status(500).json({ error: '부서별 Top 사용자 조회에 실패했습니다.' });
-  }
-});
-
-// ─── 6. GET /dau-mau ─────────────────────────────────────────
+// ─── 5. GET /dau-mau ─────────────────────────────────────────
 
 /**
  * 서비스별 DAU/MAU (년/월 기준)
@@ -1116,7 +931,7 @@ publicStatsRoutes.get('/user-usage', async (req: Request, res: Response) => {
         u.business_unit,
         s.id as service_id,
         s.name as service_name,
-        s.display_name as service_display_name,
+        s."displayName" as service_display_name,
         COALESCE(SUM(ul.request_count), 0)::bigint as request_count,
         COALESCE(SUM(ul."inputTokens"), 0)::bigint as input_tokens,
         COALESCE(SUM(ul."outputTokens"), 0)::bigint as output_tokens,
@@ -1128,7 +943,7 @@ publicStatsRoutes.get('/user-usage', async (req: Request, res: Response) => {
         AND ul.timestamp <= ${endDate}
         AND ul.user_id IS NOT NULL
         AND ul.service_id IS NOT NULL
-      GROUP BY u.id, u.loginid, u.username, u.deptname, u.business_unit, s.id, s.name, s.display_name
+      GROUP BY u.id, u.loginid, u.username, u.deptname, u.business_unit, s.id, s.name, s."displayName"
       ORDER BY u.loginid, s.name
     `;
 
