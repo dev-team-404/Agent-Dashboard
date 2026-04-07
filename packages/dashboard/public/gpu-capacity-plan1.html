@@ -42,6 +42,7 @@
     font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
   }
   .t1-badge { background: rgba(37,99,235,0.3); border: 1px solid rgba(37,99,235,0.6); }
+  .t3-badge { background: rgba(217,119,6,0.3); border: 1px solid rgba(217,119,6,0.6); }
   .topbar .slide-num { font-size: 13px; opacity: 0.6; }
   .topbar h1 { font-size: 22px; font-weight: 700; }
 
@@ -155,6 +156,16 @@
   .tag.blue { background: #dbeafe; color: #1d4ed8; }
   .tag.green { background: #dcfce7; color: #166534; }
   .tag.red { background: #fee2e2; color: #991b1b; }
+  .tag.orange { background: #fef3c7; color: #b45309; }
+
+  .example-box.orange { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: #fcd34d; }
+  .example-box.orange h4 { color: #b45309; }
+  .example-box.orange p { color: #92400e; }
+  .example-box.orange .big-result { color: #b45309; }
+
+  .section-head.orange { border-color: #d97706; }
+
+  .nav-dot.orange-active { background: #d97706; transform: scale(1.3); }
 
   /* Section Headers */
   .section-head {
@@ -249,7 +260,7 @@
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">EXECUTIVE SUMMARY</span>
     </div>
     <h1>GPU 용량 측정 방안</h1>
-    <span class="slide-num">1 / 5</span>
+    <span class="slide-num">1 / 7</span>
   </div>
 
   <div class="content">
@@ -288,7 +299,7 @@
           </div>
           <div class="card">
             <h3><span style="font-size:20px">&#9888;&#65039;</span> 조기 경보 시스템</h3>
-            <p>80% 초과 시 자동 알림 — 장애 발생 전 선제 대응</p>
+            <p>50% 초과 시 자동 알림 — 장애 발생 전 선제 대응</p>
           </div>
           <div class="card">
             <h3><span style="font-size:20px">&#128302;</span> 미래 수요 예측</h3>
@@ -324,7 +335,7 @@
       <span class="track-badge t1-badge">METHODOLOGY</span>
     </div>
     <h1>측정 원리 — 응답 속도 변화 감지</h1>
-    <span class="slide-num">2 / 5</span>
+    <span class="slide-num">2 / 7</span>
   </div>
 
   <div class="content">
@@ -362,7 +373,7 @@
           <div class="flow-step">
             <div class="flow-icon red">&#9888;</div>
             <span class="flow-label">경보 판단</span>
-            <span class="flow-sub">80% 초과 시 알림</span>
+            <span class="flow-sub">50% 초과 시 알림</span>
           </div>
         </div>
 
@@ -394,7 +405,7 @@
             <span class="gauge-val" style="color:#dc2626">91%</span>
           </div>
           <div style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:right">
-            &#9888; 80% 초과 시 "GPU 증설 필요" 자동 알림
+            &#9888; 50% 초과 시 "GPU 증설 필요" 자동 알림
           </div>
         </div>
       </div>
@@ -458,7 +469,7 @@
       <span class="track-badge t1-badge">SCENARIOS</span>
     </div>
     <h1>활용 시나리오 및 보고 예시</h1>
-    <span class="slide-num">3 / 5</span>
+    <span class="slide-num">3 / 7</span>
   </div>
 
   <div class="content">
@@ -479,7 +490,7 @@
         <div class="card" style="border-left:4px solid #eab308">
           <h3><span style="font-size:18px">&#128992;</span> 시나리오 2 — 증설 판단</h3>
           <p style="font-size:13px;line-height:1.8">
-            <strong>"피크 시 91%로 포화 임계점(80%)을 초과합니다.<br>
+            <strong>"피크 시 91%로 포화 임계점(50%)을 초과합니다.<br>
             GPU 3장 부족으로 추정되며 증설이 필요합니다."</strong><br><br>
             &#8594; 구체적 수량 근거로 증설 의사결정 지원
           </p>
@@ -515,7 +526,7 @@
               <span style="font-size:22px;font-weight:900;color:#d97706">3장</span>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff;border-radius:8px;border:1px solid #dbeafe">
-              <span style="font-size:13px;color:#475569">80% 초과 알림 횟수</span>
+              <span style="font-size:13px;color:#475569">50% 초과 알림 횟수</span>
               <span style="font-size:22px;font-weight:900;color:#dc2626">12회/월</span>
             </div>
           </div>
@@ -527,17 +538,17 @@
           <div style="display:flex;gap:12px">
             <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#f0fdf4;border:2px solid #22c55e">
               <div style="font-size:22px;margin-bottom:4px">&#128994;</div>
-              <div style="font-size:13px;font-weight:700;color:#166534">0~60%</div>
+              <div style="font-size:13px;font-weight:700;color:#166534">0~30%</div>
               <div style="font-size:11px;color:#166534;margin-top:2px">정상</div>
             </div>
             <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fefce8;border:2px solid #eab308">
               <div style="font-size:22px;margin-bottom:4px">&#128992;</div>
-              <div style="font-size:13px;font-weight:700;color:#854d0e">60~80%</div>
+              <div style="font-size:13px;font-weight:700;color:#854d0e">30~50%</div>
               <div style="font-size:11px;color:#854d0e;margin-top:2px">주의</div>
             </div>
             <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626">
               <div style="font-size:22px;margin-bottom:4px">&#128308;</div>
-              <div style="font-size:13px;font-weight:700;color:#991b1b">80%+</div>
+              <div style="font-size:13px;font-weight:700;color:#991b1b">50%+</div>
               <div style="font-size:11px;color:#991b1b;margin-top:2px">증설 필요</div>
             </div>
           </div>
@@ -547,7 +558,7 @@
           <span class="callout-icon">&#10003;</span>
           <div style="font-size:13px">
             <strong>자동화:</strong> 경보 임계값을 설정해 두면, 사용률이 기준을 넘을 때
-            <strong>Slack / 이메일 알림</strong>이 자동 발송됩니다.
+            <strong>이메일 알림</strong>이 자동 발송됩니다.
           </div>
         </div>
       </div>
@@ -566,7 +577,7 @@
       <span class="track-badge t1-badge">IMPLEMENTATION</span>
     </div>
     <h1>구현 계획</h1>
-    <span class="slide-num">4 / 5</span>
+    <span class="slide-num">4 / 7</span>
   </div>
 
   <div class="content">
@@ -622,7 +633,7 @@
             <div class="timeline-num">5</div>
             <div class="timeline-content">
               <h4>경보 시스템</h4>
-              <p>사용률 80% 초과 시 자동 Slack/이메일 알림 + 월간 보고서 자동 생성</p>
+              <p>사용률 50% 초과 시 자동 이메일 알림 + 월간 보고서 자동 생성</p>
             </div>
           </div>
         </div>
@@ -719,15 +730,255 @@
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 4: 참고 자료                                                -->
+<!-- SLIDE 4: 안 3 — 타임아웃 집계 (보조 방안)                           -->
 <!-- ================================================================ -->
 <div class="slide" id="s4">
+  <div class="topbar" style="background:linear-gradient(135deg,#78350f,#92400e)">
+    <div>
+      <span class="track-badge t3-badge">&#9632; 보조 방안</span>
+    </div>
+    <h1>타임아웃 / 에러율 직접 집계</h1>
+    <span class="slide-num">5 / 7</span>
+  </div>
+
+  <div class="content">
+    <div class="two-col wide-left">
+      <!-- 핵심 요약 -->
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <h3 class="section-head orange">핵심 요약</h3>
+        <div class="callout warn">
+          <span class="callout-icon">&#127869;</span>
+          <div>
+            <strong>만석 식당 비유:</strong>
+            식당 좌석 100석에 110명이 오면 10명은 돌아갑니다.
+            <strong>"돌아간 손님 비율 = 좌석 부족분"</strong>.
+            타임아웃된 요청은 GPU가 처리 못 해서 돌려보낸 것이므로, 그 비율이 곧 부족 비율입니다.
+          </div>
+        </div>
+
+        <!-- 비주얼: 요청 성공/실패 -->
+        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:12px">요청 처리 현황 (예시)</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px" title="성공"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#dc2626;border-radius:3px" title="Timeout"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:#dc2626;border-radius:3px"></span>
+          </div>
+          <div style="display:flex;gap:16px;font-size:12px">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;margin-right:4px"></span>성공 (90%)</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;margin-right:4px"></span>Timeout (10%)</span>
+          </div>
+        </div>
+
+        <!-- 대시보드 표시 예시 -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:14px">대시보드 표시 예시</div>
+          <div style="display:flex;gap:16px;margin-bottom:16px">
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#f0fdf4;border:2px solid #22c55e">
+              <div style="font-size:11px;color:#166534;font-weight:600">Timeout 0%</div>
+              <div style="font-size:22px;font-weight:900;color:#22c55e;margin:4px 0">&#128994;</div>
+              <div style="font-size:10px;color:#166534">여유 있음</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fefce8;border:2px solid #eab308">
+              <div style="font-size:11px;color:#854d0e;font-weight:600">Timeout 1~5%</div>
+              <div style="font-size:22px;font-weight:900;color:#eab308;margin:4px 0">&#128992;</div>
+              <div style="font-size:10px;color:#854d0e">증설 검토</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626">
+              <div style="font-size:11px;color:#991b1b;font-weight:600">Timeout 5%+</div>
+              <div style="font-size:22px;font-weight:900;color:#dc2626;margin:4px 0">&#128308;</div>
+              <div style="font-size:10px;color:#991b1b">즉시 증설</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="example-box orange">
+          <h4>&#128200; 보고 예시</h4>
+          <p>
+            "현재 AI 요청 중 <strong>3.2%가 시간 초과</strong>로 실패 (&#128992; 주의).<br>
+            GPU <strong>0.3대분</strong> 부족. 직원 2배 시 <strong>&#128308; 즉시 증설</strong> 단계 진입."
+          </p>
+          <div class="big-result">&#128992; 주의 | 0.3대 부족</div>
+        </div>
+      </div>
+
+      <!-- 기술 상세 -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3 class="section-head orange">기술 상세</h3>
+
+        <div class="formula-box">
+          <span class="formula-label">Timeout Rate 산출</span>
+          <span class="comment">// request_logs 에서 직접 집계</span><br>
+          <span class="comment">// &#9888; 현재 timeout은 503으로 기록됨 (선행 수정 후 504)</span><br><br>
+          timeout_count = COUNT(<br>
+          &nbsp;&nbsp;status = <span class="highlight">504</span><br>
+          &nbsp;&nbsp;<span class="comment">// 429(rate limit)는 제외 — 정책 제한이지 GPU 포화 아님</span><br>
+          )<br>
+          total_count = COUNT(*)<br><br>
+          <span class="result">timeout_rate = timeout_count &#247; total_count</span>
+        </div>
+
+        <div class="formula-box">
+          <span class="formula-label">부족분 공식</span>
+          <span class="comment">// timeout된 요청 = GPU가 처리 못한 분량</span><br><br>
+          <span class="result">부족 GPU = 보유GPU &times; t &#247; (1 - t)</span><br><br>
+          <span class="comment">// 예: GPU 10장, timeout 10%</span><br>
+          = 10 &times; 0.1 &#247; 0.9 = <span class="result">1.1장 부족</span>
+        </div>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="tag orange">장점: 10분이면 구현</span>
+          <span class="tag orange">장점: 거짓말 없음</span>
+          <span class="tag red">단점: 여유분 측정 불가</span>
+          <span class="tag red">단점: 포화 전 조기 경보 없음</span>
+        </div>
+
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-top:4px">
+          <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">&#128295; 구현 시 선행 수정</div>
+          <div style="font-size:12px;color:#7f1d1d;line-height:1.8">
+            <strong>1. Timeout status code 분리 (코드 1줄)</strong><br>
+            &nbsp;&nbsp;현재: timeout도 <code>statusCode: 503</code>으로 기록 &#8594; 진짜 서버 다운과 구분 불가<br>
+            &nbsp;&nbsp;수정: timeout 시 <code>statusCode: 504</code>로 변경<br>
+            <strong>2. Rate Limit(429) 제외</strong><br>
+            &nbsp;&nbsp;429는 정책적 제한이지 GPU 부족이 아님 &#8594; timeout 집계에서 반드시 제외
+          </div>
+        </div>
+
+        <div class="callout warn" style="font-size:12px;padding:10px 14px">
+          <span class="callout-icon">&#9888;</span>
+          <div>
+            <strong>안 3의 한계:</strong> &#128994; Timeout 0%일 때는 "여유가 얼마나 있는지" 알 수 없습니다.
+            포화 <strong>전</strong>의 정확한 % 측정은 안 1이 필요합니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-bar" id="nav4"></div>
+</div>
+
+<!-- ================================================================ -->
+<!-- SLIDE 5: 안 1 vs 안 3 비교                                        -->
+<!-- ================================================================ -->
+<div class="slide" id="s5">
+  <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
+    <div>
+      <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">COMPARISON</span>
+    </div>
+    <h1>안 1 vs 안 3 비교</h1>
+    <span class="slide-num">6 / 7</span>
+  </div>
+
+  <div class="content">
+    <table class="bench-table">
+      <thead>
+        <tr>
+          <th style="width:200px">비교 항목</th>
+          <th style="text-align:center;background:#eff6ff"><span style="color:#2563eb">&#9632;</span> 안 1: 응답 속도 곡선 (주 방안)</th>
+          <th style="text-align:center;background:#fffbeb"><span style="color:#d97706">&#9632;</span> 안 3: Timeout 집계 (보조 방안)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="font-weight:600">핵심 시그널</td>
+          <td style="text-align:center">P95 레이턴시 변화율</td>
+          <td style="text-align:center">504 (timeout) 비율</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">사용률 측정</td>
+          <td style="text-align:center;color:#059669"><strong>&#10003;</strong> 0~100% 연속</td>
+          <td style="text-align:center;color:#dc2626">&#9650; 100% 초과분만</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">부족분 (GPU N대)</td>
+          <td style="text-align:center;color:#059669">&#10003; 근사치</td>
+          <td style="text-align:center;color:#059669">&#10003; 초과분 정확</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">미래 예측 (N명 시)</td>
+          <td style="text-align:center;color:#059669"><strong>&#10003; RPS 외삽</strong></td>
+          <td style="text-align:center;color:#eab308">&#9650; 선형 비례만</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">포화 전 조기 경보</td>
+          <td style="text-align:center;color:#059669"><strong>&#10003; 핵심 강점</strong></td>
+          <td style="text-align:center;color:#dc2626">&#10060; 불가</td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">구현 공수</td>
+          <td style="text-align:center"><strong style="color:#059669">~2일</strong></td>
+          <td style="text-align:center"><strong style="color:#059669">~0.5일</strong></td>
+        </tr>
+        <tr>
+          <td style="font-weight:600">GPU 메트릭 필요?</td>
+          <td style="text-align:center;color:#059669">&#10060; 불필요</td>
+          <td style="text-align:center;color:#059669">&#10060; 불필요</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 역할 분담 -->
+    <div class="two-col">
+      <div class="card" style="border-color:#2563eb;border-width:2px">
+        <h3 style="color:#2563eb">&#9632; 안 1 — 주 방안</h3>
+        <p style="font-size:13px;line-height:1.7">
+          <strong style="color:#059669">역할:</strong> 실시간 사용률 모니터링 + 포화 전 조기 경보 + 미래 예측<br>
+          <strong>&#10003;</strong> "지금 45%니까 아직 여유 있지만, 사용자 2배 되면 위험"<br>
+          <strong>&#10003;</strong> 50% 초과 시 이메일 경보 자동 발송
+        </p>
+      </div>
+      <div class="card" style="border-color:#d97706;border-width:2px">
+        <h3 style="color:#d97706">&#9632; 안 3 — 보조 방안</h3>
+        <p style="font-size:13px;line-height:1.7">
+          <strong style="color:#059669">역할:</strong> 안 1의 사용률 수치를 실제 장애 데이터로 교차 검증<br>
+          <strong>&#10003;</strong> "안 1이 50%라고 하는데 timeout은 0% — 아직 실제 문제 없음"<br>
+          <strong>&#10003;</strong> timeout 발생 시 반박 불가한 팩트로 증설 근거 보강
+        </p>
+      </div>
+    </div>
+
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:18px 28px;display:flex;align-items:center;gap:24px;color:#fff">
+      <div style="font-size:28px">&#128161;</div>
+      <div style="flex:1;font-size:13px;color:#94a3b8;line-height:1.7">
+        <strong style="color:#fff">운영 전략:</strong>
+        <strong style="color:#60a5fa">안 1</strong>로 실시간 사용률을 모니터링하고 50% 초과 시 조기 경보를 발송하며,
+        <strong style="color:#fbbf24">안 3</strong>의 timeout 비율로 실제 장애 수준을 교차 검증합니다.
+        두 방안을 병행하면 "예측 + 팩트" 양쪽을 커버할 수 있습니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-bar" id="nav5"></div>
+</div>
+
+<!-- ================================================================ -->
+<!-- SLIDE 6: 참고 자료                                                -->
+<!-- ================================================================ -->
+<div class="slide" id="s6">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">REFERENCES</span>
     </div>
     <h1>참고 자료</h1>
-    <span class="slide-num">5 / 5</span>
+    <span class="slide-num">7 / 7</span>
   </div>
 
   <div class="content" style="gap:20px">
@@ -737,33 +988,39 @@
         <h3 class="section-head" style="border-color:#2563eb">학술 논문 / 기술 보고서</h3>
         <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:60%">InferLine: Latency-Aware Provisioning and Scaling for Prediction Serving Pipelines</td>
-            <td style="padding:8px 6px;color:#64748b">UC Berkeley, ACM SoCC 2020</td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:45%">InferLine: Latency-Aware Provisioning and Scaling for Prediction Serving Pipelines</td>
+            <td style="padding:8px 6px;color:#64748b;width:18%">UC Berkeley, ACM SoCC 2020</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> P95 레이턴시 기반 사용률 산출 공식, baseline 대비 현재 레이턴시 비율로 포화도를 측정하는 방법론 차용</td>
             <td style="padding:8px 6px"><a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">Chiron: Hierarchical Autoscaling for LLM Inference Serving</td>
             <td style="padding:8px 6px;color:#64748b">arXiv 2501.08090 (2025)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> Backpressure(응답 지연) 신호를 GPU 포화 경보로 변환하는 접근법, 임계점 초과 시 자동 경보 로직 설계에 참고</td>
             <td style="padding:8px 6px"><a href="https://arxiv.org/pdf/2501.08090" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">inference-fleet-sim: Queueing-Theory-Grounded Fleet Capacity Planner</td>
             <td style="padding:8px 6px;color:#64748b">arXiv 2603.16054 (2026)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> "GPU 몇 대 부족" 정수 산출 공식의 이론적 근거, 부족분 역산(gap_ratio) 공식 설계 시 참고</td>
             <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2603.16054" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">A Queueing Theoretic Perspective on Low-Latency LLM Inference</td>
             <td style="padding:8px 6px;color:#64748b">arXiv 2407.05347 (2024)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> 토큰 길이 변동에 따른 레이턴시 분포 특성 — 비스트리밍만 집계하는 선행 수정 근거</td>
             <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2407.05347" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">InfAdapter: SLO-Aware Resource Allocation</td>
             <td style="padding:8px 6px;color:#64748b">EuroMLSys 2023</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> SLO(Service Level Objective) 기반 경보 임계점 설정 방법론, 50% 포화 임계점 운영 정책 설계에 참고</td>
             <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2304.10892" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
           </tr>
           <tr>
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Benchmarking: Fundamental Concepts</td>
             <td style="padding:8px 6px;color:#64748b">NVIDIA Technical Blog</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS, P95 등 LLM 추론 핵심 메트릭 정의 — 용어 및 측정 단위 표준화에 활용</td>
             <td style="padding:8px 6px"><a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">블로그 &#8599;</a></td>
           </tr>
         </table>
@@ -774,33 +1031,39 @@
         <h3 class="section-head" style="border-color:#d97706">산업 기사 / 프로덕션 사례</h3>
         <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:60%">Autoscaling vLLM with OpenShift AI: KEDA + SLI 기반 GPU Autoscaling 실사례</td>
-            <td style="padding:8px 6px;color:#64748b">Red Hat (2025)</td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:45%">Autoscaling vLLM with OpenShift AI: KEDA + SLI 기반 GPU Autoscaling 실사례</td>
+            <td style="padding:8px 6px;color:#64748b;width:18%">Red Hat (2025)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 3 적용:</strong> SLI(E2E latency, timeout rate) 기반 스케일링 실사례 — timeout 비율을 증설 판단 지표로 사용하는 운영 패턴 차용</td>
             <td style="padding:8px 6px"><a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Sizing and Performance Guidance</td>
             <td style="padding:8px 6px;color:#64748b">VMware (2024)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 당 동시 처리량 벤치마크 데이터 — 부족분 역산 시 GPU 1장 = 처리량 N의 기준값 설정에 참고</td>
             <td style="padding:8px 6px"><a href="https://blogs.vmware.com/cloud-foundation/2024/09/25/llm-inference-sizing-and-performance-guidance/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Performance Engineering: Best Practices</td>
             <td style="padding:8px 6px;color:#64748b">Databricks (2025)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> P95/P99 레이턴시 모니터링 Best Practice — baseline 산출 시 P95를 사용하는 근거</td>
             <td style="padding:8px 6px"><a href="https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">Key Metrics for LLM Inference</td>
             <td style="padding:8px 6px;color:#64748b">BentoML Inference Handbook</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS, 처리량 등 메트릭 간 상관관계 정리 — 대시보드 표시 지표 선정 시 참고</td>
             <td style="padding:8px 6px"><a href="https://bentoml.com/llm/inference-optimization/llm-inference-metrics" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">Observability for LLM Inference: Monitoring Latency, Tokens/sec, and Cost</td>
             <td style="padding:8px 6px;color:#64748b">dasroot.net (2026)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> 레이턴시 시계열 모니터링 + 경보 시스템 구성 사례 — 대시보드 시각화 및 경보 로직 설계에 참고</td>
             <td style="padding:8px 6px"><a href="https://dasroot.net/posts/2026/03/llm-inference-observability-latency-tokens-cost/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
           </tr>
           <tr>
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">Lenovo LLM Sizing Guide: GPU Capacity Planning Framework</td>
             <td style="padding:8px 6px;color:#64748b">Lenovo Press (2024)</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 용량 산정 프레임워크 전체 구조 — "사용률 → 부족분 → 미래 예측" 3단계 보고 체계 설계에 참고</td>
             <td style="padding:8px 6px"><a href="https://lenovopress.lenovo.com/lp2130.pdf" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">PDF &#8599;</a></td>
           </tr>
         </table>
@@ -808,7 +1071,7 @@
     </div>
   </div>
 
-  <div class="nav-bar" id="nav4"></div>
+  <div class="nav-bar" id="nav6"></div>
 </div>
 
 </div><!-- /deck -->
@@ -857,7 +1120,10 @@
       const dots = bar.querySelectorAll('.nav-dot');
       dots.forEach((d, i) => {
         d.className = 'nav-dot';
-        if (i === cur) d.classList.add('active');
+        if (i === cur) {
+          if (cur === 4) d.classList.add('orange-active');
+          else d.classList.add('active');
+        }
       });
     });
   }
