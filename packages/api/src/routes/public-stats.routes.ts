@@ -612,6 +612,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         return {
           ...base,
           dau: stdDauMap.get(s.id) || 0,
+          avgDau: stdDauMap.get(s.id) || 0,
           mau: stdMauMap.get(s.id) || 0,
           isEstimated: false,
         };
@@ -622,6 +623,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
         return {
           ...base,
           dau: callsPerPersonPerDay > 0 ? Math.round(dailyCalls / callsPerPersonPerDay) : 0,
+          avgDau: callsPerPersonPerDay > 0 ? Math.round(dailyCalls / callsPerPersonPerDay) : 0,
           mau: callsPerPersonPerMonth > 0 ? Math.round(monthlyCalls / callsPerPersonPerMonth) : 0,
           isEstimated: true,
           estimationDetail: {
@@ -675,6 +677,7 @@ publicStatsRoutes.get('/dau-mau', async (req: Request, res: Response) => {
       month,
       isCurrentMonth,
       overallAvgDailyDAU,
+      avgDau: overallAvgDailyDAU,
       overallMAU,
       dailyDauChart,
       estimationBaseline: {

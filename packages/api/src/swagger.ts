@@ -353,6 +353,7 @@ export const swaggerSpec = {
                     year: { type: 'integer', description: 'Queried year (조회 연도)', example: 2026 },
                     month: { type: 'integer', description: 'Queried month (조회 월)', example: 3 },
                     isCurrentMonth: { type: 'boolean', description: 'Whether this is the current month (이번 달 여부). true=real-time, false=fixed (true=실시간, false=확정)' },
+                    avgDau: { type: 'integer', description: 'Overall business-day average DAU (전체 영업일 평균 DAU, overallAvgDailyDAU와 동일)' },
                     estimationBaseline: {
                       type: 'object',
                       description: 'STANDARD baseline values used for BACKGROUND estimation (BACKGROUND 추정에 사용된 STANDARD 기준값)',
@@ -393,6 +394,7 @@ export const swaggerSpec = {
                           totalOutputTokens: { type: 'integer', description: 'Total output tokens in the month (해당 월 총 출력 토큰)' },
                           totalTokens: { type: 'integer', description: 'Total tokens (input+output) in the month (해당 월 총 토큰 = 입력 + 출력)' },
                           dau: { type: 'integer', description: 'Business-day avg DAU. STANDARD=actual, BACKGROUND=estimated (영업일 평균 DAU. STANDARD=실측, BACKGROUND=추정)' },
+                          avgDau: { type: 'integer', description: 'Alias field for average DAU (평균 DAU 별칭, dau와 동일)' },
                           mau: { type: 'integer', description: 'MAU. STANDARD=actual, BACKGROUND=estimated (MAU. STANDARD=실측, BACKGROUND=추정)' },
                           isEstimated: { type: 'boolean', description: 'Whether the value is estimated. true for BACKGROUND (추정값 여부. BACKGROUND=true)' },
                           estimationDetail: {
@@ -455,6 +457,7 @@ export const swaggerSpec = {
                         properties: {
                           name: { type: 'string' as const, description: 'Center name (English)' },
                           totalMau: { type: 'integer' as const, description: 'Total MAU across all teams in this center (last month)' },
+                          avgDau: { type: 'number' as const, description: 'Business-day average DAU across teams in this center (주말/휴일 제외 평균 DAU)' },
                           mauChangePercent: { type: 'number' as const, description: '% change vs previous month' },
                           totalSavedMM: { type: 'number' as const, description: 'Total Saved M/M across all teams' },
                           teamCount: { type: 'integer' as const, description: 'Number of teams in this center' },
@@ -466,10 +469,10 @@ export const swaggerSpec = {
                 example: {
                   month: '2026-02',
                   centers: [
-                    { name: 'SOC Business Team', totalMau: 320, mauChangePercent: 8.3, totalSavedMM: 15.2, teamCount: 5 },
-                    { name: 'LSI Business Team', totalMau: 210, mauChangePercent: -2.1, totalSavedMM: 10.8, teamCount: 4 },
-                    { name: 'Overseas R&D Center', totalMau: 95, mauChangePercent: 15.0, totalSavedMM: 3.5, teamCount: 8 },
-                    { name: 'Direct', totalMau: 45, mauChangePercent: 0, totalSavedMM: 1.2, teamCount: 3 },
+                    { name: 'SOC Business Team', totalMau: 320, avgDau: 41.2, mauChangePercent: 8.3, totalSavedMM: 15.2, teamCount: 5 },
+                    { name: 'LSI Business Team', totalMau: 210, avgDau: 26.5, mauChangePercent: -2.1, totalSavedMM: 10.8, teamCount: 4 },
+                    { name: 'Overseas R&D Center', totalMau: 95, avgDau: 12.1, mauChangePercent: 15.0, totalSavedMM: 3.5, teamCount: 8 },
+                    { name: 'Direct', totalMau: 45, avgDau: 6.3, mauChangePercent: 0, totalSavedMM: 1.2, teamCount: 3 },
                   ],
                 },
               },
@@ -505,6 +508,7 @@ export const swaggerSpec = {
                         type: 'object' as const,
                         properties: {
                           teamName: { type: 'string' as const },
+                          avgDau: { type: 'number' as const, description: 'Business-day average DAU for this team/group (주말/휴일 제외 평균 DAU)' },
                           mau: { type: 'integer' as const },
                           tokens: { type: 'integer' as const },
                         },
@@ -543,11 +547,11 @@ export const swaggerSpec = {
                   centerName: 'SOC Business Team',
                   period: '2026-03',
                   data: [
-                    { teamName: 'SOC IP Development Team(S.LSI)', mau: 180, tokens: 2518671596 },
-                    { teamName: 'AP S/W Development Team(S.LSI)', mau: 147, tokens: 2850520335 },
-                    { teamName: 'CP S/W Development Team(S.LSI)', mau: 113, tokens: 1852541211 },
-                    { teamName: 'SOC Platform Development Team(S.LSI)', mau: 83, tokens: 758817865 },
-                    { teamName: 'Connectivity Development Team', mau: 58, tokens: 1276602303 },
+                    { teamName: 'SOC IP Development Team(S.LSI)', avgDau: 21.4, mau: 180, tokens: 2518671596 },
+                    { teamName: 'AP S/W Development Team(S.LSI)', avgDau: 18.2, mau: 147, tokens: 2850520335 },
+                    { teamName: 'CP S/W Development Team(S.LSI)', avgDau: 13.6, mau: 113, tokens: 1852541211 },
+                    { teamName: 'SOC Platform Development Team(S.LSI)', avgDau: 9.7, mau: 83, tokens: 758817865 },
+                    { teamName: 'Connectivity Development Team', avgDau: 7.1, mau: 58, tokens: 1276602303 },
                   ],
                   monthlyTrend: [
                     { month: '2025-09', mau: 1, tokens: 147011 },
@@ -600,6 +604,7 @@ export const swaggerSpec = {
                               total: { type: 'integer' as const },
                             },
                           },
+                          avgDau: { type: 'number' as const, description: 'Business-day average DAU for this service (주말/휴일 제외 평균 DAU)' },
                           mau: { type: 'integer' as const },
                         },
                       },
@@ -609,7 +614,7 @@ export const swaggerSpec = {
                 example: {
                   month: '2026-02',
                   services: [
-                    { displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, mau: 45 },
+                    { displayName: 'Nexus Coder', llmCallCount: 5200, tokenUsage: { input: 2500000, output: 1500000, total: 4000000 }, avgDau: 18.7, mau: 45 },
                   ],
                 },
               },
@@ -646,6 +651,7 @@ export const swaggerSpec = {
                           team: { type: 'string' as const, description: 'English team name' },
                           teamKr: { type: 'string' as const, description: 'Korean department name' },
                           tokensM: { type: 'number' as const, description: 'Total tokens in millions' },
+                          avgDau: { type: 'number' as const, description: 'Business-day average DAU for this team (주말/휴일 제외 평균 DAU)' },
                           mau: { type: 'integer' as const, description: 'Monthly active users' },
                           llmCallCount: { type: 'integer' as const, description: 'LLM call count' },
                         },
@@ -657,8 +663,8 @@ export const swaggerSpec = {
                   displayName: 'Nexus Coder',
                   period: '2026-03',
                   teamDetails: [
-                    { team: 'SW Innovation Team', teamKr: 'S/W혁신팀(S.LSI)', tokensM: 1.52, mau: 8, llmCallCount: 2542 },
-                    { team: 'Platform Team', teamKr: '플랫폼팀(S.LSI)', tokensM: 0.83, mau: 3, llmCallCount: 450 },
+                    { team: 'SW Innovation Team', teamKr: 'S/W혁신팀(S.LSI)', tokensM: 1.52, avgDau: 3.4, mau: 8, llmCallCount: 2542 },
+                    { team: 'Platform Team', teamKr: '플랫폼팀(S.LSI)', tokensM: 0.83, avgDau: 1.1, mau: 3, llmCallCount: 450 },
                   ],
                 },
               },

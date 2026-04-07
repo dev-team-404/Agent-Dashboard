@@ -11,7 +11,7 @@ import { Router } from 'express';
 import { prisma } from '../index.js';
 import { redis } from '../index.js';
 import { authenticateToken, requireAdmin, requireSuperAdmin, isSuperAdminByEnv, isModelVisibleTo, extractBusinessUnit } from '../middleware/auth.js';
-import { getActiveUserCount, getTodayUsage } from '../services/redis.service.js';
+import { getActiveUserCount, getTodayUsage, withCache, invalidateCache } from '../services/redis.service.js';
 import { getPrecomputedPerService, getPrecomputedGlobal } from '../services/statsPrecompute.service.js';
 import { z } from 'zod';
 import { lookupEmployee, verifyAndRegisterUser } from '../services/knoxEmployee.service.js';
@@ -466,6 +466,7 @@ adminRoutes.post('/models', async (req, res) => {
                 createdBySuperAdmin: !!req.isSuperAdmin,
             },
         });
+        invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => { });
         res.status(201).json({ model });
     }
     catch (error) {
@@ -592,6 +593,7 @@ adminRoutes.put('/models/:id', async (req, res) => {
             ]);
             console.log(`[Model] displayName changed: "${oldName}" → "${newName}" — updated logs`);
         }
+        invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => { });
         res.json({ model });
     }
     catch (error) {
@@ -604,6 +606,49 @@ adminRoutes.put('/models/:id', async (req, res) => {
  * Delete a model (SUPER_ADMIN only)
  * Query: ?force=true - 사용 기록이 있어도 강제 삭제
  */
+/**
+ * GET /admin/promoted-models
+ * 홍보 모델 목록 조회 (관리용 — 전체 모델의 promoted 상태 포함)
+ */
+adminRoutes.get('/promoted-models', requireSuperAdmin, async (_req, res) => {
+    try {
+        const models = await prisma.model.findMany({
+            where: { enabled: true },
+            select: { id: true, displayName: true, name: true, type: true, promoted: true, sortOrder: true },
+            orderBy: { sortOrder: 'asc' },
+        });
+        res.json({ models });
+    }
+    catch (error) {
+        console.error('Get promoted models error:', error);
+        res.status(500).json({ error: 'Failed to get promoted models' });
+    }
+});
+/**
+ * PUT /admin/models/:id/promoted
+ * 홍보 모델 토글 (슈퍼 관리자 전용)
+ */
+adminRoutes.put('/models/:id/promoted', requireSuperAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { promoted } = req.body;
+        if (typeof promoted !== 'boolean') {
+            res.status(400).json({ error: 'promoted must be a boolean' });
+            return;
+        }
+        const model = await prisma.model.update({
+            where: { id },
+            data: { promoted },
+            select: { id: true, displayName: true, promoted: true },
+        });
+        recordAudit(req, promoted ? 'PROMOTE' : 'UNPROMOTE', model.displayName, 'Model', { action: `홍보 모델 ${promoted ? '등록' : '해제'}`, model: model.displayName });
+        res.json({ model });
+    }
+    catch (error) {
+        console.error('Toggle promoted error:', error);
+        res.status(500).json({ error: 'Failed to toggle promoted status' });
+    }
+});
 adminRoutes.delete('/models/:id', requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -630,6 +675,7 @@ adminRoutes.delete('/models/:id', requireSuperAdmin, async (req, res) => {
         await prisma.model.delete({
             where: { id },
         });
+        invalidateCache(redis, 'cache:admin:models', 'cache:admin:stats:health-status').catch(() => { });
         res.json({
             success: true,
             deletedUsageLogs: force ? usageCount : 0,
@@ -1502,7 +1548,10 @@ adminRoutes.post('/models/test-asr', async (req, res) => {
             return;
         }
         const { endpointUrl, modelName, apiKey, extraHeaders: extraHdrs, asrMethod } = validation.data;
-        const method = asrMethod || 'AUDIO_URL';
+        // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
+        const isWhisper = /whisper/i.test(modelName);
+        const method = isWhisper ? 'OPENAI_TRANSCRIBE' : (asrMethod || 'AUDIO_URL');
+        console.log(`[Test-ASR] method resolve: modelName="${modelName}" stored=${asrMethod} → ${method}`);
         const headers = {};
         if (apiKey)
             headers['Authorization'] = `Bearer ${apiKey}`;
@@ -1522,9 +1571,11 @@ adminRoutes.post('/models/test-asr', async (req, res) => {
                 // Whisper 호환: multipart/form-data → /audio/transcriptions
                 const url = buildAudioTranscriptionsUrl(endpointUrl);
                 const formData = new FormData();
-                formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'test.wav');
+                // File API 사용 (Node.js Blob보다 안정적 — Content-Disposition filename 보장)
+                formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'test.wav', { type: 'audio/wav' }));
                 formData.append('model', modelName);
                 formData.append('response_format', 'json');
+                console.log(`[Test-ASR] OPENAI_TRANSCRIBE → ${url} model=${modelName} wavSize=${wavBuffer.byteLength}`);
                 const response = await fetchWithTimeout(url, {
                     method: 'POST',
                     headers,
@@ -1602,12 +1653,441 @@ adminRoutes.post('/models/test-asr', async (req, res) => {
         catch (err) {
             asr = { passed: false, message: err.message || 'Connection failed', latencyMs: Date.now() - startTime };
         }
-        console.log(`[Test-ASR] Model "${modelName}" method=${method} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+        console.log(`[Test-ASR] Model "${modelName}" method=${method} url=${method === 'OPENAI_TRANSCRIBE' ? buildAudioTranscriptionsUrl(endpointUrl) : buildChatCompletionsUrl(endpointUrl)} -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms) ${asr.message}`);
         res.json({ asr, passed: asr.passed });
     }
     catch (error) {
         console.error('Model test-asr error:', error);
         res.status(500).json({ error: 'Failed to test ASR model' });
+    }
+});
+/**
+ * POST /admin/models/:id/health-check
+ * 서버사이드 헬스체크 (DB에서 실제 API 키 조회 → 마스킹 이슈 없음)
+ * 모델 목록의 헬스체크 버튼용 — 기존 test 엔드포인트와 동일한 수준의 테스트 수행
+ */
+adminRoutes.post('/models/:id/health-check', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const model = await prisma.model.findUnique({
+            where: { id },
+            select: {
+                id: true, name: true, displayName: true, endpointUrl: true,
+                apiKey: true, extraHeaders: true, extraBody: true, type: true,
+                supportsVision: true, asrMethod: true, imageProvider: true,
+            },
+        });
+        if (!model) {
+            res.status(404).json({ error: 'Model not found' });
+            return;
+        }
+        const headers = {};
+        if (model.apiKey)
+            headers['Authorization'] = `Bearer ${model.apiKey}`;
+        if (model.extraHeaders && typeof model.extraHeaders === 'object') {
+            for (const [k, v] of Object.entries(model.extraHeaders)) {
+                const lk = k.toLowerCase();
+                if (lk !== 'content-type' && lk !== 'authorization')
+                    headers[k] = v;
+            }
+        }
+        const totalStart = Date.now();
+        // 헬스체크 결과를 DB에 저장 + Redis 캐시 무효화 (색상 점 즉시 갱신)
+        async function saveHealthLog(success, latencyMs, errorMessage, endpointUrl) {
+            try {
+                await prisma.healthCheckLog.create({
+                    data: {
+                        modelId: model.id,
+                        modelName: model.displayName || model.name,
+                        endpointUrl,
+                        latencyMs,
+                        statusCode: null,
+                        success,
+                        errorMessage,
+                        checkedAt: new Date(),
+                    },
+                });
+                invalidateCache(redis, 'cache:admin:stats:health-status').catch(() => { });
+            }
+            catch (err) {
+                console.error(`[HealthCheck-Manual] Failed to save log:`, err);
+            }
+        }
+        // Non-null assertion: model은 위에서 null 체크 완료
+        const m = model;
+        // ── CHAT ──
+        if (m.type === 'CHAT') {
+            const url = buildChatCompletionsUrl(m.endpointUrl);
+            const chatHeaders = { ...headers, 'Content-Type': 'application/json' };
+            // 1) Chat Completion
+            const chatResult = await testChatCompletion(url, m.name, chatHeaders);
+            // 2) Tool Call A/B/C/D (병렬)
+            const weatherTool = {
+                type: 'function',
+                function: {
+                    name: 'get_weather',
+                    description: 'Get the current weather in a location',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            location: { type: 'string', description: 'City name' },
+                            unit: { type: 'string', enum: ['celsius', 'fahrenheit'] },
+                        },
+                        required: ['location'],
+                    },
+                },
+            };
+            async function runTC(label, opts) {
+                const s = Date.now();
+                const body = {
+                    model: m.name,
+                    messages: [{ role: 'user', content: "What's the weather in Seoul?" }],
+                    tools: [weatherTool],
+                    tool_choice: opts.tool_choice,
+                };
+                if (opts.temperature !== undefined)
+                    body.temperature = opts.temperature;
+                try {
+                    const r = await fetchWithTimeout(url, { method: 'POST', headers: chatHeaders, body: JSON.stringify(body) }, TOOL_CALL_TIMEOUT_MS);
+                    const ms = Date.now() - s;
+                    const txt = await r.text();
+                    if (!r.ok)
+                        return { passed: false, status: r.status, message: `${label} failed (${r.status})`, latencyMs: ms };
+                    const d = JSON.parse(txt);
+                    const tc = d.choices?.[0]?.message?.tool_calls;
+                    if (!tc?.length)
+                        return { passed: false, status: r.status, message: 'No tool_calls', latencyMs: ms };
+                    if (!tc[0].function?.name)
+                        return { passed: false, status: r.status, message: 'Missing function.name', latencyMs: ms };
+                    try {
+                        JSON.parse(tc[0].function.arguments);
+                    }
+                    catch {
+                        return { passed: false, status: r.status, message: 'Invalid arguments JSON', latencyMs: ms };
+                    }
+                    return { passed: true, status: r.status, message: `OK: "${tc[0].function.name}"`, latencyMs: ms };
+                }
+                catch (e) {
+                    return { passed: false, message: e.name === 'AbortError' ? 'Timeout' : e.message, latencyMs: Date.now() - s };
+                }
+            }
+            const [toolCallA, toolCallB, toolCallC, toolCallD] = await Promise.all([
+                runTC('toolCallA', { temperature: 0, tool_choice: 'required' }),
+                runTC('toolCallB', { temperature: 0, tool_choice: 'auto' }),
+                runTC('toolCallC', { tool_choice: 'required' }),
+                runTC('toolCallD', { tool_choice: 'auto' }),
+            ]);
+            const toolCallPassCount = [toolCallA, toolCallB, toolCallC, toolCallD].filter(r => r.passed).length;
+            let allPassed = chatResult.passed && toolCallPassCount >= 2;
+            // 3) Vision 테스트 (supportsVision인 경우)
+            const checks = {
+                chatCompletion: chatResult, toolCallA, toolCallB, toolCallC, toolCallD,
+            };
+            if (m.supportsVision) {
+                const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+                // visionDescribe
+                const ds = Date.now();
+                let vd = { passed: false, message: '', latencyMs: 0 };
+                let description = '';
+                try {
+                    const r = await fetchWithTimeout(url, {
+                        method: 'POST', headers: chatHeaders,
+                        body: JSON.stringify({
+                            model: m.name, messages: [{
+                                    role: 'user', content: [
+                                        { type: 'text', text: 'Describe this image in detail.' },
+                                        { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                                    ],
+                                }], temperature: 0,
+                        }),
+                    }, HEALTH_CHECK_TIMEOUT_MS);
+                    const ms = Date.now() - ds;
+                    const txt = await r.text();
+                    if (!r.ok) {
+                        vd = { passed: false, status: r.status, message: `Vision describe failed (${r.status})`, latencyMs: ms };
+                    }
+                    else {
+                        const d = JSON.parse(txt);
+                        const c = d?.choices?.[0]?.message?.content;
+                        if (c && c.length > 0) {
+                            description = c;
+                            vd = { passed: true, status: r.status, message: `OK: "${c.slice(0, 100)}"`, latencyMs: ms };
+                        }
+                        else {
+                            vd = { passed: false, status: r.status, message: 'No content', latencyMs: ms };
+                        }
+                    }
+                }
+                catch (e) {
+                    vd = { passed: false, message: e.message, latencyMs: Date.now() - ds };
+                }
+                checks.visionDescribe = vd;
+                // visionJudge
+                let vj;
+                if (!vd.passed) {
+                    vj = { passed: false, message: 'Skipped (describe failed)', latencyMs: 0 };
+                }
+                else {
+                    const js = Date.now();
+                    try {
+                        const r = await fetchWithTimeout(url, {
+                            method: 'POST', headers: chatHeaders,
+                            body: JSON.stringify({
+                                model: m.name, messages: [{
+                                        role: 'user', content: [
+                                            { type: 'image_url', image_url: { url: `data:image/png;base64,${testImageBase64}` } },
+                                            { type: 'text', text: `Here is a description: "${description}"\nDoes this accurately describe the image? Mention visual elements. Answer YES or NO.` },
+                                        ],
+                                    }], temperature: 0,
+                            }),
+                        }, HEALTH_CHECK_TIMEOUT_MS);
+                        const ms = Date.now() - js;
+                        const txt = await r.text();
+                        if (!r.ok) {
+                            vj = { passed: false, status: r.status, message: `Vision judge failed (${r.status})`, latencyMs: ms };
+                        }
+                        else {
+                            const c = JSON.parse(txt)?.choices?.[0]?.message?.content || '';
+                            const ok = /yes|color|red|pixel|image|square|small|dot|point/i.test(c);
+                            vj = { passed: ok, status: r.status, message: ok ? `OK: "${c.slice(0, 100)}"` : `Not visual: "${c.slice(0, 100)}"`, latencyMs: ms };
+                        }
+                    }
+                    catch (e) {
+                        vj = { passed: false, message: e.message, latencyMs: Date.now() - js };
+                    }
+                }
+                checks.visionJudge = vj;
+                if (!vd.passed || !vj.passed)
+                    allPassed = false;
+            }
+            const totalLatencyMs = Date.now() - totalStart;
+            console.log(`[HealthCheck-Manual] ${m.displayName} CHAT -> chat:${chatResult.passed} tool:${toolCallPassCount}/4 vision:${m.supportsVision} (${totalLatencyMs}ms)`);
+            await saveHealthLog(allPassed, totalLatencyMs, allPassed ? null : (chatResult.passed ? `Tool: ${toolCallPassCount}/4` : chatResult.message), buildChatCompletionsUrl(m.endpointUrl));
+            res.json({
+                healthCheck: {
+                    healthy: allPassed, checks, toolCallPassCount, allPassed,
+                    message: allPassed ? 'All checks passed' : chatResult.passed ? `Tool: ${toolCallPassCount}/4` : chatResult.message,
+                    totalLatencyMs,
+                },
+            });
+            return;
+        }
+        // ── IMAGE ──
+        if (m.type === 'IMAGE') {
+            const provider = (m.imageProvider || 'OPENAI').toUpperCase();
+            const useAdapter = ['COMFYUI', 'GEMINI', 'PIXABAY', 'PEXELS'].includes(provider);
+            let imageGen;
+            if (useAdapter) {
+                const s = Date.now();
+                try {
+                    const results = await generateImages(provider, {
+                        endpointUrl: m.endpointUrl, apiKey: m.apiKey, modelName: m.name,
+                        extraHeaders: m.extraHeaders || null,
+                        extraBody: m.extraBody || null,
+                    }, { prompt: 'A simple red circle on white background', n: 1, size: '256x256' });
+                    const ms = Date.now() - s;
+                    imageGen = results.length > 0 && results[0].imageBuffer.length > 0
+                        ? { passed: true, status: 200, message: `OK: ${results[0].mimeType} ${results[0].imageBuffer.length}B`, latencyMs: ms }
+                        : { passed: false, message: 'No image data', latencyMs: ms };
+                }
+                catch (e) {
+                    imageGen = { passed: false, message: e.message, latencyMs: Date.now() - s };
+                }
+            }
+            else {
+                const url = buildImagesGenerationsUrl(m.endpointUrl);
+                const imgHeaders = { ...headers, 'Content-Type': 'application/json' };
+                const body = { model: m.name, prompt: 'A simple red circle on white background', n: 1, size: '256x256' };
+                if (m.extraBody && typeof m.extraBody === 'object')
+                    Object.assign(body, m.extraBody);
+                const s = Date.now();
+                try {
+                    const r = await fetchWithTimeout(url, { method: 'POST', headers: imgHeaders, body: JSON.stringify(body) }, HEALTH_CHECK_TIMEOUT_MS);
+                    const ms = Date.now() - s;
+                    const txt = await r.text();
+                    if (!r.ok) {
+                        imageGen = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms };
+                    }
+                    else {
+                        const d = JSON.parse(txt);
+                        const img = d?.data?.[0];
+                        imageGen = img && (img.url || img.b64_json)
+                            ? { passed: true, status: r.status, message: 'OK: image generated', latencyMs: ms }
+                            : { passed: false, status: r.status, message: 'No image data in response', latencyMs: ms };
+                    }
+                }
+                catch (e) {
+                    imageGen = { passed: false, message: e.message, latencyMs: Date.now() - s };
+                }
+            }
+            console.log(`[HealthCheck-Manual] ${m.displayName} IMAGE(${provider}) -> ${imageGen.passed ? 'PASS' : 'FAIL'} (${imageGen.latencyMs}ms)`);
+            await saveHealthLog(imageGen.passed, imageGen.latencyMs, imageGen.passed ? null : imageGen.message, m.endpointUrl);
+            res.json({
+                healthCheck: {
+                    healthy: imageGen.passed,
+                    checks: { chatCompletion: imageGen },
+                    allPassed: imageGen.passed,
+                    message: imageGen.message,
+                    totalLatencyMs: imageGen.latencyMs,
+                },
+            });
+            return;
+        }
+        // ── EMBEDDING ──
+        if (m.type === 'EMBEDDING') {
+            const url = buildEmbeddingsUrl(m.endpointUrl);
+            const s = Date.now();
+            let emb;
+            try {
+                const r = await fetchWithTimeout(url, {
+                    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: m.name, input: 'Hello world, this is a test embedding request.' }),
+                }, HEALTH_CHECK_TIMEOUT_MS);
+                const ms = Date.now() - s;
+                const txt = await r.text();
+                if (!r.ok) {
+                    emb = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms };
+                }
+                else {
+                    const vec = JSON.parse(txt)?.data?.[0]?.embedding;
+                    emb = Array.isArray(vec) && vec.length > 0
+                        ? { passed: true, status: r.status, message: `OK: ${vec.length}-dim`, latencyMs: ms }
+                        : { passed: false, status: r.status, message: 'No embedding vector', latencyMs: ms };
+                }
+            }
+            catch (e) {
+                emb = { passed: false, message: e.message, latencyMs: Date.now() - s };
+            }
+            console.log(`[HealthCheck-Manual] ${m.displayName} EMBEDDING -> ${emb.passed ? 'PASS' : 'FAIL'} (${emb.latencyMs}ms)`);
+            await saveHealthLog(emb.passed, emb.latencyMs, emb.passed ? null : emb.message, buildEmbeddingsUrl(m.endpointUrl));
+            res.json({
+                healthCheck: {
+                    healthy: emb.passed,
+                    checks: { chatCompletion: emb },
+                    allPassed: emb.passed,
+                    message: emb.message,
+                    totalLatencyMs: emb.latencyMs,
+                },
+            });
+            return;
+        }
+        // ── RERANKING ──
+        if (m.type === 'RERANKING') {
+            const url = buildRerankUrl(m.endpointUrl);
+            const s = Date.now();
+            let rr;
+            try {
+                const r = await fetchWithTimeout(url, {
+                    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: m.name, query: 'What is machine learning?',
+                        documents: ['Machine learning is a subset of AI.', 'The weather is sunny.', 'Deep learning uses neural networks.'],
+                    }),
+                }, HEALTH_CHECK_TIMEOUT_MS);
+                const ms = Date.now() - s;
+                const txt = await r.text();
+                if (!r.ok) {
+                    rr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 300)}`, latencyMs: ms };
+                }
+                else {
+                    const results = JSON.parse(txt);
+                    const arr = results?.results || results?.data;
+                    rr = Array.isArray(arr) && arr.length > 0 && arr[0].relevance_score !== undefined
+                        ? { passed: true, status: r.status, message: `OK: ${arr.length} results reranked`, latencyMs: ms }
+                        : { passed: false, status: r.status, message: 'No rerank results', latencyMs: ms };
+                }
+            }
+            catch (e) {
+                rr = { passed: false, message: e.message, latencyMs: Date.now() - s };
+            }
+            console.log(`[HealthCheck-Manual] ${m.displayName} RERANKING -> ${rr.passed ? 'PASS' : 'FAIL'} (${rr.latencyMs}ms)`);
+            await saveHealthLog(rr.passed, rr.latencyMs, rr.passed ? null : rr.message, buildRerankUrl(m.endpointUrl));
+            res.json({
+                healthCheck: {
+                    healthy: rr.passed,
+                    checks: { chatCompletion: rr },
+                    allPassed: rr.passed,
+                    message: rr.message,
+                    totalLatencyMs: rr.latencyMs,
+                },
+            });
+            return;
+        }
+        // ── ASR ──
+        if (m.type === 'ASR') {
+            // whisper 모델은 항상 OPENAI_TRANSCRIBE (AUDIO_URL은 /chat/completions → 404)
+            const isWhisper = /whisper/i.test(m.name) || /whisper/i.test(m.displayName || '');
+            const method = isWhisper ? 'OPENAI_TRANSCRIBE' : (m.asrMethod || 'AUDIO_URL');
+            const wavBuffer = generateSilentWavBuffer(1);
+            const s = Date.now();
+            let asr;
+            try {
+                if (method === 'OPENAI_TRANSCRIBE') {
+                    const url = buildAudioTranscriptionsUrl(m.endpointUrl);
+                    const formData = new FormData();
+                    formData.append('file', new File([new Uint8Array(wavBuffer.buffer, wavBuffer.byteOffset, wavBuffer.byteLength)], 'healthcheck.wav', { type: 'audio/wav' }));
+                    formData.append('model', m.name);
+                    formData.append('response_format', 'json');
+                    console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${m.name} (stored=${m.asrMethod})`);
+                    const r = await fetchWithTimeout(url, { method: 'POST', headers, body: formData }, 60000);
+                    const ms = Date.now() - s;
+                    const txt = await r.text();
+                    if (!r.ok) {
+                        asr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 500)}`, latencyMs: ms };
+                    }
+                    else {
+                        const d = JSON.parse(txt);
+                        asr = d.text !== undefined
+                            ? { passed: true, status: r.status, message: `OK: ${d.text.length} chars`, latencyMs: ms }
+                            : { passed: false, status: r.status, message: `Missing "text": ${txt.substring(0, 300)}`, latencyMs: ms };
+                    }
+                }
+                else {
+                    const url = buildChatCompletionsUrl(m.endpointUrl);
+                    console.log(`[HealthCheck-Manual] ASR ${method} → ${url} model=${m.name} (stored=${m.asrMethod})`);
+                    const r = await fetchWithTimeout(url, {
+                        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: m.name,
+                            messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: { data: wavBuffer.toString('base64'), format: 'wav' } }] }],
+                            max_tokens: 256, temperature: 0.0, stream: false,
+                        }),
+                    }, 60000);
+                    const ms = Date.now() - s;
+                    const txt = await r.text();
+                    if (!r.ok) {
+                        asr = { passed: false, status: r.status, message: `HTTP ${r.status}: ${txt.substring(0, 500)}`, latencyMs: ms };
+                    }
+                    else {
+                        const c = JSON.parse(txt)?.choices?.[0]?.message?.content;
+                        asr = c !== undefined
+                            ? { passed: true, status: r.status, message: `OK: ${String(c).length} chars`, latencyMs: ms }
+                            : { passed: false, status: r.status, message: `Missing content: ${txt.substring(0, 300)}`, latencyMs: ms };
+                    }
+                }
+            }
+            catch (e) {
+                asr = { passed: false, message: e.message, latencyMs: Date.now() - s };
+            }
+            console.log(`[HealthCheck-Manual] ${m.displayName} ASR(${method}) -> ${asr.passed ? 'PASS' : 'FAIL'} (${asr.latencyMs}ms)`);
+            await saveHealthLog(asr.passed, asr.latencyMs, asr.passed ? null : asr.message, method === 'OPENAI_TRANSCRIBE' ? buildAudioTranscriptionsUrl(m.endpointUrl) : buildChatCompletionsUrl(m.endpointUrl));
+            res.json({
+                healthCheck: {
+                    healthy: asr.passed,
+                    checks: { chatCompletion: asr },
+                    allPassed: asr.passed,
+                    message: asr.message,
+                    totalLatencyMs: asr.latencyMs,
+                },
+            });
+            return;
+        }
+        // Unknown type
+        res.status(400).json({ error: `Unknown model type: ${model.type}` });
+    }
+    catch (error) {
+        console.error('Health check error:', error);
+        res.status(500).json({ error: 'Failed to run health check' });
     }
 });
 // ==================== Users Management ====================
@@ -1785,6 +2265,7 @@ adminRoutes.post('/users/:id/promote', requireSuperAdmin, async (req, res) => {
             },
         });
         recordAudit(req, 'PROMOTE_USER', user.loginid, 'User', { username: user.username, role }).catch(() => { });
+        invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => { });
         res.json({
             success: true,
             admin,
@@ -1824,6 +2305,7 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
             where: { loginid: user.loginid },
         });
         recordAudit(req, 'DEMOTE_USER', user.loginid, 'User', { username: user.username, previousRole: admin.role }).catch(() => { });
+        invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => { });
         res.json({
             success: true,
             message: `${user.username} demoted from admin`,
@@ -1837,12 +2319,10 @@ adminRoutes.delete('/users/:id/demote', requireSuperAdmin, async (req, res) => {
 // ==================== Unified Users (SUPER_ADMIN) ====================
 /**
  * GET /admin/unified-users
- * 사용자 관리 (SYSTEM ADMIN 이상)
- * - SUPER_ADMIN: 전체 사용자
- * - ADMIN: 본인 팀(dept) 사용자만
+ * 사용자 관리 (SUPER_ADMIN 전용)
  * Query: ?page=, ?limit=, ?search=, ?serviceId=, ?businessUnit=, ?role=
  */
-adminRoutes.get('/unified-users', async (req, res) => {
+adminRoutes.get('/unified-users', requireSuperAdmin, async (req, res) => {
     try {
         const page = parseInt(req.query['page']) || 1;
         const limit = Math.min(100, parseInt(req.query['limit']) || 50);
@@ -1854,6 +2334,7 @@ adminRoutes.get('/unified-users', async (req, res) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const whereClause = {
             loginid: { not: 'anonymous' },
+            isTestAccount: false,
         };
         // SYSTEM ADMIN: 본인 팀 사용자만 보이게 제한
         if (req.adminRole !== 'SUPER_ADMIN') {
@@ -1875,7 +2356,130 @@ adminRoutes.get('/unified-users', async (req, res) => {
         if (serviceId) {
             whereClause.userServices = { some: { serviceId } };
         }
-        // Role filter: need to check admin table
+        // Admin 목록 1회만 조회 (role filter + admin lookup 공용)
+        const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
+        const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
+        const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
+        // Role filter
+        if (role === 'SUPER_ADMIN') {
+            const superAdminIds = [...developers, ...allAdmins.filter(a => a.role === 'SUPER_ADMIN').map(a => a.loginid)];
+            whereClause.loginid = { in: superAdminIds, not: 'anonymous' };
+        }
+        else if (role === 'ADMIN') {
+            const adminIds = allAdmins.filter(a => a.role === 'ADMIN').map(a => a.loginid);
+            whereClause.loginid = { in: adminIds, not: 'anonymous' };
+        }
+        else if (role === 'USER') {
+            const allAdminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
+            whereClause.loginid = { notIn: [...allAdminIds], not: 'anonymous' };
+        }
+        // 유저 목록 + 카운트 + 필터옵션 전부 병렬
+        // _count: usageLogs 제거 → userServices.requestCount 합산으로 대체 (50x COUNT 서브쿼리 제거)
+        const [users, total, services, businessUnits] = await Promise.all([
+            prisma.user.findMany({
+                where: whereClause,
+                skip,
+                take: limit,
+                orderBy: { lastActive: 'desc' },
+                include: {
+                    userServices: {
+                        include: {
+                            service: { select: { id: true, name: true, displayName: true } },
+                        },
+                    },
+                },
+            }),
+            prisma.user.count({ where: whereClause }),
+            prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+                orderBy: { displayName: 'asc' },
+            }),
+            prisma.user.findMany({
+                where: { businessUnit: { not: null }, loginid: { not: 'anonymous' }, isTestAccount: false },
+                select: { businessUnit: true },
+                distinct: ['businessUnit'],
+            }),
+        ]);
+        const mappedUsers = users.map(u => {
+            let globalRole = 'USER';
+            if (developers.includes(u.loginid)) {
+                globalRole = 'SUPER_ADMIN';
+            }
+            else if (adminMap.has(u.loginid)) {
+                globalRole = adminMap.get(u.loginid);
+            }
+            return {
+                id: u.id,
+                loginid: u.loginid,
+                username: u.username,
+                deptname: u.deptname,
+                businessUnit: u.businessUnit,
+                knoxVerified: u.knoxVerified,
+                globalRole,
+                firstSeen: u.firstSeen,
+                lastActive: u.lastActive,
+                totalRequests: u.userServices.reduce((sum, us) => sum + us.requestCount, 0),
+                serviceStats: u.userServices.map(us => ({
+                    serviceId: us.service.id,
+                    serviceName: us.service.displayName,
+                    firstSeen: us.firstSeen,
+                    lastActive: us.lastActive,
+                    requestCount: us.requestCount,
+                })),
+            };
+        });
+        res.json({
+            users: mappedUsers,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+            filterOptions: {
+                services,
+                businessUnits: businessUnits.map(b => b.businessUnit).filter(Boolean),
+                deptnames: [],
+                roles: ['SUPER_ADMIN', 'ADMIN', 'USER'],
+            },
+        });
+    }
+    catch (error) {
+        console.error('Get unified users error:', error);
+        res.status(500).json({ error: 'Failed to get unified users' });
+    }
+});
+/**
+ * GET /admin/unified-users/export
+ * 전체 사용자 목록 내보내기 (SUPER_ADMIN 전용)
+ * Query: ?search=, ?serviceId=, ?businessUnit=, ?role=
+ */
+adminRoutes.get('/unified-users/export', requireSuperAdmin, async (req, res) => {
+    try {
+        const search = req.query['search'];
+        const serviceId = req.query['serviceId'];
+        const businessUnit = req.query['businessUnit'];
+        const role = req.query['role'];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const whereClause = {
+            loginid: { not: 'anonymous' },
+            isTestAccount: false,
+        };
+        if (req.adminRole !== 'SUPER_ADMIN') {
+            const adminDept = req.adminDept || req.user?.deptname || '';
+            if (adminDept) {
+                whereClause.deptname = adminDept;
+            }
+        }
+        if (search) {
+            whereClause.OR = [
+                { loginid: { contains: search, mode: 'insensitive' } },
+                { username: { contains: search, mode: 'insensitive' } },
+                { deptname: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+        if (businessUnit) {
+            whereClause.businessUnit = businessUnit;
+        }
+        if (serviceId) {
+            whereClause.userServices = { some: { serviceId } };
+        }
         let adminLoginIds;
         if (role === 'SUPER_ADMIN') {
             const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -1900,24 +2504,18 @@ adminRoutes.get('/unified-users', async (req, res) => {
             const adminIds = new Set([...allAdmins.map(a => a.loginid), ...developers]);
             whereClause.loginid = { notIn: [...adminIds], not: 'anonymous' };
         }
-        const [users, total] = await Promise.all([
-            prisma.user.findMany({
-                where: whereClause,
-                skip,
-                take: limit,
-                orderBy: { lastActive: 'desc' },
-                include: {
-                    userServices: {
-                        include: {
-                            service: { select: { id: true, name: true, displayName: true } },
-                        },
+        const users = await prisma.user.findMany({
+            where: whereClause,
+            orderBy: { lastActive: 'desc' },
+            include: {
+                userServices: {
+                    include: {
+                        service: { select: { id: true, name: true, displayName: true } },
                     },
-                    _count: { select: { usageLogs: true } },
                 },
-            }),
-            prisma.user.count({ where: whereClause }),
-        ]);
-        // Admin lookup
+                _count: { select: { usageLogs: true } },
+            },
+        });
         const allAdmins = await prisma.admin.findMany({ select: { loginid: true, role: true } });
         const adminMap = new Map(allAdmins.map(a => [a.loginid, a.role]));
         const developers = (process.env['DEVELOPERS'] || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -1935,57 +2533,64 @@ adminRoutes.get('/unified-users', async (req, res) => {
                 username: u.username,
                 deptname: u.deptname,
                 businessUnit: u.businessUnit,
-                knoxVerified: u.knoxVerified,
                 globalRole,
-                firstSeen: u.firstSeen,
-                lastActive: u.lastActive,
                 totalRequests: u._count.usageLogs,
                 serviceStats: u.userServices.map(us => ({
                     serviceId: us.service.id,
                     serviceName: us.service.displayName,
-                    firstSeen: us.firstSeen,
-                    lastActive: us.lastActive,
                     requestCount: us.requestCount,
                 })),
             };
         });
-        // Filter options
-        const [services, businessUnits] = await Promise.all([
-            prisma.service.findMany({
-                where: { enabled: true },
-                select: { id: true, name: true, displayName: true },
-                orderBy: { displayName: 'asc' },
-            }),
-            prisma.user.findMany({
-                where: { businessUnit: { not: null }, loginid: { not: 'anonymous' } },
-                select: { businessUnit: true },
-                distinct: ['businessUnit'],
-            }),
-        ]);
+        // 월별 집계: user_id + service_id 별 요청수
+        const userIds = users.map(u => u.id);
+        let monthlyStats = [];
+        if (userIds.length > 0) {
+            monthlyStats = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(timestamp, 'YYYY-MM') as month,
+          user_id,
+          service_id,
+          SUM(request_count)::bigint as count
+        FROM usage_logs
+        WHERE user_id = ANY(${userIds})
+          AND service_id IS NOT NULL
+        GROUP BY month, user_id, service_id
+        ORDER BY month
+      `;
+        }
+        // 서비스 이름 맵
+        const serviceMap = new Map();
+        users.forEach(u => u.userServices.forEach(us => {
+            serviceMap.set(us.service.id, us.service.displayName);
+        }));
+        // { "2025-01": { userId: { serviceId: count } } }
+        const monthly = {};
+        for (const row of monthlyStats) {
+            const m = row.month;
+            if (!monthly[m])
+                monthly[m] = {};
+            if (!monthly[m][row.user_id])
+                monthly[m][row.user_id] = {};
+            monthly[m][row.user_id][row.service_id] = Number(row.count);
+        }
         res.json({
             users: mappedUsers,
-            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-            filterOptions: {
-                services,
-                businessUnits: businessUnits.map(b => b.businessUnit).filter(Boolean),
-                deptnames: [],
-                roles: ['SUPER_ADMIN', 'ADMIN', 'USER'],
-            },
+            monthly,
+            serviceMap: Object.fromEntries(serviceMap),
         });
     }
     catch (error) {
-        console.error('Get unified users error:', error);
-        res.status(500).json({ error: 'Failed to get unified users' });
+        console.error('Export unified users error:', error);
+        res.status(500).json({ error: 'Failed to export unified users' });
     }
 });
 /**
  * PUT /admin/unified-users/:id/permissions
- * 사용자 권한 변경
- * - SUPER_ADMIN: 모든 역할 변경 가능 (ADMIN, SUPER_ADMIN, USER)
- * - ADMIN: ADMIN 역할만 지정/해제 가능 (본인 팀 사용자만)
+ * 사용자 권한 변경 (SUPER_ADMIN 전용)
  * Body: { globalRole?: 'ADMIN' | 'SUPER_ADMIN' }
  */
-adminRoutes.put('/unified-users/:id/permissions', async (req, res) => {
+adminRoutes.put('/unified-users/:id/permissions', requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { globalRole } = req.body;
@@ -2205,67 +2810,71 @@ adminRoutes.delete('/users/:id/rate-limit', async (req, res) => {
 adminRoutes.get('/stats/overview', async (req, res) => {
     try {
         const serviceId = req.query['serviceId'];
-        const serviceFilter = getServiceFilter(serviceId);
-        // Dept-scoped filter for non-super admins
-        const deptFilter = (!req.isSuperAdmin && req.adminBusinessUnit)
-            ? { user: { businessUnit: req.adminBusinessUnit } }
-            : {};
-        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-        const [activeUsers, todayUsage, totalUsers, totalModels] = await Promise.all([
-            serviceId
-                ? prisma.usageLog.groupBy({
-                    by: ['userId'],
+        const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
+        const result = await withCache(redis, `cache:admin:stats:overview:${serviceId || 'all'}:${bu}`, 30, async () => {
+            const serviceFilter = getServiceFilter(serviceId);
+            // Dept-scoped filter for non-super admins
+            const deptFilter = (!req.isSuperAdmin && req.adminBusinessUnit)
+                ? { user: { businessUnit: req.adminBusinessUnit } }
+                : {};
+            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+            const [activeUsers, todayUsage, totalUsers, totalModels] = await Promise.all([
+                serviceId
+                    ? prisma.usageLog.groupBy({
+                        by: ['userId'],
+                        where: {
+                            serviceId,
+                            timestamp: { gte: thirtyMinutesAgo },
+                            user: { loginid: { not: 'anonymous' }, ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}) },
+                        },
+                    }).then((r) => r.length)
+                    : getActiveUserCount(redis),
+                getTodayUsage(redis),
+                prisma.user.count({
+                    where: {
+                        isActive: true,
+                        loginid: { not: 'anonymous' },
+                        usageLogs: { some: serviceFilter },
+                        ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
+                    },
+                }),
+                prisma.model.count({
+                    where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+                }),
+            ]);
+            // 서비스별 today's usage (DB에서 계산)
+            let serviceTodayUsage = todayUsage;
+            if (serviceId) {
+                const todayStart = new Date();
+                todayStart.setHours(0, 0, 0, 0);
+                const todayStats = await prisma.usageLog.aggregate({
                     where: {
                         serviceId,
-                        timestamp: { gte: thirtyMinutesAgo },
-                        user: { loginid: { not: 'anonymous' }, ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}) },
+                        timestamp: { gte: todayStart },
+                        ...deptFilter,
                     },
-                }).then((r) => r.length)
-                : getActiveUserCount(redis),
-            getTodayUsage(redis),
-            prisma.user.count({
-                where: {
-                    isActive: true,
-                    loginid: { not: 'anonymous' },
-                    usageLogs: { some: serviceFilter },
-                    ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
-                },
-            }),
-            prisma.model.count({
-                where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
-            }),
-        ]);
-        // 서비스별 today's usage (DB에서 계산)
-        let serviceTodayUsage = todayUsage;
-        if (serviceId) {
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const todayStats = await prisma.usageLog.aggregate({
-                where: {
-                    serviceId,
-                    timestamp: { gte: todayStart },
-                    ...deptFilter,
-                },
-                _sum: {
-                    inputTokens: true,
-                    outputTokens: true,
-                    totalTokens: true,
-                    requestCount: true,
-                },
-            });
-            serviceTodayUsage = {
-                requests: todayStats._sum?.requestCount || 0,
-                inputTokens: todayStats._sum.inputTokens || 0,
-                outputTokens: todayStats._sum.outputTokens || 0,
+                    _sum: {
+                        inputTokens: true,
+                        outputTokens: true,
+                        totalTokens: true,
+                        requestCount: true,
+                    },
+                });
+                serviceTodayUsage = {
+                    requests: todayStats._sum?.requestCount || 0,
+                    inputTokens: todayStats._sum.inputTokens || 0,
+                    outputTokens: todayStats._sum.outputTokens || 0,
+                };
+            }
+            return {
+                activeUsers,
+                todayUsage: serviceTodayUsage,
+                totalUsers,
+                totalModels,
+                serviceId: serviceId || null,
             };
-        }
-        res.json({
-            activeUsers,
-            todayUsage: serviceTodayUsage,
-            totalUsers,
-            totalModels,
-            serviceId: serviceId || null,
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get overview stats error:', error);
@@ -2281,44 +2890,46 @@ adminRoutes.get('/stats/daily', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // UsageLog를 날짜별로 SQL 집계
-        let whereClause = `WHERE ul.timestamp >= $1`;
-        const params = [startDate];
-        let paramIdx = 2;
-        if (serviceId) {
-            whereClause += ` AND ul.service_id = $${paramIdx}`;
-            params.push(serviceId);
-            paramIdx++;
-        }
-        if (!req.isSuperAdmin && req.adminBusinessUnit) {
-            whereClause += ` AND u.business_unit = $${paramIdx}`;
-            params.push(req.adminBusinessUnit);
-            paramIdx++;
-        }
-        const dailyStats = await prisma.$queryRawUnsafe(`
-      SELECT
-        DATE(ul.timestamp) as date,
-        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
-        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
-      FROM usage_logs ul
-      LEFT JOIN users u ON ul.user_id = u.id
-      ${whereClause}
-      GROUP BY DATE(ul.timestamp)
-      ORDER BY date ASC
-    `, ...params);
-        const result = dailyStats.map(r => ({
-            date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
-            _sum: {
-                totalInputTokens: Number(r.total_input),
-                totalOutputTokens: Number(r.total_output),
-                requestCount: Number(r.req_count),
-            },
-        }));
-        res.json({ dailyStats: result });
+        const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
+        const result = await withCache(redis, `cache:admin:stats:daily:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            let whereClause = `WHERE ul.timestamp >= $1`;
+            const params = [startDate];
+            let paramIdx = 2;
+            if (serviceId) {
+                whereClause += ` AND ul.service_id = $${paramIdx}`;
+                params.push(serviceId);
+                paramIdx++;
+            }
+            if (bu) {
+                whereClause += ` AND u.business_unit = $${paramIdx}`;
+                params.push(bu);
+                paramIdx++;
+            }
+            const dailyStats = await prisma.$queryRawUnsafe(`
+        SELECT
+          DATE(ul.timestamp) as date,
+          COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+          COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+          COALESCE(SUM(request_count), 0) as req_count
+        FROM usage_logs ul
+        LEFT JOIN users u ON ul.user_id = u.id
+        ${whereClause}
+        GROUP BY DATE(ul.timestamp)
+        ORDER BY date ASC
+      `, ...params);
+            return { dailyStats: dailyStats.map(r => ({
+                    date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
+                    _sum: {
+                        totalInputTokens: Number(r.total_input),
+                        totalOutputTokens: Number(r.total_output),
+                        requestCount: Number(r.req_count),
+                    },
+                })) };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get daily stats error:', error);
@@ -2334,43 +2945,37 @@ adminRoutes.get('/stats/by-user', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        const userStats = await prisma.usageLog.groupBy({
-            by: ['userId'],
-            where: {
-                timestamp: { gte: startDate },
-                user: {
-                    loginid: { not: 'anonymous' },
-                    ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { businessUnit: req.adminBusinessUnit } : {}),
+        const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
+        const result = await withCache(redis, `cache:admin:stats:by-user:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            const userStats = await prisma.usageLog.groupBy({
+                by: ['userId'],
+                where: {
+                    timestamp: { gte: startDate },
+                    user: {
+                        loginid: { not: 'anonymous' },
+                        ...(bu ? { businessUnit: bu } : {}),
+                    },
+                    ...getServiceFilter(serviceId),
                 },
-                ...getServiceFilter(serviceId),
-            },
-            _sum: {
-                inputTokens: true,
-                outputTokens: true,
-                totalTokens: true,
-            },
-            _count: true,
-            orderBy: {
-                _sum: {
-                    totalTokens: 'desc',
-                },
-            },
-            take: 20,
+                _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+                _count: true,
+                orderBy: { _sum: { totalTokens: 'desc' } },
+                take: 20,
+            });
+            const userIds = userStats.map((s) => s.userId).filter((id) => id !== null);
+            const users = await prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: { id: true, loginid: true, username: true, deptname: true },
+            });
+            const userMap = new Map(users.map((u) => [u.id, u]));
+            return { userStats: userStats.map((s) => ({
+                    ...s,
+                    user: s.userId ? userMap.get(s.userId) : null,
+                })) };
         });
-        // Get user details
-        const userIds = userStats.map((s) => s.userId).filter((id) => id !== null);
-        const users = await prisma.user.findMany({
-            where: { id: { in: userIds } },
-            select: { id: true, loginid: true, username: true, deptname: true },
-        });
-        const userMap = new Map(users.map((u) => [u.id, u]));
-        const statsWithUsers = userStats.map((s) => ({
-            ...s,
-            user: s.userId ? userMap.get(s.userId) : null,
-        }));
-        res.json({ userStats: statsWithUsers });
+        res.json(result);
     }
     catch (error) {
         console.error('Get user stats error:', error);
@@ -2386,39 +2991,121 @@ adminRoutes.get('/stats/by-model', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        const modelStats = await prisma.usageLog.groupBy({
-            by: ['modelId'],
-            where: {
-                timestamp: { gte: startDate },
-                ...getServiceFilter(serviceId),
-                ...((!req.isSuperAdmin && req.adminBusinessUnit) ? { user: { businessUnit: req.adminBusinessUnit } } : {}),
-            },
-            _sum: {
-                inputTokens: true,
-                outputTokens: true,
-                totalTokens: true,
-            },
-            _count: true,
-            orderBy: {
-                _sum: {
-                    totalTokens: 'desc',
+        const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
+        const result = await withCache(redis, `cache:admin:stats:by-model:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            const modelStats = await prisma.usageLog.groupBy({
+                by: ['modelId'],
+                where: {
+                    timestamp: { gte: startDate },
+                    ...getServiceFilter(serviceId),
+                    ...(bu ? { user: { businessUnit: bu } } : {}),
                 },
-            },
+                _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+                _count: true,
+                orderBy: { _sum: { totalTokens: 'desc' } },
+            });
+            const modelIds = modelStats.map((s) => s.modelId);
+            const models = await prisma.model.findMany({
+                where: { id: { in: modelIds } },
+                select: { id: true, name: true, displayName: true, endpointUrl: true, sortOrder: true },
+            });
+            const modelMap = new Map(models.map((m) => [m.id, m]));
+            // 서비스별 조회: aliasName 기준 합산
+            if (serviceId) {
+                const aliasRows = await prisma.serviceModel.findMany({
+                    where: { serviceId },
+                    select: { modelId: true, aliasName: true },
+                    orderBy: { sortOrder: 'asc' },
+                });
+                const modelToAlias = new Map();
+                for (const r of aliasRows) {
+                    if (!modelToAlias.has(r.modelId))
+                        modelToAlias.set(r.modelId, r.aliasName);
+                }
+                const aliasGroupMap = new Map();
+                for (const s of modelStats) {
+                    const alias = modelToAlias.get(s.modelId) || modelMap.get(s.modelId)?.displayName || 'Unknown';
+                    const mName = modelMap.get(s.modelId)?.displayName || '';
+                    const existing = aliasGroupMap.get(alias);
+                    if (!existing) {
+                        aliasGroupMap.set(alias, {
+                            sumInput: s._sum.inputTokens || 0, sumOutput: s._sum.outputTokens || 0,
+                            sumTotal: s._sum.totalTokens || 0, count: s._count,
+                            modelNames: mName ? [mName] : [],
+                        });
+                    }
+                    else {
+                        existing.sumInput += s._sum.inputTokens || 0;
+                        existing.sumOutput += s._sum.outputTokens || 0;
+                        existing.sumTotal += s._sum.totalTokens || 0;
+                        existing.count += s._count;
+                        if (mName && !existing.modelNames.includes(mName))
+                            existing.modelNames.push(mName);
+                    }
+                }
+                return {
+                    modelStats: [...aliasGroupMap.entries()]
+                        .sort((a, b) => b[1].sumTotal - a[1].sumTotal)
+                        .map(([alias, g]) => ({
+                        modelId: alias,
+                        _sum: { inputTokens: g.sumInput, outputTokens: g.sumOutput, totalTokens: g.sumTotal },
+                        _count: g.count,
+                        model: { id: alias, name: alias, displayName: alias },
+                        mergedFrom: g.modelNames.length > 1 ? g.modelNames : undefined,
+                    })),
+                };
+            }
+            // 글로벌 조회: endpoint+name 기준 합산
+            const groupMap = new Map();
+            for (const s of modelStats) {
+                const m = modelMap.get(s.modelId);
+                if (!m)
+                    continue;
+                const groupKey = `${m.endpointUrl}::${m.name}`;
+                const existing = groupMap.get(groupKey);
+                if (!existing) {
+                    groupMap.set(groupKey, {
+                        canonicalName: m.name, canonicalDisplayName: m.displayName, sortOrder: m.sortOrder,
+                        allNames: [m.displayName],
+                        sumInput: s._sum.inputTokens || 0, sumOutput: s._sum.outputTokens || 0,
+                        sumTotal: s._sum.totalTokens || 0, count: s._count,
+                    });
+                }
+                else {
+                    if (!existing.allNames.includes(m.displayName))
+                        existing.allNames.push(m.displayName);
+                    if (m.sortOrder < existing.sortOrder) {
+                        existing.canonicalDisplayName = m.displayName;
+                        existing.sortOrder = m.sortOrder;
+                    }
+                    existing.sumInput += s._sum.inputTokens || 0;
+                    existing.sumOutput += s._sum.outputTokens || 0;
+                    existing.sumTotal += s._sum.totalTokens || 0;
+                    existing.count += s._count;
+                }
+            }
+            const mergedStats = [...groupMap.entries()]
+                .sort((a, b) => b[1].sumTotal - a[1].sumTotal)
+                .map(([groupKey, g]) => ({
+                modelId: groupKey,
+                _sum: { inputTokens: g.sumInput, outputTokens: g.sumOutput, totalTokens: g.sumTotal },
+                _count: g.count,
+                model: { id: groupKey, name: g.canonicalName, displayName: g.canonicalDisplayName },
+                mergedFrom: g.allNames.length > 1 ? g.allNames : undefined,
+            }));
+            const mergeGroups = {};
+            for (const [, g] of groupMap) {
+                if (g.allNames.length > 1)
+                    mergeGroups[g.canonicalDisplayName] = g.allNames;
+            }
+            return {
+                modelStats: mergedStats,
+                ...(Object.keys(mergeGroups).length > 0 ? { mergeGroups } : {}),
+            };
         });
-        // Get model details
-        const modelIds = modelStats.map((s) => s.modelId);
-        const models = await prisma.model.findMany({
-            where: { id: { in: modelIds } },
-            select: { id: true, name: true, displayName: true },
-        });
-        const modelMap = new Map(models.map((m) => [m.id, m]));
-        const statsWithModels = modelStats.map((s) => ({
-            ...s,
-            model: modelMap.get(s.modelId),
-        }));
-        res.json({ modelStats: statsWithModels });
+        res.json(result);
     }
     catch (error) {
         console.error('Get model stats error:', error);
@@ -2434,42 +3121,45 @@ adminRoutes.get('/stats/by-dept', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        let whereClause = `WHERE ul.timestamp >= $1`;
-        const params = [startDate];
-        let paramIdx = 2;
-        if (serviceId) {
-            whereClause += ` AND ul.service_id = $${paramIdx}`;
-            params.push(serviceId);
-            paramIdx++;
-        }
-        if (!req.isSuperAdmin && req.adminBusinessUnit) {
-            whereClause += ` AND u.business_unit = $${paramIdx}`;
-            params.push(req.adminBusinessUnit);
-            paramIdx++;
-        }
-        const deptStats = await prisma.$queryRawUnsafe(`
-      SELECT
-        COALESCE(u.deptname, 'Unknown') as deptname,
-        COALESCE(SUM(ul."inputTokens"), 0) as total_input,
-        COALESCE(SUM(ul."outputTokens"), 0) as total_output,
-        COALESCE(SUM(request_count), 0) as req_count
-      FROM usage_logs ul
-      LEFT JOIN users u ON ul.user_id = u.id
-      ${whereClause}
-      GROUP BY u.deptname
-      ORDER BY total_input DESC
-    `, ...params);
-        const result = deptStats.map(r => ({
-            deptname: r.deptname,
-            _sum: {
-                totalInputTokens: Number(r.total_input),
-                totalOutputTokens: Number(r.total_output),
-                requestCount: Number(r.req_count),
-            },
-        }));
-        res.json({ deptStats: result });
+        const bu = (!req.isSuperAdmin && req.adminBusinessUnit) ? req.adminBusinessUnit : '';
+        const result = await withCache(redis, `cache:admin:stats:by-dept:${days}:${serviceId || 'all'}:${bu}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            let whereClause = `WHERE ul.timestamp >= $1`;
+            const params = [startDate];
+            let paramIdx = 2;
+            if (serviceId) {
+                whereClause += ` AND ul.service_id = $${paramIdx}`;
+                params.push(serviceId);
+                paramIdx++;
+            }
+            if (bu) {
+                whereClause += ` AND u.business_unit = $${paramIdx}`;
+                params.push(bu);
+                paramIdx++;
+            }
+            const deptStats = await prisma.$queryRawUnsafe(`
+        SELECT
+          COALESCE(u.deptname, 'Unknown') as deptname,
+          COALESCE(SUM(ul."inputTokens"), 0) as total_input,
+          COALESCE(SUM(ul."outputTokens"), 0) as total_output,
+          COALESCE(SUM(request_count), 0) as req_count
+        FROM usage_logs ul
+        LEFT JOIN users u ON ul.user_id = u.id
+        ${whereClause}
+        GROUP BY u.deptname
+        ORDER BY total_input DESC
+      `, ...params);
+            return { deptStats: deptStats.map(r => ({
+                    deptname: r.deptname,
+                    _sum: {
+                        totalInputTokens: Number(r.total_input),
+                        totalOutputTokens: Number(r.total_output),
+                        requestCount: Number(r.req_count),
+                    },
+                })) };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get dept stats error:', error);
@@ -2485,63 +3175,64 @@ adminRoutes.get('/stats/daily-active-users', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 30));
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get distinct users per day from usage logs (excluding anonymous)
-        let dailyUsers;
-        if (serviceId) {
-            dailyUsers = await prisma.$queryRaw `
-        SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY DATE(ul.timestamp)
-        ORDER BY date ASC
-      `;
-        }
-        else {
-            dailyUsers = await prisma.$queryRaw `
-        SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-        GROUP BY DATE(ul.timestamp)
-        ORDER BY date ASC
-      `;
-        }
-        const chartData = dailyUsers.map((item) => ({
-            date: formatDateToString(item.date),
-            userCount: Number(item.user_count),
-        }));
-        // Get total unique users in period
-        let totalUsers;
-        if (serviceId) {
-            totalUsers = await prisma.$queryRaw `
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id::text = ${serviceId}
-      `;
-        }
-        else {
-            totalUsers = await prisma.$queryRaw `
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-      `;
-        }
-        res.json({
-            chartData,
-            totalUniqueUsers: Number(totalUsers[0]?.count || 0),
+        const result = await withCache(redis, `cache:admin:stats:dau:${days}:${serviceId || 'all'}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            let dailyUsers;
+            if (serviceId) {
+                dailyUsers = await prisma.$queryRaw `
+          SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+            AND ul.service_id::text = ${serviceId}
+          GROUP BY DATE(ul.timestamp)
+          ORDER BY date ASC
+        `;
+            }
+            else {
+                dailyUsers = await prisma.$queryRaw `
+          SELECT DATE(ul.timestamp) as date, COUNT(DISTINCT ul.user_id) as user_count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+          GROUP BY DATE(ul.timestamp)
+          ORDER BY date ASC
+        `;
+            }
+            const chartData = dailyUsers.map((item) => ({
+                date: formatDateToString(item.date),
+                userCount: Number(item.user_count),
+            }));
+            let totalUsers;
+            if (serviceId) {
+                totalUsers = await prisma.$queryRaw `
+          SELECT COUNT(DISTINCT ul.user_id) as count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+            AND ul.service_id::text = ${serviceId}
+        `;
+            }
+            else {
+                totalUsers = await prisma.$queryRaw `
+          SELECT COUNT(DISTINCT ul.user_id) as count
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+        `;
+            }
+            return {
+                chartData,
+                totalUniqueUsers: Number(totalUsers[0]?.count || 0),
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get daily active users error:', error);
@@ -2557,79 +3248,82 @@ adminRoutes.get('/stats/cumulative-users', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 30));
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get the first usage date for each user
-        let userFirstUsage;
-        let existingUsers;
-        if (serviceId) {
-            userFirstUsage = await prisma.$queryRaw `
-        SELECT DATE(first_usage) as first_date, COUNT(*) as new_users
-        FROM (
-          SELECT ul.user_id, MIN(ul.timestamp) as first_usage
+        const result = await withCache(redis, `cache:admin:stats:cumulative-users:${days}:${serviceId || 'all'}`, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get the first usage date for each user
+            let userFirstUsage;
+            let existingUsers;
+            if (serviceId) {
+                userFirstUsage = await prisma.$queryRaw `
+          SELECT DATE(first_usage) as first_date, COUNT(*) as new_users
+          FROM (
+            SELECT ul.user_id, MIN(ul.timestamp) as first_usage
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+              AND ul.service_id::text = ${serviceId}
+            GROUP BY ul.user_id
+          ) as user_first
+          WHERE first_usage >= ${startDate}
+          GROUP BY DATE(first_usage)
+          ORDER BY first_date ASC
+        `;
+                existingUsers = await prisma.$queryRaw `
+          SELECT COUNT(DISTINCT ul.user_id) as count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE ul.timestamp < ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND ul.service_id::text = ${serviceId}
-          GROUP BY ul.user_id
-        ) as user_first
-        WHERE first_usage >= ${startDate}
-        GROUP BY DATE(first_usage)
-        ORDER BY first_date ASC
-      `;
-            existingUsers = await prisma.$queryRaw `
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp < ${startDate}
-          AND u.loginid != 'anonymous'
-          AND ul.service_id::text = ${serviceId}
-      `;
-        }
-        else {
-            userFirstUsage = await prisma.$queryRaw `
-        SELECT DATE(first_usage) as first_date, COUNT(*) as new_users
-        FROM (
-          SELECT ul.user_id, MIN(ul.timestamp) as first_usage
+        `;
+            }
+            else {
+                userFirstUsage = await prisma.$queryRaw `
+          SELECT DATE(first_usage) as first_date, COUNT(*) as new_users
+          FROM (
+            SELECT ul.user_id, MIN(ul.timestamp) as first_usage
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            GROUP BY ul.user_id
+          ) as user_first
+          WHERE first_usage >= ${startDate}
+          GROUP BY DATE(first_usage)
+          ORDER BY first_date ASC
+        `;
+                existingUsers = await prisma.$queryRaw `
+          SELECT COUNT(DISTINCT ul.user_id) as count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
-          GROUP BY ul.user_id
-        ) as user_first
-        WHERE first_usage >= ${startDate}
-        GROUP BY DATE(first_usage)
-        ORDER BY first_date ASC
-      `;
-            existingUsers = await prisma.$queryRaw `
-        SELECT COUNT(DISTINCT ul.user_id) as count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp < ${startDate}
-          AND u.loginid != 'anonymous'
-      `;
-        }
-        let cumulativeCount = Number(existingUsers[0]?.count || 0);
-        const newUsersMap = new Map(userFirstUsage.map((item) => [
-            formatDateToString(item.first_date),
-            Number(item.new_users),
-        ]));
-        const chartData = [];
-        const endDate = new Date();
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const newUsers = newUsersMap.get(dateStr) || 0;
-            cumulativeCount += newUsers;
-            chartData.push({
-                date: dateStr,
-                cumulativeUsers: cumulativeCount,
-                newUsers,
-            });
-        }
-        res.json({
-            chartData,
-            totalUsers: cumulativeCount,
+          WHERE ul.timestamp < ${startDate}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+        `;
+            }
+            let cumulativeCount = Number(existingUsers[0]?.count || 0);
+            const newUsersMap = new Map(userFirstUsage.map((item) => [
+                formatDateToString(item.first_date),
+                Number(item.new_users),
+            ]));
+            const chartData = [];
+            const endDate = new Date();
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const newUsers = newUsersMap.get(dateStr) || 0;
+                cumulativeCount += newUsers;
+                chartData.push({
+                    date: dateStr,
+                    cumulativeUsers: cumulativeCount,
+                    newUsers,
+                });
+            }
+            return {
+                chartData,
+                totalUsers: cumulativeCount,
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get cumulative users error:', error);
@@ -2645,83 +3339,105 @@ adminRoutes.get('/stats/model-daily-trend', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 30));
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get models that were actually USED
-        let modelIds;
-        if (serviceId) {
-            const usedModels = await prisma.$queryRaw `
-        SELECT DISTINCT model_id
-        FROM usage_logs
-        WHERE timestamp >= ${startDate}
-          AND service_id::text = ${serviceId}
-      `;
-            modelIds = usedModels.map((m) => m.model_id);
-        }
-        else {
-            const usedModels = await prisma.$queryRaw `
-        SELECT DISTINCT model_id
-        FROM usage_logs
-        WHERE timestamp >= ${startDate}
-      `;
-            modelIds = usedModels.map((m) => m.model_id);
-        }
-        // Get model details for the used models
-        const models = await prisma.model.findMany({
-            where: { id: { in: modelIds } },
-            select: { id: true, name: true, displayName: true },
-        });
-        // Get daily stats grouped by model and date
-        let dailyStats;
-        if (serviceId) {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(timestamp) as date, model_id, SUM("totalTokens") as total_tokens
-        FROM usage_logs
-        WHERE timestamp >= ${startDate}
-          AND service_id::text = ${serviceId}
-        GROUP BY DATE(timestamp), model_id
-        ORDER BY date ASC
-      `;
-        }
-        else {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(timestamp) as date, model_id, SUM("totalTokens") as total_tokens
-        FROM usage_logs
-        WHERE timestamp >= ${startDate}
-        GROUP BY DATE(timestamp), model_id
-        ORDER BY date ASC
-      `;
-        }
-        // Process into date-keyed structure
-        const dateMap = new Map();
-        const existingModelIds = models.map((m) => m.id);
-        const endDate1 = new Date();
-        for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const initialData = {};
-            for (const modelId of existingModelIds) {
-                initialData[modelId] = 0;
+        const result = await withCache(redis, `cache:admin:stats:model-daily-trend:${days}:${serviceId || 'all'}`, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get daily stats grouped by model and date
+            let dailyStats;
+            if (serviceId) {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(timestamp) as date, model_id, SUM("totalTokens") as total_tokens
+          FROM usage_logs
+          WHERE timestamp >= ${startDate} AND service_id::text = ${serviceId}
+          GROUP BY DATE(timestamp), model_id
+          ORDER BY date ASC
+        `;
             }
-            dateMap.set(dateStr, initialData);
-        }
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const existing = dateMap.get(dateStr);
-            if (existing) {
-                existing[stat.model_id] = Number(stat.total_tokens);
+            else {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(timestamp) as date, model_id, SUM("totalTokens") as total_tokens
+          FROM usage_logs
+          WHERE timestamp >= ${startDate}
+          GROUP BY DATE(timestamp), model_id
+          ORDER BY date ASC
+        `;
             }
-        }
-        const chartData = Array.from(dateMap.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([date, modelUsage]) => ({
-            date,
-            ...modelUsage,
-        }));
-        res.json({
-            models: models.map((m) => ({ id: m.id, name: m.name, displayName: m.displayName })),
-            chartData,
+            // 서비스별 조회: aliasName 기준 합산
+            if (serviceId) {
+                const aliasRows = await prisma.serviceModel.findMany({
+                    where: { serviceId },
+                    select: { modelId: true, aliasName: true, sortOrder: true },
+                    orderBy: { sortOrder: 'asc' },
+                });
+                const modelToAlias = new Map();
+                for (const r of aliasRows) {
+                    if (!modelToAlias.has(r.modelId))
+                        modelToAlias.set(r.modelId, r.aliasName);
+                }
+                // service_models에 없는 모델(삭제됨 등)은 모델 displayName으로 fallback
+                const unmappedIds = [...new Set(dailyStats.map(s => s.model_id))].filter(id => !modelToAlias.has(id));
+                if (unmappedIds.length > 0) {
+                    const fallbackModels = await prisma.model.findMany({
+                        where: { id: { in: unmappedIds } },
+                        select: { id: true, displayName: true },
+                    });
+                    for (const fm of fallbackModels)
+                        modelToAlias.set(fm.id, fm.displayName);
+                }
+                const aliasNames = [...new Set([...aliasRows.map(r => r.aliasName), ...unmappedIds.map(id => modelToAlias.get(id))])].filter(Boolean);
+                const dateMap = new Map();
+                const endDate1 = new Date();
+                for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
+                    const dateStr = toLocalDateString(d);
+                    const init = {};
+                    for (const a of aliasNames)
+                        init[a] = 0;
+                    dateMap.set(dateStr, init);
+                }
+                for (const stat of dailyStats) {
+                    const dateStr = formatDateToString(stat.date);
+                    const alias = modelToAlias.get(stat.model_id);
+                    if (alias && dateMap.has(dateStr)) {
+                        dateMap.get(dateStr)[alias] = (dateMap.get(dateStr)[alias] || 0) + Number(stat.total_tokens);
+                    }
+                }
+                return {
+                    models: aliasNames.map(n => ({ id: n, name: n, displayName: n })),
+                    chartData: [...dateMap.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, usage]) => ({ date, ...usage })),
+                };
+            }
+            // 글로벌 조회: 개별 모델 기준
+            const usedModelIds = [...new Set(dailyStats.map(s => s.model_id))];
+            const models = await prisma.model.findMany({
+                where: { id: { in: usedModelIds } },
+                select: { id: true, name: true, displayName: true },
+            });
+            const existingModelIds = models.map((m) => m.id);
+            const dateMap = new Map();
+            const endDate1 = new Date();
+            for (let d = new Date(startDate); d <= endDate1; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const initialData = {};
+                for (const modelId of existingModelIds)
+                    initialData[modelId] = 0;
+                dateMap.set(dateStr, initialData);
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const existing = dateMap.get(dateStr);
+                if (existing)
+                    existing[stat.model_id] = Number(stat.total_tokens);
+            }
+            const chartData = Array.from(dateMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, modelUsage]) => ({ date, ...modelUsage }));
+            return {
+                models: models.map((m) => ({ id: m.id, name: m.name, displayName: m.displayName })),
+                chartData,
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get model daily trend error:', error);
@@ -2736,101 +3452,124 @@ adminRoutes.get('/stats/model-daily-trend', async (req, res) => {
 adminRoutes.get('/stats/model-user-trend', async (req, res) => {
     try {
         const modelId = req.query['modelId'];
-        if (!modelId) {
-            res.status(400).json({ error: 'modelId is required' });
+        const aliasName = req.query['aliasName'];
+        if (!modelId && !aliasName) {
+            res.status(400).json({ error: 'modelId or aliasName is required' });
             return;
         }
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 30));
         const topN = Math.min(100, Math.max(10, parseInt(req.query['topN']) || 10));
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get top N users by total usage for this model
-        const topUsers = await prisma.usageLog.groupBy({
-            by: ['userId'],
-            where: {
-                modelId,
-                timestamp: { gte: startDate },
-                user: {
-                    loginid: { not: 'anonymous' },
-                },
-                ...getServiceFilter(serviceId),
-            },
-            _sum: {
-                totalTokens: true,
-            },
-            orderBy: {
-                _sum: {
-                    totalTokens: 'desc',
-                },
-            },
-            take: topN,
-        });
-        const topUserIds = topUsers.map((u) => u.userId).filter((id) => id !== null);
-        // Get user details
-        const users = await prisma.user.findMany({
-            where: { id: { in: topUserIds } },
-            select: { id: true, loginid: true, username: true, deptname: true },
-        });
-        // Get daily stats for these users
-        let dailyStats;
-        if (serviceId) {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
-        FROM usage_logs
-        WHERE model_id::text = ${modelId}
-          AND user_id::text = ANY(${topUserIds})
-          AND timestamp >= ${startDate}
-          AND service_id::text = ${serviceId}
-        GROUP BY DATE(timestamp), user_id
-        ORDER BY date ASC
-      `;
+        // aliasName이 제공되면 해당 alias의 모든 model_id를 조회
+        let targetModelIds;
+        if (aliasName && serviceId) {
+            const sms = await prisma.serviceModel.findMany({
+                where: { serviceId, aliasName },
+                select: { modelId: true },
+            });
+            targetModelIds = sms.map(sm => sm.modelId);
+            if (targetModelIds.length === 0) {
+                res.json({ users: [], chartData: [] });
+                return;
+            }
         }
         else {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
-        FROM usage_logs
-        WHERE model_id::text = ${modelId}
-          AND user_id::text = ANY(${topUserIds})
-          AND timestamp >= ${startDate}
-        GROUP BY DATE(timestamp), user_id
-        ORDER BY date ASC
-      `;
+            targetModelIds = [modelId];
         }
-        // Process into date-keyed structure
-        const dateMap = new Map();
-        const endDate2 = new Date();
-        for (let d = new Date(startDate); d <= endDate2; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const initialData = {};
-            for (const userId of topUserIds) {
-                if (userId)
-                    initialData[userId] = 0;
+        const cacheKey = aliasName
+            ? `cache:admin:stats:model-user-trend:alias:${aliasName}:${days}:${topN}:${serviceId || 'all'}`
+            : `cache:admin:stats:model-user-trend:${modelId}:${days}:${topN}:${serviceId || 'all'}`;
+        const result = await withCache(redis, cacheKey, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get top N users by total usage for this model (or alias group)
+            const topUsers = await prisma.usageLog.groupBy({
+                by: ['userId'],
+                where: {
+                    modelId: targetModelIds.length === 1 ? targetModelIds[0] : { in: targetModelIds },
+                    timestamp: { gte: startDate },
+                    user: {
+                        loginid: { not: 'anonymous' },
+                    },
+                    ...getServiceFilter(serviceId),
+                },
+                _sum: {
+                    totalTokens: true,
+                },
+                orderBy: {
+                    _sum: {
+                        totalTokens: 'desc',
+                    },
+                },
+                take: topN,
+            });
+            const topUserIds = topUsers.map((u) => u.userId).filter((id) => id !== null);
+            // Get user details
+            const users = await prisma.user.findMany({
+                where: { id: { in: topUserIds } },
+                select: { id: true, loginid: true, username: true, deptname: true },
+            });
+            // Get daily stats for these users
+            let dailyStats;
+            if (serviceId) {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
+          FROM usage_logs
+          WHERE model_id::text = ANY(${targetModelIds})
+            AND user_id::text = ANY(${topUserIds})
+            AND timestamp >= ${startDate}
+            AND service_id::text = ${serviceId}
+          GROUP BY DATE(timestamp), user_id
+          ORDER BY date ASC
+        `;
             }
-            dateMap.set(dateStr, initialData);
-        }
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const existing = dateMap.get(dateStr);
-            if (existing) {
-                existing[stat.user_id] = Number(stat.total_tokens);
+            else {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(timestamp) as date, user_id, SUM("totalTokens") as total_tokens
+          FROM usage_logs
+          WHERE model_id::text = ANY(${targetModelIds})
+            AND user_id::text = ANY(${topUserIds})
+            AND timestamp >= ${startDate}
+          GROUP BY DATE(timestamp), user_id
+          ORDER BY date ASC
+        `;
             }
-        }
-        const chartData = Array.from(dateMap.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([date, userUsage]) => ({
-            date,
-            ...userUsage,
-        }));
-        const usersWithTotal = users.map((u) => {
-            const total = topUsers.find((t) => t.userId === u.id)?._sum.totalTokens || 0;
-            return { ...u, totalTokens: total };
-        }).sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0));
-        res.json({
-            users: usersWithTotal,
-            chartData,
+            // Process into date-keyed structure
+            const dateMap = new Map();
+            const endDate2 = new Date();
+            for (let d = new Date(startDate); d <= endDate2; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const initialData = {};
+                for (const userId of topUserIds) {
+                    if (userId)
+                        initialData[userId] = 0;
+                }
+                dateMap.set(dateStr, initialData);
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const existing = dateMap.get(dateStr);
+                if (existing) {
+                    existing[stat.user_id] = Number(stat.total_tokens);
+                }
+            }
+            const chartData = Array.from(dateMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, userUsage]) => ({
+                date,
+                ...userUsage,
+            }));
+            const usersWithTotal = users.map((u) => {
+                const total = topUsers.find((t) => t.userId === u.id)?._sum.totalTokens || 0;
+                return { ...u, totalTokens: total };
+            }).sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0));
+            return {
+                users: usersWithTotal,
+                chartData,
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get model user trend error:', error);
@@ -2845,50 +3584,71 @@ adminRoutes.get('/stats/model-user-trend', async (req, res) => {
  */
 adminRoutes.get('/stats/latency', async (req, res) => {
     try {
-        const now = new Date();
-        const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-        const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        // 서비스+모델별 latency 집계 쿼리
-        const latencyStats = await prisma.$queryRaw `
-      SELECT
-        s.id as service_id,
-        s."displayName" as service_name,
-        m.id as model_id,
-        m."displayName" as model_name,
-        AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
-        AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
-        AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
-        AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
-        COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
-        COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
-        COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
-        COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
-      FROM usage_logs ul
-      INNER JOIN services s ON ul.service_id = s.id
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= ${oneDayAgo}
-      GROUP BY s.id, s."displayName", m.id, m."displayName"
-      ORDER BY s."displayName", m."displayName"
-    `;
-        // 결과 포맷팅
-        const stats = latencyStats.map(row => ({
-            serviceId: row.service_id,
-            serviceName: row.service_name,
-            modelId: row.model_id,
-            modelName: row.model_name,
-            avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
-            avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
-            avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
-            avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
-            count10m: Number(row.count_10m),
-            count30m: Number(row.count_30m),
-            count1h: Number(row.count_1h),
-            count24h: Number(row.count_24h),
-        }));
-        res.json({ stats, timestamp: now.toISOString() });
+        const result = await withCache(redis, `cache:admin:stats:latency`, 60, async () => {
+            const now = new Date();
+            const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+            const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+            const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+            const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            // 동일 endpoint + model name 합산: CTE로 canonical displayName 결정 (sortOrder 가장 낮은 모델명)
+            const latencyStats = await prisma.$queryRaw `
+        WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          s.id as service_id,
+          s."displayName" as service_name,
+          m.endpoint_url || '::' || m.name as model_group_key,
+          mc.canonical_name as model_name,
+          array_agg(DISTINCT m."displayName") as merged_names,
+          AVG(CASE WHEN ul.timestamp >= ${tenMinutesAgo} THEN ul.latency_ms END) as avg_10m,
+          AVG(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} THEN ul.latency_ms END) as avg_30m,
+          AVG(CASE WHEN ul.timestamp >= ${oneHourAgo} THEN ul.latency_ms END) as avg_1h,
+          AVG(CASE WHEN ul.timestamp >= ${oneDayAgo} THEN ul.latency_ms END) as avg_24h,
+          COUNT(CASE WHEN ul.timestamp >= ${tenMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_10m,
+          COUNT(CASE WHEN ul.timestamp >= ${thirtyMinutesAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_30m,
+          COUNT(CASE WHEN ul.timestamp >= ${oneHourAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_1h,
+          COUNT(CASE WHEN ul.timestamp >= ${oneDayAgo} AND ul.latency_ms IS NOT NULL THEN 1 END) as count_24h
+        FROM usage_logs ul
+        INNER JOIN services s ON ul.service_id = s.id
+        INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE ul.latency_ms IS NOT NULL
+          AND ul.timestamp >= ${oneDayAgo}
+        GROUP BY s.id, s."displayName", m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY s."displayName", mc.canonical_name
+      `;
+            // mergeGroups: 합산된 모델 그룹 정보 (2개 이상 합산된 경우만)
+            const mergeGroups = {};
+            for (const row of latencyStats) {
+                if (row.merged_names.length > 1) {
+                    mergeGroups[row.model_name] = row.merged_names;
+                }
+            }
+            return {
+                stats: latencyStats.map(row => ({
+                    serviceId: row.service_id,
+                    serviceName: row.service_name,
+                    modelId: row.model_group_key,
+                    modelName: row.model_name,
+                    mergedFrom: row.merged_names.length > 1 ? row.merged_names : undefined,
+                    avg10m: row.avg_10m ? Math.round(row.avg_10m) : null,
+                    avg30m: row.avg_30m ? Math.round(row.avg_30m) : null,
+                    avg1h: row.avg_1h ? Math.round(row.avg_1h) : null,
+                    avg24h: row.avg_24h ? Math.round(row.avg_24h) : null,
+                    count10m: Number(row.count_10m),
+                    count30m: Number(row.count_30m),
+                    count1h: Number(row.count_1h),
+                    count24h: Number(row.count_24h),
+                })),
+                mergeGroups: Object.keys(mergeGroups).length > 0 ? mergeGroups : undefined,
+                timestamp: now.toISOString(),
+            };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get latency stats error:', error);
@@ -2904,70 +3664,79 @@ adminRoutes.get('/stats/latency/history', async (req, res) => {
     try {
         const hours = Math.min(72, Math.max(1, parseInt(req.query['hours']) || 24));
         const interval = Math.min(60, Math.max(5, parseInt(req.query['interval']) || 10));
-        const now = new Date();
-        const startTime = new Date();
-        startTime.setHours(startTime.getHours() - hours);
-        // Generate all time buckets for the range
-        const allBuckets = [];
-        const bucketStart = new Date(startTime);
-        bucketStart.setMinutes(Math.floor(bucketStart.getMinutes() / interval) * interval, 0, 0);
-        while (bucketStart <= now) {
-            allBuckets.push(new Date(bucketStart));
-            bucketStart.setMinutes(bucketStart.getMinutes() + interval);
-        }
-        // interval 분 단위로 집계
-        const historyData = await prisma.$queryRaw `
-      SELECT
-        date_trunc('hour', ul.timestamp) +
-          (EXTRACT(minute FROM ul.timestamp)::int / ${interval}) * interval '${interval} minutes' as time_bucket,
-        s.id as service_id,
-        s."displayName" as service_name,
-        m.id as model_id,
-        m."displayName" as model_name,
-        AVG(ul.latency_ms) as avg_latency,
-        COALESCE(SUM(request_count), 0) as request_count
-      FROM usage_logs ul
-      INNER JOIN services s ON ul.service_id = s.id
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= ${startTime}
-      GROUP BY time_bucket, s.id, s."displayName", m.id, m."displayName"
-      ORDER BY time_bucket ASC, s."displayName", m."displayName"
-    `;
-        // Get unique service/model combinations that have any data in the period
-        const uniqueKeys = new Set();
-        const dataMap = new Map();
-        for (const row of historyData) {
-            const key = `${row.service_name} / ${row.model_name}`;
-            uniqueKeys.add(key);
-            if (!dataMap.has(key)) {
-                dataMap.set(key, new Map());
+        const result = await withCache(redis, `cache:admin:stats:latency:history:${hours}:${interval}`, 60, async () => {
+            const now = new Date();
+            const startTime = new Date();
+            startTime.setHours(startTime.getHours() - hours);
+            // Generate all time buckets for the range
+            const allBuckets = [];
+            const bucketStart = new Date(startTime);
+            bucketStart.setMinutes(Math.floor(bucketStart.getMinutes() / interval) * interval, 0, 0);
+            while (bucketStart <= now) {
+                allBuckets.push(new Date(bucketStart));
+                bucketStart.setMinutes(bucketStart.getMinutes() + interval);
             }
-            dataMap.get(key).set(row.time_bucket.toISOString(), {
-                avgLatency: Math.round(row.avg_latency),
-                count: Number(row.request_count),
-            });
-        }
-        // Build complete history with 0 for missing time buckets
-        const groupedData = {};
-        for (const key of uniqueKeys) {
-            const keyDataMap = dataMap.get(key);
-            groupedData[key] = allBuckets.map(bucket => {
-                const bucketTime = bucket.toISOString();
-                const data = keyDataMap.get(bucketTime);
-                return {
-                    time: bucketTime,
-                    avgLatency: data?.avgLatency ?? 0,
-                    count: data?.count ?? 0,
-                };
-            });
-        }
-        res.json({
-            history: groupedData,
-            startTime: startTime.toISOString(),
-            endTime: now.toISOString(),
-            intervalMinutes: interval,
+            // interval 분 단위로 집계 (동일 endpoint+name 모델 합산)
+            const historyData = await prisma.$queryRaw `
+        WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          date_trunc('hour', ul.timestamp) +
+            (EXTRACT(minute FROM ul.timestamp)::int / ${interval}) * interval '${interval} minutes' as time_bucket,
+          s.id as service_id,
+          s."displayName" as service_name,
+          mc.canonical_name as model_name,
+          AVG(ul.latency_ms) as avg_latency,
+          COALESCE(SUM(request_count), 0) as request_count
+        FROM usage_logs ul
+        INNER JOIN services s ON ul.service_id = s.id
+        INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE ul.latency_ms IS NOT NULL
+          AND ul.timestamp >= ${startTime}
+        GROUP BY time_bucket, s.id, s."displayName", m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY time_bucket ASC, s."displayName", mc.canonical_name
+      `;
+            // Get unique service/model combinations that have any data in the period
+            const uniqueKeys = new Set();
+            const dataMap = new Map();
+            for (const row of historyData) {
+                const key = `${row.service_name} / ${row.model_name}`;
+                uniqueKeys.add(key);
+                if (!dataMap.has(key)) {
+                    dataMap.set(key, new Map());
+                }
+                dataMap.get(key).set(row.time_bucket.toISOString(), {
+                    avgLatency: Math.round(row.avg_latency),
+                    count: Number(row.request_count),
+                });
+            }
+            // Build complete history with 0 for missing time buckets
+            const groupedData = {};
+            for (const key of uniqueKeys) {
+                const keyDataMap = dataMap.get(key);
+                groupedData[key] = allBuckets.map(bucket => {
+                    const bucketTime = bucket.toISOString();
+                    const data = keyDataMap.get(bucketTime);
+                    return {
+                        time: bucketTime,
+                        avgLatency: data?.avgLatency ?? 0,
+                        count: data?.count ?? 0,
+                    };
+                });
+            }
+            return {
+                history: groupedData,
+                startTime: startTime.toISOString(),
+                endTime: now.toISOString(),
+                intervalMinutes: interval,
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get latency history error:', error);
@@ -2982,38 +3751,71 @@ adminRoutes.get('/stats/latency/history', async (req, res) => {
 adminRoutes.get('/stats/latency/healthcheck', async (req, res) => {
     try {
         const hours = Math.min(72, Math.max(1, parseInt(req.query['hours']) || 24));
-        const startTime = new Date();
-        startTime.setHours(startTime.getHours() - hours);
-        const checks = await prisma.healthCheckLog.findMany({
-            where: { checkedAt: { gte: startTime } },
-            orderBy: { checkedAt: 'asc' },
-            select: {
-                modelId: true,
-                latencyMs: true,
-                success: true,
-                statusCode: true,
-                errorMessage: true,
-                checkedAt: true,
-                model: { select: { displayName: true } },
-            },
-        });
-        // 모델별로 그룹핑 (현재 displayName 기준)
-        const grouped = {};
-        for (const c of checks) {
-            // 시계 변경 등으로 음수/비정상 latency 필터링
-            if (c.latencyMs != null && c.latencyMs < 0)
-                continue;
-            const displayName = c.model.displayName;
-            if (!grouped[displayName])
-                grouped[displayName] = [];
-            grouped[displayName].push({
-                time: c.checkedAt.toISOString(),
-                latency: c.latencyMs,
-                success: c.success,
-                error: c.errorMessage || undefined,
+        const result = await withCache(redis, `cache:admin:stats:latency:healthcheck:${hours}`, 60, async () => {
+            const startTime = new Date();
+            startTime.setHours(startTime.getHours() - hours);
+            const checks = await prisma.healthCheckLog.findMany({
+                where: { checkedAt: { gte: startTime } },
+                orderBy: { checkedAt: 'asc' },
+                select: {
+                    modelId: true,
+                    latencyMs: true,
+                    success: true,
+                    statusCode: true,
+                    errorMessage: true,
+                    checkedAt: true,
+                    model: { select: { displayName: true, endpointUrl: true, name: true, sortOrder: true } },
+                },
             });
-        }
-        res.json({ history: grouped, startTime: startTime.toISOString() });
+            // 동일 endpoint+name 모델 합산: canonical displayName 결정 (sortOrder 가장 낮은 모델명)
+            const canonicalMap = new Map();
+            for (const c of checks) {
+                const groupKey = `${c.model.endpointUrl}::${c.model.name}`;
+                const existing = canonicalMap.get(groupKey);
+                if (!existing) {
+                    canonicalMap.set(groupKey, { canonicalName: c.model.displayName, sortOrder: c.model.sortOrder, allNames: new Set([c.model.displayName]) });
+                }
+                else {
+                    existing.allNames.add(c.model.displayName);
+                    if (c.model.sortOrder < existing.sortOrder) {
+                        existing.canonicalName = c.model.displayName;
+                        existing.sortOrder = c.model.sortOrder;
+                    }
+                }
+            }
+            // modelId → canonical displayName 매핑
+            const modelIdToCanonical = new Map();
+            for (const c of checks) {
+                if (!modelIdToCanonical.has(c.modelId)) {
+                    const groupKey = `${c.model.endpointUrl}::${c.model.name}`;
+                    modelIdToCanonical.set(c.modelId, canonicalMap.get(groupKey).canonicalName);
+                }
+            }
+            // canonical displayName 기준으로 그룹핑
+            const grouped = {};
+            for (const c of checks) {
+                if (c.latencyMs != null && c.latencyMs < 0)
+                    continue;
+                const displayName = modelIdToCanonical.get(c.modelId) || c.model.displayName;
+                if (!grouped[displayName])
+                    grouped[displayName] = [];
+                grouped[displayName].push({
+                    time: c.checkedAt.toISOString(),
+                    latency: c.latencyMs,
+                    success: c.success,
+                    error: c.errorMessage || undefined,
+                });
+            }
+            // mergeGroups
+            const mergeGroups = {};
+            for (const [, info] of canonicalMap) {
+                if (info.allNames.size > 1) {
+                    mergeGroups[info.canonicalName] = [...info.allNames].sort();
+                }
+            }
+            return { history: grouped, startTime: startTime.toISOString(), ...(Object.keys(mergeGroups).length > 0 ? { mergeGroups } : {}) };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get healthcheck history error:', error);
@@ -3032,65 +3834,82 @@ adminRoutes.get('/stats/latency/trend', async (req, res) => {
         const granularity = req.query['granularity'] || 'daily';
         const defaultDays = granularity === 'monthly' ? 180 : granularity === 'weekly' ? 84 : 30;
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || defaultDays));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
-        const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
-        // 1. 헬스체크 프로빙 추이 (현재 displayName 기준 JOIN)
-        const hcTrend = await prisma.$queryRawUnsafe(`SELECT
-        date_trunc($1, h.checked_at) as period,
-        m."displayName" as model_name,
-        AVG(h.latency_ms) as avg_latency,
-        COUNT(*) FILTER (WHERE h.success = true) as success_count,
-        COUNT(*) as total_count
-      FROM health_check_logs h
-      INNER JOIN models m ON h.model_id = m.id
-      WHERE h.checked_at >= $2
-      GROUP BY period, m."displayName"
-      ORDER BY period, m."displayName"`, trunc, startDate);
-        // 2. 실사용 기반 추이
-        const usageTrend = await prisma.$queryRawUnsafe(`SELECT
-        date_trunc($1, ul.timestamp) as period,
-        m."displayName" as model_name,
-        AVG(ul.latency_ms) as avg_latency,
-        COUNT(*) as request_count
-      FROM usage_logs ul
-      INNER JOIN models m ON ul.model_id = m.id
-      WHERE ul.latency_ms IS NOT NULL
-        AND ul.timestamp >= $2
-      GROUP BY period, m."displayName"
-      ORDER BY period, m."displayName"`, trunc, startDate);
-        // 그룹핑
-        const formatPeriod = (d) => {
-            if (granularity === 'monthly')
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            return d.toISOString().split('T')[0];
-        };
-        const healthcheck = {};
-        for (const row of hcTrend) {
-            const key = row.model_name;
-            if (!healthcheck[key])
-                healthcheck[key] = [];
-            healthcheck[key].push({
-                period: formatPeriod(row.period),
-                avgLatency: Math.round(row.avg_latency),
-                successRate: Number(row.total_count) > 0 ? Math.round(Number(row.success_count) / Number(row.total_count) * 100) : 0,
-                count: Number(row.total_count),
-            });
-        }
-        const usage = {};
-        for (const row of usageTrend) {
-            const key = row.model_name;
-            if (!usage[key])
-                usage[key] = [];
-            usage[key].push({
-                period: formatPeriod(row.period),
-                avgLatency: Math.round(row.avg_latency),
-                count: Number(row.request_count),
-            });
-        }
-        res.json({ healthcheck, usage, granularity, days });
+        const result = await withCache(redis, `cache:admin:stats:latency:trend:${granularity}:${days}`, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // date_trunc granularity — validated enum이므로 $queryRawUnsafe 안전
+            const trunc = granularity === 'monthly' ? 'month' : granularity === 'weekly' ? 'week' : 'day';
+            // 1. 헬스체크 프로빙 추이 (동일 endpoint+name 합산)
+            const hcTrend = await prisma.$queryRawUnsafe(`WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          date_trunc($1, h.checked_at) as period,
+          mc.canonical_name as model_name,
+          AVG(h.latency_ms) as avg_latency,
+          COUNT(*) FILTER (WHERE h.success = true) as success_count,
+          COUNT(*) as total_count
+        FROM health_check_logs h
+        INNER JOIN models m ON h.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE h.checked_at >= $2
+        GROUP BY period, m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY period, mc.canonical_name`, trunc, startDate);
+            // 2. 실사용 기반 추이 (동일 endpoint+name 합산)
+            const usageTrend = await prisma.$queryRawUnsafe(`WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          date_trunc($1, ul.timestamp) as period,
+          mc.canonical_name as model_name,
+          AVG(ul.latency_ms) as avg_latency,
+          COUNT(*) as request_count
+        FROM usage_logs ul
+        INNER JOIN models m ON ul.model_id = m.id
+        INNER JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE ul.latency_ms IS NOT NULL
+          AND ul.timestamp >= $2
+        GROUP BY period, m.endpoint_url, m.name, mc.canonical_name
+        ORDER BY period, mc.canonical_name`, trunc, startDate);
+            // 그룹핑
+            const formatPeriod = (d) => {
+                if (granularity === 'monthly')
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                return d.toISOString().split('T')[0];
+            };
+            const healthcheck = {};
+            for (const row of hcTrend) {
+                const key = row.model_name;
+                if (!healthcheck[key])
+                    healthcheck[key] = [];
+                healthcheck[key].push({
+                    period: formatPeriod(row.period),
+                    avgLatency: Math.round(row.avg_latency),
+                    successRate: Number(row.total_count) > 0 ? Math.round(Number(row.success_count) / Number(row.total_count) * 100) : 0,
+                    count: Number(row.total_count),
+                });
+            }
+            const usage = {};
+            for (const row of usageTrend) {
+                const key = row.model_name;
+                if (!usage[key])
+                    usage[key] = [];
+                usage[key].push({
+                    period: formatPeriod(row.period),
+                    avgLatency: Math.round(row.avg_latency),
+                    count: Number(row.request_count),
+                });
+            }
+            return { healthcheck, usage, granularity, days };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get latency trend error:', error);
@@ -3105,107 +3924,124 @@ adminRoutes.get('/stats/latency/trend', async (req, res) => {
 adminRoutes.get('/stats/error-rate', async (req, res) => {
     try {
         const days = Math.min(60, Math.max(1, parseInt(req.query['days']) || 10));
-        // 영업일 10일 ≈ 달력일 약 14일. 넉넉하게 days*2 달력일 조회
-        const calendarDays = days * 2;
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - calendarDays);
-        startDate.setHours(0, 0, 0, 0);
-        // 일별 + 모델별 + 에러유형별 집계
-        const rows = await prisma.$queryRawUnsafe(`SELECT
-        date_trunc('day', r.timestamp) as day,
-        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
-        CASE
-          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
-          WHEN r.status_code = 500 THEN '500'
-          WHEN r.status_code = 502 THEN '502'
-          WHEN r.status_code = 503 THEN '503'
-          WHEN r.status_code = 504 THEN '504'
-          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
-          ELSE 'Other'
-        END as error_type,
-        COUNT(*) as cnt
-      FROM request_logs r
-      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
-      WHERE r.status_code != 200
-        AND r.timestamp >= $1
-      GROUP BY day, COALESCE(m."displayName", r.resolved_model, r.model_name), error_type
-      ORDER BY day, model_name, error_type`, startDate);
-        const dayMap = new Map();
-        for (const row of rows) {
-            const dayStr = row.day.toISOString().split('T')[0]; // YYYY-MM-DD
-            if (!dayMap.has(dayStr))
-                dayMap.set(dayStr, { day: dayStr, byModel: {} });
-            const entry = dayMap.get(dayStr);
-            if (!entry.byModel[row.model_name])
-                entry.byModel[row.model_name] = {};
-            entry.byModel[row.model_name][row.error_type] = Number(row.cnt);
-        }
-        const daily = [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
-        // 모델별 대표 에러 원인 조회
-        const topErrors = await prisma.$queryRawUnsafe(`SELECT
-        COALESCE(m."displayName", r.resolved_model, r.model_name) as model_name,
-        CASE
-          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
-          WHEN r.status_code = 500 THEN '500'
-          WHEN r.status_code = 502 THEN '502'
-          WHEN r.status_code = 503 THEN '503'
-          WHEN r.status_code = 504 THEN '504'
-          WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
-          ELSE 'Other'
-        END as error_type,
-        CASE
-          WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'LLM 응답 시간 초과'
-          WHEN r.error_message ILIKE '%ECONNREFUSED%' THEN '엔드포인트 연결 거부'
-          WHEN r.error_message ILIKE '%ECONNRESET%' THEN '연결 초기화됨'
-          WHEN r.error_message ILIKE '%ENOTFOUND%' THEN 'DNS 조회 실패'
-          WHEN r.error_message ILIKE '%fetch failed%' THEN '네트워크 연결 실패'
-          WHEN r.error_message ILIKE '%rate limit%' THEN 'Rate Limit 초과'
-          WHEN r.error_message ILIKE '%unauthorized%' OR r.status_code = 401 THEN '인증 실패'
-          WHEN r.error_message ILIKE '%forbidden%' OR r.status_code = 403 THEN '접근 거부'
-          WHEN r.error_message ILIKE '%not found%' OR r.status_code = 404 THEN '리소스 없음'
-          WHEN r.error_message ILIKE '%bad gateway%' OR r.status_code = 502 THEN 'Bad Gateway'
-          WHEN r.error_message ILIKE '%service unavailable%' OR r.status_code = 503 THEN '서비스 일시 중단'
-          WHEN r.error_message ILIKE '%gateway timeout%' OR r.status_code = 504 THEN 'Gateway Timeout'
-          WHEN r.status_code = 500 THEN 'Internal Server Error'
-          ELSE '기타 에러'
-        END as error_cause,
-        COUNT(*) as cnt
-      FROM request_logs r
-      LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
-      WHERE r.status_code != 200
-        AND r.timestamp >= $1
-      GROUP BY COALESCE(m."displayName", r.resolved_model, r.model_name), error_type, error_cause
-      ORDER BY COALESCE(m."displayName", r.resolved_model, r.model_name), cnt DESC`, startDate);
-        // 모델별 에러 유형 분류
-        const modelErrorTypes = {};
-        for (const row of topErrors) {
-            const key = row.model_name;
-            if (!modelErrorTypes[key])
-                modelErrorTypes[key] = [];
-            modelErrorTypes[key].push({
-                type: row.error_type,
-                cause: row.error_cause,
-                count: Number(row.cnt),
-            });
-        }
-        // 모델별 총계
-        const modelTotals = {};
-        for (const entry of daily) {
-            for (const [model, types] of Object.entries(entry.byModel)) {
-                if (!modelTotals[model])
-                    modelTotals[model] = {};
-                for (const [type, cnt] of Object.entries(types)) {
-                    modelTotals[model][type] = (modelTotals[model][type] || 0) + cnt;
+        const result = await withCache(redis, `cache:admin:stats:error-rate:${days}`, 90, async () => {
+            // 영업일 10일 ≈ 달력일 약 14일. 넉넉하게 days*2 달력일 조회
+            const calendarDays = days * 2;
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - calendarDays);
+            startDate.setHours(0, 0, 0, 0);
+            // 일별 + 모델별 + 에러유형별 집계 (동일 endpoint+name 합산)
+            const rows = await prisma.$queryRawUnsafe(`WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          date_trunc('day', r.timestamp) as day,
+          COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name) as model_name,
+          CASE
+            WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
+            WHEN r.status_code = 500 THEN '500'
+            WHEN r.status_code = 502 THEN '502'
+            WHEN r.status_code = 503 THEN '503'
+            WHEN r.status_code = 504 THEN '504'
+            WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+            ELSE 'Other'
+          END as error_type,
+          COUNT(*) as cnt
+        FROM request_logs r
+        LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+        LEFT JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE r.status_code != 200
+          AND r.timestamp >= $1
+        GROUP BY day, COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), error_type
+        ORDER BY day, model_name, error_type`, startDate);
+            const dayMap = new Map();
+            for (const row of rows) {
+                const dayStr = row.day.toISOString().split('T')[0]; // YYYY-MM-DD
+                if (!dayMap.has(dayStr))
+                    dayMap.set(dayStr, { day: dayStr, byModel: {} });
+                const entry = dayMap.get(dayStr);
+                if (!entry.byModel[row.model_name])
+                    entry.byModel[row.model_name] = {};
+                entry.byModel[row.model_name][row.error_type] = Number(row.cnt);
+            }
+            const daily = [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
+            // 모델별 대표 에러 원인 조회 (동일 endpoint+name 합산)
+            const topErrors = await prisma.$queryRawUnsafe(`WITH model_canonical AS (
+          SELECT DISTINCT ON (endpoint_url, name)
+            endpoint_url, name, "displayName" as canonical_name
+          FROM models
+          ORDER BY endpoint_url, name, sort_order
+        )
+        SELECT
+          COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name) as model_name,
+          CASE
+            WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'Timeout'
+            WHEN r.status_code = 500 THEN '500'
+            WHEN r.status_code = 502 THEN '502'
+            WHEN r.status_code = 503 THEN '503'
+            WHEN r.status_code = 504 THEN '504'
+            WHEN r.status_code >= 400 AND r.status_code < 500 THEN '4xx'
+            ELSE 'Other'
+          END as error_type,
+          CASE
+            WHEN r.error_message ILIKE '%timed out%' OR r.error_message ILIKE '%timeout%' OR r.error_message ILIKE '%aborted%' THEN 'LLM 응답 시간 초과'
+            WHEN r.error_message ILIKE '%ECONNREFUSED%' THEN '엔드포인트 연결 거부'
+            WHEN r.error_message ILIKE '%ECONNRESET%' THEN '연결 초기화됨'
+            WHEN r.error_message ILIKE '%ENOTFOUND%' THEN 'DNS 조회 실패'
+            WHEN r.error_message ILIKE '%fetch failed%' THEN '네트워크 연결 실패'
+            WHEN r.error_message ILIKE '%rate limit%' THEN 'Rate Limit 초과'
+            WHEN r.error_message ILIKE '%unauthorized%' OR r.status_code = 401 THEN '인증 실패'
+            WHEN r.error_message ILIKE '%forbidden%' OR r.status_code = 403 THEN '접근 거부'
+            WHEN r.error_message ILIKE '%not found%' OR r.status_code = 404 THEN '리소스 없음'
+            WHEN r.error_message ILIKE '%bad gateway%' OR r.status_code = 502 THEN 'Bad Gateway'
+            WHEN r.error_message ILIKE '%service unavailable%' OR r.status_code = 503 THEN '서비스 일시 중단'
+            WHEN r.error_message ILIKE '%gateway timeout%' OR r.status_code = 504 THEN 'Gateway Timeout'
+            WHEN r.status_code = 500 THEN 'Internal Server Error'
+            ELSE '기타 에러'
+          END as error_cause,
+          COUNT(*) as cnt
+        FROM request_logs r
+        LEFT JOIN models m ON m.name = COALESCE(r.resolved_model, r.model_name)
+        LEFT JOIN model_canonical mc ON mc.endpoint_url = m.endpoint_url AND mc.name = m.name
+        WHERE r.status_code != 200
+          AND r.timestamp >= $1
+        GROUP BY COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), error_type, error_cause
+        ORDER BY COALESCE(mc.canonical_name, m."displayName", r.resolved_model, r.model_name), cnt DESC`, startDate);
+            // 모델별 에러 유형 분류
+            const modelErrorTypes = {};
+            for (const row of topErrors) {
+                const key = row.model_name;
+                if (!modelErrorTypes[key])
+                    modelErrorTypes[key] = [];
+                modelErrorTypes[key].push({
+                    type: row.error_type,
+                    cause: row.error_cause,
+                    count: Number(row.cnt),
+                });
+            }
+            // 모델별 총계
+            const modelTotals = {};
+            for (const entry of daily) {
+                for (const [model, types] of Object.entries(entry.byModel)) {
+                    if (!modelTotals[model])
+                        modelTotals[model] = {};
+                    for (const [type, cnt] of Object.entries(types)) {
+                        modelTotals[model][type] = (modelTotals[model][type] || 0) + cnt;
+                    }
                 }
             }
-        }
-        const summary = Object.entries(modelTotals).map(([model, types]) => ({
-            model,
-            totalErrors: Object.values(types).reduce((s, c) => s + c, 0),
-            errorTypes: (modelErrorTypes[model] || []),
-            byType: types,
-        })).sort((a, b) => b.totalErrors - a.totalErrors);
-        res.json({ daily, summary, days });
+            const summary = Object.entries(modelTotals).map(([model, types]) => ({
+                model,
+                totalErrors: Object.values(types).reduce((s, c) => s + c, 0),
+                errorTypes: (modelErrorTypes[model] || []),
+                byType: types,
+            })).sort((a, b) => b.totalErrors - a.totalErrors);
+            return { daily, summary, days };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get error rate error:', error);
@@ -3218,29 +4054,32 @@ adminRoutes.get('/stats/error-rate', async (req, res) => {
  */
 adminRoutes.get('/stats/health-status', async (req, res) => {
     try {
-        // PostgreSQL DISTINCT ON: 모델별 최신 1건 (현재 displayName JOIN)
-        const latestChecks = await prisma.$queryRaw `
-      SELECT DISTINCT ON (h.model_id)
-        h.model_id, m."displayName" as model_name,
-        h.latency_ms, h.success, h.error_message, h.checked_at
-      FROM health_check_logs h
-      INNER JOIN models m ON h.model_id = m.id
-      ORDER BY h.model_id, h.checked_at DESC
-    `;
-        const totalEnabled = await prisma.model.count({
-            where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+        const result = await withCache(redis, `cache:admin:stats:health-status`, 60, async () => {
+            // PostgreSQL DISTINCT ON: 모델별 최신 1건 (현재 displayName JOIN)
+            const latestChecks = await prisma.$queryRaw `
+        SELECT DISTINCT ON (h.model_id)
+          h.model_id, m."displayName" as model_name,
+          h.latency_ms, h.success, h.error_message, h.checked_at
+        FROM health_check_logs h
+        INNER JOIN models m ON h.model_id = m.id
+        ORDER BY h.model_id, h.checked_at DESC
+      `;
+            const totalEnabled = await prisma.model.count({
+                where: { enabled: true, endpointUrl: { not: 'external://auto-created' } },
+            });
+            const statuses = {};
+            for (const c of latestChecks) {
+                statuses[c.model_id] = {
+                    modelName: c.model_name,
+                    success: c.success,
+                    latencyMs: c.latency_ms,
+                    checkedAt: c.checked_at.toISOString(),
+                    errorMessage: c.error_message,
+                };
+            }
+            return { statuses, totalEnabledModels: totalEnabled };
         });
-        const statuses = {};
-        for (const c of latestChecks) {
-            statuses[c.model_id] = {
-                modelName: c.model_name,
-                success: c.success,
-                latencyMs: c.latency_ms,
-                checkedAt: c.checked_at.toISOString(),
-                errorMessage: c.error_message,
-            };
-        }
-        res.json({ statuses, totalEnabledModels: totalEnabled });
+        res.json(result);
     }
     catch (error) {
         console.error('Get health status error:', error);
@@ -3268,7 +4107,7 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
         SELECT
           ul.service_id::text as service_id,
           COALESCE(SUM(ul.request_count), 0) as today_requests,
-          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as today_active_users
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' AND u.is_test_account = false THEN ul.user_id END) as today_active_users
         FROM usage_logs ul
         LEFT JOIN users u ON ul.user_id = u.id
         WHERE ul.service_id IS NOT NULL
@@ -3279,7 +4118,7 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
         SELECT COUNT(DISTINCT ul.user_id) as today_active
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous' AND ul.timestamp >= ${todayStart}
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= ${todayStart}
       `,
         ]);
         const todayMap = new Map(perServiceTodayRows.map(r => [r.service_id, r]));
@@ -3318,7 +4157,7 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
             prisma.$queryRaw `
         SELECT
           ul.service_id::text as service_id,
-          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' THEN ul.user_id END) as total_users,
+          COUNT(DISTINCT CASE WHEN u.loginid != 'anonymous' AND u.is_test_account = false THEN ul.user_id END) as total_users,
           COALESCE(SUM(ul."totalTokens"), 0) as total_tokens,
           COALESCE(SUM(ul.request_count), 0) as total_requests
         FROM usage_logs ul
@@ -3334,7 +4173,7 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
           GROUP BY ul.service_id, DATE(ul.timestamp)
         ) daily_counts
         GROUP BY service_id
@@ -3347,7 +4186,7 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.service_id IS NOT NULL
             AND ul.timestamp >= NOW() - INTERVAL '30 days'
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
@@ -3361,20 +4200,20 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
         SELECT COUNT(DISTINCT ul.user_id) as total_unique_users
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
       `,
             prisma.$queryRaw `
         SELECT
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
             GROUP BY DATE(ul.timestamp)
           ) dc) as avg_all,
           (SELECT COALESCE(AVG(user_count), 0)::float FROM (
             SELECT DATE(ul.timestamp) as ld, COUNT(DISTINCT ul.user_id) as user_count
             FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-            WHERE u.loginid != 'anonymous' AND ul.timestamp >= NOW() - INTERVAL '30 days'
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false AND ul.timestamp >= NOW() - INTERVAL '30 days'
               AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
               AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
             GROUP BY DATE(ul.timestamp)
@@ -3428,69 +4267,72 @@ adminRoutes.get('/stats/global/overview', async (req, res) => {
 adminRoutes.get('/stats/global/by-service', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 30));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all services
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
+        const result = await withCache(redis, `cache:admin:stats:global:by-service:${days}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all services
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+            });
+            // Get daily stats per service
+            const dailyStats = await prisma.$queryRaw `
+        SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COALESCE(SUM(request_count), 0) as req_count
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+          AND service_id IS NOT NULL
+        GROUP BY DATE(timestamp), service_id
+        ORDER BY date ASC
+      `;
+            // Process into chart data
+            const dateMap = new Map();
+            const serviceIds = services.map((s) => s.id);
+            const endDate3 = new Date();
+            for (let d = new Date(startDate); d <= endDate3; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const initialData = {};
+                for (const serviceId of serviceIds) {
+                    initialData[serviceId] = 0;
+                }
+                dateMap.set(dateStr, initialData);
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const existing = dateMap.get(dateStr);
+                if (existing && stat.service_id) {
+                    existing[stat.service_id] = Number(stat.total_tokens);
+                }
+            }
+            const chartData = Array.from(dateMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([date, serviceUsage]) => ({
+                date,
+                ...serviceUsage,
+            }));
+            // dailyData: 프론트엔드 ServiceDailyData[] 형태로도 변환
+            const serviceMap = new Map(services.map(s => [s.id, s]));
+            const dailyData = [];
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const svc = serviceMap.get(stat.service_id);
+                if (svc) {
+                    dailyData.push({
+                        date: dateStr,
+                        serviceId: svc.id,
+                        serviceName: svc.displayName || svc.name,
+                        requests: Number(stat.req_count),
+                        totalTokens: Number(stat.total_tokens),
+                    });
+                }
+            }
+            return {
+                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
+                chartData,
+                dailyData,
+            };
         });
-        // Get daily stats per service
-        const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id, SUM("totalTokens") as total_tokens, COALESCE(SUM(request_count), 0) as req_count
-      FROM usage_logs
-      WHERE timestamp >= ${startDate}
-        AND service_id IS NOT NULL
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY date ASC
-    `;
-        // Process into chart data
-        const dateMap = new Map();
-        const serviceIds = services.map((s) => s.id);
-        const endDate3 = new Date();
-        for (let d = new Date(startDate); d <= endDate3; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const initialData = {};
-            for (const serviceId of serviceIds) {
-                initialData[serviceId] = 0;
-            }
-            dateMap.set(dateStr, initialData);
-        }
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const existing = dateMap.get(dateStr);
-            if (existing && stat.service_id) {
-                existing[stat.service_id] = Number(stat.total_tokens);
-            }
-        }
-        const chartData = Array.from(dateMap.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([date, serviceUsage]) => ({
-            date,
-            ...serviceUsage,
-        }));
-        // dailyData: 프론트엔드 ServiceDailyData[] 형태로도 변환
-        const serviceMap = new Map(services.map(s => [s.id, s]));
-        const dailyData = [];
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const svc = serviceMap.get(stat.service_id);
-            if (svc) {
-                dailyData.push({
-                    date: dateStr,
-                    serviceId: svc.id,
-                    serviceName: svc.displayName || svc.name,
-                    requests: Number(stat.req_count),
-                    totalTokens: Number(stat.total_tokens),
-                });
-            }
-        }
-        res.json({
-            services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName })),
-            chartData,
-            dailyData,
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get global by-service stats error:', error);
@@ -3506,251 +4348,254 @@ adminRoutes.get('/stats/weekly-business-dau', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(14, parseInt(req.query['days']) || 90));
         const granularity = req.query['granularity'] === 'daily' ? 'daily' : 'weekly';
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services (include type for BACKGROUND estimation)
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true, type: true },
-        });
-        const serviceIds = services.map((s) => s.id);
-        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
-        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
-        // STANDARD baseline: 1인당 하루 평균 호출 수 (해당 기간 영업일 기준)
-        const [baselineDailyRes, baselineDauRes] = await Promise.all([
-            prisma.$queryRaw `
-        WITH daily_calls AS (
-          SELECT DATE(timestamp) as d, COUNT(*) as cnt
-          FROM usage_logs
-          WHERE timestamp >= ${startDate}
-            AND service_id::text = ANY(${standardServiceIds})
-            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-          GROUP BY DATE(timestamp)
-        )
-        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
-      `,
-            prisma.$queryRaw `
-        WITH daily_dau AS (
-          SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
-          FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
-          WHERE ul.timestamp >= ${startDate}
-            AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
-            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-          GROUP BY DATE(ul.timestamp)
-        )
-        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
-      `,
-        ]);
-        const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
-        const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
-        const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
-        const businessDaysUsed = Number(baselineDailyRes[0]?.business_days || 0);
-        if (granularity === 'daily') {
-            // Daily DAU per service (business days only) — STANDARD
-            const dailyStats = await prisma.$queryRaw `
-        SELECT
-          ul.service_id::text as service_id,
-          DATE(ul.timestamp) as log_date,
-          COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND u.loginid != 'anonymous'
-          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-          AND NOT EXISTS (
-            SELECT 1 FROM holidays h
-            WHERE h.date = DATE(ul.timestamp)
-          )
-        GROUP BY ul.service_id, DATE(ul.timestamp)
-        ORDER BY log_date ASC, service_id
-      `;
-            // BACKGROUND services: daily total API calls (영업일)
-            const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
-        SELECT
-          service_id::text as service_id,
-          DATE(timestamp) as log_date,
-          COALESCE(SUM(request_count), 0) as call_count
-        FROM usage_logs
-        WHERE timestamp >= ${startDate}
-          AND service_id::text = ANY(${backgroundServiceIds})
-          AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-        GROUP BY service_id, DATE(timestamp)
-        ORDER BY log_date ASC
-      ` : [];
-            // Process into chart data format
-            const dateMap = new Map();
-            // Collect all dates from STANDARD
-            for (const stat of dailyStats) {
-                const dateStr = formatDateToString(stat.log_date);
-                if (!dateMap.has(dateStr)) {
-                    const initialData = {};
-                    for (const serviceId of serviceIds) {
-                        initialData[serviceId] = 0;
-                    }
-                    dateMap.set(dateStr, initialData);
-                }
-            }
-            // Also collect dates from BACKGROUND
-            for (const stat of bgDailyStats) {
-                const dateStr = formatDateToString(stat.log_date);
-                if (!dateMap.has(dateStr)) {
-                    const initialData = {};
-                    for (const serviceId of serviceIds) {
-                        initialData[serviceId] = 0;
-                    }
-                    dateMap.set(dateStr, initialData);
-                }
-            }
-            // Fill STANDARD DAU (실측)
-            for (const stat of dailyStats) {
-                const dateStr = formatDateToString(stat.log_date);
-                const existing = dateMap.get(dateStr);
-                if (existing && serviceIds.includes(stat.service_id)) {
-                    existing[stat.service_id] = Number(stat.user_count);
-                }
-            }
-            // Fill BACKGROUND estimated DAU
-            const bgDailyDetailMap = new Map(); // "serviceId|date" → dailyCalls
-            if (callsPerPersonPerDay > 0) {
-                for (const stat of bgDailyStats) {
-                    const dateStr = formatDateToString(stat.log_date);
-                    const existing = dateMap.get(dateStr);
-                    const dailyCalls = Number(stat.call_count);
-                    if (existing) {
-                        existing[stat.service_id] = Math.round(dailyCalls / callsPerPersonPerDay);
-                    }
-                    bgDailyDetailMap.set(`${stat.service_id}|${dateStr}`, dailyCalls);
-                }
-            }
-            const chartData = Array.from(dateMap.entries())
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([date, serviceUsage]) => ({
-                week: date,
-                ...serviceUsage,
-            }));
-            res.json({
-                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
-                chartData,
-                granularity,
-                estimationMeta: {
-                    callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
-                    standardAvgDailyDAU: Math.round(avgDailyDau),
-                    standardAvgDailyCalls: Math.round(avgDailyCalls),
-                    businessDays: businessDaysUsed,
-                },
+        const result = await withCache(redis, `cache:admin:stats:weekly-business-dau:${days}:${granularity}`, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services (include type for BACKGROUND estimation)
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true, type: true },
             });
-        }
-        else {
-            // Weekly average DAU — STANDARD
-            const weeklyStats = await prisma.$queryRaw `
-        WITH business_day_users AS (
+            const serviceIds = services.map((s) => s.id);
+            const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+            const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+            // STANDARD baseline: 1인당 하루 평균 호출 수 (해당 기간 영업일 기준)
+            const [baselineDailyRes, baselineDauRes] = await Promise.all([
+                prisma.$queryRaw `
+          WITH daily_calls AS (
+            SELECT DATE(timestamp) as d, COUNT(*) as cnt
+            FROM usage_logs
+            WHERE timestamp >= ${startDate}
+              AND service_id::text = ANY(${standardServiceIds})
+              AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+            GROUP BY DATE(timestamp)
+          )
+          SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+        `,
+                prisma.$queryRaw `
+          WITH daily_dau AS (
+            SELECT DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+            FROM usage_logs ul INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${startDate}
+              AND ul.service_id::text = ANY(${standardServiceIds})
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY DATE(ul.timestamp)
+          )
+          SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+        `,
+            ]);
+            const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+            const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+            const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+            const businessDaysUsed = Number(baselineDailyRes[0]?.business_days || 0);
+            if (granularity === 'daily') {
+                // Daily DAU per service (business days only) — STANDARD
+                const dailyStats = await prisma.$queryRaw `
           SELECT
             ul.service_id::text as service_id,
             DATE(ul.timestamp) as log_date,
-            DATE_TRUNC('week', ul.timestamp)::date as week_start,
             COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${startDate}
-            AND u.loginid != 'anonymous'
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
             AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
             AND NOT EXISTS (
               SELECT 1 FROM holidays h
               WHERE h.date = DATE(ul.timestamp)
             )
-          GROUP BY ul.service_id, DATE(ul.timestamp), DATE_TRUNC('week', ul.timestamp)
-        )
-        SELECT
-          service_id,
-          week_start,
-          COALESCE(AVG(user_count), 0)::float as avg_daily_users,
-          COUNT(DISTINCT log_date) as business_days
-        FROM business_day_users
-        GROUP BY service_id, week_start
-        ORDER BY week_start ASC, service_id
-      `;
-            // BACKGROUND services: weekly average daily calls (영업일)
-            const bgWeeklyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
-        WITH daily_calls AS (
+          GROUP BY ul.service_id, DATE(ul.timestamp)
+          ORDER BY log_date ASC, service_id
+        `;
+                // BACKGROUND services: daily total API calls (영업일)
+                const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
           SELECT
             service_id::text as service_id,
-            DATE_TRUNC('week', timestamp)::date as week_start,
-            DATE(timestamp) as d,
-            COUNT(*) as cnt
+            DATE(timestamp) as log_date,
+            COALESCE(SUM(request_count), 0) as call_count
           FROM usage_logs
           WHERE timestamp >= ${startDate}
             AND service_id::text = ANY(${backgroundServiceIds})
             AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
             AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-          GROUP BY service_id, DATE_TRUNC('week', timestamp), DATE(timestamp)
-        )
-        SELECT service_id, week_start, COALESCE(AVG(cnt), 0)::float as avg_daily_calls
-        FROM daily_calls GROUP BY service_id, week_start
-        ORDER BY week_start ASC
-      ` : [];
-            // Process into chart data format
-            const weekMap = new Map();
-            for (const stat of weeklyStats) {
-                const weekStr = formatDateToString(stat.week_start);
-                if (!weekMap.has(weekStr)) {
-                    const initialData = {};
-                    for (const serviceId of serviceIds) {
-                        initialData[serviceId] = 0;
+          GROUP BY service_id, DATE(timestamp)
+          ORDER BY log_date ASC
+        ` : [];
+                // Process into chart data format
+                const dateMap = new Map();
+                // Collect all dates from STANDARD
+                for (const stat of dailyStats) {
+                    const dateStr = formatDateToString(stat.log_date);
+                    if (!dateMap.has(dateStr)) {
+                        const initialData = {};
+                        for (const serviceId of serviceIds) {
+                            initialData[serviceId] = 0;
+                        }
+                        dateMap.set(dateStr, initialData);
                     }
-                    weekMap.set(weekStr, initialData);
                 }
-            }
-            for (const stat of bgWeeklyStats) {
-                const weekStr = formatDateToString(stat.week_start);
-                if (!weekMap.has(weekStr)) {
-                    const initialData = {};
-                    for (const serviceId of serviceIds) {
-                        initialData[serviceId] = 0;
+                // Also collect dates from BACKGROUND
+                for (const stat of bgDailyStats) {
+                    const dateStr = formatDateToString(stat.log_date);
+                    if (!dateMap.has(dateStr)) {
+                        const initialData = {};
+                        for (const serviceId of serviceIds) {
+                            initialData[serviceId] = 0;
+                        }
+                        dateMap.set(dateStr, initialData);
                     }
-                    weekMap.set(weekStr, initialData);
                 }
-            }
-            // Fill STANDARD (실측)
-            for (const stat of weeklyStats) {
-                const weekStr = formatDateToString(stat.week_start);
-                const existing = weekMap.get(weekStr);
-                if (existing && serviceIds.includes(stat.service_id)) {
-                    existing[stat.service_id] = Math.round(stat.avg_daily_users);
+                // Fill STANDARD DAU (실측)
+                for (const stat of dailyStats) {
+                    const dateStr = formatDateToString(stat.log_date);
+                    const existing = dateMap.get(dateStr);
+                    if (existing && serviceIds.includes(stat.service_id)) {
+                        existing[stat.service_id] = Number(stat.user_count);
+                    }
                 }
+                // Fill BACKGROUND estimated DAU
+                const bgDailyDetailMap = new Map(); // "serviceId|date" → dailyCalls
+                if (callsPerPersonPerDay > 0) {
+                    for (const stat of bgDailyStats) {
+                        const dateStr = formatDateToString(stat.log_date);
+                        const existing = dateMap.get(dateStr);
+                        const dailyCalls = Number(stat.call_count);
+                        if (existing) {
+                            existing[stat.service_id] = Math.round(dailyCalls / callsPerPersonPerDay);
+                        }
+                        bgDailyDetailMap.set(`${stat.service_id}|${dateStr}`, dailyCalls);
+                    }
+                }
+                const chartData = Array.from(dateMap.entries())
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([date, serviceUsage]) => ({
+                    week: date,
+                    ...serviceUsage,
+                }));
+                return {
+                    services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+                    chartData,
+                    granularity,
+                    estimationMeta: {
+                        callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                        standardAvgDailyDAU: Math.round(avgDailyDau),
+                        standardAvgDailyCalls: Math.round(avgDailyCalls),
+                        businessDays: businessDaysUsed,
+                    },
+                };
             }
-            // Fill BACKGROUND (추정)
-            if (callsPerPersonPerDay > 0) {
+            else {
+                // Weekly average DAU — STANDARD
+                const weeklyStats = await prisma.$queryRaw `
+          WITH business_day_users AS (
+            SELECT
+              ul.service_id::text as service_id,
+              DATE(ul.timestamp) as log_date,
+              DATE_TRUNC('week', ul.timestamp)::date as week_start,
+              COUNT(DISTINCT ul.user_id) as user_count
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${startDate}
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (
+                SELECT 1 FROM holidays h
+                WHERE h.date = DATE(ul.timestamp)
+              )
+            GROUP BY ul.service_id, DATE(ul.timestamp), DATE_TRUNC('week', ul.timestamp)
+          )
+          SELECT
+            service_id,
+            week_start,
+            COALESCE(AVG(user_count), 0)::float as avg_daily_users,
+            COUNT(DISTINCT log_date) as business_days
+          FROM business_day_users
+          GROUP BY service_id, week_start
+          ORDER BY week_start ASC, service_id
+        `;
+                // BACKGROUND services: weekly average daily calls (영업일)
+                const bgWeeklyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
+          WITH daily_calls AS (
+            SELECT
+              service_id::text as service_id,
+              DATE_TRUNC('week', timestamp)::date as week_start,
+              DATE(timestamp) as d,
+              COUNT(*) as cnt
+            FROM usage_logs
+            WHERE timestamp >= ${startDate}
+              AND service_id::text = ANY(${backgroundServiceIds})
+              AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+            GROUP BY service_id, DATE_TRUNC('week', timestamp), DATE(timestamp)
+          )
+          SELECT service_id, week_start, COALESCE(AVG(cnt), 0)::float as avg_daily_calls
+          FROM daily_calls GROUP BY service_id, week_start
+          ORDER BY week_start ASC
+        ` : [];
+                // Process into chart data format
+                const weekMap = new Map();
+                for (const stat of weeklyStats) {
+                    const weekStr = formatDateToString(stat.week_start);
+                    if (!weekMap.has(weekStr)) {
+                        const initialData = {};
+                        for (const serviceId of serviceIds) {
+                            initialData[serviceId] = 0;
+                        }
+                        weekMap.set(weekStr, initialData);
+                    }
+                }
                 for (const stat of bgWeeklyStats) {
                     const weekStr = formatDateToString(stat.week_start);
-                    const existing = weekMap.get(weekStr);
-                    if (existing) {
-                        existing[stat.service_id] = Math.round(stat.avg_daily_calls / callsPerPersonPerDay);
+                    if (!weekMap.has(weekStr)) {
+                        const initialData = {};
+                        for (const serviceId of serviceIds) {
+                            initialData[serviceId] = 0;
+                        }
+                        weekMap.set(weekStr, initialData);
                     }
                 }
+                // Fill STANDARD (실측)
+                for (const stat of weeklyStats) {
+                    const weekStr = formatDateToString(stat.week_start);
+                    const existing = weekMap.get(weekStr);
+                    if (existing && serviceIds.includes(stat.service_id)) {
+                        existing[stat.service_id] = Math.round(stat.avg_daily_users);
+                    }
+                }
+                // Fill BACKGROUND (추정)
+                if (callsPerPersonPerDay > 0) {
+                    for (const stat of bgWeeklyStats) {
+                        const weekStr = formatDateToString(stat.week_start);
+                        const existing = weekMap.get(weekStr);
+                        if (existing) {
+                            existing[stat.service_id] = Math.round(stat.avg_daily_calls / callsPerPersonPerDay);
+                        }
+                    }
+                }
+                const chartData = Array.from(weekMap.entries())
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([week, serviceUsage]) => ({
+                    week,
+                    ...serviceUsage,
+                }));
+                return {
+                    services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+                    chartData,
+                    granularity,
+                    estimationMeta: {
+                        callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                        standardAvgDailyDAU: Math.round(avgDailyDau),
+                        standardAvgDailyCalls: Math.round(avgDailyCalls),
+                        businessDays: businessDaysUsed,
+                    },
+                };
             }
-            const chartData = Array.from(weekMap.entries())
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([week, serviceUsage]) => ({
-                week,
-                ...serviceUsage,
-            }));
-            res.json({
-                services: services.map((s) => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
-                chartData,
-                granularity,
-                estimationMeta: {
-                    callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
-                    standardAvgDailyDAU: Math.round(avgDailyDau),
-                    standardAvgDailyCalls: Math.round(avgDailyCalls),
-                    businessDays: businessDaysUsed,
-                },
-            });
-        }
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get weekly business DAU error:', error);
@@ -3766,135 +4611,138 @@ adminRoutes.get('/stats/global/by-dept', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get business unit statistics
-        let buUsers;
-        let buDailyAvg;
-        let buModelTokens;
-        // 1. 사업부별 누적 사용자 (중복 제거)
-        if (serviceId) {
-            buUsers = await prisma.$queryRaw `
-        SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY u.business_unit
-        ORDER BY user_count DESC
-      `;
-        }
-        else {
-            buUsers = await prisma.$queryRaw `
-        SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-        GROUP BY u.business_unit
-        ORDER BY user_count DESC
-      `;
-        }
-        // 2. 사업부별 평균 일별 활성 사용자
-        if (serviceId) {
-            buDailyAvg = await prisma.$queryRaw `
-        SELECT business_unit, COALESCE(AVG(daily_count), 0)::float as avg_daily_users
-        FROM (
-          SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
+        const result = await withCache(redis, `cache:admin:stats:global:by-dept:${days}:${serviceId || 'all'}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get business unit statistics
+            let buUsers;
+            let buDailyAvg;
+            let buModelTokens;
+            // 1. 사업부별 누적 사용자 (중복 제거)
+            if (serviceId) {
+                buUsers = await prisma.$queryRaw `
+          SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
-            AND ul.timestamp >= ${startDate}
             AND ul.service_id::text = ${serviceId}
-          GROUP BY u.business_unit, DATE(ul.timestamp)
-        ) daily_stats
-        GROUP BY business_unit
-      `;
-        }
-        else {
-            buDailyAvg = await prisma.$queryRaw `
-        SELECT business_unit, COALESCE(AVG(daily_count), 0)::float as avg_daily_users
-        FROM (
-          SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
+          GROUP BY u.business_unit
+          ORDER BY user_count DESC
+        `;
+            }
+            else {
+                buUsers = await prisma.$queryRaw `
+          SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
-          WHERE u.loginid != 'anonymous'
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
             AND u.business_unit IS NOT NULL
             AND u.business_unit != ''
-            AND ul.timestamp >= ${startDate}
-          GROUP BY u.business_unit, DATE(ul.timestamp)
-        ) daily_stats
-        GROUP BY business_unit
-      `;
-        }
-        // 3. 사업부별 모델별 토큰 사용량
-        if (serviceId) {
-            buModelTokens = await prisma.$queryRaw `
-        SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        INNER JOIN models m ON ul.model_id = m.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY u.business_unit, m.name
-        ORDER BY u.business_unit, total_tokens DESC
-      `;
-        }
-        else {
-            buModelTokens = await prisma.$queryRaw `
-        SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        INNER JOIN models m ON ul.model_id = m.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-        GROUP BY u.business_unit, m.name
-        ORDER BY u.business_unit, total_tokens DESC
-      `;
-        }
-        // Combine into single response
-        const buUserMap = new Map(buUsers.map((d) => [d.business_unit, Number(d.user_count)]));
-        const buAvgMap = new Map(buDailyAvg.map((d) => [d.business_unit, Math.round(d.avg_daily_users || 0)]));
-        // Group model tokens by business unit
-        const buTokensMap = new Map();
-        for (const row of buModelTokens) {
-            if (!buTokensMap.has(row.business_unit)) {
-                buTokensMap.set(row.business_unit, {});
+          GROUP BY u.business_unit
+          ORDER BY user_count DESC
+        `;
             }
-            buTokensMap.get(row.business_unit)[row.model_name] = Number(row.total_tokens);
-        }
-        // Build final result
-        const allBUs = [...new Set([...buUserMap.keys(), ...buAvgMap.keys(), ...buTokensMap.keys()])];
-        const deptStats = allBUs
-            .map((businessUnit) => {
-            const tokensObj = buTokensMap.get(businessUnit) || {};
-            const tokensByModel = Object.entries(tokensObj)
-                .map(([modelName, tokens]) => ({ modelName, tokens }))
-                .sort((a, b) => b.tokens - a.tokens);
+            // 2. 사업부별 평균 일별 활성 사용자
+            if (serviceId) {
+                buDailyAvg = await prisma.$queryRaw `
+          SELECT business_unit, COALESCE(AVG(daily_count), 0)::float as avg_daily_users
+          FROM (
+            SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+              AND u.business_unit IS NOT NULL
+              AND u.business_unit != ''
+              AND ul.timestamp >= ${startDate}
+              AND ul.service_id::text = ${serviceId}
+            GROUP BY u.business_unit, DATE(ul.timestamp)
+          ) daily_stats
+          GROUP BY business_unit
+        `;
+            }
+            else {
+                buDailyAvg = await prisma.$queryRaw `
+          SELECT business_unit, COALESCE(AVG(daily_count), 0)::float as avg_daily_users
+          FROM (
+            SELECT u.business_unit, DATE(ul.timestamp), COUNT(DISTINCT ul.user_id) as daily_count
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+              AND u.business_unit IS NOT NULL
+              AND u.business_unit != ''
+              AND ul.timestamp >= ${startDate}
+            GROUP BY u.business_unit, DATE(ul.timestamp)
+          ) daily_stats
+          GROUP BY business_unit
+        `;
+            }
+            // 3. 사업부별 모델별 토큰 사용량
+            if (serviceId) {
+                buModelTokens = await prisma.$queryRaw `
+          SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          INNER JOIN models m ON ul.model_id = m.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit IS NOT NULL
+            AND u.business_unit != ''
+            AND ul.service_id::text = ${serviceId}
+          GROUP BY u.business_unit, m.name
+          ORDER BY u.business_unit, total_tokens DESC
+        `;
+            }
+            else {
+                buModelTokens = await prisma.$queryRaw `
+          SELECT u.business_unit, m.name as model_name, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          INNER JOIN models m ON ul.model_id = m.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit IS NOT NULL
+            AND u.business_unit != ''
+          GROUP BY u.business_unit, m.name
+          ORDER BY u.business_unit, total_tokens DESC
+        `;
+            }
+            // Combine into single response
+            const buUserMap = new Map(buUsers.map((d) => [d.business_unit, Number(d.user_count)]));
+            const buAvgMap = new Map(buDailyAvg.map((d) => [d.business_unit, Math.round(d.avg_daily_users || 0)]));
+            // Group model tokens by business unit
+            const buTokensMap = new Map();
+            for (const row of buModelTokens) {
+                if (!buTokensMap.has(row.business_unit)) {
+                    buTokensMap.set(row.business_unit, {});
+                }
+                buTokensMap.get(row.business_unit)[row.model_name] = Number(row.total_tokens);
+            }
+            // Build final result
+            const allBUs = [...new Set([...buUserMap.keys(), ...buAvgMap.keys(), ...buTokensMap.keys()])];
+            const deptStats = allBUs
+                .map((businessUnit) => {
+                const tokensObj = buTokensMap.get(businessUnit) || {};
+                const tokensByModel = Object.entries(tokensObj)
+                    .map(([modelName, tokens]) => ({ modelName, tokens }))
+                    .sort((a, b) => b.tokens - a.tokens);
+                return {
+                    deptname: businessUnit,
+                    cumulativeUsers: buUserMap.get(businessUnit) || 0,
+                    avgDailyActiveUsers: buAvgMap.get(businessUnit) || 0,
+                    tokensByModel,
+                    totalTokens: tokensByModel.reduce((sum, t) => sum + t.tokens, 0),
+                };
+            })
+                .sort((a, b) => b.totalTokens - a.totalTokens);
             return {
-                deptname: businessUnit,
-                cumulativeUsers: buUserMap.get(businessUnit) || 0,
-                avgDailyActiveUsers: buAvgMap.get(businessUnit) || 0,
-                tokensByModel,
-                totalTokens: tokensByModel.reduce((sum, t) => sum + t.tokens, 0),
+                deptStats,
+                totalDepts: deptStats.length,
+                periodDays: days,
+                serviceId: serviceId || null,
             };
-        })
-            .sort((a, b) => b.totalTokens - a.totalTokens);
-        res.json({
-            deptStats,
-            totalDepts: deptStats.length,
-            periodDays: days,
-            serviceId: serviceId || null,
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get global by-dept stats error:', error);
@@ -3911,107 +4759,110 @@ adminRoutes.get('/stats/global/by-dept-daily', async (req, res) => {
         const days = parseInt(req.query['days']) || 30;
         const serviceId = req.query['serviceId'];
         const topN = Math.min(10, Math.max(3, parseInt(req.query['topN']) || 5));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // 1. Get top N business units by total tokens
-        let topBUs;
-        if (serviceId) {
-            topBUs = await prisma.$queryRaw `
-        SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-          AND ul.timestamp >= ${startDate}
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY u.business_unit
-        ORDER BY total_tokens DESC
-        LIMIT ${topN}
-      `;
-        }
-        else {
-            topBUs = await prisma.$queryRaw `
-        SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit IS NOT NULL
-          AND u.business_unit != ''
-          AND ul.timestamp >= ${startDate}
-        GROUP BY u.business_unit
-        ORDER BY total_tokens DESC
-        LIMIT ${topN}
-      `;
-        }
-        const topBUNames = topBUs.map(b => b.business_unit);
-        // 2. Get daily stats for top business units
-        let dailyStats;
-        if (serviceId) {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit = ANY(${topBUNames})
-          AND ul.timestamp >= ${startDate}
-          AND ul.service_id::text = ${serviceId}
-        GROUP BY DATE(ul.timestamp), u.business_unit
-        ORDER BY date ASC
-      `;
-        }
-        else {
-            dailyStats = await prisma.$queryRaw `
-        SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE u.loginid != 'anonymous'
-          AND u.business_unit = ANY(${topBUNames})
-          AND ul.timestamp >= ${startDate}
-        GROUP BY DATE(ul.timestamp), u.business_unit
-        ORDER BY date ASC
-      `;
-        }
-        // 3. Build response with CUMULATIVE data
-        const dailyMap = new Map();
-        const endDate4 = new Date();
-        for (let d = new Date(startDate); d <= endDate4; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const initialData = {};
+        const result = await withCache(redis, `cache:admin:stats:global:by-dept-daily:${days}:${serviceId || 'all'}:${topN}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // 1. Get top N business units by total tokens
+            let topBUs;
+            if (serviceId) {
+                topBUs = await prisma.$queryRaw `
+          SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit IS NOT NULL
+            AND u.business_unit != ''
+            AND ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ${serviceId}
+          GROUP BY u.business_unit
+          ORDER BY total_tokens DESC
+          LIMIT ${topN}
+        `;
+            }
+            else {
+                topBUs = await prisma.$queryRaw `
+          SELECT u.business_unit, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit IS NOT NULL
+            AND u.business_unit != ''
+            AND ul.timestamp >= ${startDate}
+          GROUP BY u.business_unit
+          ORDER BY total_tokens DESC
+          LIMIT ${topN}
+        `;
+            }
+            const topBUNames = topBUs.map(b => b.business_unit);
+            // 2. Get daily stats for top business units
+            let dailyStats;
+            if (serviceId) {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit = ANY(${topBUNames})
+            AND ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ${serviceId}
+          GROUP BY DATE(ul.timestamp), u.business_unit
+          ORDER BY date ASC
+        `;
+            }
+            else {
+                dailyStats = await prisma.$queryRaw `
+          SELECT DATE(ul.timestamp) as date, u.business_unit, SUM(ul."totalTokens") as total_tokens
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+            AND u.business_unit = ANY(${topBUNames})
+            AND ul.timestamp >= ${startDate}
+          GROUP BY DATE(ul.timestamp), u.business_unit
+          ORDER BY date ASC
+        `;
+            }
+            // 3. Build response with CUMULATIVE data
+            const dailyMap = new Map();
+            const endDate4 = new Date();
+            for (let d = new Date(startDate); d <= endDate4; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const initialData = {};
+                for (const bu of topBUNames) {
+                    initialData[bu] = 0;
+                }
+                dailyMap.set(dateStr, initialData);
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const existing = dailyMap.get(dateStr);
+                if (existing) {
+                    existing[stat.business_unit] = Number(stat.total_tokens);
+                }
+            }
+            // Convert to cumulative
+            const sortedDates = Array.from(dailyMap.keys()).sort();
+            const cumulativeSum = {};
             for (const bu of topBUNames) {
-                initialData[bu] = 0;
+                cumulativeSum[bu] = 0;
             }
-            dailyMap.set(dateStr, initialData);
-        }
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const existing = dailyMap.get(dateStr);
-            if (existing) {
-                existing[stat.business_unit] = Number(stat.total_tokens);
-            }
-        }
-        // Convert to cumulative
-        const sortedDates = Array.from(dailyMap.keys()).sort();
-        const cumulativeSum = {};
-        for (const bu of topBUNames) {
-            cumulativeSum[bu] = 0;
-        }
-        const chartData = sortedDates.map((date) => {
-            const dailyData = dailyMap.get(date);
-            const result = { date };
-            for (const bu of topBUNames) {
-                cumulativeSum[bu] += dailyData[bu] || 0;
-                result[bu] = cumulativeSum[bu];
-            }
-            return result;
+            const chartData = sortedDates.map((date) => {
+                const dailyData = dailyMap.get(date);
+                const result = { date };
+                for (const bu of topBUNames) {
+                    cumulativeSum[bu] += dailyData[bu] || 0;
+                    result[bu] = cumulativeSum[bu];
+                }
+                return result;
+            });
+            return {
+                businessUnits: topBUNames,
+                chartData,
+                periodDays: days,
+                serviceId: serviceId || null,
+            };
         });
-        res.json({
-            businessUnits: topBUNames,
-            chartData,
-            periodDays: days,
-            serviceId: serviceId || null,
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get dept daily stats error:', error);
@@ -4027,100 +4878,103 @@ adminRoutes.get('/stats/global/by-dept-users-daily', async (req, res) => {
     try {
         const days = parseInt(req.query['days']) || 30;
         const topN = Math.min(10, Math.max(3, parseInt(req.query['topN']) || 5));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // 1. Get top N business units by total users
-        const topBUs = await prisma.$queryRaw `
-      SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      WHERE u.loginid != 'anonymous'
-        AND u.business_unit IS NOT NULL
-        AND u.business_unit != ''
-        AND ul.timestamp >= ${startDate}
-      GROUP BY u.business_unit
-      ORDER BY user_count DESC
-      LIMIT ${topN}
-    `;
-        const topBUNames = topBUs.map(b => b.business_unit);
-        // 2. Get daily active users for top business units
-        const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(ul.timestamp) as date, u.business_unit, COUNT(DISTINCT ul.user_id) as active_users
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      WHERE u.loginid != 'anonymous'
-        AND u.business_unit = ANY(${topBUNames})
-        AND ul.timestamp >= ${startDate}
-      GROUP BY DATE(ul.timestamp), u.business_unit
-      ORDER BY date ASC
-    `;
-        // 3. Build response with cumulative users
-        const cumulativeUsers = new Map();
-        for (const bu of topBUNames) {
-            cumulativeUsers.set(bu, new Set());
-        }
-        // Get all user_ids per day per BU for cumulative calculation
-        const usersByDayBU = await prisma.$queryRaw `
-      SELECT DISTINCT DATE(ul.timestamp) as date, u.business_unit, ul.user_id::text
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      WHERE u.loginid != 'anonymous'
-        AND u.business_unit = ANY(${topBUNames})
-        AND ul.timestamp >= ${startDate}
-      ORDER BY date ASC
-    `;
-        // Group users by date and BU
-        const usersByDateBU = new Map();
-        for (const row of usersByDayBU) {
-            const dateStr = formatDateToString(row.date);
-            if (!usersByDateBU.has(dateStr)) {
-                usersByDateBU.set(dateStr, new Map());
+        const result = await withCache(redis, `cache:admin:stats:global:by-dept-users-daily:${days}:${topN}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // 1. Get top N business units by total users
+            const topBUs = await prisma.$queryRaw `
+        SELECT u.business_unit, COUNT(DISTINCT ul.user_id) as user_count
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit IS NOT NULL
+          AND u.business_unit != ''
+          AND ul.timestamp >= ${startDate}
+        GROUP BY u.business_unit
+        ORDER BY user_count DESC
+        LIMIT ${topN}
+      `;
+            const topBUNames = topBUs.map(b => b.business_unit);
+            // 2. Get daily active users for top business units
+            const dailyStats = await prisma.$queryRaw `
+        SELECT DATE(ul.timestamp) as date, u.business_unit, COUNT(DISTINCT ul.user_id) as active_users
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit = ANY(${topBUNames})
+          AND ul.timestamp >= ${startDate}
+        GROUP BY DATE(ul.timestamp), u.business_unit
+        ORDER BY date ASC
+      `;
+            // 3. Build response with cumulative users
+            const cumulativeUsers = new Map();
+            for (const bu of topBUNames) {
+                cumulativeUsers.set(bu, new Set());
             }
-            const buMap = usersByDateBU.get(dateStr);
-            if (!buMap.has(row.business_unit)) {
-                buMap.set(row.business_unit, []);
+            // Get all user_ids per day per BU for cumulative calculation
+            const usersByDayBU = await prisma.$queryRaw `
+        SELECT DISTINCT DATE(ul.timestamp) as date, u.business_unit, ul.user_id::text
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit = ANY(${topBUNames})
+          AND ul.timestamp >= ${startDate}
+        ORDER BY date ASC
+      `;
+            // Group users by date and BU
+            const usersByDateBU = new Map();
+            for (const row of usersByDayBU) {
+                const dateStr = formatDateToString(row.date);
+                if (!usersByDateBU.has(dateStr)) {
+                    usersByDateBU.set(dateStr, new Map());
+                }
+                const buMap = usersByDateBU.get(dateStr);
+                if (!buMap.has(row.business_unit)) {
+                    buMap.set(row.business_unit, []);
+                }
+                buMap.get(row.business_unit).push(row.user_id);
             }
-            buMap.get(row.business_unit).push(row.user_id);
-        }
-        // Build chart data with proper cumulative calculation
-        const chartData = [];
-        const endDate5 = new Date();
-        for (let d = new Date(startDate); d <= endDate5; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const dayData = usersByDateBU.get(dateStr);
-            // Add users from this day to cumulative sets
-            if (dayData) {
-                for (const [bu, userIds] of dayData.entries()) {
-                    const buSet = cumulativeUsers.get(bu);
-                    if (buSet) {
-                        for (const userId of userIds) {
-                            buSet.add(userId);
+            // Build chart data with proper cumulative calculation
+            const chartData = [];
+            const endDate5 = new Date();
+            for (let d = new Date(startDate); d <= endDate5; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const dayData = usersByDateBU.get(dateStr);
+                // Add users from this day to cumulative sets
+                if (dayData) {
+                    for (const [bu, userIds] of dayData.entries()) {
+                        const buSet = cumulativeUsers.get(bu);
+                        if (buSet) {
+                            for (const userId of userIds) {
+                                buSet.add(userId);
+                            }
                         }
                     }
                 }
+                // Create data point with current cumulative values
+                const item = { date: dateStr };
+                for (const bu of topBUNames) {
+                    item[`${bu}_cumulative`] = cumulativeUsers.get(bu)?.size || 0;
+                    item[`${bu}_active`] = 0;
+                }
+                chartData.push(item);
             }
-            // Create data point with current cumulative values
-            const item = { date: dateStr };
-            for (const bu of topBUNames) {
-                item[`${bu}_cumulative`] = cumulativeUsers.get(bu)?.size || 0;
-                item[`${bu}_active`] = 0;
+            // Fill in active users
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const dataPoint = chartData.find(d => d.date === dateStr);
+                if (dataPoint) {
+                    dataPoint[`${stat.business_unit}_active`] = Number(stat.active_users);
+                }
             }
-            chartData.push(item);
-        }
-        // Fill in active users
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const dataPoint = chartData.find(d => d.date === dateStr);
-            if (dataPoint) {
-                dataPoint[`${stat.business_unit}_active`] = Number(stat.active_users);
-            }
-        }
-        res.json({
-            businessUnits: topBUNames,
-            chartData,
-            periodDays: days,
+            return {
+                businessUnits: topBUNames,
+                chartData,
+                periodDays: days,
+            };
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get dept users daily stats error:', error);
@@ -4136,78 +4990,81 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
     try {
         const days = parseInt(req.query['days']) || 30;
         const topN = Math.min(10, Math.max(3, parseInt(req.query['topN']) || 5));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // 1. Get top N dept+service combinations by request count
-        const topCombos = await prisma.$queryRaw `
-      SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      INNER JOIN services s ON ul.service_id = s.id
-      WHERE u.loginid != 'anonymous'
-        AND u.business_unit IS NOT NULL
-        AND u.business_unit != ''
-        AND ul.timestamp >= ${startDate}
-      GROUP BY u.business_unit, s.name
-      ORDER BY request_count DESC
-      LIMIT ${topN}
-    `;
-        const comboNames = topCombos.map(c => `${c.business_unit}/${c.service_name}`);
-        const topBUs = [...new Set(topCombos.map(c => c.business_unit))];
-        const topServices = [...new Set(topCombos.map(c => c.service_name))];
-        // 2. Get daily requests for top business units and services
-        const dailyStats = await prisma.$queryRaw `
-      SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      INNER JOIN services s ON ul.service_id = s.id
-      WHERE u.loginid != 'anonymous'
-        AND ul.timestamp >= ${startDate}
-        AND u.business_unit = ANY(${topBUs})
-        AND s.name = ANY(${topServices})
-      GROUP BY DATE(ul.timestamp), u.business_unit, s.name
-      ORDER BY date ASC
-    `;
-        // 3. Build response with CUMULATIVE data
-        const dailyMap = new Map();
-        const endDate6 = new Date();
-        for (let d = new Date(startDate); d <= endDate6; d.setDate(d.getDate() + 1)) {
-            const dateStr = toLocalDateString(d);
-            const initialData = {};
+        const result = await withCache(redis, `cache:admin:stats:global:by-dept-service-requests-daily:${days}:${topN}`, 60, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // 1. Get top N dept+service combinations by request count
+            const topCombos = await prisma.$queryRaw `
+        SELECT u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as request_count
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        INNER JOIN services s ON ul.service_id = s.id
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit IS NOT NULL
+          AND u.business_unit != ''
+          AND ul.timestamp >= ${startDate}
+        GROUP BY u.business_unit, s.name
+        ORDER BY request_count DESC
+        LIMIT ${topN}
+      `;
+            const comboNames = topCombos.map(c => `${c.business_unit}/${c.service_name}`);
+            const topBUs = [...new Set(topCombos.map(c => c.business_unit))];
+            const topServices = [...new Set(topCombos.map(c => c.service_name))];
+            // 2. Get daily requests for top business units and services
+            const dailyStats = await prisma.$queryRaw `
+        SELECT DATE(ul.timestamp) as date, u.business_unit, s.name as service_name, COALESCE(SUM(request_count), 0) as requests
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        INNER JOIN services s ON ul.service_id = s.id
+        WHERE u.loginid != 'anonymous' AND u.is_test_account = false
+          AND ul.timestamp >= ${startDate}
+          AND u.business_unit = ANY(${topBUs})
+          AND s.name = ANY(${topServices})
+        GROUP BY DATE(ul.timestamp), u.business_unit, s.name
+        ORDER BY date ASC
+      `;
+            // 3. Build response with CUMULATIVE data
+            const dailyMap = new Map();
+            const endDate6 = new Date();
+            for (let d = new Date(startDate); d <= endDate6; d.setDate(d.getDate() + 1)) {
+                const dateStr = toLocalDateString(d);
+                const initialData = {};
+                for (const combo of comboNames) {
+                    initialData[combo] = 0;
+                }
+                dailyMap.set(dateStr, initialData);
+            }
+            for (const stat of dailyStats) {
+                const dateStr = formatDateToString(stat.date);
+                const comboKey = `${stat.business_unit}/${stat.service_name}`;
+                const existing = dailyMap.get(dateStr);
+                if (existing && comboNames.includes(comboKey)) {
+                    existing[comboKey] = Number(stat.requests);
+                }
+            }
+            // Convert to cumulative
+            const sortedDates = Array.from(dailyMap.keys()).sort();
+            const cumulativeSum = {};
             for (const combo of comboNames) {
-                initialData[combo] = 0;
+                cumulativeSum[combo] = 0;
             }
-            dailyMap.set(dateStr, initialData);
-        }
-        for (const stat of dailyStats) {
-            const dateStr = formatDateToString(stat.date);
-            const comboKey = `${stat.business_unit}/${stat.service_name}`;
-            const existing = dailyMap.get(dateStr);
-            if (existing && comboNames.includes(comboKey)) {
-                existing[comboKey] = Number(stat.requests);
-            }
-        }
-        // Convert to cumulative
-        const sortedDates = Array.from(dailyMap.keys()).sort();
-        const cumulativeSum = {};
-        for (const combo of comboNames) {
-            cumulativeSum[combo] = 0;
-        }
-        const chartData = sortedDates.map((date) => {
-            const dailyData = dailyMap.get(date);
-            const result = { date };
-            for (const combo of comboNames) {
-                cumulativeSum[combo] += dailyData[combo] || 0;
-                result[combo] = cumulativeSum[combo];
-            }
-            return result;
+            const chartData = sortedDates.map((date) => {
+                const dailyData = dailyMap.get(date);
+                const result = { date };
+                for (const combo of comboNames) {
+                    cumulativeSum[combo] += dailyData[combo] || 0;
+                    result[combo] = cumulativeSum[combo];
+                }
+                return result;
+            });
+            return {
+                combinations: comboNames,
+                chartData,
+                periodDays: days,
+            };
         });
-        res.json({
-            combinations: comboNames,
-            chartData,
-            periodDays: days,
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get dept-service requests daily stats error:', error);
@@ -4224,85 +5081,88 @@ adminRoutes.get('/stats/global/by-dept-service-requests-daily', async (req, res)
 adminRoutes.get('/stats/global/cumulative-users-by-service', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
-        // KST 기준 오늘 날짜
-        const now = new Date();
-        const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-        const todayStr = kstNow.toISOString().split('T')[0];
-        const startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
-        });
-        const serviceIdToDisplay = new Map(services.map(s => [s.id, s.displayName]));
-        // For each date in range, get cumulative distinct users per service up to that date
-        // Use a single efficient query: for each (service_id, date), get the first-seen date of each user
-        // Then compute cumulative counts from that
-        const firstSeenPerService = await prisma.$queryRaw `
-      SELECT
-        service_id::text as service_id,
-        DATE(timestamp) as first_date,
-        COUNT(*) as user_count
-      FROM (
-        SELECT service_id, user_id, MIN(timestamp) as timestamp
-        FROM usage_logs
-        WHERE service_id IS NOT NULL
-          AND user_id IS NOT NULL
-        GROUP BY service_id, user_id
-      ) first_seen
-      WHERE DATE(timestamp) <= ${todayStr}::date
-      GROUP BY service_id, first_date
-      ORDER BY first_date ASC
-    `;
-        // Build date range
-        const dateRange = [];
-        const endDate = new Date(now);
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            dateRange.push(toLocalDateString(d));
-        }
-        // Organize first-seen counts: serviceId -> date -> newUserCount
-        const newUsersMap = new Map();
-        for (const row of firstSeenPerService) {
-            const sid = row.service_id;
-            const dateStr = formatDateToString(row.first_date);
-            if (!newUsersMap.has(sid)) {
-                newUsersMap.set(sid, new Map());
+        const result = await withCache(redis, `cache:admin:stats:global:cumulative-users-by-service:${days}`, 90, async () => {
+            // KST 기준 오늘 날짜
+            const now = new Date();
+            const kstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+            const todayStr = kstNow.toISOString().split('T')[0];
+            const startDate = new Date(now);
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+            });
+            const serviceIdToDisplay = new Map(services.map(s => [s.id, s.displayName]));
+            // For each date in range, get cumulative distinct users per service up to that date
+            // Use a single efficient query: for each (service_id, date), get the first-seen date of each user
+            // Then compute cumulative counts from that
+            const firstSeenPerService = await prisma.$queryRaw `
+        SELECT
+          service_id::text as service_id,
+          DATE(timestamp) as first_date,
+          COUNT(*) as user_count
+        FROM (
+          SELECT service_id, user_id, MIN(timestamp) as timestamp
+          FROM usage_logs
+          WHERE service_id IS NOT NULL
+            AND user_id IS NOT NULL
+          GROUP BY service_id, user_id
+        ) first_seen
+        WHERE DATE(timestamp) <= ${todayStr}::date
+        GROUP BY service_id, first_date
+        ORDER BY first_date ASC
+      `;
+            // Build date range
+            const dateRange = [];
+            const endDate = new Date(now);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                dateRange.push(toLocalDateString(d));
             }
-            newUsersMap.get(sid).set(dateStr, Number(row.user_count));
-        }
-        // Build cumulative data
-        const cumulativeCounts = new Map();
-        for (const s of services) {
-            cumulativeCounts.set(s.id, 0);
-        }
-        // We need cumulative counts from the beginning of time, not just startDate
-        // First, compute the cumulative base before startDate
-        for (const s of services) {
-            const dateMap = newUsersMap.get(s.id);
-            if (!dateMap)
-                continue;
-            for (const [dateStr, count] of dateMap) {
-                if (dateStr < dateRange[0]) {
-                    cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + count);
+            // Organize first-seen counts: serviceId -> date -> newUserCount
+            const newUsersMap = new Map();
+            for (const row of firstSeenPerService) {
+                const sid = row.service_id;
+                const dateStr = formatDateToString(row.first_date);
+                if (!newUsersMap.has(sid)) {
+                    newUsersMap.set(sid, new Map());
+                }
+                newUsersMap.get(sid).set(dateStr, Number(row.user_count));
+            }
+            // Build cumulative data
+            const cumulativeCounts = new Map();
+            for (const s of services) {
+                cumulativeCounts.set(s.id, 0);
+            }
+            // We need cumulative counts from the beginning of time, not just startDate
+            // First, compute the cumulative base before startDate
+            for (const s of services) {
+                const dateMap = newUsersMap.get(s.id);
+                if (!dateMap)
+                    continue;
+                for (const [dateStr, count] of dateMap) {
+                    if (dateStr < dateRange[0]) {
+                        cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + count);
+                    }
                 }
             }
-        }
-        // Now iterate through the date range and build the chart data
-        const data = dateRange.map(date => {
-            const row = { date };
-            for (const s of services) {
-                const newUsers = newUsersMap.get(s.id)?.get(date) || 0;
-                cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + newUsers);
-                row[s.displayName] = cumulativeCounts.get(s.id) || 0;
-            }
-            return row;
+            // Now iterate through the date range and build the chart data
+            const data = dateRange.map(date => {
+                const row = { date };
+                for (const s of services) {
+                    const newUsers = newUsersMap.get(s.id)?.get(date) || 0;
+                    cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + newUsers);
+                    row[s.displayName] = cumulativeCounts.get(s.id) || 0;
+                }
+                return row;
+            });
+            return {
+                data,
+                services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+            };
         });
-        res.json({
-            data,
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get cumulative users by service error:', error);
@@ -4318,69 +5178,72 @@ adminRoutes.get('/stats/global/cumulative-users-by-service', async (req, res) =>
 adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
-        const now = new Date();
-        const startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
-        });
-        // Get daily token sums per service from usage_logs
-        const dailyTokens = await prisma.$queryRaw `
-      SELECT
-        DATE(timestamp) as date,
-        service_id::text as service_id,
-        SUM("inputTokens" + "outputTokens") as total_tokens
-      FROM usage_logs
-      WHERE service_id IS NOT NULL
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
-    `;
-        // Build date range
-        const dateRange = [];
-        const endDate = new Date(now);
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            dateRange.push(toLocalDateString(d));
-        }
-        // Organize daily tokens: serviceId -> date -> tokens
-        const dailyMap = new Map();
-        for (const row of dailyTokens) {
-            const sid = row.service_id;
-            const dateStr = formatDateToString(row.date);
-            if (!dailyMap.has(sid)) {
-                dailyMap.set(sid, new Map());
+        const result = await withCache(redis, `cache:admin:stats:global:cumulative-tokens-by-service:${days}`, 90, async () => {
+            const now = new Date();
+            const startDate = new Date(now);
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+            });
+            // Get daily token sums per service from usage_logs
+            const dailyTokens = await prisma.$queryRaw `
+        SELECT
+          DATE(timestamp) as date,
+          service_id::text as service_id,
+          SUM("inputTokens" + "outputTokens") as total_tokens
+        FROM usage_logs
+        WHERE service_id IS NOT NULL
+        GROUP BY DATE(timestamp), service_id
+        ORDER BY DATE(timestamp) ASC
+      `;
+            // Build date range
+            const dateRange = [];
+            const endDate = new Date(now);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                dateRange.push(toLocalDateString(d));
             }
-            dailyMap.get(sid).set(dateStr, Number(row.total_tokens));
-        }
-        // Compute cumulative base before startDate
-        const cumulativeCounts = new Map();
-        for (const s of services) {
-            cumulativeCounts.set(s.id, 0);
-            const dateMap = dailyMap.get(s.id);
-            if (!dateMap)
-                continue;
-            for (const [dateStr, tokens] of dateMap) {
-                if (dateStr < dateRange[0]) {
-                    cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + tokens);
+            // Organize daily tokens: serviceId -> date -> tokens
+            const dailyMap = new Map();
+            for (const row of dailyTokens) {
+                const sid = row.service_id;
+                const dateStr = formatDateToString(row.date);
+                if (!dailyMap.has(sid)) {
+                    dailyMap.set(sid, new Map());
+                }
+                dailyMap.get(sid).set(dateStr, Number(row.total_tokens));
+            }
+            // Compute cumulative base before startDate
+            const cumulativeCounts = new Map();
+            for (const s of services) {
+                cumulativeCounts.set(s.id, 0);
+                const dateMap = dailyMap.get(s.id);
+                if (!dateMap)
+                    continue;
+                for (const [dateStr, tokens] of dateMap) {
+                    if (dateStr < dateRange[0]) {
+                        cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + tokens);
+                    }
                 }
             }
-        }
-        // Build cumulative chart data
-        const data = dateRange.map(date => {
-            const row = { date };
-            for (const s of services) {
-                const dayTokens = dailyMap.get(s.id)?.get(date) || 0;
-                cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + dayTokens);
-                row[s.displayName] = cumulativeCounts.get(s.id) || 0;
-            }
-            return row;
+            // Build cumulative chart data
+            const data = dateRange.map(date => {
+                const row = { date };
+                for (const s of services) {
+                    const dayTokens = dailyMap.get(s.id)?.get(date) || 0;
+                    cumulativeCounts.set(s.id, (cumulativeCounts.get(s.id) || 0) + dayTokens);
+                    row[s.displayName] = cumulativeCounts.get(s.id) || 0;
+                }
+                return row;
+            });
+            return {
+                data,
+                services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+            };
         });
-        res.json({
-            data,
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get cumulative tokens by service error:', error);
@@ -4396,116 +5259,119 @@ adminRoutes.get('/stats/global/cumulative-tokens-by-service', async (req, res) =
 adminRoutes.get('/stats/global/dau-by-service', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
-        const now = new Date();
-        const startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services (include type for BACKGROUND estimation)
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true, type: true },
-        });
-        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
-        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
-        // STANDARD DAU: Count distinct userIds per (date, service)
-        const dauStats = await prisma.$queryRaw `
-      SELECT
-        DATE(timestamp) as date,
-        service_id::text as service_id,
-        COUNT(DISTINCT user_id) as dau
-      FROM usage_logs
-      WHERE service_id IS NOT NULL
-        AND user_id IS NOT NULL
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
-    `;
-        // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
-        const [baselineDailyRes, baselineDauRes] = await Promise.all([
-            prisma.$queryRaw `
-        WITH daily_calls AS (
-          SELECT DATE(timestamp) as d, SUM(request_count) as cnt
-          FROM usage_logs
-          WHERE service_id::text = ANY(${standardServiceIds})
-            AND timestamp >= ${startDate}
-            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
-          GROUP BY DATE(timestamp)
-        )
-        SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
-      `,
-            prisma.$queryRaw `
-        WITH daily_dau AS (
-          SELECT DATE(timestamp) as d, COUNT(DISTINCT user_id) as dau
-          FROM usage_logs
-          WHERE service_id::text = ANY(${standardServiceIds})
-            AND user_id IS NOT NULL
-            AND timestamp >= ${startDate}
-            AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
-          GROUP BY DATE(timestamp)
-        )
-        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
-      `,
-        ]);
-        const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
-        const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
-        const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
-        // BACKGROUND services: daily total calls (all days)
-        const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
-      SELECT DATE(timestamp) as date, service_id::text as service_id, SUM(request_count) as total_calls
-      FROM usage_logs
-      WHERE service_id::text = ANY(${backgroundServiceIds})
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
-    ` : [];
-        // Build date range
-        const dateRange = [];
-        const endDate = new Date(now);
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            dateRange.push(toLocalDateString(d));
-        }
-        // Build lookup: "serviceId|date" -> dau
-        const dauMap = new Map();
-        for (const row of dauStats) {
-            const dateStr = formatDateToString(row.date);
-            dauMap.set(`${row.service_id}|${dateStr}`, Number(row.dau));
-        }
-        // Build BG lookup: "serviceId|date" -> daily calls
-        const bgCallsMap = new Map();
-        if (callsPerPersonPerDay > 0) {
-            for (const row of bgDailyStats) {
+        const result = await withCache(redis, `cache:admin:stats:global:dau-by-service:${days}`, 90, async () => {
+            const now = new Date();
+            const startDate = new Date(now);
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services (include type for BACKGROUND estimation)
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true, type: true },
+            });
+            const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+            const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+            // STANDARD DAU: Count distinct userIds per (date, service)
+            const dauStats = await prisma.$queryRaw `
+        SELECT
+          DATE(timestamp) as date,
+          service_id::text as service_id,
+          COUNT(DISTINCT user_id) as dau
+        FROM usage_logs
+        WHERE service_id IS NOT NULL
+          AND user_id IS NOT NULL
+          AND timestamp >= ${startDate}
+        GROUP BY DATE(timestamp), service_id
+        ORDER BY DATE(timestamp) ASC
+      `;
+            // STANDARD baseline: 1인당 하루 평균 호출 수 (영업일 기준)
+            const [baselineDailyRes, baselineDauRes] = await Promise.all([
+                prisma.$queryRaw `
+          WITH daily_calls AS (
+            SELECT DATE(timestamp) as d, SUM(request_count) as cnt
+            FROM usage_logs
+            WHERE service_id::text = ANY(${standardServiceIds})
+              AND timestamp >= ${startDate}
+              AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
+            GROUP BY DATE(timestamp)
+          )
+          SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls, COUNT(*) as business_days FROM daily_calls
+        `,
+                prisma.$queryRaw `
+          WITH daily_dau AS (
+            SELECT DATE(timestamp) as d, COUNT(DISTINCT user_id) as dau
+            FROM usage_logs
+            WHERE service_id::text = ANY(${standardServiceIds})
+              AND user_id IS NOT NULL
+              AND timestamp >= ${startDate}
+              AND EXTRACT(DOW FROM DATE(timestamp)) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(usage_logs.timestamp))
+            GROUP BY DATE(timestamp)
+          )
+          SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+        `,
+            ]);
+            const avgDailyCalls = baselineDailyRes[0]?.avg_daily_calls || 0;
+            const avgDailyDau = baselineDauRes[0]?.avg_daily_dau || 0;
+            const callsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+            // BACKGROUND services: daily total calls (all days)
+            const bgDailyStats = backgroundServiceIds.length > 0 ? await prisma.$queryRaw `
+        SELECT DATE(timestamp) as date, service_id::text as service_id, SUM(request_count) as total_calls
+        FROM usage_logs
+        WHERE service_id::text = ANY(${backgroundServiceIds})
+          AND timestamp >= ${startDate}
+        GROUP BY DATE(timestamp), service_id
+        ORDER BY DATE(timestamp) ASC
+      ` : [];
+            // Build date range
+            const dateRange = [];
+            const endDate = new Date(now);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                dateRange.push(toLocalDateString(d));
+            }
+            // Build lookup: "serviceId|date" -> dau
+            const dauMap = new Map();
+            for (const row of dauStats) {
                 const dateStr = formatDateToString(row.date);
-                const totalCalls = Number(row.total_calls);
-                dauMap.set(`${row.service_id}|${dateStr}`, Math.round(totalCalls / callsPerPersonPerDay));
-                bgCallsMap.set(`${row.service_id}|${dateStr}`, totalCalls);
+                dauMap.set(`${row.service_id}|${dateStr}`, Number(row.dau));
             }
-        }
-        // Build chart data (uses displayName as keys)
-        const data = dateRange.map(date => {
-            const row = { date };
+            // Build BG lookup: "serviceId|date" -> daily calls
+            const bgCallsMap = new Map();
+            if (callsPerPersonPerDay > 0) {
+                for (const row of bgDailyStats) {
+                    const dateStr = formatDateToString(row.date);
+                    const totalCalls = Number(row.total_calls);
+                    dauMap.set(`${row.service_id}|${dateStr}`, Math.round(totalCalls / callsPerPersonPerDay));
+                    bgCallsMap.set(`${row.service_id}|${dateStr}`, totalCalls);
+                }
+            }
+            // Build chart data (uses displayName as keys)
+            const data = dateRange.map(date => {
+                const row = { date };
+                for (const s of services) {
+                    row[s.displayName] = dauMap.get(`${s.id}|${date}`) || 0;
+                }
+                return row;
+            });
+            // displayName → type lookup for frontend
+            const serviceTypeMap = {};
             for (const s of services) {
-                row[s.displayName] = dauMap.get(`${s.id}|${date}`) || 0;
+                serviceTypeMap[s.displayName] = s.type;
             }
-            return row;
+            return {
+                data,
+                services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+                serviceTypeMap,
+                estimationMeta: {
+                    callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
+                    standardAvgDailyDAU: Math.round(avgDailyDau),
+                    standardAvgDailyCalls: Math.round(avgDailyCalls),
+                    businessDays: Number(baselineDailyRes[0]?.business_days || 0),
+                },
+            };
         });
-        // displayName → type lookup for frontend
-        const serviceTypeMap = {};
-        for (const s of services) {
-            serviceTypeMap[s.displayName] = s.type;
-        }
-        res.json({
-            data,
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
-            serviceTypeMap,
-            estimationMeta: {
-                callsPerPersonPerDay: Math.round(callsPerPersonPerDay * 10) / 10,
-                standardAvgDailyDAU: Math.round(avgDailyDau),
-                standardAvgDailyCalls: Math.round(avgDailyCalls),
-                businessDays: Number(baselineDailyRes[0]?.business_days || 0),
-            },
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get DAU by service error:', error);
@@ -4522,34 +5388,37 @@ adminRoutes.get('/stats/global/dept-usage-by-service', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
         const topN = Math.min(50, Math.max(1, parseInt(req.query['topN']) || 10));
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Single query: group by serviceId + deptname, sum tokens and requests
-        const deptUsage = await prisma.$queryRaw `
-      SELECT
-        d.service_id::text as service_id,
-        s."displayName" as service_display_name,
-        d.deptname,
-        SUM(d."inputTokens" + d."outputTokens") as total_tokens,
-        SUM(d.request_count) as request_count
-      FROM usage_logs d
-      INNER JOIN services s ON d.service_id = s.id
-      WHERE d.service_id IS NOT NULL
-        AND d.deptname IS NOT NULL
-        AND d.deptname != ''
-        AND d.timestamp >= ${startDate}
-      GROUP BY d.service_id, s."displayName", d.deptname
-      ORDER BY total_tokens DESC
-      LIMIT ${topN}
-    `;
-        const data = deptUsage.map(row => ({
-            serviceName: row.service_display_name,
-            deptname: row.deptname,
-            totalTokens: Number(row.total_tokens),
-            requestCount: Number(row.request_count),
-        }));
-        res.json({ data });
+        const result = await withCache(redis, `cache:admin:stats:global:dept-usage-by-service:${days}:${topN}`, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Single query: group by serviceId + deptname, sum tokens and requests
+            const deptUsage = await prisma.$queryRaw `
+        SELECT
+          d.service_id::text as service_id,
+          s."displayName" as service_display_name,
+          d.deptname,
+          SUM(d."inputTokens" + d."outputTokens") as total_tokens,
+          SUM(d.request_count) as request_count
+        FROM usage_logs d
+        INNER JOIN services s ON d.service_id = s.id
+        WHERE d.service_id IS NOT NULL
+          AND d.deptname IS NOT NULL
+          AND d.deptname != ''
+          AND d.timestamp >= ${startDate}
+        GROUP BY d.service_id, s."displayName", d.deptname
+        ORDER BY total_tokens DESC
+        LIMIT ${topN}
+      `;
+            const data = deptUsage.map(row => ({
+                serviceName: row.service_display_name,
+                deptname: row.deptname,
+                totalTokens: Number(row.total_tokens),
+                requestCount: Number(row.request_count),
+            }));
+            return { data };
+        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get dept usage by service error:', error);
@@ -4565,51 +5434,54 @@ adminRoutes.get('/stats/global/dept-usage-by-service', async (req, res) => {
 adminRoutes.get('/stats/global/service-daily-requests', async (req, res) => {
     try {
         const days = Math.min(365, Math.max(1, parseInt(req.query['days']) || 30));
-        const now = new Date();
-        const startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true },
-        });
-        // Sum request_count per (date, service) from usage_logs
-        const requestStats = await prisma.$queryRaw `
-      SELECT
-        DATE(timestamp) as date,
-        service_id::text as service_id,
-        SUM(request_count) as request_count
-      FROM usage_logs
-      WHERE service_id IS NOT NULL
-        AND timestamp >= ${startDate}
-      GROUP BY DATE(timestamp), service_id
-      ORDER BY DATE(timestamp) ASC
-    `;
-        // Build date range
-        const dateRange = [];
-        const endDate = new Date(now);
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-            dateRange.push(toLocalDateString(d));
-        }
-        // Build lookup: "serviceId|date" -> requestCount
-        const requestMap = new Map();
-        for (const row of requestStats) {
-            const dateStr = formatDateToString(row.date);
-            requestMap.set(`${row.service_id}|${dateStr}`, Number(row.request_count));
-        }
-        // Build chart data
-        const data = dateRange.map(date => {
-            const row = { date };
-            for (const s of services) {
-                row[s.displayName] = requestMap.get(`${s.id}|${date}`) || 0;
+        const result = await withCache(redis, `cache:admin:stats:global:service-daily-requests:${days}`, 90, async () => {
+            const now = new Date();
+            const startDate = new Date(now);
+            startDate.setDate(startDate.getDate() - days);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true },
+            });
+            // Sum request_count per (date, service) from usage_logs
+            const requestStats = await prisma.$queryRaw `
+        SELECT
+          DATE(timestamp) as date,
+          service_id::text as service_id,
+          SUM(request_count) as request_count
+        FROM usage_logs
+        WHERE service_id IS NOT NULL
+          AND timestamp >= ${startDate}
+        GROUP BY DATE(timestamp), service_id
+        ORDER BY DATE(timestamp) ASC
+      `;
+            // Build date range
+            const dateRange = [];
+            const endDate = new Date(now);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                dateRange.push(toLocalDateString(d));
             }
-            return row;
+            // Build lookup: "serviceId|date" -> requestCount
+            const requestMap = new Map();
+            for (const row of requestStats) {
+                const dateStr = formatDateToString(row.date);
+                requestMap.set(`${row.service_id}|${dateStr}`, Number(row.request_count));
+            }
+            // Build chart data
+            const data = dateRange.map(date => {
+                const row = { date };
+                for (const s of services) {
+                    row[s.displayName] = requestMap.get(`${s.id}|${date}`) || 0;
+                }
+                return row;
+            });
+            return {
+                data,
+                services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
+            };
         });
-        res.json({
-            data,
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName })),
-        });
+        res.json(result);
     }
     catch (error) {
         console.error('Get service daily requests error:', error);
@@ -4646,19 +5518,21 @@ adminRoutes.get('/business-units', async (_req, res) => {
  */
 adminRoutes.get('/scope/business-units', async (_req, res) => {
     try {
-        const users = await prisma.user.findMany({
-            select: { businessUnit: true },
-            distinct: ['businessUnit'],
-            where: {
-                AND: [
-                    { businessUnit: { not: null } },
-                    { businessUnit: { not: '' } },
-                ],
-            },
-            orderBy: { businessUnit: 'asc' },
+        const result = await withCache(redis, 'cache:admin:scope:business-units', 300, async () => {
+            const users = await prisma.user.findMany({
+                select: { businessUnit: true },
+                distinct: ['businessUnit'],
+                where: {
+                    AND: [
+                        { businessUnit: { not: null } },
+                        { businessUnit: { not: '' } },
+                    ],
+                },
+                orderBy: { businessUnit: 'asc' },
+            });
+            return { businessUnits: users.map(u => u.businessUnit).filter(Boolean) };
         });
-        const businessUnits = users.map(u => u.businessUnit).filter(Boolean);
-        res.json({ businessUnits });
+        res.json(result);
     }
     catch (error) {
         console.error('Failed to get business units:', error);
@@ -4671,16 +5545,18 @@ adminRoutes.get('/scope/business-units', async (_req, res) => {
  */
 adminRoutes.get('/scope/departments', async (_req, res) => {
     try {
-        const users = await prisma.user.findMany({
-            select: { deptname: true },
-            distinct: ['deptname'],
-            where: {
-                deptname: { not: '' },
-            },
-            orderBy: { deptname: 'asc' },
+        const result = await withCache(redis, 'cache:admin:scope:departments', 300, async () => {
+            const users = await prisma.user.findMany({
+                select: { deptname: true },
+                distinct: ['deptname'],
+                where: {
+                    deptname: { not: '' },
+                },
+                orderBy: { deptname: 'asc' },
+            });
+            return { departments: users.map(u => u.deptname).filter(Boolean) };
         });
-        const departments = users.map(u => u.deptname).filter(Boolean);
-        res.json({ departments });
+        res.json(result);
     }
     catch (error) {
         console.error('Failed to get departments:', error);
@@ -4693,21 +5569,24 @@ adminRoutes.get('/scope/departments', async (_req, res) => {
  */
 adminRoutes.get('/scope/org-tree', async (_req, res) => {
     try {
-        const nodes = await prisma.orgNode.findMany({
-            select: {
-                departmentCode: true,
-                departmentName: true,
-                enDepartmentName: true,
-                parentDepartmentCode: true,
-                hasChildren: true,
-                userCount: true,
-            },
-            orderBy: [
-                { departmentLevel: 'asc' },
-                { departmentName: 'asc' },
-            ],
+        const result = await withCache(redis, 'cache:admin:scope:org-tree', 300, async () => {
+            const nodes = await prisma.orgNode.findMany({
+                select: {
+                    departmentCode: true,
+                    departmentName: true,
+                    enDepartmentName: true,
+                    parentDepartmentCode: true,
+                    hasChildren: true,
+                    userCount: true,
+                },
+                orderBy: [
+                    { departmentLevel: 'asc' },
+                    { departmentName: 'asc' },
+                ],
+            });
+            return { nodes };
         });
-        res.json({ nodes });
+        res.json(result);
     }
     catch (error) {
         console.error('Failed to get scope org-tree:', error);
@@ -4742,6 +5621,7 @@ adminRoutes.delete('/users/:id', async (req, res) => {
         // User 삭제 (cascade: UsageLog, UserService, UserRateLimit)
         await prisma.user.delete({ where: { id } });
         console.log(`[User Delete] ${req.user.loginid} deleted user ${user.loginid} (${user.username})`);
+        invalidateCache(redis, 'cache:admin:unified-users:*', 'cache:admin:users:*').catch(() => { });
         res.json({
             success: true,
             message: `사용자 ${user.username} (${user.loginid})의 모든 기록이 삭제되었습니다.`,
@@ -4851,153 +5731,156 @@ adminRoutes.delete('/service-rate-limit', async (req, res) => {
 adminRoutes.get('/stats/global/mau-by-service', async (req, res) => {
     try {
         const months = Math.min(12, Math.max(1, parseInt(req.query['months']) || 6));
-        // Calculate start date
-        const now = new Date();
-        const startDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
-        startDate.setHours(0, 0, 0, 0);
-        // Get all enabled services with type
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true, type: true },
-        });
-        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
-        const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
-        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        // 1. STANDARD services: real MAU per month
-        const standardMau = await prisma.$queryRaw `
-      SELECT
-        ul.service_id::text as service_id,
-        TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
-        COUNT(DISTINCT ul.user_id) as mau
-      FROM usage_logs ul
-      INNER JOIN users u ON ul.user_id = u.id
-      WHERE ul.timestamp >= ${startDate}
-        AND u.loginid != 'anonymous'
-        AND ul.service_id::text = ANY(${standardServiceIds})
-      GROUP BY ul.service_id, TO_CHAR(ul.timestamp, 'YYYY-MM')
-      ORDER BY month ASC
-    `;
-        // 2. 월별 STANDARD baseline (해당 월 데이터 사용 → 과거 월 고정, 이번 달 실시간)
-        const perMonthBaseline = await prisma.$queryRaw `
-      WITH monthly_totals AS (
+        const result = await withCache(redis, `cache:admin:stats:global:mau-by-service:${months}`, 90, async () => {
+            // Calculate start date
+            const now = new Date();
+            const startDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
+            startDate.setHours(0, 0, 0, 0);
+            // Get all enabled services with type
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true, type: true },
+            });
+            const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+            const backgroundServiceIds = services.filter(s => s.type === 'BACKGROUND').map(s => s.id);
+            const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            // 1. STANDARD services: real MAU per month
+            const standardMau = await prisma.$queryRaw `
         SELECT
+          ul.service_id::text as service_id,
           TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
-          COUNT(*) as total_calls,
           COUNT(DISTINCT ul.user_id) as mau
         FROM usage_logs ul
         INNER JOIN users u ON ul.user_id = u.id
         WHERE ul.timestamp >= ${startDate}
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
           AND ul.service_id::text = ANY(${standardServiceIds})
-          AND u.loginid != 'anonymous'
-        GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM')
-      ),
-      daily_stats AS (
-        SELECT
-          TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
-          DATE(ul.timestamp) as d,
-          COUNT(*) as calls,
-          COUNT(DISTINCT ul.user_id) as dau
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${startDate}
-          AND ul.service_id::text = ANY(${standardServiceIds})
-          AND u.loginid != 'anonymous'
-          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-        GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM'), DATE(ul.timestamp)
-      ),
-      daily_agg AS (
-        SELECT month, AVG(calls)::float as avg_daily_calls, AVG(dau)::float as avg_daily_dau, COUNT(*) as business_days
-        FROM daily_stats GROUP BY month
-      )
-      SELECT mt.month, mt.total_calls, mt.mau, COALESCE(da.avg_daily_calls, 0) as avg_daily_calls,
-        COALESCE(da.avg_daily_dau, 0) as avg_daily_dau, COALESCE(da.business_days, 0) as business_days
-      FROM monthly_totals mt LEFT JOIN daily_agg da ON mt.month = da.month
-      ORDER BY mt.month
-    `;
-        // 월별 baseline lookup: callsPerPersonPerMonth
-        const baselineMap = new Map();
-        for (const row of perMonthBaseline) {
-            const mau = Number(row.mau);
-            const totalCalls = Number(row.total_calls);
-            const avgDailyDau = row.avg_daily_dau || 0;
-            const avgDailyCalls = row.avg_daily_calls || 0;
-            baselineMap.set(row.month, {
-                callsPerPersonPerDay: avgDailyDau > 0 ? Math.round((avgDailyCalls / avgDailyDau) * 10) / 10 : 0,
-                callsPerPersonPerMonth: mau > 0 ? Math.round((totalCalls / mau) * 10) / 10 : 0,
-                standardMAU: mau,
-                standardTotalCalls: totalCalls,
-                avgDailyDAU: Math.round(avgDailyDau),
-                businessDays: Number(row.business_days),
-                isFixed: row.month !== currentMonth,
-            });
-        }
-        // 3. BACKGROUND services: 월별 API 호출 수
-        const backgroundMonthlyCallsByMonth = await prisma.$queryRaw `
-      SELECT
-        service_id::text as service_id,
-        TO_CHAR(timestamp, 'YYYY-MM') as month,
-        COUNT(*) as total_calls
-      FROM usage_logs
-      WHERE timestamp >= ${startDate}
-        AND service_id::text = ANY(${backgroundServiceIds})
-      GROUP BY service_id, TO_CHAR(timestamp, 'YYYY-MM')
-      ORDER BY month ASC
-    `;
-        // BG 호출 수 lookup: "serviceId|month" → totalCalls
-        const bgCallsMap = new Map();
-        for (const row of backgroundMonthlyCallsByMonth) {
-            bgCallsMap.set(`${row.service_id}|${row.month}`, Number(row.total_calls));
-        }
-        // Build month list
-        const monthList = [];
-        for (let d = new Date(startDate); d <= now; d.setMonth(d.getMonth() + 1)) {
-            monthList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-        }
-        // Build MAU lookup
-        const mauMap = new Map();
-        for (const row of standardMau) {
-            mauMap.set(`${row.service_id}|${row.month}`, Number(row.mau));
-        }
-        // Background: 월별 baseline 적용하여 추정 MAU 계산
-        for (const row of backgroundMonthlyCallsByMonth) {
-            const baseline = baselineMap.get(row.month);
-            const cpp = baseline?.callsPerPersonPerMonth || 0;
-            const estMau = cpp > 0 ? Math.round(Number(row.total_calls) / cpp) : 0;
-            mauMap.set(`${row.service_id}|${row.month}`, estMau);
-        }
-        // Build monthlyData
-        const monthlyData = monthList.map(month => {
-            const row = { month };
-            for (const s of services) {
-                row[s.id] = mauMap.get(`${s.id}|${month}`) || 0;
+        GROUP BY ul.service_id, TO_CHAR(ul.timestamp, 'YYYY-MM')
+        ORDER BY month ASC
+      `;
+            // 2. 월별 STANDARD baseline (해당 월 데이터 사용 → 과거 월 고정, 이번 달 실시간)
+            const perMonthBaseline = await prisma.$queryRaw `
+        WITH monthly_totals AS (
+          SELECT
+            TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
+            COUNT(*) as total_calls,
+            COUNT(DISTINCT ul.user_id) as mau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ANY(${standardServiceIds})
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+          GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM')
+        ),
+        daily_stats AS (
+          SELECT
+            TO_CHAR(ul.timestamp, 'YYYY-MM') as month,
+            DATE(ul.timestamp) as d,
+            COUNT(*) as calls,
+            COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${startDate}
+            AND ul.service_id::text = ANY(${standardServiceIds})
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY TO_CHAR(ul.timestamp, 'YYYY-MM'), DATE(ul.timestamp)
+        ),
+        daily_agg AS (
+          SELECT month, AVG(calls)::float as avg_daily_calls, AVG(dau)::float as avg_daily_dau, COUNT(*) as business_days
+          FROM daily_stats GROUP BY month
+        )
+        SELECT mt.month, mt.total_calls, mt.mau, COALESCE(da.avg_daily_calls, 0) as avg_daily_calls,
+          COALESCE(da.avg_daily_dau, 0) as avg_daily_dau, COALESCE(da.business_days, 0) as business_days
+        FROM monthly_totals mt LEFT JOIN daily_agg da ON mt.month = da.month
+        ORDER BY mt.month
+      `;
+            // 월별 baseline lookup: callsPerPersonPerMonth
+            const baselineMap = new Map();
+            for (const row of perMonthBaseline) {
+                const mau = Number(row.mau);
+                const totalCalls = Number(row.total_calls);
+                const avgDailyDau = row.avg_daily_dau || 0;
+                const avgDailyCalls = row.avg_daily_calls || 0;
+                baselineMap.set(row.month, {
+                    callsPerPersonPerDay: avgDailyDau > 0 ? Math.round((avgDailyCalls / avgDailyDau) * 10) / 10 : 0,
+                    callsPerPersonPerMonth: mau > 0 ? Math.round((totalCalls / mau) * 10) / 10 : 0,
+                    standardMAU: mau,
+                    standardTotalCalls: totalCalls,
+                    avgDailyDAU: Math.round(avgDailyDau),
+                    businessDays: Number(row.business_days),
+                    isFixed: row.month !== currentMonth,
+                });
             }
-            return row;
-        });
-        // Build per-month baseline for frontend tooltip
-        const monthlyBaseline = {};
-        for (const [month, bl] of baselineMap) {
-            monthlyBaseline[month] = bl;
-        }
-        // Build per-BG-service per-month detail
-        const bgMonthlyDetail = {};
-        for (const [key, totalCalls] of bgCallsMap) {
-            const month = key.split('|')[1];
-            const baseline = baselineMap.get(month);
-            const cpp = baseline?.callsPerPersonPerMonth || 0;
-            bgMonthlyDetail[key] = {
-                totalCalls,
-                estimatedMAU: cpp > 0 ? Math.round(totalCalls / cpp) : 0,
+            // 3. BACKGROUND services: 월별 API 호출 수
+            const backgroundMonthlyCallsByMonth = await prisma.$queryRaw `
+        SELECT
+          service_id::text as service_id,
+          TO_CHAR(timestamp, 'YYYY-MM') as month,
+          COUNT(*) as total_calls
+        FROM usage_logs
+        WHERE timestamp >= ${startDate}
+          AND service_id::text = ANY(${backgroundServiceIds})
+        GROUP BY service_id, TO_CHAR(timestamp, 'YYYY-MM')
+        ORDER BY month ASC
+      `;
+            // BG 호출 수 lookup: "serviceId|month" → totalCalls
+            const bgCallsMap = new Map();
+            for (const row of backgroundMonthlyCallsByMonth) {
+                bgCallsMap.set(`${row.service_id}|${row.month}`, Number(row.total_calls));
+            }
+            // Build month list
+            const monthList = [];
+            for (let d = new Date(startDate); d <= now; d.setMonth(d.getMonth() + 1)) {
+                monthList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+            }
+            // Build MAU lookup
+            const mauMap = new Map();
+            for (const row of standardMau) {
+                mauMap.set(`${row.service_id}|${row.month}`, Number(row.mau));
+            }
+            // Background: 월별 baseline 적용하여 추정 MAU 계산
+            for (const row of backgroundMonthlyCallsByMonth) {
+                const baseline = baselineMap.get(row.month);
+                const cpp = baseline?.callsPerPersonPerMonth || 0;
+                const estMau = cpp > 0 ? Math.round(Number(row.total_calls) / cpp) : 0;
+                mauMap.set(`${row.service_id}|${row.month}`, estMau);
+            }
+            // Build monthlyData
+            const monthlyData = monthList.map(month => {
+                const row = { month };
+                for (const s of services) {
+                    row[s.id] = mauMap.get(`${s.id}|${month}`) || 0;
+                }
+                return row;
+            });
+            // Build per-month baseline for frontend tooltip
+            const monthlyBaseline = {};
+            for (const [month, bl] of baselineMap) {
+                monthlyBaseline[month] = bl;
+            }
+            // Build per-BG-service per-month detail
+            const bgMonthlyDetail = {};
+            for (const [key, totalCalls] of bgCallsMap) {
+                const month = key.split('|')[1];
+                const baseline = baselineMap.get(month);
+                const cpp = baseline?.callsPerPersonPerMonth || 0;
+                bgMonthlyDetail[key] = {
+                    totalCalls,
+                    estimatedMAU: cpp > 0 ? Math.round(totalCalls / cpp) : 0,
+                };
+            }
+            return {
+                services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
+                monthlyData,
+                estimationMeta: {
+                    monthlyBaseline,
+                    backgroundMonthlyDetail: bgMonthlyDetail,
+                },
             };
-        }
-        res.json({
-            services: services.map(s => ({ id: s.id, name: s.name, displayName: s.displayName, type: s.type })),
-            monthlyData,
-            estimationMeta: {
-                monthlyBaseline,
-                backgroundMonthlyDetail: bgMonthlyDetail,
-            },
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get MAU by service error:', error);
@@ -5012,107 +5895,110 @@ adminRoutes.get('/stats/global/mau-by-service', async (req, res) => {
  */
 adminRoutes.get('/stats/global/estimated-dau-mau', async (_req, res) => {
     try {
-        const services = await prisma.service.findMany({
-            where: { enabled: true },
-            select: { id: true, name: true, displayName: true, type: true },
-        });
-        const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
-        const backgroundServices = services.filter(s => s.type === 'BACKGROUND');
-        // 이번 달 1일부터 현재까지를 baseline으로 사용 (실시간)
-        const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        thisMonthStart.setHours(0, 0, 0, 0);
-        // STANDARD baseline: 이번 달 데이터
-        const [dailyCallsRes, dailyDauRes, monthlyRes] = await Promise.all([
-            prisma.$queryRaw `
-        WITH daily_calls AS (
-          SELECT DATE(timestamp) as log_date, COUNT(*) as call_count
-          FROM usage_logs
-          WHERE timestamp >= ${thisMonthStart}
-            AND service_id::text = ANY(${standardServiceIds})
-            AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-          GROUP BY DATE(timestamp)
-        )
-        SELECT COALESCE(AVG(call_count), 0)::float as avg_daily_calls, COUNT(*) as business_days
-        FROM daily_calls
-      `,
-            prisma.$queryRaw `
-        WITH daily_dau AS (
-          SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as dau
+        const result = await withCache(redis, `cache:admin:stats:global:estimated-dau-mau`, 90, async () => {
+            const services = await prisma.service.findMany({
+                where: { enabled: true },
+                select: { id: true, name: true, displayName: true, type: true },
+            });
+            const standardServiceIds = services.filter(s => s.type === 'STANDARD').map(s => s.id);
+            const backgroundServices = services.filter(s => s.type === 'BACKGROUND');
+            // 이번 달 1일부터 현재까지를 baseline으로 사용 (실시간)
+            const thisMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+            thisMonthStart.setHours(0, 0, 0, 0);
+            // STANDARD baseline: 이번 달 데이터
+            const [dailyCallsRes, dailyDauRes, monthlyRes] = await Promise.all([
+                prisma.$queryRaw `
+          WITH daily_calls AS (
+            SELECT DATE(timestamp) as log_date, COUNT(*) as call_count
+            FROM usage_logs
+            WHERE timestamp >= ${thisMonthStart}
+              AND service_id::text = ANY(${standardServiceIds})
+              AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+            GROUP BY DATE(timestamp)
+          )
+          SELECT COALESCE(AVG(call_count), 0)::float as avg_daily_calls, COUNT(*) as business_days
+          FROM daily_calls
+        `,
+                prisma.$queryRaw `
+          WITH daily_dau AS (
+            SELECT DATE(ul.timestamp) as log_date, COUNT(DISTINCT ul.user_id) as dau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${thisMonthStart}
+              AND ul.service_id::text = ANY(${standardServiceIds})
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY DATE(ul.timestamp)
+          )
+          SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
+        `,
+                prisma.$queryRaw `
+          SELECT COUNT(*) as total_calls, COUNT(DISTINCT ul.user_id) as monthly_mau
           FROM usage_logs ul
           INNER JOIN users u ON ul.user_id = u.id
           WHERE ul.timestamp >= ${thisMonthStart}
             AND ul.service_id::text = ANY(${standardServiceIds})
-            AND u.loginid != 'anonymous'
-            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-          GROUP BY DATE(ul.timestamp)
-        )
-        SELECT COALESCE(AVG(dau), 0)::float as avg_daily_dau FROM daily_dau
-      `,
-            prisma.$queryRaw `
-        SELECT COUNT(*) as total_calls, COUNT(DISTINCT ul.user_id) as monthly_mau
-        FROM usage_logs ul
-        INNER JOIN users u ON ul.user_id = u.id
-        WHERE ul.timestamp >= ${thisMonthStart}
-          AND ul.service_id::text = ANY(${standardServiceIds})
-          AND u.loginid != 'anonymous'
-      `,
-        ]);
-        const avgDailyCalls = dailyCallsRes[0]?.avg_daily_calls || 0;
-        const businessDays = Number(dailyCallsRes[0]?.business_days || 0);
-        const avgDailyDau = dailyDauRes[0]?.avg_daily_dau || 0;
-        const avgCallsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
-        const totalMonthlyCalls = Number(monthlyRes[0]?.total_calls || 0);
-        const monthlyMau = Number(monthlyRes[0]?.monthly_mau || 0);
-        const avgCallsPerPersonPerMonth = monthlyMau > 0 ? totalMonthlyCalls / monthlyMau : 0;
-        // BACKGROUND services: daily + total calls
-        const bgResults = await Promise.all(backgroundServices.map(async (svc) => {
-            const [dailyRes, totalRes] = await Promise.all([
-                prisma.$queryRaw `
-            WITH daily AS (
-              SELECT DATE(timestamp) as d, COUNT(*) as cnt
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+        `,
+            ]);
+            const avgDailyCalls = dailyCallsRes[0]?.avg_daily_calls || 0;
+            const businessDays = Number(dailyCallsRes[0]?.business_days || 0);
+            const avgDailyDau = dailyDauRes[0]?.avg_daily_dau || 0;
+            const avgCallsPerPersonPerDay = avgDailyDau > 0 ? avgDailyCalls / avgDailyDau : 0;
+            const totalMonthlyCalls = Number(monthlyRes[0]?.total_calls || 0);
+            const monthlyMau = Number(monthlyRes[0]?.monthly_mau || 0);
+            const avgCallsPerPersonPerMonth = monthlyMau > 0 ? totalMonthlyCalls / monthlyMau : 0;
+            // BACKGROUND services: daily + total calls
+            const bgResults = await Promise.all(backgroundServices.map(async (svc) => {
+                const [dailyRes, totalRes] = await Promise.all([
+                    prisma.$queryRaw `
+              WITH daily AS (
+                SELECT DATE(timestamp) as d, COUNT(*) as cnt
+                FROM usage_logs
+                WHERE timestamp >= ${thisMonthStart}
+                  AND service_id::text = ${svc.id}
+                  AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
+                  AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
+                GROUP BY DATE(timestamp)
+              )
+              SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily
+            `,
+                    prisma.$queryRaw `
+              SELECT COUNT(*) as total_calls
               FROM usage_logs
               WHERE timestamp >= ${thisMonthStart}
                 AND service_id::text = ${svc.id}
-                AND EXTRACT(DOW FROM timestamp) NOT IN (0, 6)
-                AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(timestamp))
-              GROUP BY DATE(timestamp)
-            )
-            SELECT COALESCE(AVG(cnt), 0)::float as avg_daily_calls FROM daily
-          `,
-                prisma.$queryRaw `
-            SELECT COUNT(*) as total_calls
-            FROM usage_logs
-            WHERE timestamp >= ${thisMonthStart}
-              AND service_id::text = ${svc.id}
-          `,
-            ]);
-            const avgDaily = dailyRes[0]?.avg_daily_calls || 0;
-            const totalCalls = Number(totalRes[0]?.total_calls || 0);
+            `,
+                ]);
+                const avgDaily = dailyRes[0]?.avg_daily_calls || 0;
+                const totalCalls = Number(totalRes[0]?.total_calls || 0);
+                return {
+                    serviceId: svc.id,
+                    serviceName: svc.name,
+                    serviceDisplayName: svc.displayName,
+                    avgDailyApiCalls: Math.round(avgDaily),
+                    estimatedDAU: avgCallsPerPersonPerDay > 0 ? Math.round(avgDaily / avgCallsPerPersonPerDay) : 0,
+                    totalMonthlyApiCalls: totalCalls,
+                    estimatedMAU: avgCallsPerPersonPerMonth > 0 ? Math.round(totalCalls / avgCallsPerPersonPerMonth) : 0,
+                    isEstimated: true,
+                };
+            }));
             return {
-                serviceId: svc.id,
-                serviceName: svc.name,
-                serviceDisplayName: svc.displayName,
-                avgDailyApiCalls: Math.round(avgDaily),
-                estimatedDAU: avgCallsPerPersonPerDay > 0 ? Math.round(avgDaily / avgCallsPerPersonPerDay) : 0,
-                totalMonthlyApiCalls: totalCalls,
-                estimatedMAU: avgCallsPerPersonPerMonth > 0 ? Math.round(totalCalls / avgCallsPerPersonPerMonth) : 0,
-                isEstimated: true,
+                standardBaseline: {
+                    avgDailyApiCalls: Math.round(avgDailyCalls),
+                    avgDailyDAU: Math.round(avgDailyDau),
+                    avgCallsPerPersonPerDay: Math.round(avgCallsPerPersonPerDay * 10) / 10,
+                    totalMonthlyApiCalls: totalMonthlyCalls,
+                    monthlyMAU: monthlyMau,
+                    avgCallsPerPersonPerMonth: Math.round(avgCallsPerPersonPerMonth * 10) / 10,
+                    businessDaysUsed: businessDays,
+                },
+                backgroundEstimates: bgResults,
             };
-        }));
-        res.json({
-            standardBaseline: {
-                avgDailyApiCalls: Math.round(avgDailyCalls),
-                avgDailyDAU: Math.round(avgDailyDau),
-                avgCallsPerPersonPerDay: Math.round(avgCallsPerPersonPerDay * 10) / 10,
-                totalMonthlyApiCalls: totalMonthlyCalls,
-                monthlyMAU: monthlyMau,
-                avgCallsPerPersonPerMonth: Math.round(avgCallsPerPersonPerMonth * 10) / 10,
-                businessDaysUsed: businessDays,
-            },
-            backgroundEstimates: bgResults,
         });
+        res.json(result);
     }
     catch (error) {
         console.error('Get estimated DAU/MAU error:', error);
@@ -5387,6 +6273,284 @@ adminRoutes.post('/stats/batch', async (req, res) => {
     catch (error) {
         console.error('Batch stats error:', error);
         res.status(500).json({ error: 'Batch request failed' });
+    }
+});
+// ============================================
+// LLM 모델 히트맵 — 날짜×시간 집계
+// ============================================
+/**
+ * GET /admin/stats/model-heatmap/all
+ * 전 모델 히트맵 데이터 일괄 반환 (선계산 캐시 Redis pipeline 읽기)
+ * 1 HTTP 요청으로 모델 목록 + 전 모델 히트맵 데이터 반환
+ */
+adminRoutes.get('/stats/model-heatmap/all', requireSuperAdmin, async (req, res) => {
+    try {
+        const days = Math.min(90, Math.max(7, parseInt(req.query['days']) || 30));
+        // 모델 목록 캐시
+        const modelsCached = await redis.get('cache:admin:model-heatmap:models');
+        let models = [];
+        if (modelsCached) {
+            models = JSON.parse(modelsCached);
+        }
+        else {
+            const dbModels = await prisma.model.findMany({
+                where: { endpointUrl: { not: 'external://auto-created' } },
+                orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+                select: { id: true, name: true, displayName: true, type: true, enabled: true, _count: { select: { usageLogs: true } } },
+            });
+            models = dbModels.map(m => ({ modelId: m.id, modelName: m.name, displayName: m.displayName, modelType: m.type, enabled: m.enabled, totalCalls: m._count.usageLogs }));
+        }
+        if (models.length === 0)
+            return res.json({ models: [], heatmaps: {} });
+        // Redis pipeline으로 전 모델 히트맵 캐시 일괄 읽기
+        const ids = models.map((m) => m.modelId);
+        const pipeline = redis.pipeline();
+        for (const id of ids)
+            pipeline.get(`cache:admin:model-heatmap:${id}:${days}`);
+        const results = await pipeline.exec();
+        const heatmaps = {};
+        if (results) {
+            for (let i = 0; i < ids.length; i++) {
+                const [err, val] = results[i] || [];
+                if (!err && val) {
+                    try {
+                        heatmaps[ids[i]] = JSON.parse(val);
+                    }
+                    catch { }
+                }
+            }
+        }
+        res.json({ models, heatmaps });
+    }
+    catch (error) {
+        console.error('Get all model heatmaps error:', error);
+        res.status(500).json({ error: 'Failed to get heatmap data' });
+    }
+});
+/**
+ * GET /admin/stats/model-heatmap/models
+ * 히트맵용 모델 목록 — LLM 모델 관리와 동일한 방식 (Prisma ORM)
+ * 외부 자동 생성 모델 제외, displayName 표시, enabled 상태
+ */
+adminRoutes.get('/stats/model-heatmap/models', requireSuperAdmin, async (_req, res) => {
+    try {
+        const result = await withCache(redis, 'cache:admin:model-heatmap:models', 120, async () => {
+            // LLM 모델관리와 동일한 기준
+            const models = await prisma.model.findMany({
+                where: { endpointUrl: { not: 'external://auto-created' } },
+                orderBy: [{ sortOrder: 'asc' }, { displayName: 'asc' }],
+                select: {
+                    id: true,
+                    name: true,
+                    displayName: true,
+                    type: true,
+                    enabled: true,
+                    _count: { select: { usageLogs: true } },
+                },
+            });
+            return models.map(m => ({
+                modelId: m.id,
+                modelName: m.name,
+                displayName: m.displayName,
+                modelType: m.type,
+                enabled: m.enabled,
+                totalCalls: m._count.usageLogs,
+            }));
+        });
+        res.json({ models: result });
+    }
+    catch (error) {
+        console.error('Get model heatmap models error:', error);
+        res.status(500).json({ error: 'Failed to get model list' });
+    }
+});
+/**
+ * GET /admin/stats/model-heatmap
+ * 모델별 날짜×시간 히트맵 데이터 — modelId 기준 (usage_logs)
+ * Query: ?modelId=xxx&days=30
+ */
+adminRoutes.get('/stats/model-heatmap', requireSuperAdmin, async (req, res) => {
+    try {
+        const modelId = req.query['modelId'] || '';
+        const days = Math.min(90, Math.max(7, parseInt(req.query['days']) || 30));
+        if (!modelId) {
+            return res.status(400).json({ error: 'modelId is required' });
+        }
+        const model = await prisma.model.findUnique({
+            where: { id: modelId },
+            select: { id: true, name: true, displayName: true },
+        });
+        if (!model) {
+            return res.status(404).json({ error: 'Model not found' });
+        }
+        const cacheKey = `cache:admin:model-heatmap:${modelId}:${days}`;
+        const result = await withCache(redis, cacheKey, 90, async () => {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+            // usage_logs — 성공 호출 히트맵 (latency, tokens)
+            const heatmapData = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+          AVG(latency_ms)::float as avg_latency,
+          CASE WHEN COUNT(latency_ms) > 0 THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms)::float END as p95_latency,
+          COUNT(*)::int as call_count,
+          SUM(COALESCE("totalTokens", 0))::int as total_tokens
+        FROM usage_logs
+        WHERE model_id = ${modelId} AND timestamp >= ${startDate}
+        GROUP BY dt, hr
+        ORDER BY dt, hr
+      `;
+            // request_logs — 에러/타임아웃 히트맵
+            const errorData = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM timestamp AT TIME ZONE 'Asia/Seoul')::int as hr,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
+        FROM request_logs
+        WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
+          AND timestamp >= ${startDate}
+        GROUP BY dt, hr
+      `;
+            // health_check_logs — 헬스체크 프로빙 (10분 간격)
+            const healthData = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          EXTRACT(HOUR FROM checked_at AT TIME ZONE 'Asia/Seoul')::int as hr,
+          AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+          CASE WHEN COUNT(CASE WHEN success AND latency_ms >= 0 THEN 1 END) > 0
+            THEN PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float
+          END as p95_latency,
+          COUNT(*)::int as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::int as success_count,
+          COUNT(CASE WHEN NOT success THEN 1 END)::int as fail_count
+        FROM health_check_logs
+        WHERE model_id = ${modelId} AND checked_at >= ${startDate}
+        GROUP BY dt, hr
+        ORDER BY dt, hr
+      `;
+            // 3개 소스 병합 — (date, hour) 기준
+            const merged = new Map();
+            // usage_logs (성공 호출)
+            for (const u of heatmapData) {
+                const key = `${u.dt}|${u.hr}`;
+                merged.set(key, {
+                    date: u.dt, hour: u.hr,
+                    avgLatency: u.avg_latency ? Math.round(u.avg_latency) : null,
+                    p95Latency: u.p95_latency ? Math.round(u.p95_latency) : null,
+                    callCount: Number(u.call_count), successCount: Number(u.call_count),
+                    timeoutCount: 0, errorCount: 0,
+                    hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
+                });
+            }
+            // request_logs (에러)
+            const errorMap = new Map(errorData.map(e => [`${e.dt}|${e.hr}`, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+            for (const [key, errs] of errorMap) {
+                const existing = merged.get(key);
+                if (existing) {
+                    existing.timeoutCount = errs.timeout;
+                    existing.errorCount = errs.error;
+                    existing.callCount += errs.error;
+                }
+                else {
+                    const [dt, hr] = key.split('|');
+                    merged.set(key, {
+                        date: dt, hour: Number(hr),
+                        avgLatency: null, p95Latency: null,
+                        callCount: errs.error, successCount: 0,
+                        timeoutCount: errs.timeout, errorCount: errs.error,
+                        hcAvgLatency: null, hcP95Latency: null, hcCount: 0, hcSuccess: 0, hcFail: 0,
+                    });
+                }
+            }
+            // health_check_logs
+            for (const h of healthData) {
+                const key = `${h.dt}|${h.hr}`;
+                const existing = merged.get(key);
+                if (existing) {
+                    existing.hcAvgLatency = h.avg_latency ? Math.round(h.avg_latency) : null;
+                    existing.hcP95Latency = h.p95_latency ? Math.round(h.p95_latency) : null;
+                    existing.hcCount = Number(h.check_count);
+                    existing.hcSuccess = Number(h.success_count);
+                    existing.hcFail = Number(h.fail_count);
+                }
+                else {
+                    merged.set(key, {
+                        date: h.dt, hour: h.hr,
+                        avgLatency: null, p95Latency: null,
+                        callCount: 0, successCount: 0, timeoutCount: 0, errorCount: 0,
+                        hcAvgLatency: h.avg_latency ? Math.round(h.avg_latency) : null,
+                        hcP95Latency: h.p95_latency ? Math.round(h.p95_latency) : null,
+                        hcCount: Number(h.check_count),
+                        hcSuccess: Number(h.success_count),
+                        hcFail: Number(h.fail_count),
+                    });
+                }
+            }
+            const heatmap = [...merged.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
+            // 일별 요약
+            const dailyData = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          AVG(latency_ms)::float as avg_latency,
+          COUNT(*)::int as call_count,
+          COUNT(DISTINCT user_id)::int as unique_users
+        FROM usage_logs
+        WHERE model_id = ${modelId} AND timestamp >= ${startDate}
+        GROUP BY dt ORDER BY dt
+      `;
+            const dailyErrors = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(timestamp AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          COUNT(CASE WHEN status_code >= 504 OR (latency_ms IS NOT NULL AND latency_ms > 120000) THEN 1 END)::int as timeout_count,
+          COUNT(CASE WHEN status_code >= 400 THEN 1 END)::int as error_count
+        FROM request_logs
+        WHERE (model_name = ${model.name} OR resolved_model = ${model.name})
+          AND timestamp >= ${startDate}
+        GROUP BY dt
+      `;
+            const dailyHealth = await prisma.$queryRaw `
+        SELECT
+          TO_CHAR(checked_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') as dt,
+          AVG(CASE WHEN success AND latency_ms >= 0 THEN latency_ms END)::float as avg_latency,
+          COUNT(*)::int as check_count,
+          COUNT(CASE WHEN success THEN 1 END)::int as success_count
+        FROM health_check_logs
+        WHERE model_id = ${modelId} AND checked_at >= ${startDate}
+        GROUP BY dt ORDER BY dt
+      `;
+            const dailyErrMap = new Map(dailyErrors.map(e => [e.dt, { timeout: Number(e.timeout_count), error: Number(e.error_count) }]));
+            const dailyHcMap = new Map(dailyHealth.map(h => [h.dt, { avgLatency: h.avg_latency ? Math.round(h.avg_latency) : null, count: Number(h.check_count), success: Number(h.success_count) }]));
+            // 모든 날짜 합치기
+            const allDates = new Set([...dailyData.map(d => d.dt), ...dailyErrors.map(d => d.dt), ...dailyHealth.map(d => d.dt)]);
+            const dailyMap = new Map(dailyData.map(d => [d.dt, d]));
+            const daily = [...allDates].sort().map(dt => {
+                const usage = dailyMap.get(dt);
+                const errs = dailyErrMap.get(dt);
+                const hc = dailyHcMap.get(dt);
+                return {
+                    date: dt,
+                    avgLatency: usage?.avg_latency ? Math.round(usage.avg_latency) : null,
+                    callCount: Number(usage?.call_count || 0) + (errs?.error || 0),
+                    timeoutCount: errs?.timeout || 0,
+                    errorCount: errs?.error || 0,
+                    uniqueUsers: Number(usage?.unique_users || 0),
+                    hcAvgLatency: hc?.avgLatency || null,
+                    hcCount: hc?.count || 0,
+                    hcSuccess: hc?.success || 0,
+                };
+            });
+            return {
+                heatmap, daily,
+                modelId, modelName: model.name, displayName: model.displayName, days,
+            };
+        });
+        res.json(result);
+    }
+    catch (error) {
+        console.error('Get model heatmap error:', error);
+        res.status(500).json({ error: 'Failed to get model heatmap data' });
     }
 });
 //# sourceMappingURL=admin.routes.js.map

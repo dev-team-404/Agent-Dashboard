@@ -114,6 +114,11 @@ interface MauRow {
   deptname: string;
   mau: bigint;
 }
+interface AvgDauRow {
+  deptname: string;
+  d?: Date | string;
+  avg_dau: number;
+}
 
 // ============================================
 // GET /insight/usage-rate
@@ -213,9 +218,45 @@ async function handleUsageRate(req: Request, res: Response) {
       });
     }
 
+    // 센터별 정확한 avgDau 계산을 위해 일자×부서 DAU를 먼저 집계
+    const centerDeptnames = Array.from(allDeptnames).filter(Boolean);
+    const centerDailyDauRows = centerDeptnames.length > 0
+      ? await prisma.$queryRaw<Array<{ deptname: string; d: Date | string; dau: bigint }>>`
+          SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+            AND ul.service_id IS NOT NULL
+            AND u.deptname = ANY(${centerDeptnames})
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY u.deptname, DATE(ul.timestamp)
+        `
+      : [];
+    const centerDailyMap = new Map<string, Map<string, number>>();
+    for (const row of centerDailyDauRows) {
+      const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+      const centerName = (() => {
+        const h = deptHierarchyMap.get(row.deptname);
+        const overseasCenter = overseasMap.get(row.deptname);
+        if (overseasCenter) return 'Overseas R&D Center';
+        if (h) return resolveDomesticCenter(h);
+        return '';
+      })();
+      if (!centerName) continue;
+      if (!centerDailyMap.has(centerName)) centerDailyMap.set(centerName, new Map<string, number>());
+      const daily = centerDailyMap.get(centerName)!;
+      daily.set(dateStr, (daily.get(dateStr) || 0) + Number(row.dau));
+    }
+
     // 6. Aggregate per center
     const centers = Array.from(centerGroups.entries()).map(([name, group]) => {
       const totalMau = group.teams.reduce((sum, t) => sum + t.mau, 0);
+      const centerDaily = centerDailyMap.get(name);
+      const totalAvgDau = centerDaily && centerDaily.size > 0
+        ? Array.from(centerDaily.values()).reduce((sum, v) => sum + v, 0) / centerDaily.size
+        : 0;
       const totalSavedMM = group.teams.reduce((sum, t) => sum + t.savedMM, 0);
 
       // mauChangePercent: compare with previous month
@@ -241,6 +282,7 @@ async function handleUsageRate(req: Request, res: Response) {
       return {
         name,
         totalMau,
+        avgDau: Math.round(totalAvgDau * 100) / 100,
         mauChangePercent,
         totalSavedMM: Math.round(totalSavedMM * 100) / 100,
         savedMMSource: allManual ? 'manual' : someManual ? 'mixed' : 'ai_estimate',
@@ -335,15 +377,42 @@ async function handleUsageRateDetail(req: Request, res: Response) {
         AND u.deptname = ANY(${deptnames})
       GROUP BY u.deptname
     `;
+    const teamAvgDauDailyRows = await prisma.$queryRaw<Array<{ deptname: string; d: Date | string; dau: bigint }>>`
+      SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+      FROM usage_logs ul
+      INNER JOIN users u ON ul.user_id = u.id
+      WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+        AND u.loginid != 'anonymous' AND u.is_test_account = false
+        AND ul.service_id IS NOT NULL
+        AND u.deptname = ANY(${deptnames})
+        AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+        AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+      GROUP BY u.deptname, DATE(ul.timestamp)
+    `;
 
     // 서브그룹별 합산
     const mauByGroup = new Map<string, number>();
+    const avgDauByGroup = new Map<string, number>();
+    const groupDailyMap = new Map<string, Map<string, number>>();
     for (const r of teamMauRows) {
       const group = deptGroupMap.get(r.deptname) || r.deptname;
       mauByGroup.set(group, (mauByGroup.get(group) || 0) + Number(r.mau));
     }
+    for (const r of teamAvgDauDailyRows) {
+      const group = deptGroupMap.get(r.deptname) || r.deptname;
+      const dateStr = typeof r.d === 'string' ? r.d : (r.d as Date).toISOString().slice(0, 10);
+      if (!groupDailyMap.has(group)) groupDailyMap.set(group, new Map<string, number>());
+      const daily = groupDailyMap.get(group)!;
+      daily.set(dateStr, (daily.get(dateStr) || 0) + Number(r.dau));
+    }
+    for (const [group, daily] of groupDailyMap.entries()) {
+      const avg = daily.size > 0
+        ? Array.from(daily.values()).reduce((sum, v) => sum + v, 0) / daily.size
+        : 0;
+      avgDauByGroup.set(group, avg);
+    }
     const teamMauChart = Array.from(mauByGroup.entries())
-      .map(([team, mau]) => ({ team, mau }))
+      .map(([team, mau]) => ({ team, mau, avgDau: Math.round((avgDauByGroup.get(team) || 0) * 100) / 100 }))
       .sort((a, b) => b.mau - a.mau);
 
     // 3+5. monthlyTrend + monthlyTokenTrend: single query (replaces 12 sequential queries)
@@ -530,8 +599,26 @@ async function handleServiceUsage(req: Request, res: Response) {
       GROUP BY ul.service_id
       ORDER BY llm_call_count DESC
     `;
+    const avgDauRows = await prisma.$queryRaw<Array<{ service_id: string; avg_dau: number }>>`
+      WITH daily_dau AS (
+        SELECT ul.service_id::text as service_id, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+          AND ul.service_id::text = ANY(${deployedIds})
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
+          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+        GROUP BY ul.service_id, DATE(ul.timestamp)
+      )
+      SELECT service_id, COALESCE(AVG(dau), 0)::float as avg_dau
+      FROM daily_dau
+      GROUP BY service_id
+    `;
 
     const svcMap = new Map(deployedServices.map(s => [s.id, s]));
+    const avgDauMap = new Map(avgDauRows.map(r => [r.service_id, r.avg_dau]));
 
     // Unknown 서비스 제외: svcMap에 존재하는 것만 포함
     const data = usageRows
@@ -547,6 +634,7 @@ async function handleServiceUsage(req: Request, res: Response) {
             output: Number(r.total_output),
             total: Number(r.total_tokens),
           },
+          avgDau: Math.round((avgDauMap.get(r.service_id) || 0) * 100) / 100,
           mau: Number(r.mau),
         };
       });
@@ -604,6 +692,24 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
       GROUP BY u.deptname
       ORDER BY total_tokens DESC
     `;
+    const teamAvgDauRows = await prisma.$queryRaw<Array<{ deptname: string; avg_dau: number }>>`
+      WITH daily_dau AS (
+        SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+        FROM usage_logs ul
+        INNER JOIN users u ON ul.user_id = u.id
+        WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+          AND ul.service_id = ${service.id}
+          AND u.loginid != 'anonymous' AND u.is_test_account = false
+          AND u.business_unit = ${INSIGHT_BUSINESS_UNIT}
+          AND u.deptname IS NOT NULL AND u.deptname != ''
+          AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+          AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+        GROUP BY u.deptname, DATE(ul.timestamp)
+      )
+      SELECT deptname, COALESCE(AVG(dau), 0)::float as avg_dau
+      FROM daily_dau
+      GROUP BY deptname
+    `;
 
     // Map deptname → English team name via org_nodes
     const hierMap = await buildAllHierarchyMap();
@@ -613,11 +719,13 @@ async function handleServiceUsageDetail(req: Request, res: Response) {
         deptToTeam.set(deptname, h.team);
       }
     }
+    const avgDauByDept = new Map(teamAvgDauRows.map(r => [r.deptname, r.avg_dau]));
 
     const teamDetails = teamRows.map(r => ({
       team: deptToTeam.get(r.deptname) || r.deptname,
       teamKr: r.deptname,
       tokensM: Math.round(Number(r.total_tokens) / 1000000 * 100) / 100,
+      avgDau: Math.round((avgDauByDept.get(r.deptname) || 0) * 100) / 100,
       mau: Number(r.mau),
       llmCallCount: Number(r.llm_call_count),
     }));
@@ -646,11 +754,12 @@ publicInsightRoutes.get('/insight_ai_usage_rate/:centerName', (async (req: Reque
   res.json = (body: Record<string, unknown>) => {
     if (body && typeof body === 'object') {
       // teamMauChart + teamTokenChart → data 배열로 합침
-      const mauChart = (body.teamMauChart || []) as Array<{ team: string; mau: number }>;
+      const mauChart = (body.teamMauChart || []) as Array<{ team: string; mau: number; avgDau?: number }>;
       const tokenChart = (body.teamTokenChart || []) as Array<{ team: string; tokens: number }>;
       const tokenMap = new Map(tokenChart.map(t => [t.team, t.tokens]));
       const data = mauChart.map(t => ({
         teamName: t.team,
+        avgDau: t.avgDau || 0,
         mau: t.mau,
         tokens: tokenMap.get(t.team) || 0,
       }));
