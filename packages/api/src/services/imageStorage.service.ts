@@ -30,14 +30,13 @@ export function ensureStorageDir(): void {
 // ============================================
 // URL Builder
 // ============================================
-export function buildImageUrl(fileName: string, reqHost?: string, reqProtocol?: string): string {
+export function buildImageUrl(fileName: string, _reqHost?: string, _reqProtocol?: string): string {
   if (IMAGE_BASE_URL) {
     const base = IMAGE_BASE_URL.replace(/\/$/, '');
     return `${base}/v1/images/files/${fileName}`;
   }
-  const protocol = reqProtocol || 'http';
-  const host = reqHost || 'localhost:3000';
-  return `${protocol}://${host}/v1/images/files/${fileName}`;
+  // 프록시 환경에서 포트 누락 문제 방지를 위해 상대 경로 반환
+  return `/v1/images/files/${fileName}`;
 }
 
 // ============================================
