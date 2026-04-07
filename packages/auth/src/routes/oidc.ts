@@ -211,8 +211,9 @@ router.get('/oidc/authorize', (req: Request, res: Response) => {
   // 세션 ID는 쿠키로 전달 (SSO가 redirect_uri 정확 일치를 요구하므로 쿼리파라미터 사용 불가)
   res.cookie('oidc_sid', sessionId, { httpOnly: true, maxAge: 600000, sameSite: 'lax' });
 
-  // SSO에 보낼 nonce — 비어있으면 생성 (ADFS는 비어있는 nonce 거부할 수 있음)
-  const ssoNonce = nonce || uuidv4().replace(/-/g, '').substring(0, 9) + '-';
+  // SSO에 보낼 nonce — ADFS는 긴 UUID를 거부하므로 항상 짧은 형태로 변환
+  // 수강생이 보낸 nonce는 세션에 저장하고, SSO에는 짧은 nonce를 보냄
+  const ssoNonce = uuidv4().replace(/-/g, '').substring(0, 9) + '-';
 
   if (config.mockSso.enabled) {
     // Redirect to Mock SSO login page
@@ -437,23 +438,14 @@ router.post('/oidc/token', (req: Request, res: Response) => {
   // Generate id_token (1h) — client_secret으로 HS256 서명 (OIDC Core 10.1)
   const oidcIdToken = createOidcIdToken(user, clientId, codeRecord.nonce, client.secret);
 
-  // scope에 openid가 포함된 경우에만 id_token 포함
-  // 일부 클라이언트(Open WebUI authlib)는 JWKS 기반 검증만 지원하므로
-  // include_id_token 쿼리 파라미터 또는 scope 기반으로 제어
-  const includeIdToken = codeRecord.nonce ? false : true; // nonce 있으면 클라이언트가 검증 시도 → 생략
-
+  // OIDC 표준: nonce가 있으면 id_token을 반드시 포함해야 함
+  // nonce가 없어도 scope에 openid가 있으면 id_token 포함
   const tokenResponse: Record<string, unknown> = {
     access_token: accessToken,
     token_type: 'Bearer',
     expires_in: 43200, // 12 hours
+    id_token: oidcIdToken,
   };
-
-  // id_token은 항상 포함하되, 클라이언트가 검증 실패하면 무시할 수 있도록
-  // Open WebUI는 nonce+id_token이 있으면 JWKS로 검증 시도 → 실패
-  // → id_token을 빼면 userinfo fallback 사용
-  if (!codeRecord.nonce) {
-    tokenResponse['id_token'] = oidcIdToken;
-  }
 
   res.json(tokenResponse);
 });
