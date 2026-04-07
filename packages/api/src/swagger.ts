@@ -1282,6 +1282,110 @@ export const swaggerSpec = {
       },
     },
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // User Usage per Service (사용자별 서비스 사용량)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    '/stats/user-usage': {
+      get: {
+        summary: 'User Usage per Service by Month (월별 사용자별 서비스 사용량)',
+        description:
+          'Returns per-user, per-service usage (request count, tokens) for the specified year and month.\n' +
+          '지정된 연/월의 사용자별 × 서비스별 사용량(호출 수, 토큰)을 반환합니다.\n\n' +
+          '- Each user entry contains an array of services they used / 각 사용자 항목에 사용한 서비스 배열 포함\n' +
+          '- Results sorted by total request count descending / 총 호출 수 기준 내림차순 정렬\n' +
+          '- `totalRequestCount`, `totalInputTokens`, `totalOutputTokens`, `totalTokens`: user-level totals / 사용자 수준 합계',
+        tags: ['User Usage (사용자별 사용량)'],
+        parameters: [
+          apiKeyParam,
+          yearParam,
+          monthParam,
+        ],
+        responses: {
+          '200': {
+            description: 'User usage list (사용자별 사용량 목록)',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    year: { type: 'integer', description: 'Queried year (조회 연도)' },
+                    month: { type: 'integer', description: 'Queried month (조회 월)' },
+                    totalUsers: { type: 'integer', description: 'Total users with usage (사용 기록이 있는 전체 사용자 수)' },
+                    data: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          loginid: { type: 'string', description: 'User login ID / Knox ID (사용자 로그인 ID)' },
+                          username: { type: 'string', description: 'User display name (사용자 이름)' },
+                          deptname: { type: 'string', description: 'Department name (부서명)' },
+                          businessUnit: { type: 'string', nullable: true, description: 'Business unit (사업부)' },
+                          services: {
+                            type: 'array',
+                            items: {
+                              type: 'object',
+                              properties: {
+                                serviceName: { type: 'string', description: 'Service code name (서비스 코드명)' },
+                                serviceDisplayName: { type: 'string', description: 'Service display name (서비스 표시명)' },
+                                requestCount: { type: 'integer', description: 'API call count (API 호출 수)' },
+                                inputTokens: { type: 'integer', description: 'Input tokens (입력 토큰)' },
+                                outputTokens: { type: 'integer', description: 'Output tokens (출력 토큰)' },
+                                totalTokens: { type: 'integer', description: 'Total tokens (총 토큰)' },
+                              },
+                            },
+                          },
+                          totalRequestCount: { type: 'integer', description: 'Total API calls across all services (전체 서비스 합산 호출 수)' },
+                          totalInputTokens: { type: 'integer', description: 'Total input tokens across all services (전체 서비스 합산 입력 토큰)' },
+                          totalOutputTokens: { type: 'integer', description: 'Total output tokens across all services (전체 서비스 합산 출력 토큰)' },
+                          totalTokens: { type: 'integer', description: 'Total tokens across all services (전체 서비스 합산 총 토큰)' },
+                        },
+                      },
+                    },
+                  },
+                },
+                example: {
+                  year: 2026,
+                  month: 4,
+                  totalUsers: 2,
+                  data: [
+                    {
+                      loginid: 'syngha.han',
+                      username: '한승하',
+                      deptname: 'S/W혁신팀(S.LSI)',
+                      businessUnit: 'S.LSI',
+                      services: [
+                        { serviceName: 'nexus-coder', serviceDisplayName: 'Nexus Coder', requestCount: 150, inputTokens: 50000, outputTokens: 30000, totalTokens: 80000 },
+                        { serviceName: 'hanseol', serviceDisplayName: 'Hanseol', requestCount: 80, inputTokens: 20000, outputTokens: 15000, totalTokens: 35000 },
+                      ],
+                      totalRequestCount: 230,
+                      totalInputTokens: 70000,
+                      totalOutputTokens: 45000,
+                      totalTokens: 115000,
+                    },
+                    {
+                      loginid: 'young87.kim',
+                      username: '김영민',
+                      deptname: 'AI플랫폼팀(DS)',
+                      businessUnit: 'DS',
+                      services: [
+                        { serviceName: 'nexus-coder', serviceDisplayName: 'Nexus Coder', requestCount: 100, inputTokens: 30000, outputTokens: 20000, totalTokens: 50000 },
+                      ],
+                      totalRequestCount: 100,
+                      totalInputTokens: 30000,
+                      totalOutputTokens: 20000,
+                      totalTokens: 50000,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          '400': errorResponse('Invalid request (잘못된 요청)', 'year and month are required. (e.g., year=2026&month=4)'),
+          '500': errorResponse('Internal server error (서버 내부 오류)'),
+        },
+      },
+    },
+
   },
 };
 

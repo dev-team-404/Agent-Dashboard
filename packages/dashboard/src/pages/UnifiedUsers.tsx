@@ -334,16 +334,13 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
       const exportUsers: UnifiedUser[] = res.data.users;
       const monthly: Record<string, Record<string, Record<string, number>>> = res.data.monthly || {};
       const serviceMapRaw: Record<string, string> = res.data.serviceMap || {};
-      // 외부 API 데이터: { "2026-03": { "username": { count, dept, lwrDept } } }
-      const externalRoo: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = res.data.externalRoo || {};
-      const externalCodemate: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = res.data.externalCodemate || {};
 
-      if (exportUsers.length === 0 && Object.keys(externalRoo).length === 0 && Object.keys(externalCodemate).length === 0) {
+      if (exportUsers.length === 0) {
         alert(t('unifiedUsers.noExportUsers'));
         return;
       }
 
-      // 유저 맵 (id → user), loginid → user
+      // 유저 맵 (id → user)
       const userMap = new Map(exportUsers.map(u => [u.id, u]));
       const loginMap = new Map(exportUsers.map(u => [u.loginid, u]));
 
@@ -369,37 +366,9 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
 
       const wb = XLSX.utils.book_new();
 
-      // 외부 데이터 전체 합산 (loginid → { roo: total, codemate: total })
-      const externalTotals = new Map<string, { roo: number; codemate: number; dept: string; lwrDept: string }>();
-      for (const monthData of Object.values(externalRoo)) {
-        for (const [uname, info] of Object.entries(monthData)) {
-          const prev = externalTotals.get(uname) || { roo: 0, codemate: 0, dept: info.dept, lwrDept: info.lwrDept };
-          prev.roo += info.count;
-          if (info.dept) prev.dept = info.dept;
-          if (info.lwrDept) prev.lwrDept = info.lwrDept;
-          externalTotals.set(uname, prev);
-        }
-      }
-      for (const monthData of Object.values(externalCodemate)) {
-        for (const [uname, info] of Object.entries(monthData)) {
-          const prev = externalTotals.get(uname) || { roo: 0, codemate: 0, dept: info.dept, lwrDept: info.lwrDept };
-          prev.codemate += info.count;
-          if (info.dept) prev.dept = info.dept;
-          if (info.lwrDept) prev.lwrDept = info.lwrDept;
-          externalTotals.set(uname, prev);
-        }
-      }
-
-      // 외부에만 존재하는 사용자 수집
-      const externalOnlyUsers = new Set<string>();
-      externalTotals.forEach((_, uname) => {
-        if (!loginMap.has(uname)) externalOnlyUsers.add(uname);
-      });
-
       // 1) 전체 합산 시트
       const totalRows: Record<string, string | number>[] = [];
       let no = 0;
-      // 내부 사용자
       exportUsers.forEach(u => {
         no++;
         const row: Record<string, string | number> = {
@@ -415,55 +384,22 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
           const stat = u.serviceStats.find(s => s.serviceName === name);
           row[name] = stat ? stat.requestCount : 0;
         });
-        const ext = externalTotals.get(u.loginid);
-        row['Codemate with Roo'] = ext?.roo || 0;
-        row['Codemate'] = ext?.codemate || 0;
-        totalRows.push(row);
-      });
-      // 외부에만 존재하는 사용자
-      externalOnlyUsers.forEach(uname => {
-        no++;
-        const ext = externalTotals.get(uname)!;
-        const row: Record<string, string | number> = {
-          [t('unifiedUsers.excelColNo')]: no,
-          [t('unifiedUsers.excelColName')]: uname,
-          'ID': uname,
-          [t('unifiedUsers.excelColDept')]: ext.lwrDept || ext.dept || '',
-          [t('unifiedUsers.excelColBU')]: ext.dept || '',
-          [t('unifiedUsers.excelColRole')]: '-',
-          [t('unifiedUsers.excelColTotalRequests')]: 0,
-        };
-        serviceNames.forEach(name => { row[name] = 0; });
-        row['Codemate with Roo'] = ext.roo;
-        row['Codemate'] = ext.codemate;
         totalRows.push(row);
       });
       XLSX.utils.book_append_sheet(wb, createSheet(totalRows), t('unifiedUsers.excelSheetTotal'));
 
-      // 2) 월별 시트 (모든 월 통합: 내부 + 외부)
-      const allMonthsSet = new Set([
-        ...Object.keys(monthly),
-        ...Object.keys(externalRoo),
-        ...Object.keys(externalCodemate),
-      ]);
-      const months = [...allMonthsSet].sort().reverse();
+      // 2) 월별 시트
+      const months = Object.keys(monthly).sort().reverse();
 
       for (const month of months) {
         const monthData = monthly[month] || {};
-        const rooMonth = externalRoo[month] || {};
-        const cmMonth = externalCodemate[month] || {};
 
         // 해당 월 활동 사용자 수집 (loginid 기준)
         const monthLoginIds = new Set<string>();
-
-        // 내부 유저 (userId → loginid 변환)
         Object.keys(monthData).forEach(uid => {
           const user = userMap.get(uid);
           if (user) monthLoginIds.add(user.loginid);
         });
-        // 외부 유저
-        Object.keys(rooMonth).forEach(u => monthLoginIds.add(u));
-        Object.keys(cmMonth).forEach(u => monthLoginIds.add(u));
 
         if (monthLoginIds.size === 0) continue;
 
@@ -483,12 +419,11 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             [t('unifiedUsers.excelColNo')]: 0,
             [t('unifiedUsers.excelColName')]: user ? decodeURIComponent(user.username) : loginid,
             'ID': loginid,
-            [t('unifiedUsers.excelColDept')]: user?.deptname || rooMonth[loginid]?.lwrDept || cmMonth[loginid]?.lwrDept || '',
-            [t('unifiedUsers.excelColBU')]: user?.businessUnit || rooMonth[loginid]?.dept || cmMonth[loginid]?.dept || '',
+            [t('unifiedUsers.excelColDept')]: user?.deptname || '',
+            [t('unifiedUsers.excelColBU')]: user?.businessUnit || '',
           };
 
           let monthTotal = 0;
-          // 내부 서비스 수치
           if (user) {
             const uid = user.id;
             monthServiceNames.forEach(svcName => {
@@ -501,11 +436,6 @@ export default function UnifiedUsers({ adminRole }: { adminRole?: AdminRole }) {
             monthServiceNames.forEach(svcName => { row[svcName] = 0; });
           }
 
-          const rooCount = rooMonth[loginid]?.count || 0;
-          const cmCount = cmMonth[loginid]?.count || 0;
-          row['Codemate with Roo'] = rooCount;
-          row['Codemate'] = cmCount;
-          monthTotal += rooCount + cmCount;
           row[t('unifiedUsers.excelColMonthTotal')] = monthTotal;
           rows.push(row);
         });

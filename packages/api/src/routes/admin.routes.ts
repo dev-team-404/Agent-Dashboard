@@ -2764,59 +2764,10 @@ adminRoutes.get('/unified-users/export', requireSuperAdmin as RequestHandler, as
       monthly[m][row.user_id][row.service_id] = Number(row.count);
     }
 
-    // 외부 API (Codemate with Roo / Codemate) 월별 데이터 수집
-    const allMonths = Object.keys(monthly);
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    if (!allMonths.includes(currentMonth)) allMonths.push(currentMonth);
-
-    // { "2026-03": { username: count } }
-    const externalRoo: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = {};
-    const externalCodemate: Record<string, Record<string, { count: number; dept: string; lwrDept: string }>> = {};
-
-    const fetchExternal = async (baseUrl: string, year: string, month: string) => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const resp = await fetch(`${baseUrl}/api/user-call-count?year=${year}&month=${month}`, {
-          headers: { accept: 'application/json' },
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!resp.ok) return [];
-        const json = await resp.json() as { data?: { users?: { username: string; department: string; lwr_department: string; call_count: number }[] } };
-        return json.data?.users || [];
-      } catch {
-        return [];
-      }
-    };
-
-    await Promise.all(allMonths.map(async (m) => {
-      const [year, mon] = m.split('-');
-      const [rooUsers, cmUsers] = await Promise.all([
-        fetchExternal('http://sw.samsungds.net:8765', year, mon),
-        fetchExternal('http://swe.samsungds.net:8765', year, mon),
-      ]);
-      if (rooUsers.length > 0) {
-        externalRoo[m] = {};
-        for (const u of rooUsers) {
-          externalRoo[m][u.username] = { count: u.call_count, dept: u.department, lwrDept: u.lwr_department };
-        }
-      }
-      if (cmUsers.length > 0) {
-        externalCodemate[m] = {};
-        for (const u of cmUsers) {
-          externalCodemate[m][u.username] = { count: u.call_count, dept: u.department, lwrDept: u.lwr_department };
-        }
-      }
-    }));
-
     res.json({
       users: mappedUsers,
       monthly,
       serviceMap: Object.fromEntries(serviceMap),
-      externalRoo,
-      externalCodemate,
     });
   } catch (error) {
     console.error('Export unified users error:', error);

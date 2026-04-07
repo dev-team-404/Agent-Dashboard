@@ -1058,3 +1058,147 @@ publicStatsRoutes.get('/dtgpt/token-usage', async (req: Request, res: Response) 
     res.status(500).json({ error: 'DTGPT 토큰 사용량 조회에 실패했습니다.' });
   }
 });
+
+// ─── GET /stats/user-usage ─────────────────────────────────
+/**
+ * 사용자별 서비스 사용량 조회
+ * - year, month 필수
+ * - apiKey 필수 (기존 API Key 검증 미들웨어 적용)
+ * - 응답: 사용자별 × 서비스별 requestCount, inputTokens, outputTokens, totalTokens
+ */
+publicStatsRoutes.get('/user-usage', async (req: Request, res: Response) => {
+  try {
+    const yearStr = req.query['year'] as string | undefined;
+    const monthStr = req.query['month'] as string | undefined;
+
+    if (!yearStr || !monthStr) {
+      res.status(400).json({
+        error: 'year and month are required. (e.g., year=2026&month=4)',
+        error_kr: 'year와 month는 필수 파라미터입니다. (예: year=2026&month=4)',
+      });
+      return;
+    }
+
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+
+    if (!year || year < 2000 || year > 2100 || !month || month < 1 || month > 12) {
+      res.status(400).json({
+        error: 'year(2000~2100) and month(1~12) are required.',
+        error_kr: 'year(2000~2100)와 month(1~12)는 유효한 값이어야 합니다.',
+      });
+      return;
+    }
+
+    const startDate = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
+    // 사용자별 × 서비스별 집계
+    const rows = await prisma.$queryRaw<Array<{
+      user_id: string;
+      loginid: string;
+      username: string;
+      deptname: string;
+      business_unit: string | null;
+      service_id: string;
+      service_name: string;
+      service_display_name: string;
+      request_count: bigint;
+      input_tokens: bigint;
+      output_tokens: bigint;
+      total_tokens: bigint;
+    }>>`
+      SELECT
+        u.id as user_id,
+        u.loginid,
+        u.username,
+        u.deptname,
+        u.business_unit,
+        s.id as service_id,
+        s.name as service_name,
+        s.display_name as service_display_name,
+        COALESCE(SUM(ul.request_count), 0)::bigint as request_count,
+        COALESCE(SUM(ul."inputTokens"), 0)::bigint as input_tokens,
+        COALESCE(SUM(ul."outputTokens"), 0)::bigint as output_tokens,
+        COALESCE(SUM(ul."totalTokens"), 0)::bigint as total_tokens
+      FROM usage_logs ul
+      JOIN users u ON u.id = ul.user_id
+      JOIN services s ON s.id = ul.service_id
+      WHERE ul.timestamp >= ${startDate}
+        AND ul.timestamp <= ${endDate}
+        AND ul.user_id IS NOT NULL
+        AND ul.service_id IS NOT NULL
+      GROUP BY u.id, u.loginid, u.username, u.deptname, u.business_unit, s.id, s.name, s.display_name
+      ORDER BY u.loginid, s.name
+    `;
+
+    // 사용자별로 그룹핑
+    const userMap = new Map<string, {
+      loginid: string;
+      username: string;
+      deptname: string;
+      businessUnit: string | null;
+      services: Array<{
+        serviceName: string;
+        serviceDisplayName: string;
+        requestCount: number;
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+      }>;
+      totalRequestCount: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+    }>();
+
+    for (const row of rows) {
+      let user = userMap.get(row.user_id);
+      if (!user) {
+        user = {
+          loginid: row.loginid,
+          username: row.username,
+          deptname: row.deptname,
+          businessUnit: row.business_unit,
+          services: [],
+          totalRequestCount: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalTokens: 0,
+        };
+        userMap.set(row.user_id, user);
+      }
+
+      const reqCount = Number(row.request_count);
+      const inTok = Number(row.input_tokens);
+      const outTok = Number(row.output_tokens);
+      const totTok = Number(row.total_tokens);
+
+      user.services.push({
+        serviceName: row.service_name,
+        serviceDisplayName: row.service_display_name,
+        requestCount: reqCount,
+        inputTokens: inTok,
+        outputTokens: outTok,
+        totalTokens: totTok,
+      });
+
+      user.totalRequestCount += reqCount;
+      user.totalInputTokens += inTok;
+      user.totalOutputTokens += outTok;
+      user.totalTokens += totTok;
+    }
+
+    const data = [...userMap.values()].sort((a, b) => b.totalRequestCount - a.totalRequestCount);
+
+    res.json({
+      year,
+      month,
+      totalUsers: data.length,
+      data,
+    });
+  } catch (err) {
+    console.error('User usage error:', err);
+    res.status(500).json({ error: '사용자별 사용량 조회에 실패했습니다.' });
+  }
+});
