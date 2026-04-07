@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GPU 용량 측정 방안 — 응답 속도 기반</title>
+<title>GPU 용량 측정 방안</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
 
@@ -42,7 +42,7 @@
     font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
   }
   .t1-badge { background: rgba(37,99,235,0.3); border: 1px solid rgba(37,99,235,0.6); }
-  .t3-badge { background: rgba(217,119,6,0.3); border: 1px solid rgba(217,119,6,0.6); }
+  .t2-badge { background: rgba(124,58,237,0.3); border: 1px solid rgba(124,58,237,0.6); }
   .topbar .slide-num { font-size: 13px; opacity: 0.6; }
   .topbar h1 { font-size: 22px; font-weight: 700; }
 
@@ -51,167 +51,82 @@
     display: flex; flex-direction: column; gap: 22px;
   }
 
-  .subtitle {
-    font-size: 15px; color: #64748b; line-height: 1.6;
-    max-width: 900px;
-  }
+  .subtitle { font-size: 15px; color: #64748b; line-height: 1.6; max-width: 900px; }
 
-  /* Flow Diagram */
-  .flow {
-    display: flex; align-items: center; gap: 0;
-    flex-wrap: wrap; justify-content: center;
-    padding: 16px 0;
-  }
-  .flow-step {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 6px; min-width: 120px;
-  }
-  .flow-icon {
-    width: 56px; height: 56px; border-radius: 14px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 24px;
-  }
+  /* Flow */
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; justify-content: center; padding: 16px 0; }
+  .flow-step { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 120px; }
+  .flow-icon { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
   .flow-icon.blue { background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; }
   .flow-icon.green { background: linear-gradient(135deg, #059669, #10b981); color: #fff; }
-  .flow-icon.orange { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; }
-  .flow-icon.slate { background: linear-gradient(135deg, #475569, #64748b); color: #fff; }
   .flow-icon.red { background: linear-gradient(135deg, #dc2626, #ef4444); color: #fff; }
+  .flow-icon.purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; }
   .flow-label { font-size: 12px; font-weight: 600; color: #334155; text-align: center; }
   .flow-sub { font-size: 10px; color: #94a3b8; text-align: center; }
   .flow-arrow { font-size: 22px; color: #cbd5e1; margin: 0 6px; align-self: center; margin-top: -16px; }
 
   /* Cards */
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-  .cards-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
-  .card {
-    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
-    padding: 20px; display: flex; flex-direction: column; gap: 8px;
-  }
+  .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
   .card h3 { font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
   .card p { font-size: 12px; color: #64748b; line-height: 1.6; }
-  .card .num { font-size: 24px; font-weight: 900; }
-  .num.blue { color: #2563eb; }
-  .num.green { color: #059669; }
-  .num.orange { color: #d97706; }
 
   /* Table */
   .bench-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .bench-table th {
-    background: #f1f5f9; padding: 10px 14px; text-align: left;
-    font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;
-    white-space: nowrap;
-  }
-  .bench-table td {
-    padding: 10px 14px; border-bottom: 1px solid #f1f5f9;
-    color: #334155; vertical-align: middle;
-  }
+  .bench-table th { background: #f1f5f9; padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+  .bench-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
   .bench-table tr:hover td { background: #f8fafc; }
 
   /* Formula Box */
-  .formula-box {
-    background: #0f172a; color: #e2e8f0; border-radius: 12px;
-    padding: 20px 24px; font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 13px; line-height: 2; position: relative;
-    overflow-x: auto;
-  }
+  .formula-box { background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 20px 24px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 2; position: relative; overflow-x: auto; }
   .formula-box .highlight { color: #38bdf8; font-weight: 700; }
   .formula-box .result { color: #4ade80; font-weight: 700; }
   .formula-box .comment { color: #64748b; }
-  .formula-box .warn-text { color: #fbbf24; }
-  .formula-label {
-    position: absolute; top: 10px; right: 14px;
-    font-size: 10px; color: #475569; text-transform: uppercase;
-    letter-spacing: 1px; font-family: 'Noto Sans KR', sans-serif;
-  }
+  .formula-label { position: absolute; top: 10px; right: 14px; font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 1px; font-family: 'Noto Sans KR', sans-serif; }
 
   /* Example Box */
-  .example-box {
-    background: linear-gradient(135deg, #eff6ff, #f0f9ff);
-    border: 1px solid #bfdbfe; border-radius: 12px;
-    padding: 18px 22px;
-  }
+  .example-box { background: linear-gradient(135deg, #eff6ff, #f0f9ff); border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 22px; }
   .example-box h4 { font-size: 13px; color: #1d4ed8; margin-bottom: 8px; font-weight: 700; }
   .example-box p { font-size: 12px; line-height: 1.8; color: #1e40af; }
   .example-box .big-result { font-size: 28px; font-weight: 900; color: #1d4ed8; margin-top: 6px; }
+  .example-box.purple { background: linear-gradient(135deg, #f5f3ff, #faf5ff); border-color: #c4b5fd; }
+  .example-box.purple h4 { color: #6d28d9; }
+  .example-box.purple p { color: #5b21b6; }
+  .example-box.purple .big-result { color: #6d28d9; }
 
   /* Two Column */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   .two-col.wide-left { grid-template-columns: 1.2fr 0.8fr; }
-  .two-col.wide-right { grid-template-columns: 0.8fr 1.2fr; }
 
   /* Callout */
-  .callout {
-    display: flex; align-items: flex-start; gap: 12px;
-    padding: 14px 18px; border-radius: 10px; font-size: 13px; line-height: 1.6;
-  }
+  .callout { display: flex; align-items: flex-start; gap: 12px; padding: 14px 18px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
   .callout.info { background: #eff6ff; border-left: 4px solid #2563eb; color: #1e40af; }
   .callout.warn { background: #fefce8; border-left: 4px solid #eab308; color: #854d0e; }
   .callout.success { background: #f0fdf4; border-left: 4px solid #22c55e; color: #166534; }
 
   /* Tag */
-  .tag {
-    display: inline-block; padding: 2px 8px; border-radius: 4px;
-    font-size: 11px; font-weight: 600;
-  }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
   .tag.blue { background: #dbeafe; color: #1d4ed8; }
   .tag.green { background: #dcfce7; color: #166534; }
   .tag.red { background: #fee2e2; color: #991b1b; }
-  .tag.orange { background: #fef3c7; color: #b45309; }
-
-  .example-box.orange { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: #fcd34d; }
-  .example-box.orange h4 { color: #b45309; }
-  .example-box.orange p { color: #92400e; }
-  .example-box.orange .big-result { color: #b45309; }
-
-  .section-head.orange { border-color: #d97706; }
-
-  .nav-dot.orange-active { background: #d97706; transform: scale(1.3); }
+  .tag.purple { background: #ede9fe; color: #6d28d9; }
 
   /* Section Headers */
-  .section-head {
-    font-size: 15px; font-weight: 700; color: #1e293b;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #e2e8f0;
-  }
+  .section-head { font-size: 15px; font-weight: 700; color: #1e293b; padding-bottom: 8px; border-bottom: 2px solid #e2e8f0; }
   .section-head.blue { border-color: #2563eb; }
-
-  /* Refs */
-  .refs {
-    display: flex; flex-wrap: wrap; gap: 6px;
-    padding: 0 48px 14px; flex-shrink: 0;
-  }
-  .refs a {
-    font-size: 10px; color: #94a3b8; text-decoration: none;
-    padding: 3px 8px; background: #f1f5f9; border-radius: 4px;
-    transition: all 0.2s;
-  }
-  .refs a:hover { background: #e2e8f0; color: #475569; }
+  .section-head.purple { border-color: #7c3aed; }
 
   /* Navigation */
-  .nav-bar {
-    display: flex; align-items: center; justify-content: center;
-    gap: 10px; padding: 14px; flex-shrink: 0;
-    background: #f8fafc; border-top: 1px solid #e2e8f0;
-  }
-  .nav-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #cbd5e1; cursor: pointer; transition: all 0.3s;
-    border: none;
-  }
+  .nav-bar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px; flex-shrink: 0; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+  .nav-dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; cursor: pointer; transition: all 0.3s; border: none; }
   .nav-dot.active { background: #2563eb; transform: scale(1.3); }
-  .nav-btn {
-    padding: 8px 20px; border-radius: 8px; border: 1px solid #e2e8f0;
-    background: #fff; color: #475569; font-size: 13px; cursor: pointer;
-    font-family: inherit; font-weight: 500; transition: all 0.2s;
-  }
+  .nav-dot.purple-active { background: #7c3aed; transform: scale(1.3); }
+  .nav-btn { padding: 8px 20px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; color: #475569; font-size: 13px; cursor: pointer; font-family: inherit; font-weight: 500; transition: all 0.2s; }
   .nav-btn:hover { background: #f1f5f9; }
   .nav-hint { font-size: 11px; color: #94a3b8; position: fixed; bottom: 52px; right: 24px; }
 
   /* Gauge */
-  .gauge-row {
-    display: flex; align-items: center; gap: 16px; padding: 10px 0;
-    border-bottom: 1px solid #f1f5f9;
-  }
+  .gauge-row { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
   .gauge-row:last-child { border-bottom: none; }
   .gauge-label { font-size: 13px; color: #475569; font-weight: 500; min-width: 140px; }
   .gauge-bar { flex: 1; height: 10px; background: #e2e8f0; border-radius: 5px; position: relative; overflow: hidden; }
@@ -222,25 +137,22 @@
   .gauge-val { font-size: 14px; font-weight: 700; min-width: 60px; text-align: right; }
 
   /* Timeline */
-  .timeline-item {
-    display: flex; gap: 16px; padding: 14px 0;
-    border-bottom: 1px solid #f1f5f9;
-  }
+  .timeline-item { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid #f1f5f9; }
   .timeline-item:last-child { border-bottom: none; }
-  .timeline-num {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
-    color: #fff; font-size: 14px; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
-  }
+  .timeline-num { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .timeline-num.purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); }
   .timeline-content { flex: 1; }
   .timeline-content h4 { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
   .timeline-content p { font-size: 12px; color: #64748b; line-height: 1.6; }
 
+  /* Refs */
+  .refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 48px 14px; flex-shrink: 0; }
+  .refs a { font-size: 10px; color: #94a3b8; text-decoration: none; padding: 3px 8px; background: #f1f5f9; border-radius: 4px; transition: all 0.2s; }
+  .refs a:hover { background: #e2e8f0; color: #475569; }
+
   @media (max-width: 900px) {
-    .cards, .cards-2 { grid-template-columns: 1fr; }
-    .two-col, .two-col.wide-left, .two-col.wide-right { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: 1fr; }
+    .two-col, .two-col.wide-left { grid-template-columns: 1fr; }
     .content { padding: 20px 24px 16px; gap: 16px; }
     .topbar { padding: 16px 24px; }
     .refs { padding: 0 24px 12px; }
@@ -252,7 +164,7 @@
 <div class="deck">
 
 <!-- ================================================================ -->
-<!-- SLIDE 0: 배경 및 목적                                              -->
+<!-- SLIDE 0: 배경 + 2단계 로드맵                                       -->
 <!-- ================================================================ -->
 <div class="slide active" id="s0">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
@@ -260,15 +172,16 @@
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">EXECUTIVE SUMMARY</span>
     </div>
     <h1>GPU 용량 측정 방안</h1>
-    <span class="slide-num">1 / 7</span>
+    <span class="slide-num">1 / 4</span>
   </div>
 
   <div class="content">
     <p class="subtitle">
-      GPU 내부 메트릭(nvidia-smi) 없이, <strong>기존 요청 로그만으로</strong> GPU 사용률 / 부족분 / 미래 수요를 산출하는 방안입니다.
+      GPU 내부 메트릭(nvidia-smi, vLLM) 없이 <strong>기존 요청 로그만으로</strong> GPU 사용률 / 부족분 / 미래 수요를 산출합니다.<br>
+      즉시 적용 가능한 <strong>안 1</strong>을 먼저 도입하고, vLLM /metrics 개방 시점에 <strong>안 2</strong>로 고도화합니다.
     </p>
 
-    <!-- 배경 -->
+    <!-- 배경 + 로드맵 -->
     <div class="two-col">
       <div style="display:flex;flex-direction:column;gap:16px">
         <h3 class="section-head blue">배경</h3>
@@ -291,23 +204,44 @@
       </div>
 
       <div style="display:flex;flex-direction:column;gap:16px">
-        <h3 class="section-head blue">기대 효과</h3>
-        <div class="cards" style="grid-template-columns:1fr">
-          <div class="card">
-            <h3><span style="font-size:20px">&#128200;</span> 실시간 사용률 대시보드</h3>
-            <p>"현재 GPU 사용률 65%" — 한눈에 파악</p>
+        <h3 class="section-head blue">2단계 로드맵</h3>
+
+        <!-- Phase 1 -->
+        <div style="border:2px solid #2563eb;border-radius:16px;overflow:hidden">
+          <div style="background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;opacity:0.8">Phase 1 — 즉시 적용</div>
+              <div style="font-size:16px;font-weight:700">안 1. 응답 속도 변화 감지</div>
+            </div>
+            <span class="tag" style="background:rgba(255,255,255,0.2);color:#fff">~2일</span>
           </div>
-          <div class="card">
-            <h3><span style="font-size:20px">&#9888;&#65039;</span> 조기 경보 시스템</h3>
-            <p>50% 초과 시 자동 알림 — 장애 발생 전 선제 대응</p>
+          <div style="padding:14px 20px;font-size:12px;color:#475569;line-height:1.7">
+            P95 레이턴시의 baseline 대비 변화율로 <strong>사용률 0~100%</strong> 산출.<br>
+            추가 인프라 없이 기존 로그만으로 <strong>포화 전 조기 경보</strong> 가능.
           </div>
-          <div class="card">
-            <h3><span style="font-size:20px">&#128302;</span> 미래 수요 예측</h3>
-            <p>"사용자 2배 증가 시 GPU 2대 추가 필요" — 예산 수립 근거</p>
+        </div>
+
+        <!-- Phase 2 -->
+        <div style="border:2px solid #7c3aed;border-radius:16px;overflow:hidden">
+          <div style="background:linear-gradient(135deg,#7c3aed,#8b5cf6);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;opacity:0.8">Phase 2 — vLLM /metrics 개방 후</div>
+              <div style="font-size:16px;font-weight:700">안 2. 대기행렬 실측 기반</div>
+            </div>
+            <span class="tag" style="background:rgba(255,255,255,0.2);color:#fff">향후</span>
           </div>
-          <div class="card">
-            <h3><span style="font-size:20px">&#128176;</span> 추가 비용 없음</h3>
-            <p>기존 로그 데이터만 활용 — 별도 모니터링 도구 불필요</p>
+          <div style="padding:14px 20px;font-size:12px;color:#475569;line-height:1.7">
+            현재 산술 추정만 가능하나, vLLM /metrics에서 <strong>실제 대기 인원 수</strong>를 읽으면<br>
+            "GPU 정확히 N대 부족"을 <strong>수학적으로 정확하게</strong> 산출 가능.
+          </div>
+        </div>
+
+        <div class="callout info" style="font-size:12px;padding:10px 14px">
+          <span style="font-size:16px;flex-shrink:0">&#128204;</span>
+          <div>
+            <strong>왜 안 1 먼저?</strong>
+            안 2의 대기행렬 이론은 정확하지만, 현재는 동시 요청 수·대기 시간을 <strong>로그에서 추정</strong>할 수밖에 없어 결국 <strong>추정치의 추정치</strong>가 됩니다.
+            안 1은 같은 데이터로 더 직관적인 결과를 내며, vLLM 실측이 가능해지면 안 2가 압도적으로 정확해집니다.
           </div>
         </div>
       </div>
@@ -327,24 +261,23 @@
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 1: 측정 원리                                                -->
+<!-- SLIDE 1: 안 1 — 즉시 적용 (상세)                                   -->
 <!-- ================================================================ -->
 <div class="slide" id="s1">
   <div class="topbar">
     <div>
-      <span class="track-badge t1-badge">METHODOLOGY</span>
+      <span class="track-badge t1-badge">PHASE 1 — 즉시 적용</span>
     </div>
-    <h1>측정 원리 — 응답 속도 변화 감지</h1>
-    <span class="slide-num">2 / 7</span>
+    <h1>안 1. 응답 속도 변화로 GPU 사용률 측정</h1>
+    <span class="slide-num">2 / 4</span>
   </div>
 
   <div class="content">
     <div class="two-col wide-left">
-      <!-- 원리 설명 -->
+      <!-- 왼쪽: 원리 + 대시보드 + 구현 -->
       <div style="display:flex;flex-direction:column;gap:18px">
         <h3 class="section-head blue">측정 흐름</h3>
 
-        <!-- Flow Diagram -->
         <div class="flow" style="background:#eff6ff;border-radius:12px;padding:20px">
           <div class="flow-step">
             <div class="flow-icon blue">&#128202;</div>
@@ -372,45 +305,73 @@
           <div class="flow-arrow">&#10145;</div>
           <div class="flow-step">
             <div class="flow-icon red">&#9888;</div>
-            <span class="flow-label">경보 판단</span>
-            <span class="flow-sub">50% 초과 시 알림</span>
+            <span class="flow-label">경보 발송</span>
+            <span class="flow-sub">50% 초과 시 이메일</span>
           </div>
         </div>
 
-        <div class="callout info">
-          <span class="callout-icon">&#128218;</span>
-          <div>
-            <strong>Baseline이란?</strong><br>
-            사내 서비스 특성상 새벽 트래픽이 없으므로, <strong>"최근 30일 중 RPS 하위 5% 시간대의 P95 레이턴시"</strong>를 baseline으로 사용합니다.
-            이는 GPU가 가장 여유로운 상태의 응답 시간으로, 순수 연산 성능을 대표합니다.
-          </div>
-        </div>
-
-        <!-- 게이지 데모 -->
+        <!-- 게이지 -->
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
           <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:12px">대시보드 표시 예시</div>
           <div class="gauge-row">
             <span class="gauge-label">오전 10시 (업무 시작)</span>
-            <div class="gauge-bar"><div class="gauge-fill safe" style="width:35%"></div></div>
-            <span class="gauge-val" style="color:#059669">35%</span>
+            <div class="gauge-bar"><div class="gauge-fill safe" style="width:25%"></div></div>
+            <span class="gauge-val" style="color:#059669">25%</span>
           </div>
           <div class="gauge-row">
             <span class="gauge-label">오후 2시 (평균)</span>
-            <div class="gauge-bar"><div class="gauge-fill warn" style="width:65%"></div></div>
-            <span class="gauge-val" style="color:#eab308">65%</span>
+            <div class="gauge-bar"><div class="gauge-fill warn" style="width:42%"></div></div>
+            <span class="gauge-val" style="color:#eab308">42%</span>
           </div>
           <div class="gauge-row">
             <span class="gauge-label">오후 4시 (피크)</span>
-            <div class="gauge-bar"><div class="gauge-fill danger" style="width:91%"></div></div>
-            <span class="gauge-val" style="color:#dc2626">91%</span>
+            <div class="gauge-bar"><div class="gauge-fill danger" style="width:68%"></div></div>
+            <span class="gauge-val" style="color:#dc2626">68%</span>
           </div>
           <div style="font-size:11px;color:#94a3b8;margin-top:8px;text-align:right">
-            &#9888; 50% 초과 시 "GPU 증설 필요" 자동 알림
+            &#9888; 50% 초과 시 "GPU 증설 필요" 이메일 자동 발송
+          </div>
+        </div>
+
+        <!-- 보고 예시 -->
+        <div class="example-box">
+          <h4>&#128200; 보고 예시</h4>
+          <p>
+            "현재 GPU 인프라는 <strong>평균 42% 사용 중</strong>이며,<br>
+            피크 시간대(오후 4시)에 <strong>최대 68%</strong>까지 올라갑니다.<br>
+            직원이 <strong>500명 추가</strong>되면 상시 포화 상태 진입이 예상되어<br>
+            <strong>GPU 서버 2대 추가</strong>가 필요합니다."
+          </p>
+        </div>
+
+        <!-- 구현 단계 -->
+        <h3 class="section-head blue">구현 단계</h3>
+        <div style="display:flex;flex-direction:column;gap:0">
+          <div class="timeline-item">
+            <div class="timeline-num">1</div>
+            <div class="timeline-content">
+              <h4>선행 수정: 스트리밍 요청 분리 + Baseline 방식 변경</h4>
+              <p>stream=true 제외(latency 부풀림), baseline = 최근 30일 RPS 하위 5% 시간대 P95</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-num">2</div>
+            <div class="timeline-content">
+              <h4>사용률 산출 API + 부족분 역산 로직</h4>
+              <p>현재 P95 / baseline 비율 → 0~100% 사용률 반환, gap_ratio로 GPU N장 부족 산출</p>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-num">3</div>
+            <div class="timeline-content">
+              <h4>대시보드 시각화 + 이메일 경보</h4>
+              <p>게이지 차트 + 시계열 그래프, 50% 초과 시 자동 이메일 알림</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 산출 공식 -->
+      <!-- 오른쪽: 공식 + 요약 -->
       <div style="display:flex;flex-direction:column;gap:16px">
         <h3 class="section-head blue">산출 공식</h3>
 
@@ -441,6 +402,28 @@
           <span class="result">&#8594; 사용률 & 부족 GPU 산출</span>
         </div>
 
+        <!-- 경보 단계 -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px">
+          <div style="font-size:13px;font-weight:700;color:#1e293b;margin-bottom:10px">경보 단계</div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:#f0fdf4;border:2px solid #22c55e">
+              <div style="font-size:16px">&#128994;</div>
+              <div style="font-size:12px;font-weight:700;color:#166534">0~30%</div>
+              <div style="font-size:10px;color:#166534">정상</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:#fefce8;border:2px solid #eab308">
+              <div style="font-size:16px">&#128992;</div>
+              <div style="font-size:12px;font-weight:700;color:#854d0e">30~50%</div>
+              <div style="font-size:10px;color:#854d0e">주의</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:10px;border-radius:8px;background:#fef2f2;border:2px solid #dc2626">
+              <div style="font-size:16px">&#128308;</div>
+              <div style="font-size:12px;font-weight:700;color:#991b1b">50%+</div>
+              <div style="font-size:10px;color:#991b1b">증설 필요</div>
+            </div>
+          </div>
+        </div>
+
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <span class="tag blue">직관적</span>
           <span class="tag blue">포화 전 감지</span>
@@ -452,8 +435,8 @@
   </div>
 
   <div class="refs">
-    <a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank">InferLine: Latency-Aware Provisioning (UC Berkeley, ACM SoCC 2020)</a>
-    <a href="https://arxiv.org/pdf/2501.08090" target="_blank">Chiron: Backpressure 기반 Autoscaling (arXiv 2025)</a>
+    <a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank">InferLine: Latency-Aware Provisioning (UC Berkeley)</a>
+    <a href="https://arxiv.org/pdf/2501.08090" target="_blank">Chiron: Backpressure 기반 Autoscaling</a>
     <a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank">Red Hat: SLI 기반 vLLM Autoscaling 사례</a>
   </div>
 
@@ -461,524 +444,158 @@
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 2: 보고 예시 & 시나리오                                       -->
+<!-- SLIDE 2: 안 2 — 향후 고도화 (vLLM /metrics 기반)                    -->
 <!-- ================================================================ -->
 <div class="slide" id="s2">
-  <div class="topbar">
+  <div class="topbar" style="background:linear-gradient(135deg,#4c1d95,#1e1b4b)">
     <div>
-      <span class="track-badge t1-badge">SCENARIOS</span>
+      <span class="track-badge t2-badge">PHASE 2 — 향후 고도화</span>
     </div>
-    <h1>활용 시나리오 및 보고 예시</h1>
-    <span class="slide-num">3 / 7</span>
+    <h1>안 2. 대기행렬 실측 기반 정밀 산정</h1>
+    <span class="slide-num">3 / 4</span>
   </div>
 
   <div class="content">
-    <div class="two-col">
-      <!-- 시나리오 -->
+    <div class="two-col wide-left">
+      <!-- 왼쪽: 왜 지금은 안 되는지 + 향후 어떻게 -->
       <div style="display:flex;flex-direction:column;gap:18px">
-        <h3 class="section-head blue">주요 활용 시나리오</h3>
+        <h3 class="section-head purple">현재 한계와 향후 전환</h3>
 
-        <div class="card" style="border-left:4px solid #22c55e">
-          <h3><span style="font-size:18px">&#128994;</span> 시나리오 1 — 현황 보고</h3>
-          <p style="font-size:13px;line-height:1.8">
-            <strong>"현재 GPU 인프라는 평균 50% 사용 중이며,<br>
-            피크 시간대(오후 4시)에 최대 91%까지 올라갑니다."</strong><br><br>
-            &#8594; 인프라 현황을 정량적 수치로 보고 가능
-          </p>
+        <!-- 현재 한계 -->
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#991b1b;margin-bottom:12px">&#9888; 현재: 산술 추정의 한계</div>
+          <div style="font-size:13px;color:#7f1d1d;line-height:2">
+            <strong>문제:</strong> vLLM 내부 메트릭에 접근할 수 없는 현재 환경에서는<br>
+            &nbsp;&nbsp;&bull; 동시 요청 수(L) = 로그에서 &lambda; &times; W로 <strong>추정</strong><br>
+            &nbsp;&nbsp;&bull; 순수 GPU 처리 시간(W<sub>0</sub>) = 한산 시간대 latency로 <strong>추정</strong><br>
+            &nbsp;&nbsp;&bull; 대기 시간(W<sub>queue</sub>) = W - W<sub>0</sub>로 <strong>추정</strong><br><br>
+            &#8594; 모든 값이 <strong>추정치의 추정치</strong>이므로, 이론적 정확도가 무색해집니다.<br>
+            &#8594; 같은 추정 데이터라면, 안 1(레이턴시 비율)이 더 직관적이고 결과도 유사합니다.
+          </div>
         </div>
 
-        <div class="card" style="border-left:4px solid #eab308">
-          <h3><span style="font-size:18px">&#128992;</span> 시나리오 2 — 증설 판단</h3>
-          <p style="font-size:13px;line-height:1.8">
-            <strong>"피크 시 91%로 포화 임계점(50%)을 초과합니다.<br>
-            GPU 3장 부족으로 추정되며 증설이 필요합니다."</strong><br><br>
-            &#8594; 구체적 수량 근거로 증설 의사결정 지원
-          </p>
+        <!-- 향후 전환 -->
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px 24px">
+          <div style="font-size:14px;font-weight:700;color:#166534;margin-bottom:12px">&#10003; 향후: vLLM /metrics 개방 시</div>
+          <div style="font-size:13px;color:#14532d;line-height:2">
+            vLLM /metrics 엔드포인트가 개방되면 <strong>실측 데이터</strong>를 직접 읽을 수 있습니다:<br><br>
+            &nbsp;&nbsp;&bull; <code>vllm:num_requests_running</code> &#8594; <strong>실제 동시 처리 중 요청 수</strong><br>
+            &nbsp;&nbsp;&bull; <code>vllm:num_requests_waiting</code> &#8594; <strong>실제 큐 대기 인원 수</strong><br>
+            &nbsp;&nbsp;&bull; <code>vllm:gpu_cache_usage_perc</code> &#8594; <strong>KV cache 사용률</strong><br><br>
+            &#8594; 추정 없이 <strong>실측 기반</strong>으로 "GPU 정확히 N대 부족"을 산출할 수 있습니다.<br>
+            &#8594; 이 시점에서 안 2가 안 1보다 <strong>압도적으로 정확</strong>해집니다.
+          </div>
         </div>
 
-        <div class="card" style="border-left:4px solid #dc2626">
-          <h3><span style="font-size:18px">&#128308;</span> 시나리오 3 — 미래 계획</h3>
-          <p style="font-size:13px;line-height:1.8">
-            <strong>"직원이 500명 추가되면 상시 포화 상태가 되어<br>
-            GPU 서버 2대 추가가 필요합니다."</strong><br><br>
-            &#8594; 사용자 증가에 따른 사전 예산 수립 근거
-          </p>
+        <!-- 비유 -->
+        <div class="callout info" style="background:#f5f3ff;border-color:#7c3aed;color:#5b21b6">
+          <span style="font-size:18px;flex-shrink:0">&#127974;</span>
+          <div>
+            <strong>은행 창구 비유:</strong>
+            은행에 창구가 5개인데 대기줄이 길어져 평균 대기시간이 5분이라면,
+            "창구 2개를 더 열면 대기시간이 1분으로 줄어든다"고 <strong>수학적으로 정확히 계산</strong>할 수 있습니다.
+            vLLM /metrics가 열리면 GPU도 동일한 계산이 가능합니다.
+          </div>
         </div>
       </div>
 
-      <!-- 보고서 예시 -->
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <h3 class="section-head blue">보고서 산출물 예시</h3>
+      <!-- 오른쪽: 공식 + 비교 -->
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <h3 class="section-head purple">향후 적용할 공식</h3>
 
-        <div class="example-box" style="padding:24px">
-          <h4>&#128200; 월간 GPU 용량 보고서</h4>
-          <div style="margin-top:12px;display:flex;flex-direction:column;gap:14px">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff;border-radius:8px;border:1px solid #dbeafe">
-              <span style="font-size:13px;color:#475569">평균 사용률</span>
-              <span style="font-size:22px;font-weight:900;color:#2563eb">52%</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff;border-radius:8px;border:1px solid #dbeafe">
-              <span style="font-size:13px;color:#475569">피크 사용률</span>
-              <span style="font-size:22px;font-weight:900;color:#dc2626">91%</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff;border-radius:8px;border:1px solid #dbeafe">
-              <span style="font-size:13px;color:#475569">부족 GPU (피크 기준)</span>
-              <span style="font-size:22px;font-weight:900;color:#d97706">3장</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff;border-radius:8px;border:1px solid #dbeafe">
-              <span style="font-size:13px;color:#475569">50% 초과 알림 횟수</span>
-              <span style="font-size:22px;font-weight:900;color:#dc2626">12회/월</span>
-            </div>
-          </div>
+        <div class="formula-box">
+          <span class="formula-label">Little's Law</span>
+          <span class="comment">// vLLM /metrics 실측 시</span><br><br>
+          <span class="highlight">L</span> = vllm:num_requests_running<br>
+          <span class="highlight">Q</span> = vllm:num_requests_waiting<br><br>
+          <span class="result">사용률 = L &#247; GPU_capacity</span><br>
+          <span class="result">부족 GPU = Q &#247; (L &#247; GPU수)</span><br><br>
+          <span class="comment">// 추정 아닌 실측 — 정확도 최상</span>
         </div>
 
-        <!-- 경보 단계 -->
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
-          <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:14px">자동 경보 단계</div>
-          <div style="display:flex;gap:12px">
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#f0fdf4;border:2px solid #22c55e">
-              <div style="font-size:22px;margin-bottom:4px">&#128994;</div>
-              <div style="font-size:13px;font-weight:700;color:#166534">0~30%</div>
-              <div style="font-size:11px;color:#166534;margin-top:2px">정상</div>
-            </div>
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fefce8;border:2px solid #eab308">
-              <div style="font-size:22px;margin-bottom:4px">&#128992;</div>
-              <div style="font-size:13px;font-weight:700;color:#854d0e">30~50%</div>
-              <div style="font-size:11px;color:#854d0e;margin-top:2px">주의</div>
-            </div>
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626">
-              <div style="font-size:22px;margin-bottom:4px">&#128308;</div>
-              <div style="font-size:13px;font-weight:700;color:#991b1b">50%+</div>
-              <div style="font-size:11px;color:#991b1b;margin-top:2px">증설 필요</div>
-            </div>
-          </div>
+        <div class="formula-box">
+          <span class="formula-label">Erlang-C 미래 예측</span>
+          <span class="comment">// M/G/c 큐: c개 창구, &rho; = 이용률</span><br><br>
+          future_&lambda; = current &times; (<span class="highlight">미래사용자</span> &#247; 현재)<br>
+          <span class="result">W(&lambda;) = E<sub>C</sub>(c, &rho;) &#247; (c&mu; - &lambda;) + 1/&mu;</span><br><br>
+          <span class="comment">// c를 늘려가며 SLO 달성하는 최소 c 탐색</span><br>
+          <span class="comment">// &#8594; "GPU 정확히 N대 추가하면 목표 응답시간 달성"</span>
         </div>
 
-        <div class="callout success">
-          <span class="callout-icon">&#10003;</span>
-          <div style="font-size:13px">
-            <strong>자동화:</strong> 경보 임계값을 설정해 두면, 사용률이 기준을 넘을 때
-            <strong>이메일 알림</strong>이 자동 발송됩니다.
-          </div>
+        <!-- 안 1 vs 안 2 비교 -->
+        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px">
+          <div style="font-size:13px;font-weight:700;color:#1e293b;margin-bottom:10px">안 1 vs 안 2 비교</div>
+          <table class="bench-table" style="font-size:12px">
+            <thead>
+              <tr>
+                <th style="width:130px"></th>
+                <th style="text-align:center"><span style="color:#2563eb">&#9632;</span> 안 1</th>
+                <th style="text-align:center"><span style="color:#7c3aed">&#9632;</span> 안 2</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="font-weight:600">시기</td>
+                <td style="text-align:center;color:#059669"><strong>즉시</strong></td>
+                <td style="text-align:center;color:#7c3aed">vLLM 개방 후</td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">데이터 소스</td>
+                <td style="text-align:center">request_logs</td>
+                <td style="text-align:center">vLLM /metrics</td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">정확도</td>
+                <td style="text-align:center;color:#eab308">&#9650; 추정 기반</td>
+                <td style="text-align:center;color:#059669"><strong>&#10003; 실측 기반</strong></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">부족분 산출</td>
+                <td style="text-align:center">근사치</td>
+                <td style="text-align:center;color:#059669"><strong>정확한 정수</strong></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">조기 경보</td>
+                <td style="text-align:center;color:#059669">&#10003;</td>
+                <td style="text-align:center;color:#059669">&#10003;</td>
+              </tr>
+              <tr>
+                <td style="font-weight:600">구현 공수</td>
+                <td style="text-align:center"><strong>~2일</strong></td>
+                <td style="text-align:center">~3일</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="tag purple">실측 기반 정확도</span>
+          <span class="tag purple">GPU 정수 산출</span>
+          <span class="tag red">전제: vLLM /metrics 접근 필요</span>
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="refs">
+    <a href="https://arxiv.org/abs/2603.16054" target="_blank">inference-fleet-sim: M/G/c 기반 Fleet Planner (2026)</a>
+    <a href="https://arxiv.org/abs/2407.05347" target="_blank">Queueing Theory for LLM Inference (Variable Token Length)</a>
+    <a href="https://arxiv.org/abs/2304.10892" target="_blank">InfAdapter: SLO-Aware Resource Allocation</a>
   </div>
 
   <div class="nav-bar" id="nav2"></div>
 </div>
 
 <!-- ================================================================ -->
-<!-- SLIDE 3: 구현 계획 & 일정                                          -->
+<!-- SLIDE 3: 참고 자료 + 적용 내용                                      -->
 <!-- ================================================================ -->
 <div class="slide" id="s3">
-  <div class="topbar">
-    <div>
-      <span class="track-badge t1-badge">IMPLEMENTATION</span>
-    </div>
-    <h1>구현 계획</h1>
-    <span class="slide-num">4 / 7</span>
-  </div>
-
-  <div class="content">
-    <div class="two-col">
-      <!-- 선행 작업 + 구현 단계 -->
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <h3 class="section-head blue">선행 수정 사항</h3>
-
-        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:20px 24px">
-          <div style="font-size:14px;font-weight:700;color:#991b1b;margin-bottom:12px">&#128295; 로그 데이터 정비 (선행 필수)</div>
-          <div style="font-size:13px;color:#7f1d1d;line-height:2">
-            <strong>1. Baseline 산출 방식 변경</strong><br>
-            &nbsp;&nbsp;&bull; 현재: 사내 서비스라 새벽 트래픽 = 0 &#8594; baseline 산출 불가<br>
-            &nbsp;&nbsp;&bull; 해결: <strong>"최근 30일 중 RPS 하위 5% 시간대의 P95"</strong>를 baseline으로 사용<br><br>
-            <strong>2. 스트리밍 요청 분리</strong><br>
-            &nbsp;&nbsp;&bull; 현재: stream=true 요청은 latencyMs에 전체 스트림 시간 포함 (10배+ 부풀림)<br>
-            &nbsp;&nbsp;&bull; 해결: <strong>비스트리밍 요청만 집계</strong> (WHERE stream = false)
-          </div>
-        </div>
-
-        <h3 class="section-head blue" style="margin-top:4px">구현 단계</h3>
-
-        <div style="display:flex;flex-direction:column;gap:0">
-          <div class="timeline-item">
-            <div class="timeline-num">1</div>
-            <div class="timeline-content">
-              <h4>Baseline 자동 산출 로직</h4>
-              <p>매일 새벽 크론잡으로 최근 30일 RPS 하위 5% 시간대의 P95 레이턴시를 baseline으로 저장</p>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-num">2</div>
-            <div class="timeline-content">
-              <h4>실시간 사용률 산출 API</h4>
-              <p>현재 P95 대비 baseline 비율을 계산하여 0~100% 사용률 반환하는 API 엔드포인트</p>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-num">3</div>
-            <div class="timeline-content">
-              <h4>부족분 역산 로직</h4>
-              <p>레이턴시 비율 기반 GPU 부족분 산출 (gap_ratio = 1 - baseline/current)</p>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-num">4</div>
-            <div class="timeline-content">
-              <h4>대시보드 시각화</h4>
-              <p>게이지 차트 + 시계열 그래프 + 경보 이력을 관리 대시보드에 추가</p>
-            </div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-num">5</div>
-            <div class="timeline-content">
-              <h4>경보 시스템</h4>
-              <p>사용률 50% 초과 시 자동 이메일 알림 + 월간 보고서 자동 생성</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 오른쪽: 요약 테이블 + 장점 -->
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <h3 class="section-head blue">방안 요약</h3>
-
-        <table class="bench-table">
-          <tbody>
-            <tr>
-              <td style="font-weight:600;width:150px">측정 원리</td>
-              <td>응답 속도(P95 레이턴시) 변화율</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">데이터 소스</td>
-              <td>기존 request_logs (추가 수집 불필요)</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">사용률 측정</td>
-              <td style="color:#059669;font-weight:600">0~100% 연속 측정 가능</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">부족분 산출</td>
-              <td style="color:#059669;font-weight:600">GPU N장 부족 (근사치)</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">미래 예측</td>
-              <td style="color:#059669;font-weight:600">사용자 증가 시 소요 GPU 산출</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">포화 전 조기 경보</td>
-              <td style="color:#059669;font-weight:600">&#10003; 가능 (핵심 강점)</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">GPU 내부 메트릭 필요</td>
-              <td style="color:#059669;font-weight:600">&#10060; 불필요</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">추가 비용</td>
-              <td style="color:#059669;font-weight:600">없음</td>
-            </tr>
-            <tr>
-              <td style="font-weight:600">예상 구현 기간</td>
-              <td style="font-weight:700;color:#2563eb">~2일</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border:1px solid #93c5fd;border-radius:12px;padding:20px 24px">
-          <div style="font-size:14px;font-weight:700;color:#1d4ed8;margin-bottom:12px">&#10003; 핵심 장점</div>
-          <div style="display:flex;flex-direction:column;gap:10px">
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span style="font-size:16px;flex-shrink:0">&#128202;</span>
-              <div style="font-size:13px;color:#1e40af;line-height:1.6">
-                <strong>직관적:</strong> "지금 70% 사용 중" — 비기술 임원도 바로 이해
-              </div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span style="font-size:16px;flex-shrink:0">&#9888;&#65039;</span>
-              <div style="font-size:13px;color:#1e40af;line-height:1.6">
-                <strong>선제적:</strong> 포화 전에 미리 경보 — 장애를 예방
-              </div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span style="font-size:16px;flex-shrink:0">&#128176;</span>
-              <div style="font-size:13px;color:#1e40af;line-height:1.6">
-                <strong>저비용:</strong> 기존 로그 활용, 별도 도구 구매 없음
-              </div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span style="font-size:16px;flex-shrink:0">&#128640;</span>
-              <div style="font-size:13px;color:#1e40af;line-height:1.6">
-                <strong>빠른 구현:</strong> 약 2일이면 대시보드까지 완성
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="callout warn" style="font-size:12px">
-          <span class="callout-icon">&#128204;</span>
-          <div>
-            <strong>유의 사항:</strong> Baseline 설정은 자동화하되,
-            모델 변경(예: GPT-4 &#8594; Claude) 시 baseline 재산출이 필요합니다.
-            모델별로 응답 시간 특성이 다르기 때문입니다.
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="nav-bar" id="nav3"></div>
-</div>
-
-<!-- ================================================================ -->
-<!-- SLIDE 4: 안 3 — 타임아웃 집계 (보조 방안)                           -->
-<!-- ================================================================ -->
-<div class="slide" id="s4">
-  <div class="topbar" style="background:linear-gradient(135deg,#78350f,#92400e)">
-    <div>
-      <span class="track-badge t3-badge">&#9632; 보조 방안</span>
-    </div>
-    <h1>타임아웃 / 에러율 직접 집계</h1>
-    <span class="slide-num">5 / 7</span>
-  </div>
-
-  <div class="content">
-    <div class="two-col wide-left">
-      <!-- 핵심 요약 -->
-      <div style="display:flex;flex-direction:column;gap:18px">
-        <h3 class="section-head orange">핵심 요약</h3>
-        <div class="callout warn">
-          <span class="callout-icon">&#127869;</span>
-          <div>
-            <strong>만석 식당 비유:</strong>
-            식당 좌석 100석에 110명이 오면 10명은 돌아갑니다.
-            <strong>"돌아간 손님 비율 = 좌석 부족분"</strong>.
-            타임아웃된 요청은 GPU가 처리 못 해서 돌려보낸 것이므로, 그 비율이 곧 부족 비율입니다.
-          </div>
-        </div>
-
-        <!-- 비주얼: 요청 성공/실패 -->
-        <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:20px 24px">
-          <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:12px">요청 처리 현황 (예시)</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px" title="성공"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#22c55e;border-radius:3px"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#dc2626;border-radius:3px" title="Timeout"></span>
-            <span style="display:inline-block;width:14px;height:14px;background:#dc2626;border-radius:3px"></span>
-          </div>
-          <div style="display:flex;gap:16px;font-size:12px">
-            <span><span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;margin-right:4px"></span>성공 (90%)</span>
-            <span><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;margin-right:4px"></span>Timeout (10%)</span>
-          </div>
-        </div>
-
-        <!-- 대시보드 표시 예시 -->
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px">
-          <div style="font-size:14px;font-weight:700;color:#1e293b;margin-bottom:14px">대시보드 표시 예시</div>
-          <div style="display:flex;gap:16px;margin-bottom:16px">
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#f0fdf4;border:2px solid #22c55e">
-              <div style="font-size:11px;color:#166534;font-weight:600">Timeout 0%</div>
-              <div style="font-size:22px;font-weight:900;color:#22c55e;margin:4px 0">&#128994;</div>
-              <div style="font-size:10px;color:#166534">여유 있음</div>
-            </div>
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fefce8;border:2px solid #eab308">
-              <div style="font-size:11px;color:#854d0e;font-weight:600">Timeout 1~5%</div>
-              <div style="font-size:22px;font-weight:900;color:#eab308;margin:4px 0">&#128992;</div>
-              <div style="font-size:10px;color:#854d0e">증설 검토</div>
-            </div>
-            <div style="flex:1;text-align:center;padding:14px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626">
-              <div style="font-size:11px;color:#991b1b;font-weight:600">Timeout 5%+</div>
-              <div style="font-size:22px;font-weight:900;color:#dc2626;margin:4px 0">&#128308;</div>
-              <div style="font-size:10px;color:#991b1b">즉시 증설</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="example-box orange">
-          <h4>&#128200; 보고 예시</h4>
-          <p>
-            "현재 AI 요청 중 <strong>3.2%가 시간 초과</strong>로 실패 (&#128992; 주의).<br>
-            GPU <strong>0.3대분</strong> 부족. 직원 2배 시 <strong>&#128308; 즉시 증설</strong> 단계 진입."
-          </p>
-          <div class="big-result">&#128992; 주의 | 0.3대 부족</div>
-        </div>
-      </div>
-
-      <!-- 기술 상세 -->
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <h3 class="section-head orange">기술 상세</h3>
-
-        <div class="formula-box">
-          <span class="formula-label">Timeout Rate 산출</span>
-          <span class="comment">// request_logs 에서 직접 집계</span><br>
-          <span class="comment">// &#9888; 현재 timeout은 503으로 기록됨 (선행 수정 후 504)</span><br><br>
-          timeout_count = COUNT(<br>
-          &nbsp;&nbsp;status = <span class="highlight">504</span><br>
-          &nbsp;&nbsp;<span class="comment">// 429(rate limit)는 제외 — 정책 제한이지 GPU 포화 아님</span><br>
-          )<br>
-          total_count = COUNT(*)<br><br>
-          <span class="result">timeout_rate = timeout_count &#247; total_count</span>
-        </div>
-
-        <div class="formula-box">
-          <span class="formula-label">부족분 공식</span>
-          <span class="comment">// timeout된 요청 = GPU가 처리 못한 분량</span><br><br>
-          <span class="result">부족 GPU = 보유GPU &times; t &#247; (1 - t)</span><br><br>
-          <span class="comment">// 예: GPU 10장, timeout 10%</span><br>
-          = 10 &times; 0.1 &#247; 0.9 = <span class="result">1.1장 부족</span>
-        </div>
-
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <span class="tag orange">장점: 10분이면 구현</span>
-          <span class="tag orange">장점: 거짓말 없음</span>
-          <span class="tag red">단점: 여유분 측정 불가</span>
-          <span class="tag red">단점: 포화 전 조기 경보 없음</span>
-        </div>
-
-        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-top:4px">
-          <div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px">&#128295; 구현 시 선행 수정</div>
-          <div style="font-size:12px;color:#7f1d1d;line-height:1.8">
-            <strong>1. Timeout status code 분리 (코드 1줄)</strong><br>
-            &nbsp;&nbsp;현재: timeout도 <code>statusCode: 503</code>으로 기록 &#8594; 진짜 서버 다운과 구분 불가<br>
-            &nbsp;&nbsp;수정: timeout 시 <code>statusCode: 504</code>로 변경<br>
-            <strong>2. Rate Limit(429) 제외</strong><br>
-            &nbsp;&nbsp;429는 정책적 제한이지 GPU 부족이 아님 &#8594; timeout 집계에서 반드시 제외
-          </div>
-        </div>
-
-        <div class="callout warn" style="font-size:12px;padding:10px 14px">
-          <span class="callout-icon">&#9888;</span>
-          <div>
-            <strong>안 3의 한계:</strong> &#128994; Timeout 0%일 때는 "여유가 얼마나 있는지" 알 수 없습니다.
-            포화 <strong>전</strong>의 정확한 % 측정은 안 1이 필요합니다.
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="nav-bar" id="nav4"></div>
-</div>
-
-<!-- ================================================================ -->
-<!-- SLIDE 5: 안 1 vs 안 3 비교                                        -->
-<!-- ================================================================ -->
-<div class="slide" id="s5">
-  <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
-    <div>
-      <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">COMPARISON</span>
-    </div>
-    <h1>안 1 vs 안 3 비교</h1>
-    <span class="slide-num">6 / 7</span>
-  </div>
-
-  <div class="content">
-    <table class="bench-table">
-      <thead>
-        <tr>
-          <th style="width:200px">비교 항목</th>
-          <th style="text-align:center;background:#eff6ff"><span style="color:#2563eb">&#9632;</span> 안 1: 응답 속도 곡선 (주 방안)</th>
-          <th style="text-align:center;background:#fffbeb"><span style="color:#d97706">&#9632;</span> 안 3: Timeout 집계 (보조 방안)</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td style="font-weight:600">핵심 시그널</td>
-          <td style="text-align:center">P95 레이턴시 변화율</td>
-          <td style="text-align:center">504 (timeout) 비율</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">사용률 측정</td>
-          <td style="text-align:center;color:#059669"><strong>&#10003;</strong> 0~100% 연속</td>
-          <td style="text-align:center;color:#dc2626">&#9650; 100% 초과분만</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">부족분 (GPU N대)</td>
-          <td style="text-align:center;color:#059669">&#10003; 근사치</td>
-          <td style="text-align:center;color:#059669">&#10003; 초과분 정확</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">미래 예측 (N명 시)</td>
-          <td style="text-align:center;color:#059669"><strong>&#10003; RPS 외삽</strong></td>
-          <td style="text-align:center;color:#eab308">&#9650; 선형 비례만</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">포화 전 조기 경보</td>
-          <td style="text-align:center;color:#059669"><strong>&#10003; 핵심 강점</strong></td>
-          <td style="text-align:center;color:#dc2626">&#10060; 불가</td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">구현 공수</td>
-          <td style="text-align:center"><strong style="color:#059669">~2일</strong></td>
-          <td style="text-align:center"><strong style="color:#059669">~0.5일</strong></td>
-        </tr>
-        <tr>
-          <td style="font-weight:600">GPU 메트릭 필요?</td>
-          <td style="text-align:center;color:#059669">&#10060; 불필요</td>
-          <td style="text-align:center;color:#059669">&#10060; 불필요</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <!-- 역할 분담 -->
-    <div class="two-col">
-      <div class="card" style="border-color:#2563eb;border-width:2px">
-        <h3 style="color:#2563eb">&#9632; 안 1 — 주 방안</h3>
-        <p style="font-size:13px;line-height:1.7">
-          <strong style="color:#059669">역할:</strong> 실시간 사용률 모니터링 + 포화 전 조기 경보 + 미래 예측<br>
-          <strong>&#10003;</strong> "지금 45%니까 아직 여유 있지만, 사용자 2배 되면 위험"<br>
-          <strong>&#10003;</strong> 50% 초과 시 이메일 경보 자동 발송
-        </p>
-      </div>
-      <div class="card" style="border-color:#d97706;border-width:2px">
-        <h3 style="color:#d97706">&#9632; 안 3 — 보조 방안</h3>
-        <p style="font-size:13px;line-height:1.7">
-          <strong style="color:#059669">역할:</strong> 안 1의 사용률 수치를 실제 장애 데이터로 교차 검증<br>
-          <strong>&#10003;</strong> "안 1이 50%라고 하는데 timeout은 0% — 아직 실제 문제 없음"<br>
-          <strong>&#10003;</strong> timeout 발생 시 반박 불가한 팩트로 증설 근거 보강
-        </p>
-      </div>
-    </div>
-
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);border-radius:12px;padding:18px 28px;display:flex;align-items:center;gap:24px;color:#fff">
-      <div style="font-size:28px">&#128161;</div>
-      <div style="flex:1;font-size:13px;color:#94a3b8;line-height:1.7">
-        <strong style="color:#fff">운영 전략:</strong>
-        <strong style="color:#60a5fa">안 1</strong>로 실시간 사용률을 모니터링하고 50% 초과 시 조기 경보를 발송하며,
-        <strong style="color:#fbbf24">안 3</strong>의 timeout 비율로 실제 장애 수준을 교차 검증합니다.
-        두 방안을 병행하면 "예측 + 팩트" 양쪽을 커버할 수 있습니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="nav-bar" id="nav5"></div>
-</div>
-
-<!-- ================================================================ -->
-<!-- SLIDE 6: 참고 자료                                                -->
-<!-- ================================================================ -->
-<div class="slide" id="s6">
   <div class="topbar" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
     <div>
       <span class="track-badge" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3)">REFERENCES</span>
     </div>
-    <h1>참고 자료</h1>
-    <span class="slide-num">7 / 7</span>
+    <h1>참고 자료 및 적용 내용</h1>
+    <span class="slide-num">4 / 4</span>
   </div>
 
   <div class="content" style="gap:20px">
@@ -988,90 +605,90 @@
         <h3 class="section-head" style="border-color:#2563eb">학술 논문 / 기술 보고서</h3>
         <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:45%">InferLine: Latency-Aware Provisioning and Scaling for Prediction Serving Pipelines</td>
-            <td style="padding:8px 6px;color:#64748b;width:18%">UC Berkeley, ACM SoCC 2020</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> P95 레이턴시 기반 사용률 산출 공식, baseline 대비 현재 레이턴시 비율로 포화도를 측정하는 방법론 차용</td>
-            <td style="padding:8px 6px"><a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:40%">InferLine: Latency-Aware Provisioning</td>
+            <td style="padding:8px 6px;color:#64748b;width:15%">UC Berkeley 2020</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> P95 레이턴시 baseline 대비 비율로 포화도 측정하는 방법론 차용</td>
+            <td style="padding:8px 6px"><a href="https://dl.acm.org/doi/10.1145/3419111.3421285" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Chiron: Hierarchical Autoscaling for LLM Inference Serving</td>
-            <td style="padding:8px 6px;color:#64748b">arXiv 2501.08090 (2025)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> Backpressure(응답 지연) 신호를 GPU 포화 경보로 변환하는 접근법, 임계점 초과 시 자동 경보 로직 설계에 참고</td>
-            <td style="padding:8px 6px"><a href="https://arxiv.org/pdf/2501.08090" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Chiron: Hierarchical Autoscaling for LLM Inference</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2025</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> Backpressure(응답 지연) → 포화 경보 변환 접근법, 임계점 경보 로직 설계 참고</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/pdf/2501.08090" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b">inference-fleet-sim: Queueing-Theory-Grounded Fleet Capacity Planner</td>
-            <td style="padding:8px 6px;color:#64748b">arXiv 2603.16054 (2026)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> "GPU 몇 대 부족" 정수 산출 공식의 이론적 근거, 부족분 역산(gap_ratio) 공식 설계 시 참고</td>
-            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2603.16054" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">inference-fleet-sim: Queueing-Theory Fleet Planner</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2026</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 2:</strong> M/G/c 큐 기반 "GPU N대 부족" 정수 산출 공식의 이론적 근거</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2603.16054" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b">A Queueing Theoretic Perspective on Low-Latency LLM Inference</td>
-            <td style="padding:8px 6px;color:#64748b">arXiv 2407.05347 (2024)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> 토큰 길이 변동에 따른 레이턴시 분포 특성 — 비스트리밍만 집계하는 선행 수정 근거</td>
-            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2407.05347" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Queueing Theoretic Perspective on LLM Inference</td>
+            <td style="padding:8px 6px;color:#64748b">arXiv 2024</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> 토큰 길이 변동에 따른 레이턴시 특성 — 비스트리밍만 집계하는 선행 수정 근거</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2407.05347" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">InfAdapter: SLO-Aware Resource Allocation</td>
             <td style="padding:8px 6px;color:#64748b">EuroMLSys 2023</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> SLO(Service Level Objective) 기반 경보 임계점 설정 방법론, 50% 포화 임계점 운영 정책 설계에 참고</td>
-            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2304.10892" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">논문 &#8599;</a></td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 2:</strong> SLO 기반 경보 임계점 설정 방법론, Erlang-C 미래 예측 모델 설계 참고</td>
+            <td style="padding:8px 6px"><a href="https://arxiv.org/abs/2304.10892" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr>
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Benchmarking: Fundamental Concepts</td>
-            <td style="padding:8px 6px;color:#64748b">NVIDIA Technical Blog</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS, P95 등 LLM 추론 핵심 메트릭 정의 — 용어 및 측정 단위 표준화에 활용</td>
-            <td style="padding:8px 6px"><a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">블로그 &#8599;</a></td>
+            <td style="padding:8px 6px;color:#64748b">NVIDIA Blog</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS, P95 등 핵심 메트릭 정의 — 용어 및 측정 단위 표준화에 활용</td>
+            <td style="padding:8px 6px"><a href="https://developer.nvidia.com/blog/llm-benchmarking-fundamental-concepts/" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
         </table>
       </div>
 
       <!-- 기사 / 사례 -->
       <div>
-        <h3 class="section-head" style="border-color:#d97706">산업 기사 / 프로덕션 사례</h3>
+        <h3 class="section-head" style="border-color:#7c3aed">산업 기사 / 프로덕션 사례</h3>
         <table style="font-size:12px;border-collapse:collapse;width:100%;margin-top:10px">
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:45%">Autoscaling vLLM with OpenShift AI: KEDA + SLI 기반 GPU Autoscaling 실사례</td>
-            <td style="padding:8px 6px;color:#64748b;width:18%">Red Hat (2025)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 3 적용:</strong> SLI(E2E latency, timeout rate) 기반 스케일링 실사례 — timeout 비율을 증설 판단 지표로 사용하는 운영 패턴 차용</td>
-            <td style="padding:8px 6px"><a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b;width:40%">Autoscaling vLLM with OpenShift AI (KEDA + SLI)</td>
+            <td style="padding:8px 6px;color:#64748b;width:15%">Red Hat 2025</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> E2E latency SLI 기반 스케일링 실사례 — 레이턴시 임계점 경보 운영 패턴 차용</td>
+            <td style="padding:8px 6px"><a href="https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Sizing and Performance Guidance</td>
-            <td style="padding:8px 6px;color:#64748b">VMware (2024)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 당 동시 처리량 벤치마크 데이터 — 부족분 역산 시 GPU 1장 = 처리량 N의 기준값 설정에 참고</td>
-            <td style="padding:8px 6px"><a href="https://blogs.vmware.com/cloud-foundation/2024/09/25/llm-inference-sizing-and-performance-guidance/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+            <td style="padding:8px 6px;color:#64748b">VMware 2024</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 당 동시 처리량 벤치마크 — 부족분 역산 시 GPU 1장 = 처리량 N 기준값 참고</td>
+            <td style="padding:8px 6px"><a href="https://blogs.vmware.com/cloud-foundation/2024/09/25/llm-inference-sizing-and-performance-guidance/" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">LLM Inference Performance Engineering: Best Practices</td>
-            <td style="padding:8px 6px;color:#64748b">Databricks (2025)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> P95/P99 레이턴시 모니터링 Best Practice — baseline 산출 시 P95를 사용하는 근거</td>
-            <td style="padding:8px 6px"><a href="https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+            <td style="padding:8px 6px;color:#64748b">Databricks 2025</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> P95/P99 레이턴시 모니터링 Best Practice — baseline에 P95 사용 근거</td>
+            <td style="padding:8px 6px"><a href="https://www.databricks.com/blog/llm-inference-performance-engineering-best-practices" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
             <td style="padding:8px 6px;font-weight:600;color:#1e293b">Key Metrics for LLM Inference</td>
-            <td style="padding:8px 6px;color:#64748b">BentoML Inference Handbook</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS, 처리량 등 메트릭 간 상관관계 정리 — 대시보드 표시 지표 선정 시 참고</td>
-            <td style="padding:8px 6px"><a href="https://bentoml.com/llm/inference-optimization/llm-inference-metrics" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+            <td style="padding:8px 6px;color:#64748b">BentoML</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> TTFT, TPS 등 메트릭 간 상관관계 — 대시보드 표시 지표 선정 참고</td>
+            <td style="padding:8px 6px"><a href="https://bentoml.com/llm/inference-optimization/llm-inference-metrics" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Observability for LLM Inference: Monitoring Latency, Tokens/sec, and Cost</td>
-            <td style="padding:8px 6px;color:#64748b">dasroot.net (2026)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1 적용:</strong> 레이턴시 시계열 모니터링 + 경보 시스템 구성 사례 — 대시보드 시각화 및 경보 로직 설계에 참고</td>
-            <td style="padding:8px 6px"><a href="https://dasroot.net/posts/2026/03/llm-inference-observability-latency-tokens-cost/" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">기사 &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Observability for LLM Inference</td>
+            <td style="padding:8px 6px;color:#64748b">dasroot.net 2026</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>안 1:</strong> 레이턴시 시계열 모니터링 + 경보 시스템 구성 사례 — 대시보드 설계 참고</td>
+            <td style="padding:8px 6px"><a href="https://dasroot.net/posts/2026/03/llm-inference-observability-latency-tokens-cost/" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
           <tr>
-            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Lenovo LLM Sizing Guide: GPU Capacity Planning Framework</td>
-            <td style="padding:8px 6px;color:#64748b">Lenovo Press (2024)</td>
-            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 용량 산정 프레임워크 전체 구조 — "사용률 → 부족분 → 미래 예측" 3단계 보고 체계 설계에 참고</td>
-            <td style="padding:8px 6px"><a href="https://lenovopress.lenovo.com/lp2130.pdf" target="_blank" style="color:#d97706;text-decoration:none;font-size:11px">PDF &#8599;</a></td>
+            <td style="padding:8px 6px;font-weight:600;color:#1e293b">Lenovo LLM Sizing Guide</td>
+            <td style="padding:8px 6px;color:#64748b">Lenovo 2024</td>
+            <td style="padding:8px 6px;color:#475569;font-size:11px;line-height:1.5">&#8594; <strong>공통:</strong> GPU 용량 산정 프레임워크 — "사용률→부족분→예측" 3단계 보고 체계 설계 참고</td>
+            <td style="padding:8px 6px"><a href="https://lenovopress.lenovo.com/lp2130.pdf" target="_blank" style="color:#7c3aed;text-decoration:none;font-size:11px">&#8599;</a></td>
           </tr>
         </table>
       </div>
     </div>
   </div>
 
-  <div class="nav-bar" id="nav6"></div>
+  <div class="nav-bar" id="nav3"></div>
 </div>
 
 </div><!-- /deck -->
@@ -1083,8 +700,7 @@
   const TOTAL = slides.length;
   let cur = 0;
 
-  // Build nav bars
-  document.querySelectorAll('.nav-bar').forEach((bar, idx) => {
+  document.querySelectorAll('.nav-bar').forEach(bar => {
     const prevBtn = document.createElement('button');
     prevBtn.className = 'nav-btn';
     prevBtn.innerHTML = '&#8592; 이전';
@@ -1121,7 +737,7 @@
       dots.forEach((d, i) => {
         d.className = 'nav-dot';
         if (i === cur) {
-          if (cur === 4) d.classList.add('orange-active');
+          if (cur === 2) d.classList.add('purple-active');
           else d.classList.add('active');
         }
       });
