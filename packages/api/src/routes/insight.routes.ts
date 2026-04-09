@@ -569,12 +569,11 @@ async function handleUsageRateDetail(req: Request, res: Response) {
         `
       : [];
 
-    // group×service별 avgDau 합산
-    const tsAvgDauKey = (group: string, serviceId: string) => `${group}::${serviceId}`;
+    // deptname×service별 avgDau (행 단위와 동일한 granularity)
+    const tsAvgDauKey = (deptname: string, serviceId: string) => `${deptname}::${serviceId}`;
     const tsDailyMap = new Map<string, Map<string, number>>();
     for (const r of teamServiceDailyDauRows) {
-      const group = deptGroupMap.get(r.deptname) || r.deptname;
-      const key = tsAvgDauKey(group, r.service_id);
+      const key = tsAvgDauKey(r.deptname, r.service_id);
       const dateStr = typeof r.d === 'string' ? r.d : (r.d as Date).toISOString().slice(0, 10);
       if (!tsDailyMap.has(key)) tsDailyMap.set(key, new Map<string, number>());
       const daily = tsDailyMap.get(key)!;
@@ -601,7 +600,7 @@ async function handleUsageRateDetail(req: Request, res: Response) {
           serviceType: svc.type || 'STANDARD',
           savedMM: mmEntry?.value ?? null,
           savedMMSource: mmEntry ? (mmEntry.isAiEstimate ? 'ai_estimate' : 'manual') : null,
-          avgDau: Math.round((tsAvgDauMap.get(tsAvgDauKey(group, r.service_id)) || 0) * 100) / 100,
+          avgDau: Math.round((tsAvgDauMap.get(tsAvgDauKey(r.deptname, r.service_id)) || 0) * 100) / 100,
           mau: Number(r.mau),
           llmCallCount: Number(r.llm_call_count),
         };
