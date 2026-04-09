@@ -552,18 +552,56 @@ async function handleUsageRateDetail(req: Request, res: Response) {
       { value: e.savedMM ?? e.aiEstimatedMM, isAiEstimate: e.savedMM == null && e.aiEstimatedMM != null },
     ]));
 
+    // teamServices용 avgDau: deptname × service_id 별 일일 DAU
+    const teamServiceDailyDauRows = svcIds.length > 0
+      ? await prisma.$queryRaw<Array<{ deptname: string; service_id: string; d: Date | string; dau: bigint }>>`
+          SELECT u.deptname, ul.service_id::text as service_id, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+          FROM usage_logs ul
+          INNER JOIN users u ON ul.user_id = u.id
+          WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+            AND u.loginid != 'anonymous' AND u.is_test_account = false
+            AND ul.service_id IS NOT NULL
+            AND u.deptname = ANY(${deptnames})
+            AND ul.service_id::text = ANY(${svcIds})
+            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+          GROUP BY u.deptname, ul.service_id, DATE(ul.timestamp)
+        `
+      : [];
+
+    // group×service별 avgDau 합산
+    const tsAvgDauKey = (group: string, serviceId: string) => `${group}::${serviceId}`;
+    const tsDailyMap = new Map<string, Map<string, number>>();
+    for (const r of teamServiceDailyDauRows) {
+      const group = deptGroupMap.get(r.deptname) || r.deptname;
+      const key = tsAvgDauKey(group, r.service_id);
+      const dateStr = typeof r.d === 'string' ? r.d : (r.d as Date).toISOString().slice(0, 10);
+      if (!tsDailyMap.has(key)) tsDailyMap.set(key, new Map<string, number>());
+      const daily = tsDailyMap.get(key)!;
+      daily.set(dateStr, (daily.get(dateStr) || 0) + Number(r.dau));
+    }
+    const tsAvgDauMap = new Map<string, number>();
+    for (const [key, daily] of tsDailyMap.entries()) {
+      const avg = daily.size > 0
+        ? Array.from(daily.values()).reduce((sum, v) => sum + v, 0) / daily.size
+        : 0;
+      tsAvgDauMap.set(key, avg);
+    }
+
     // Unknown 서비스 제외: svcMap에 존재하는 것만 포함
     const teamServices = teamServiceRows
       .filter(r => svcMap.has(r.service_id))
       .map(r => {
         const svc = svcMap.get(r.service_id)!;
+        const group = deptGroupMap.get(r.deptname) || r.deptname;
         const mmEntry = savedMMMap.get(savedMMKey(r.service_id, r.deptname));
         return {
-          team: deptGroupMap.get(r.deptname) || r.deptname,
+          team: group,
           serviceDisplayName: svc.displayName,
           serviceType: svc.type || 'STANDARD',
           savedMM: mmEntry?.value ?? null,
           savedMMSource: mmEntry ? (mmEntry.isAiEstimate ? 'ai_estimate' : 'manual') : null,
+          avgDau: Math.round((tsAvgDauMap.get(tsAvgDauKey(group, r.service_id)) || 0) * 100) / 100,
           mau: Number(r.mau),
           llmCallCount: Number(r.llm_call_count),
         };

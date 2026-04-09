@@ -46,6 +46,7 @@ interface TeamService {
   serviceType: string;
   savedMM: number | null;
   savedMMSource?: 'manual' | 'ai_estimate' | null;
+  avgDau: number;
   mau: number;
   llmCallCount: number;
 }
@@ -413,6 +414,7 @@ export default function InsightUsageRate() {
                         <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('insightUsageRate.colService')}</th>
                         <th className="text-left py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">{t('insightUsageRate.colType')}</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">Saved M/M</th>
+                        <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">Avg DAU</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">MAU</th>
                         <th className="text-right py-3 px-4 font-semibold text-pastel-600 text-xs uppercase tracking-wide">LLM Calls</th>
                       </tr>
@@ -420,7 +422,7 @@ export default function InsightUsageRate() {
                     <tbody>
                       {detail.teamServices.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-pastel-400 text-sm">{t('insightUsageRate.noDetailData')}</td>
+                          <td colSpan={7} className="py-12 text-center text-pastel-400 text-sm">{t('insightUsageRate.noDetailData')}</td>
                         </tr>
                       ) : (
                         detail.teamServices.map((ts, idx) => (
@@ -446,6 +448,7 @@ export default function InsightUsageRate() {
                                 </span>
                               ) : '-'}
                             </td>
+                            <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{ts.avgDau}</td>
                             <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.mau)}</td>
                             <td className="text-right py-3 px-4 text-pastel-700 tabular-nums">{formatNumber(ts.llmCallCount)}</td>
                           </tr>
