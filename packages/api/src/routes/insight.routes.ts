@@ -218,37 +218,61 @@ async function handleUsageRate(req: Request, res: Response) {
       });
     }
 
-    // 센터별 정확한 avgDau 계산을 위해 일자×부서 DAU를 먼저 집계
+    // 센터별 정확한 avgDau 계산을 위해 일자×부서 DAU를 먼저 집계 (당월 / 전월)
     const centerDeptnames = Array.from(allDeptnames).filter(Boolean);
-    const centerDailyDauRows = centerDeptnames.length > 0
-      ? await prisma.$queryRaw<Array<{ deptname: string; d: Date | string; dau: bigint }>>`
-          SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
-          FROM usage_logs ul
-          INNER JOIN users u ON ul.user_id = u.id
-          WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
-            AND u.loginid != 'anonymous' AND u.is_test_account = false
-            AND ul.service_id IS NOT NULL
-            AND u.deptname = ANY(${centerDeptnames})
-            AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
-            AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
-          GROUP BY u.deptname, DATE(ul.timestamp)
-        `
-      : [];
+    const mergeDailyDauIntoCenterMap = (
+      rows: Array<{ deptname: string; d: Date | string; dau: bigint }>,
+      into: Map<string, Map<string, number>>,
+    ) => {
+      for (const row of rows) {
+        const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
+        const centerName = (() => {
+          const h = deptHierarchyMap.get(row.deptname);
+          const overseasCenter = overseasMap.get(row.deptname);
+          if (overseasCenter) return 'Overseas R&D Center';
+          if (h) return resolveDomesticCenter(h);
+          return '';
+        })();
+        if (!centerName) continue;
+        if (!into.has(centerName)) into.set(centerName, new Map<string, number>());
+        const daily = into.get(centerName)!;
+        daily.set(dateStr, (daily.get(dateStr) || 0) + Number(row.dau));
+      }
+    };
+
+    const [centerDailyDauRows, prevCenterDailyDauRows] = centerDeptnames.length > 0
+      ? await Promise.all([
+          prisma.$queryRaw<Array<{ deptname: string; d: Date | string; dau: bigint }>>`
+            SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${targetStart} AND ul.timestamp < ${effectiveEnd}
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
+              AND ul.service_id IS NOT NULL
+              AND u.deptname = ANY(${centerDeptnames})
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY u.deptname, DATE(ul.timestamp)
+          `,
+          prisma.$queryRaw<Array<{ deptname: string; d: Date | string; dau: bigint }>>`
+            SELECT u.deptname, DATE(ul.timestamp) as d, COUNT(DISTINCT ul.user_id) as dau
+            FROM usage_logs ul
+            INNER JOIN users u ON ul.user_id = u.id
+            WHERE ul.timestamp >= ${prevMonthStart} AND ul.timestamp < ${prevMonthEnd}
+              AND u.loginid != 'anonymous' AND u.is_test_account = false
+              AND ul.service_id IS NOT NULL
+              AND u.deptname = ANY(${centerDeptnames})
+              AND EXTRACT(DOW FROM ul.timestamp) NOT IN (0, 6)
+              AND NOT EXISTS (SELECT 1 FROM holidays h WHERE h.date = DATE(ul.timestamp))
+            GROUP BY u.deptname, DATE(ul.timestamp)
+          `,
+        ])
+      : [[], []];
+
     const centerDailyMap = new Map<string, Map<string, number>>();
-    for (const row of centerDailyDauRows) {
-      const dateStr = typeof row.d === 'string' ? row.d : (row.d as Date).toISOString().slice(0, 10);
-      const centerName = (() => {
-        const h = deptHierarchyMap.get(row.deptname);
-        const overseasCenter = overseasMap.get(row.deptname);
-        if (overseasCenter) return 'Overseas R&D Center';
-        if (h) return resolveDomesticCenter(h);
-        return '';
-      })();
-      if (!centerName) continue;
-      if (!centerDailyMap.has(centerName)) centerDailyMap.set(centerName, new Map<string, number>());
-      const daily = centerDailyMap.get(centerName)!;
-      daily.set(dateStr, (daily.get(dateStr) || 0) + Number(row.dau));
-    }
+    const prevCenterDailyMap = new Map<string, Map<string, number>>();
+    mergeDailyDauIntoCenterMap(centerDailyDauRows, centerDailyMap);
+    mergeDailyDauIntoCenterMap(prevCenterDailyDauRows, prevCenterDailyMap);
 
     // 6. Aggregate per center
     const centers = Array.from(centerGroups.entries()).map(([name, group]) => {
@@ -257,6 +281,10 @@ async function handleUsageRate(req: Request, res: Response) {
       const totalAvgDau = centerDaily && centerDaily.size > 0
         ? Array.from(centerDaily.values()).reduce((sum, v) => sum + v, 0) / centerDaily.size
         : 0;
+      const prevCenterDaily = prevCenterDailyMap.get(name);
+      const prevAvgDau = prevCenterDaily && prevCenterDaily.size > 0
+        ? Array.from(prevCenterDaily.values()).reduce((sum, v) => sum + v, 0) / prevCenterDaily.size
+        : 0;
       const totalSavedMM = group.teams.reduce((sum, t) => sum + t.savedMM, 0);
 
       // mauChangePercent: compare with previous month
@@ -264,6 +292,11 @@ async function handleUsageRate(req: Request, res: Response) {
       const mauChangePercent = prevMau > 0
         ? Math.round(((totalMau - prevMau) / prevMau) * 10000) / 100
         : totalMau > 0 ? 100 : 0;
+
+      // dauChangePercent: 전월 대비 avgDau(영업일 평균) 변화율
+      const dauChangePercent = prevAvgDau > 0
+        ? Math.round(((totalAvgDau - prevAvgDau) / prevAvgDau) * 10000) / 100
+        : totalAvgDau > 0 ? 100 : 0;
 
       // Overseas R&D Center → 해외센터(DSC/DSRA/DSRJ/SSIR) 수로 카운트
       let teamCount = group.teams.length;
@@ -284,6 +317,7 @@ async function handleUsageRate(req: Request, res: Response) {
         totalMau,
         avgDau: Math.round(totalAvgDau * 100) / 100,
         mauChangePercent,
+        dauChangePercent,
         totalSavedMM: Math.round(totalSavedMM * 100) / 100,
         savedMMSource: allManual ? 'manual' : someManual ? 'mixed' : 'ai_estimate',
         teamCount,

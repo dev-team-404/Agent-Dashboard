@@ -27,7 +27,9 @@ const CHART_COLORS = [
 interface Center {
   name: string;
   totalMau: number;
+  avgDau?: number;
   mauChangePercent: number;
+  dauChangePercent?: number;
   totalSavedMM: number;
   savedMMSource?: 'manual' | 'mixed' | 'ai_estimate';
   teamCount: number;
@@ -209,6 +211,8 @@ export default function InsightUsageRate() {
           const colorScheme = CARD_COLORS[idx % CARD_COLORS.length];
           const isSelected = selectedCenter === center.name;
           const trendPositive = center.mauChangePercent >= 0;
+          const dauPct = center.dauChangePercent ?? 0;
+          const dauTrendPositive = dauPct >= 0;
 
           return (
             <button
@@ -218,13 +222,29 @@ export default function InsightUsageRate() {
                 isSelected ? 'ring-2 ring-indigo-400 shadow-lg' : ''
               }`}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between gap-2 mb-3">
                 <h3 className={`text-lg font-bold ${colorScheme.accent}`}>{center.name}</h3>
-                <div className={`flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-                  trendPositive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {trendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                  {Math.abs(center.mauChangePercent).toFixed(1)}%
+                <div className="flex flex-wrap items-center justify-end gap-1 shrink-0">
+                  <div
+                    title={t('insightUsageRate.mauChangeHint')}
+                    className={`flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                      trendPositive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    <span className="opacity-75 font-semibold">MAU</span>
+                    {trendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {Math.abs(center.mauChangePercent).toFixed(1)}%
+                  </div>
+                  <div
+                    title={t('insightUsageRate.dauChangeHint')}
+                    className={`flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                      dauTrendPositive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    <span className="opacity-75 font-semibold">DAU</span>
+                    {dauTrendPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {Math.abs(dauPct).toFixed(1)}%
+                  </div>
                 </div>
               </div>
 

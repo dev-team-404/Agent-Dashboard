@@ -39,12 +39,13 @@ const timelineDates = [
   '2026.04.01',
   '2026.04.01',
   '2026.04.02',
+  '2026.04.09',
 ];
 
 // ── 기능 그룹 키/스타일 메타 (번역 불필요 부분) ──
 const featureGroupMeta = [
   { key: 'serviceManagement', icon: Server, color: 'from-blue-500 to-blue-600', bg: 'bg-blue-50', border: 'border-blue-100', count: 7 },
-  { key: 'monitoringAnalysis', icon: BarChart3, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', count: 18 },
+  { key: 'monitoringAnalysis', icon: BarChart3, color: 'from-emerald-500 to-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', count: 19 },
   { key: 'aiFunctions', icon: Brain, color: 'from-violet-500 to-violet-600', bg: 'bg-violet-50', border: 'border-violet-100', count: 6 },
   { key: 'securityGovernance', icon: Shield, color: 'from-amber-500 to-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', count: 8 },
   { key: 'infraDevOps', icon: Server, color: 'from-cyan-500 to-cyan-600', bg: 'bg-cyan-50', border: 'border-cyan-100', count: 6 },

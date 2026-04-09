@@ -1647,7 +1647,9 @@
     "noDetailData": "No detail data available",
     "cannotLoadDetail": "Unable to load detail data",
     "mauPersonUnit": "{{count}} users",
-    "andMore": "and {{count}} more"
+    "andMore": "and {{count}} more",
+    "mauChangeHint": "Month-over-month MAU change (%)",
+    "dauChangeHint": "Month-over-month business-day average DAU change (%)"
   },
   "insightServiceUsage": {
     "title": "Service Usage Insight",
@@ -2630,7 +2632,8 @@
           "14": "LLM heatmap precompute (6 queries once → all-model slicing) + Batch API (N calls → 1)",
           "15": "Page Visibility polling pause + updatedAt comparison re-render prevention",
           "16": "Auto-merge identical models (endpoint+name, CTE SQL) + per-service aliasName group charts",
-          "17": "GPU monitoring guidebook (interactive slides)"
+          "17": "GPU monitoring guidebook (interactive slides)",
+          "18": "AI usage insight — center-level business-day avg DAU month-over-month (dauChangePercent) in API and dashboard"
         }
       },
       "aiFunctions": {
@@ -2814,6 +2817,11 @@
         "title": "Full i18n Support — Korean/English Across All Pages",
         "desc": "Built multi-language infrastructure using react-i18next. 42 translation sections with 2,462 translation keys covering all 47 files (31 pages + 16 components) with complete Korean/English support. Real-time language switching via sidebar toggle with localStorage persistence. Tour guides, chart components, and AI assistant chatbot all fully translated.",
         "tags": "i18n,react-i18next,Multilingual,English,Language Switcher"
+      },
+      "29": {
+        "title": "Insight API — Center avg DAU month-over-month",
+        "desc": "Added dauChangePercent on each center in GET /stats/insight_ai_usage_rate. Compares previous vs current calendar month using the same avgDau definition (sum of per-day center DAU divided by business days), with the same edge-case rules as mauChangePercent. Swagger updated; AI usage insight cards show a DAU change badge.",
+        "tags": "Insight,avgDau,MoM,Public API"
       }
     },
     "team": {

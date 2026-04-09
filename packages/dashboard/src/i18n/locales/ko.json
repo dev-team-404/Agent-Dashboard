@@ -1647,7 +1647,9 @@
     "noDetailData": "상세 데이터가 없습니다",
     "cannotLoadDetail": "상세 데이터를 불러올 수 없습니다",
     "mauPersonUnit": "{{count}}명",
-    "andMore": "외 {{count}}"
+    "andMore": "외 {{count}}",
+    "mauChangeHint": "MAU 전월 대비 증감률(%)",
+    "dauChangeHint": "영업일 평균 DAU 전월 대비 증감률(%)"
   },
   "insightServiceUsage": {
     "title": "서비스 사용량 인사이트",
@@ -2630,7 +2632,8 @@
           "14": "LLM 히트맵 선계산 (6쿼리 1회 → 전 모델 슬라이싱) + Batch API (N호출→1회)",
           "15": "Page Visibility 폴링 중단 + updatedAt 비교 리렌더 방지",
           "16": "동일 모델 자동 합산 (endpoint+name 기준, CTE SQL) + 서비스별 aliasName 그룹 차트",
-          "17": "GPU 모니터링 가이드북 (인터랙티브 슬라이드)"
+          "17": "GPU 모니터링 가이드북 (인터랙티브 슬라이드)",
+          "18": "AI 사용률 인사이트 — 센터별 영업일 평균 DAU 전월 대비 증감률(dauChangePercent) API·대시보드"
         }
       },
       "aiFunctions": {
@@ -2814,6 +2817,11 @@
         "title": "다국어(i18n) 지원 — 한국어/영어 전체 적용",
         "desc": "react-i18next 기반 다국어 인프라 구축. 42개 번역 섹션, 2,462개 번역 키로 전체 47개 파일(31개 페이지 + 16개 컴포넌트)에 한국어/영어 완전 적용. 사이드바 하단 언어 스위처로 실시간 전환, localStorage 자동 저장. 투어 가이드, 차트 컴포넌트, AI 도우미 챗봇까지 빠짐없이 번역.",
         "tags": "i18n,react-i18next,다국어,영어,언어 스위처"
+      },
+      "29": {
+        "title": "인사이트 API — 센터별 평균 DAU 전월比",
+        "desc": "GET /stats/insight_ai_usage_rate 센터 객체에 dauChangePercent 추가. 전월·당월 동일 방식(일별 센터 DAU 합산 후 영업일 수로 나눈 avgDau)을 비교해 MAU 변화율(mauChangePercent)과 동일한 규칙으로 증감률(%) 산출. Swagger 및 AI 사용률 대시보드 카드에 DAU 배지 반영.",
+        "tags": "인사이트,avgDau,전월比,공개 API"
       }
     },
     "team": {

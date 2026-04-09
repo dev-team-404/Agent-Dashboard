@@ -459,6 +459,7 @@ export const swaggerSpec = {
                           totalMau: { type: 'integer' as const, description: 'Total MAU across all teams in this center (last month)' },
                           avgDau: { type: 'number' as const, description: 'Business-day average DAU across teams in this center (주말/휴일 제외 평균 DAU)' },
                           mauChangePercent: { type: 'number' as const, description: '% change vs previous month' },
+                          dauChangePercent: { type: 'number' as const, description: '% change in avgDau vs previous calendar month (전월 대비 avgDau 변화율)' },
                           totalSavedMM: { type: 'number' as const, description: 'Total Saved M/M across all teams' },
                           teamCount: { type: 'integer' as const, description: 'Number of teams in this center' },
                         },
@@ -469,10 +470,10 @@ export const swaggerSpec = {
                 example: {
                   month: '2026-02',
                   centers: [
-                    { name: 'SOC Business Team', totalMau: 320, avgDau: 41.2, mauChangePercent: 8.3, totalSavedMM: 15.2, teamCount: 5 },
-                    { name: 'LSI Business Team', totalMau: 210, avgDau: 26.5, mauChangePercent: -2.1, totalSavedMM: 10.8, teamCount: 4 },
-                    { name: 'Overseas R&D Center', totalMau: 95, avgDau: 12.1, mauChangePercent: 15.0, totalSavedMM: 3.5, teamCount: 8 },
-                    { name: 'Direct', totalMau: 45, avgDau: 6.3, mauChangePercent: 0, totalSavedMM: 1.2, teamCount: 3 },
+                    { name: 'SOC Business Team', totalMau: 320, avgDau: 41.2, mauChangePercent: 8.3, dauChangePercent: 5.2, totalSavedMM: 15.2, teamCount: 5 },
+                    { name: 'LSI Business Team', totalMau: 210, avgDau: 26.5, mauChangePercent: -2.1, dauChangePercent: -1.0, totalSavedMM: 10.8, teamCount: 4 },
+                    { name: 'Overseas R&D Center', totalMau: 95, avgDau: 12.1, mauChangePercent: 15.0, dauChangePercent: 3.4, totalSavedMM: 3.5, teamCount: 8 },
+                    { name: 'Direct', totalMau: 45, avgDau: 6.3, mauChangePercent: 0, dauChangePercent: 0, totalSavedMM: 1.2, teamCount: 3 },
                   ],
                 },
               },
