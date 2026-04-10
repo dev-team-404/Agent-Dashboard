@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { api, serviceApi } from '../services/api';
 import OrgTreeSelector from '../components/OrgTreeSelector';
+import { useOrgCodeResolver } from '../hooks/useOrgCodeResolver';
 import ServiceGuide from '../components/Tour/ServiceGuide';
 import { BookOpen } from 'lucide-react';
 
@@ -162,6 +163,7 @@ function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClo
 export default function MyServices({ user, adminRole }: MyServicesProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { summarizeScope } = useOrgCodeResolver();
   const isSystemAdmin = adminRole === 'SUPER_ADMIN' || adminRole === 'ADMIN';
   const SERVICE_CATEGORIES = SERVICE_CATEGORY_KEYS.map(k => t(`myServices.${k}`));
   const [services, setServices] = useState<Service[]>([]);
@@ -592,17 +594,20 @@ export default function MyServices({ user, adminRole }: MyServicesProps) {
                           {isDev ? t('myServices.developing') : t('myServices.deployed')}
                         </span>
                         {/* Deploy scope badge */}
-                        {!isDev && service.deployScope && (
-                          <span className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                            service.deployScope === 'ALL'
-                              ? 'bg-blue-50 text-blue-600'
-                              : 'bg-purple-50 text-purple-700'
-                          }`}>
-                            {service.deployScope === 'ALL'
-                              ? t('myServices.publicScope')
-                              : t('myServices.deptScopeCount', { count: (service.deployScopeValue || []).length })}
+                        {!isDev && service.deployScope === 'ALL' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-600">
+                            {t('myServices.publicScope')}
                           </span>
                         )}
+                        {!isDev && service.deployScope && service.deployScope !== 'ALL' &&
+                          summarizeScope(service.deployScopeValue || []).map((item, idx) => (
+                            <span key={idx} className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                              item.isAll ? 'bg-purple-50 text-purple-700' : 'bg-green-50 text-green-700'
+                            }`}>
+                              {item.label}
+                            </span>
+                          ))
+                        }
                       </div>
                       <code className="text-xs text-gray-400 font-mono">{service.name}</code>
                       {/* Relationship badges (for system admins) */}

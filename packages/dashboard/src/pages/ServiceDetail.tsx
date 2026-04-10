@@ -224,7 +224,7 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
   const { t } = useTranslation();
   const { serviceId } = useParams<{ serviceId: string }>();
   const navigate = useNavigate();
-  const { resolveAll } = useOrgCodeResolver();
+  const { summarizeScope } = useOrgCodeResolver();
   const [service, setService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
@@ -374,12 +374,18 @@ export default function ServiceDetail({ user, adminRole }: ServiceDetailProps) {
                 <span>{service.registeredByDept}</span>
                 <span>{formatDate(service.createdAt)}</span>
                 {service.deployScope && (
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5 flex-wrap">
                     {service.deployScope === 'ALL' ? <Globe className="w-3 h-3" /> :
                      service.deployScope === 'BUSINESS_UNIT' ? <Building2 className="w-3 h-3" /> :
                      <Lock className="w-3 h-3" />}
-                    {service.deployScope}
-                    {service.deployScopeValue?.length ? ` · ${resolveAll(service.deployScopeValue).join(', ')}` : ''}
+                    {service.deployScope === 'ALL'
+                      ? t('serviceDetail.hero.publicScope', { defaultValue: '전체 공개' })
+                      : summarizeScope(service.deployScopeValue || []).map((item, idx) => (
+                          <span key={idx} className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-white/10">
+                            {item.label}
+                          </span>
+                        ))
+                    }
                   </span>
                 )}
               </div>
