@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, AlertCircle, Server, Cpu, User, Building2, Calendar, Layers, ArrowUpDown, Users, Zap, Coins, Ticket, ExternalLink, FileText, MessageSquareWarning } from 'lucide-react';
 import { serviceApi } from '../services/api';
-import { useOrgCodeResolver } from '../hooks/useOrgCodeResolver';
 
 interface MarketService {
   id: string;
@@ -59,7 +58,6 @@ function SkeletonCard() {
 
 export default function ServiceMarket() {
   const { t } = useTranslation();
-  const { summarizeScope } = useOrgCodeResolver();
   const [services, setServices] = useState<MarketService[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -215,15 +213,16 @@ export default function ServiceMarket() {
                             {t('serviceMarket.publicScope')}
                           </span>
                         )}
-                        {(service.deployScope === 'BUSINESS_UNIT' || service.deployScope === 'TEAM') &&
-                          summarizeScope(service.deployScopeValue || []).map((item, idx) => (
-                            <span key={idx} className={`flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                              item.isAll ? 'bg-purple-50 text-purple-700' : 'bg-green-50 text-green-700'
-                            }`}>
-                              {item.label}
-                            </span>
-                          ))
-                        }
+                        {service.deployScope === 'BUSINESS_UNIT' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700">
+                            {t('serviceMarket.buScope', { value: (service.deployScopeValue || []).join(', ') || '' })}
+                          </span>
+                        )}
+                        {service.deployScope === 'TEAM' && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
+                            {t('serviceMarket.teamScope', { value: (service.deployScopeValue || []).join(', ') || '' })}
+                          </span>
+                        )}
                       </div>
                       <code className="text-xs text-gray-400 font-mono">{service.name}</code>
                     </div>
