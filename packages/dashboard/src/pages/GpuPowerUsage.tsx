@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap, TrendingUp, Calendar, Plus, Loader2 } from 'lucide-react';
+import { Zap, TrendingUp, Calendar, Plus, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuPowerApi } from '../services/api';
 import {
@@ -96,6 +96,12 @@ export default function GpuPowerUsage() {
     ...d,
     tsLabel: formatTs(d.timestamp),
   }));
+
+  const PAGE_SIZE = 10;
+  const [tablePage, setTablePage] = useState(0);
+  const reversedData = useMemo(() => [...data].reverse(), [data]);
+  const totalPages = Math.max(1, Math.ceil(reversedData.length / PAGE_SIZE));
+  const pagedData = reversedData.slice(tablePage * PAGE_SIZE, (tablePage + 1) * PAGE_SIZE);
 
   if (loading) return <LoadingSpinner />;
 
@@ -252,7 +258,7 @@ export default function GpuPowerUsage() {
                 </tr>
               </thead>
               <tbody>
-                {[...data].reverse().map((row) => (
+                {pagedData.map((row) => (
                   <tr key={row.timestamp} className="border-t border-gray-50 hover:bg-gray-50/50">
                     <td className="px-6 py-3 text-gray-700 font-medium">{formatTsFull(row.timestamp)}</td>
                     <td className="px-6 py-3 text-right text-gray-900 font-semibold">{row.power_avg_usage_ratio}%</td>
@@ -275,6 +281,29 @@ export default function GpuPowerUsage() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100">
+              <span className="text-xs text-gray-500">
+                {t('gpuPowerUsage.dataCount', { count: reversedData.length })} · {tablePage + 1} / {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setTablePage(p => Math.max(0, p - 1))}
+                  disabled={tablePage === 0}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4 text-gray-600" />
+                </button>
+                <button
+                  onClick={() => setTablePage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={tablePage >= totalPages - 1}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
