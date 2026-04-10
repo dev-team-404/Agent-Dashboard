@@ -143,7 +143,6 @@ export default function AdminRequestsManage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-pastel-800">{r.username || r.loginid}</span>
                         <span className="text-xs text-pastel-400 font-mono">{r.loginid}</span>
-                        {r.titleName && <span className="text-xs text-pastel-400">| {r.titleName}</span>}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-pastel-500 mt-0.5">
                         <span>{r.deptname}</span>
