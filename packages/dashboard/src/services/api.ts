@@ -477,7 +477,6 @@ export const gpuCapacityApi = {
 // GPU Power Usage API
 export const gpuPowerApi = {
   list: () => api.get<{ data: Array<{ timestamp: string; power_avg_usage_ratio: number }> }>('/gpu-power'),
-  save: (data: { timestamp: string; power_avg_usage_ratio: number }) => api.post('/gpu-power', data),
 };
 
 // 테스트 계정 관리 API (서비스별)

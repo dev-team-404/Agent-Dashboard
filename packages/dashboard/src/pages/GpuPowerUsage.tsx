@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap, TrendingUp, Calendar, Plus, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Zap, TrendingUp, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { gpuPowerApi } from '../services/api';
 import {
@@ -30,15 +30,6 @@ export default function GpuPowerUsage() {
   const { t } = useTranslation();
   const [data, setData] = useState<GpuRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [formDatetime, setFormDatetime] = useState(() => {
-    const now = new Date();
-    now.setMinutes(0, 0, 0);
-    return now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM for datetime-local
-  });
-  const [formRatio, setFormRatio] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   const loadData = async () => {
     try {
@@ -66,31 +57,6 @@ export default function GpuPowerUsage() {
       count: data.length,
     };
   }, [data]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-
-    const ratio = parseFloat(formRatio);
-    if (isNaN(ratio) || ratio < 0 || ratio > 100) {
-      setError(t('gpuPowerUsage.validationError'));
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const ts = new Date(formDatetime).toISOString();
-      await gpuPowerApi.save({ timestamp: ts, power_avg_usage_ratio: ratio });
-      setSuccess(t('gpuPowerUsage.saveSuccess', { time: formatTsFull(ts) }));
-      setFormRatio('');
-      await loadData();
-    } catch {
-      setError(t('gpuPowerUsage.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const chartData = data.map(d => ({
     ...d,
@@ -196,50 +162,6 @@ export default function GpuPowerUsage() {
             </LineChart>
           </ResponsiveContainer>
         )}
-      </div>
-
-      {/* Input Form */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          {t('gpuPowerUsage.dataInput')}
-        </h3>
-        <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t('gpuPowerUsage.timeInputLabel')}</label>
-            <input
-              type="datetime-local"
-              value={formDatetime}
-              onChange={e => setFormDatetime(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t('gpuPowerUsage.avgPowerUsageLabel')}</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="100"
-              value={formRatio}
-              onChange={e => setFormRatio(e.target.value)}
-              placeholder={t('gpuPowerUsage.examplePlaceholder')}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {t('gpuPowerUsage.save')}
-          </button>
-        </form>
-        {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
-        {success && <p className="text-green-600 text-xs mt-2">{success}</p>}
       </div>
 
       {/* Data Table */}
